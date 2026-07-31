@@ -1,0 +1,20 @@
+{
+  "name": "@mygame/server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Authoritative world simulation and WebSocket server. Owns all game state.",
+  "scripts": {
+    "dev": "node --watch --disable-warning=ExperimentalWarning src/index.ts",
+    "start": "node --disable-warning=ExperimentalWarning src/index.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@mygame/shared": "*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13"
+  }
+}

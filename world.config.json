@@ -1,0 +1,12 @@
+{
+  "$comment": "Which zones the server runs. This is the pluggable bit: add a zone id here, restart, and it is in the game. Ids are the MUD's own zone numbers - see data/world/index.json for all 327.",
+  "zones": [36, 168, 260, 261],
+  "$zoneComment": "36 IceCrag Castle and 168 Kobold Settlement are Duris-matched, so they carry real sector types, room flags and prose from the .wld harvest - 216 of IceCrag's 219 rooms have descriptions and 41 are genuinely dark. 260 The Stag Forest and 261 The Stump Bog are NOT matched (3 of 98 and 0 of 93 rooms), so their terrain is inferred - word and suffix rules plus graph diffusion since Phase 5c - and they have no prose; they stay loaded because they are the only adjacent pair with cross-zone exits, which is what travel between zones is tested against.",
+  "$spawnComment": "Room 281 'A Wide Path Through a Patch of Trees' is IceCrag's own entryRoom, on level 0 - the outdoor approach, so you walk up to the castle rather than starting inside it. The one safe room in the loaded world is Grumbiter's Inn (room 41238, zone 168 level 5); sanctuary is inns only, by design, and nothing upstream marks temples.",
+  "spawn": {
+    "zone": 36,
+    "room": 281
+  },
+  "$populateComment": "Which zones spawn their inhabitants - roadmap Phase 8. Worldgen harvests population for all 49 Duris-matched zones into data/world/spawns/, but a zone only fills if it is listed here, and the reason is art rather than data: LPC's base bodies are humanoids only. Kobold Settlement (168) is deliberately absent - Duris tags its kobolds with a humanoid race code, so they would all render as men, and its cows and chickens have no body at all. It switches on the day there is creature art, which is a change to this line and nothing else.",
+  "populate": [36]
+}

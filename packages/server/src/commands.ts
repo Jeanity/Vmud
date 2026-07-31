@@ -1,0 +1,332 @@
+/**
+ * The command table, the parser, and target resolution.
+ *
+ * ## Why the *server* parses the text
+ *
+ * The client sends the line the player typed, not a command it resolved itself. That is still an
+ * intent — "I want to open east", never "the door is now open" — and it has to be this way round for
+ * three reasons that are all the same reason:
+ *
+ * - **Which command `sa` means is a game rule.** Abbreviation is resolved by table order (below), so
+ *   two clients that each held a copy would eventually disagree, and the disagreement would show up
+ *   as one player's muscle memory silently doing something else.
+ * - **Target resolution is gated on visibility**, which only the server knows. A client resolving
+ *   `orc` to an entity id is either guessing or reading something it was never told.
+ * - **The pre-dispatch gauntlet is server business.** Position legality, and later the stealth
+ *   allowlist, sit at the one point every command passes through — see `dispatch` in `index.ts`.
+ *
+ * Everything here is pure: no sockets, no simulation, no world. The handlers live in `index.ts`
+ * because they need all three, and the split is the same one `act.ts` makes.
+ */
+
+import { DIRECTIONS, type Direction, type Requirement } from '@mygame/shared';
+
+/* -------------------------------------------------------------------------- */
+/* The table                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Every command, **in priority order**.
+ *
+ * The order is the entire mechanism, and it is not alphabetical, not grouped by theme, and not
+ * arbitrary. A typed word is matched exact-first and then by leftmost prefix, and **the first row
+ * that matches wins** — so `n` is north because north is above every other `n` word, `e` is east
+ * rather than exits, `s` is south rather than say, and `w` is west rather than who. Every Diku
+ * descendant behaves this way and every player of one has it in their fingers.
+ *
+ * Sorting this list, or replacing the scan with a hash map, breaks all of that **invisibly**: every
+ * command still works when typed in full, and every abbreviation quietly means something else. The
+ * relative order of the commands we share with Duris is its own (`interp.c`, `const char *command[]`);
+ * ours are appended rather than interleaved, so the inherited part stays comparable.
+ */
+export const COMMANDS = [
+  'north',
+  'east',
+  'south',
+  'west',
+  'up',
+  'down',
+  'exits',
+  'kill',
+  'look',
+  'say',
+  'help',
+  'who',
+  'stand',
+  'sit',
+  'rest',
+  'sleep',
+  'wake',
+  'kneel',
+  // Below here are ours. Duris has open/close far down its own table; nothing we ship abbreviates
+  // into them, so appending keeps the inherited prefixes above untouched.
+  'open',
+  'close',
+  'stop',
+  // Duris has no `affects` command — it prints the same list inside `score`, which we do not have
+  // because the HUD is the score sheet. Appended rather than placed at `score`'s slot for the usual
+  // reason: nothing above starts with `a`, so `a` becomes `affects` and not one existing abbreviation
+  // moves.
+  'affects',
+  // Appended, and the position is load-bearing: table order is the abbreviation tie-break, so putting
+  // `loot` *after* `look` leaves `l` and `lo` meaning look — which is what a Diku player's fingers
+  // expect — and `loo` is the shortest thing that reaches this. Placing it above `look` would silently
+  // rebind the most-used command in the game.
+  'loot',
+] as const;
+
+export type Command = (typeof COMMANDS)[number];
+
+/**
+ * Resolves a typed word to a command: exact match first, then leftmost prefix, table order winning.
+ *
+ * Two full passes rather than one, and the order of the passes matters. A single prefix pass would
+ * let a longer command sitting higher in the table swallow a shorter one below it — type the shorter
+ * command's full name and get the other. Duris does the same two passes for the same reason
+ * (`old_search_block`, mode 2).
+ *
+ * An empty word matches nothing. Duris' own helper treats a zero-length argument as "already found"
+ * and returns the first row, which would make a bare Enter walk you north.
+ */
+export function lookupCommand(word: string): Command | undefined {
+  const key = word.trim().toLowerCase();
+  if (!key) return undefined;
+  for (const name of COMMANDS) if (name === key) return name;
+  for (const name of COMMANDS) if (name.startsWith(key)) return name;
+  return undefined;
+}
+
+/** Splits a typed line into its first word and everything after it, both trimmed. */
+export function splitCommand(line: string): { readonly word: string; readonly rest: string } {
+  const trimmed = line.trim();
+  const space = trimmed.search(/\s/);
+  if (space === -1) return { word: trimmed, rest: '' };
+  return { word: trimmed.slice(0, space), rest: trimmed.slice(space + 1).trim() };
+}
+
+/** The six directions, as commands. Movement is the only command family that is also a direction. */
+const DIRECTION_COMMANDS = new Set<string>(DIRECTIONS);
+
+export function directionOf(command: Command): Direction | undefined {
+  return DIRECTION_COMMANDS.has(command) ? (command as Direction) : undefined;
+}
+
+/* -------------------------------------------------------------------------- */
+/* What each command needs of the body                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The minimum posture and status each command requires, transcribed from the real command table.
+ *
+ * Every row here is `interp.c`'s own, read off the `CMD_Y`/`CMD_N` registration rather than guessed —
+ * for example `CMD_Y(CMD_WAKE, STAT_SLEEPING + POS_PRONE, ...)` and
+ * `CMD_Y(CMD_HIT, STAT_NORMAL + POS_STANDING, ...)`. The interesting ones are worth reading:
+ *
+ * - **`help` and `who` require `dead`** — the floor of the status ladder, so they always work. You can
+ *   read the help while your corpse is cooling, which is exactly right for anything that is interface
+ *   rather than action.
+ * - **`wake` requires `sleeping`** — it is the *only* command a sleeper can issue, and the reason
+ *   `sleep` is not a trap.
+ * - **`exits`, `open` and `close` need to be sitting up.** Reaching a door handle from the floor is
+ *   the kind of small physical honesty that makes posture feel like a body rather than a stat.
+ * - **`look` and `say` need only `prone`.** Lying on the floor you can still see and still talk, which
+ *   is what makes the dying window playable rather than a blackout.
+ *
+ * Movement is the one divergence: Duris asks `STAT_NORMAL + POS_PRONE`, and we ask for standing. See
+ * `Simulation.canMove` for why — Duris had no continuous movement to make a seated glide look absurd.
+ */
+export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
+  // `inCombat: false` is `CMD_N` in `interp.c`. Absent means allowed. See `DESIGN-engagement.md` §6, from
+  // which every one of these rows is transcribed rather than chosen — and note the four that are more
+  // interesting than the rule they state: posture yes but status no, `open` yes but `close` no, and `who`
+  // refused though it works while dead.
+  north: { status: 'normal', posture: 'standing', inCombat: false },
+  east: { status: 'normal', posture: 'standing', inCombat: false },
+  south: { status: 'normal', posture: 'standing', inCombat: false },
+  west: { status: 'normal', posture: 'standing', inCombat: false },
+  up: { status: 'normal', posture: 'standing', inCombat: false },
+  down: { status: 'normal', posture: 'standing', inCombat: false },
+
+  exits: { status: 'resting', posture: 'sitting' },
+  kill: { status: 'normal', posture: 'standing' },
+  look: { status: 'resting', posture: 'prone' },
+  say: { status: 'resting', posture: 'prone' },
+  help: { status: 'dead', posture: 'prone' },
+  // Refused mid-fight though it is pure interface and works while *dead*. The source's judgement is that a
+  // global out-of-world scan is not a thing you do mid-swing; followed rather than argued with.
+  who: { status: 'dead', posture: 'prone', inCombat: false },
+
+  // Posture yes, status no: you can be knocked about and get back up, but you cannot opt out of
+  // consciousness mid-fight.
+  stand: { status: 'resting', posture: 'prone' },
+  sit: { status: 'resting', posture: 'prone' },
+  rest: { status: 'resting', posture: 'prone', inCombat: false },
+  sleep: { status: 'sleeping', posture: 'prone', inCombat: false },
+  wake: { status: 'sleeping', posture: 'prone' },
+  kneel: { status: 'resting', posture: 'prone' },
+
+  // You may flee through a door. You may not slam it behind you.
+  open: { status: 'resting', posture: 'sitting' },
+  close: { status: 'resting', posture: 'sitting', inCombat: false },
+  // Ours: cancelling a walk you are no longer taking should never be refused.
+  stop: { status: 'dead', posture: 'prone' },
+  // Interface rather than action, so it sits at the floor with `help` and `who`. Reading what is
+  // wrong with you is exactly what you want to be able to do while it is killing you.
+  affects: { status: 'dead', posture: 'prone' },
+  // Rifling a corpse needs hands and a fight you are not in the middle of. `CMD_N` by analogy with the
+  // source's `get`, which is refused in combat for the obvious reason.
+  loot: { status: 'resting', posture: 'sitting', inCombat: false },
+};
+
+/* -------------------------------------------------------------------------- */
+/* Target resolution                                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A reference to something in the world: which keyword, and which one of them.
+ *
+ * `2.orc` is the second thing matching "orc". A bare `orc` is the first.
+ */
+export interface TargetRef {
+  readonly keyword: string;
+  /** 1-based. */
+  readonly ordinal: number;
+}
+
+/**
+ * Parses `2.orc` into an ordinal and a keyword — Duris' `get_number`.
+ *
+ * Three cases worth stating, because two of them are deliberate refusals rather than fallbacks:
+ *
+ * - No dot: ordinal 1.
+ * - Digits before the dot: that ordinal, and the rest is the keyword.
+ * - **Anything else before the dot**: `undefined`, meaning *nothing can match*. `get_number` returns
+ *   0 here and every caller treats 0 as "no match" rather than as "try 1". So `foo.orc` and `.orc`
+ *   find nothing, which is right: they are typos, and silently searching for `orc` instead would
+ *   have the player attack whatever happened to be first.
+ *
+ * An ordinal of 0 is refused for the same reason — there is no zeroth orc.
+ */
+export function parseTargetRef(argument: string): TargetRef | undefined {
+  const arg = argument.trim();
+  if (!arg) return undefined;
+
+  const dot = arg.indexOf('.');
+  if (dot === -1) return { keyword: arg.toLowerCase(), ordinal: 1 };
+
+  const prefix = arg.slice(0, dot);
+  const keyword = arg.slice(dot + 1).trim().toLowerCase();
+  if (!keyword) return undefined;
+  if (!/^\d+$/.test(prefix)) return undefined;
+
+  const ordinal = Number(prefix);
+  if (ordinal < 1) return undefined;
+  return { keyword, ordinal };
+}
+
+/**
+ * Whether `keyword` matches one of the space-separated names in `namelist` — Duris' `isname`.
+ *
+ * **Whole word, no abbreviation, case-insensitive.** This is the rule that surprises people, and it
+ * is the right one: commands abbreviate freely, *content keywords do not*. `kill or` does not find an
+ * orc, because if it did then every ambiguous fragment a player typed in a hurry would resolve to
+ * something, and the something would be whatever the room happened to list first.
+ */
+export function isName(keyword: string, namelist: readonly string[]): boolean {
+  const key = keyword.trim().toLowerCase();
+  if (!key) return false;
+  return namelist.some((name) => name.toLowerCase() === key);
+}
+
+/**
+ * Picks the `ordinal`th candidate whose keywords match, or nothing.
+ *
+ * `candidates` must already be in the order the game means to search. Duris fixes that order in
+ * `generic_find` — characters in the room, then inventory, then equipment, then objects in the room —
+ * and the ordering is a gameplay decision rather than an implementation detail: it is what makes
+ * `wear ring` take yours rather than the one lying on the floor. Ours is the same idea with the
+ * lists we actually have; the caller composes it, so the rule stays in one readable place at the
+ * call site rather than being buried here.
+ */
+export function findTarget<T>(
+  ref: TargetRef,
+  candidates: readonly T[],
+  keywordsOf: (candidate: T) => readonly string[],
+): T | undefined {
+  let seen = 0;
+  for (const candidate of candidates) {
+    if (!isName(ref.keyword, keywordsOf(candidate))) continue;
+    if (++seen === ref.ordinal) return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * The words a thing answers to, derived from its display name.
+ *
+ * A stopgap with a known end date. Real MUD content carries an **authored** keyword list — "sword
+ * long steel" — which is what lets a longsword answer to `sword` without answering to `steel`
+ * accidentally, and it is the field `isname` is written against. We have no authored lists because we
+ * have no authored items yet, so this splits the display name and drops the article and the noise
+ * words, which gets `a pitch-soaked torch` answering to both `torch` and `pitch-soaked`.
+ *
+ * When items become real (roadmap Phase 15) this is replaced by the field, not extended.
+ */
+const NOISE_WORDS = new Set(['a', 'an', 'the', 'of', 'some', 'and']);
+
+export function keywordsFromName(name: string): string[] {
+  return name
+    .toLowerCase()
+    .split(/[\s,]+/)
+    .map((word) => word.replace(/^[^\w-]+|[^\w-]+$/g, ''))
+    .filter((word) => word.length > 0 && !NOISE_WORDS.has(word));
+}
+
+/* -------------------------------------------------------------------------- */
+/* Flood control                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How many commands a connection may run in a burst, and how fast the allowance refills.
+ *
+ * Duris dequeues **one command per 250 ms pulse** per descriptor, which is both a fairness rule and
+ * the reason you cannot macro-spam a MUD. We are not building that here: a real input queue belongs
+ * with the event scheduler in roadmap Phase 5, and half of one — a queue with no scheduler to drain
+ * it — is worse than none. This is the other half of what the pulse buys, the flood guard, at the
+ * same sustained rate.
+ *
+ * The bucket is generous on the burst and strict on the average, because those are two different
+ * questions: a player who types three commands quickly is playing, and one who sends sixty a second
+ * is not a player. The server is unauthenticated, so this is a real defence rather than a nicety.
+ */
+export const COMMAND_BURST = 6;
+export const COMMAND_REFILL_MS = 250;
+
+export interface CommandBudget {
+  tokens: number;
+  lastRefillMs: number;
+}
+
+export function newCommandBudget(nowMs: number): CommandBudget {
+  return { tokens: COMMAND_BURST, lastRefillMs: nowMs };
+}
+
+/**
+ * Spends one command from the budget, refilling it first. Answers whether the command may run.
+ *
+ * Time is passed in rather than read here so this stays pure and testable: a rate limiter tested
+ * against the wall clock is a test that is slow when it passes and flaky when it fails.
+ */
+export function spendCommand(budget: CommandBudget, nowMs: number): boolean {
+  const elapsed = Math.max(0, nowMs - budget.lastRefillMs);
+  const refilled = Math.floor(elapsed / COMMAND_REFILL_MS);
+  if (refilled > 0) {
+    budget.tokens = Math.min(COMMAND_BURST, budget.tokens + refilled);
+    // Advance by whole tokens only, so the remainder carries and a stream of sub-interval commands
+    // cannot refill forever by resetting the clock each time.
+    budget.lastRefillMs += refilled * COMMAND_REFILL_MS;
+  }
+  if (budget.tokens <= 0) return false;
+  budget.tokens--;
+  return true;
+}

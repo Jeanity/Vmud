@@ -1,0 +1,423 @@
+/**
+ * The hunt: which exit it takes, what turns it back, and when it gives up.
+ *
+ * Read the flag tests first — `REFERENCE-mud-mechanics.md` §4.11 is a list of ways to build a mob that
+ * looks configured and is inert, and three of its four warnings are about exactly this branch. A HUNTER
+ * without MEMORY that chases anyway, or a SENTINEL treated as immobile, would both pass a naive test suite
+ * and be wrong in opposite directions.
+ *
+ * The rest is the room graph. The tick is driven by hand, so a chase that takes seconds in the game takes
+ * none here and every boundary is exact.
+ */
+
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+
+import {
+  ROOM_TILES,
+  TILE_SIZE,
+  boundsOf,
+  huntRule,
+  makeRng,
+  noPursuit,
+  passiveRule,
+  readCombatStats,
+  pursues,
+  type MobTemplate,
+  type PursuitRule,
+  type Room,
+  type RoomFlag,
+  type Zone,
+} from '@mygame/shared';
+
+import { advanceHunts, beginHunt, firstStepToward, forgetQuarry, type Hunt } from './hunt.ts';
+import { Simulation, type Mob, type Player } from './sim.ts';
+import { GameWorld } from './world.ts';
+
+/* -------------------------------------------------------------------------- */
+/* Fixtures                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A corridor of five rooms west to east, plus a side room off the middle one.
+ *
+ * ```
+ *   9000 - 9001 - 9002 - 9003 - 9004
+ *                   |
+ *                 9005
+ * ```
+ *
+ * The side room is what makes "routes around" testable: block 9002 and the only way east is gone, but
+ * block nothing and there are two ways to reach 9005.
+ */
+function corridor(flags: Partial<Record<number, RoomFlag[]>> = {}): Zone {
+  const room = (id: number, x: number, y: number, exits: Room['exits']): Room => ({
+    id,
+    zone: 900,
+    name: `Room ${id}`,
+    sector: 'inside',
+    pos: { x, y, z: 0 },
+    exits,
+    ...(flags[id] ? { flags: flags[id] } : {}),
+  });
+  const rooms: Room[] = [
+    room(9000, 0, 0, { east: { to: 9001 } }),
+    room(9001, 1, 0, { west: { to: 9000 }, east: { to: 9002 } }),
+    room(9002, 2, 0, { west: { to: 9001 }, east: { to: 9003 }, south: { to: 9005 } }),
+    room(9003, 3, 0, { west: { to: 9002 }, east: { to: 9004 } }),
+    room(9004, 4, 0, { west: { to: 9003 } }),
+    room(9005, 2, 1, { north: { to: 9002 } }),
+  ];
+  return { id: 900, name: 'Test Corridor', rooms, bounds: boundsOf(rooms), entryRoom: 9000 };
+}
+
+/** A hunter with round numbers, so tick arithmetic is exact. */
+const hunter = (over: Partial<PursuitRule> = {}): PursuitRule => ({
+  ...huntRule({ hunter: true, remembers: true, sentinel: false, staysInZone: false, noLure: false, opensDoors: true }),
+  trackRooms: 10,
+  giveUpMs: 5_000,
+  ...over,
+});
+
+const template = (pursuit: PursuitRule): MobTemplate => ({
+  vnum: 900_01,
+  keywords: ['wolf'],
+  name: 'a dire wolf',
+  room: 'A dire wolf watches you.',
+  level: 20,
+  hp: '1d1+99',
+  sprite: 'human',
+  aggro: passiveRule(20),
+  pursuit,
+  combat: readCombatStats({ level: 20, armour: 0, damage: '1d4+0' }),
+  experience: 2000,
+});
+
+interface Fixture {
+  readonly sim: Simulation;
+  readonly world: GameWorld;
+  readonly player: Player;
+  readonly mob: Mob;
+  readonly hunts: Map<number, Hunt>;
+  /** Runs the pass `ticks` times at `ms` each and returns everything it reported. */
+  readonly run: (ticks: number, ms?: number) => ReturnType<typeof advanceHunts>['events'][number][];
+  /** Puts an actor in a room without any of the movement machinery. */
+  readonly place: (who: Mob | Player, roomId: number) => void;
+}
+
+function makeFixture(pursuit: PursuitRule = hunter(), zone: Zone = corridor()): Fixture {
+  const world = new GameWorld([zone], { zone: 900, room: 9000 });
+  const sim = new Simulation(world);
+  const player = sim.spawn('Quarry');
+  const mob = sim.spawnMob(template(pursuit), 9000, makeRng(0x51ee9));
+  assert.ok(mob, 'the fixture mob must spawn');
+
+  const hunts = new Map<number, Hunt>();
+  const place = (who: Mob | Player, roomId: number) => {
+    sim.relocate(who, roomId);
+  };
+
+  return {
+    sim,
+    world,
+    player,
+    mob,
+    hunts,
+    place,
+    run: (ticks, ms = 100) => {
+      const all: ReturnType<typeof advanceHunts>['events'][number][] = [];
+      for (let i = 0; i < ticks; i++) all.push(...advanceHunts(sim, world, hunts, ms).events);
+      return all;
+    },
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* The flags, and §4.11's traps                                                */
+/* -------------------------------------------------------------------------- */
+
+describe('what makes a mob a hunter at all', () => {
+  it('refuses to hunt without ACT_MEMORY, however loudly it is flagged HUNTER', () => {
+    // §4.11's sharpest trap. The whole hunt branch in `mobact.c` is inside `if (IS_SET(act, ACT_MEMORY))`,
+    // so a HUNTER without MEMORY just wanders — and a reader who assumes the bit means what it says
+    // produces a mob that looks configured in the data and never moves in the game.
+    const rule = huntRule({ hunter: true, remembers: false, sentinel: false, staysInZone: false, noLure: false, opensDoors: true });
+    assert.equal(rule.tier, 'sentinel');
+    assert.equal(pursues(rule), false);
+  });
+
+  it('hunts with both bits', () => {
+    const rule = huntRule({ hunter: true, remembers: true, sentinel: false, staysInZone: false, noLure: false, opensDoors: true });
+    assert.equal(rule.tier, 'relentless');
+    assert.equal(pursues(rule), true);
+  });
+
+  it('treats SENTINEL as a zone leash, not as immobility', () => {
+    // The other half of §4.11, and the opposite mistake: `ACT_SENTINEL` does not mean "will not move". The
+    // source's line is `if ((SENTINEL || STAY_ZONE) && zone differs) return` — it hunts, inside its zone.
+    const rule = huntRule({ hunter: true, remembers: true, sentinel: true, staysInZone: false, noLure: false, opensDoors: true });
+    assert.equal(rule.tier, 'zone', 'a sentinel hunter still hunts');
+    assert.equal(pursues(rule), true);
+    assert.equal(rule.staysInZone, true);
+  });
+
+  it('reads STAY_ZONE the same way, because the source ORs them', () => {
+    const rule = huntRule({ hunter: true, remembers: true, sentinel: false, staysInZone: true, noLure: false, opensDoors: true });
+    assert.equal(rule.tier, 'zone');
+    assert.equal(rule.staysInZone, true);
+  });
+
+  it('lets ACT2_NO_LURE opt out entirely', () => {
+    const rule = huntRule({ hunter: true, remembers: true, sentinel: false, staysInZone: false, noLure: true, opensDoors: true });
+    assert.equal(pursues(rule), false);
+  });
+
+  it('never starts a hunt for a mob that does not pursue', () => {
+    const fixture = makeFixture(noPursuit());
+    const started = beginHunt(fixture.hunts, fixture.mob, fixture.player);
+    assert.equal(started, undefined);
+    assert.equal(fixture.hunts.size, 0);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Which exit                                                                  */
+/* -------------------------------------------------------------------------- */
+
+describe('choosing the exit', () => {
+  it('takes the first step toward the quarry, not toward the wall', () => {
+    const world = new GameWorld([corridor()], { zone: 900, room: 9000 });
+    const step = firstStepToward(world, hunter(), 9000, 9004);
+    assert.equal(step?.dir, 'east');
+    assert.equal(step?.room, 9001, 'the room it steps into, not the destination');
+    assert.equal(step?.rooms, 4, 'four rooms of distance');
+  });
+
+  it('turns down the side passage when that is where you went', () => {
+    const world = new GameWorld([corridor()], { zone: 900, room: 9000 });
+    const step = firstStepToward(world, hunter(), 9002, 9005);
+    assert.equal(step?.dir, 'south');
+  });
+
+  it('answers nothing when it is already there', () => {
+    const world = new GameWorld([corridor()], { zone: 900, room: 9000 });
+    assert.equal(firstStepToward(world, hunter(), 9002, 9002), undefined);
+  });
+
+  it('stops looking past trackRooms', () => {
+    // The leash and the cost bound in one number. Four rooms away with a three-room leash is unreachable,
+    // and the mob has to be told that rather than walking hopefully in the right direction for ever.
+    const world = new GameWorld([corridor()], { zone: 900, room: 9000 });
+    assert.ok(firstStepToward(world, hunter({ trackRooms: 4 }), 9000, 9004), 'four rooms, four allowed');
+    assert.equal(firstStepToward(world, hunter({ trackRooms: 3 }), 9000, 9004), undefined, 'one room too far');
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* What turns it back                                                          */
+/* -------------------------------------------------------------------------- */
+
+describe('rooms a hunter will not enter', () => {
+  it('routes around a no_mob room rather than stopping at it', () => {
+    // `BFS_AVOID_NOMOB` is set on every hunt the source schedules. Removing the room from the graph rather
+    // than refusing at the threshold is what lets a hunter take the long way round — and here there is no
+    // long way, so the answer is "no path" rather than "walk into it and stick".
+    const world = new GameWorld([corridor({ 9002: ['no_mob'] })], { zone: 900, room: 9000 });
+    assert.equal(firstStepToward(world, hunter(), 9000, 9004), undefined);
+    assert.ok(firstStepToward(world, hunter(), 9000, 9001), 'rooms on this side are still reachable');
+  });
+
+  it('respects a safe room, and only when the rule says to', () => {
+    const world = new GameWorld([corridor({ 9002: ['safe'] })], { zone: 900, room: 9000 });
+    assert.equal(firstStepToward(world, hunter(), 9000, 9004), undefined, 'sanctuary blocks the way');
+    // §2.10's dragon: `respectsSafeRooms: false` walks straight through. Nothing the harvest produces does
+    // this — it is the authored-encounter case — so this is the test that keeps the field honest.
+    assert.ok(
+      firstStepToward(world, hunter({ respectsSafeRooms: false }), 9000, 9004),
+      'a creature that ignores sanctuary is not stopped by it',
+    );
+  });
+
+  it('does not follow you through a portal', () => {
+    // Settled in Phase 6 and restated in §2.5: pursuit stops at the edge of a Place. A portal is one by
+    // definition, and a staircase is one too — which is why this is enforced on the exit rather than by
+    // comparing zone ids afterwards.
+    const zone = corridor();
+    const rooms = zone.rooms.map((room) =>
+      room.id === 9003 ? { ...room, exits: { ...room.exits, east: { to: 9004, portal: true } } } : room,
+    );
+    const world = new GameWorld([{ ...zone, rooms }], { zone: 900, room: 9000 });
+    assert.equal(firstStepToward(world, hunter(), 9000, 9004), undefined);
+  });
+
+  it('will not leave its own zone when leashed', () => {
+    // Two zones joined by an ordinary exit. The leashed hunter refuses the crossing; the relentless one
+    // would too — but for the *Place* reason, not this one — so the assertion is on the graph search.
+    const near: Room[] = [
+      { id: 9100, zone: 910, name: 'Home', sector: 'inside', pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 9200 } } },
+    ];
+    const far: Room[] = [
+      { id: 9200, zone: 920, name: 'Abroad', sector: 'inside', pos: { x: 0, y: 0, z: 0 }, exits: { west: { to: 9100 } } },
+    ];
+    const world = new GameWorld(
+      [
+        { id: 910, name: 'Home Zone', rooms: near, bounds: boundsOf(near), entryRoom: 9100 },
+        { id: 920, name: 'Away Zone', rooms: far, bounds: boundsOf(far), entryRoom: 9200 },
+      ],
+      { zone: 910, room: 9100 },
+    );
+    assert.equal(firstStepToward(world, hunter({ staysInZone: true }), 9100, 9200), undefined);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* The chase                                                                   */
+/* -------------------------------------------------------------------------- */
+
+describe('the chase itself', () => {
+  it('walks the mob into the room you retreated to', () => {
+    const fixture = makeFixture();
+    fixture.place(fixture.player, 9001);
+    beginHunt(fixture.hunts, fixture.mob, fixture.player);
+    assert.equal(fixture.mob.roomId, 9000, 'starts a room behind');
+
+    // A room takes HUNT_STEP_MS; give it twice that plus the walk to the doorway.
+    const events = fixture.run(60);
+    const entered = events.filter((event) => event.kind === 'entered');
+    assert.ok(entered.length >= 1, 'it came through the doorway');
+    assert.equal(fixture.mob.roomId, 9001);
+    assert.equal(entered[0]?.from, 9000);
+    assert.equal(entered[0]?.to, 9001);
+    assert.equal(entered[0]?.heading, 'east');
+  });
+
+  it('reports arrival once it shares the room, and stops there', () => {
+    // The seam Phase 11 hangs `engage()` on. The hunt does not attack and must not: it has arrived, and
+    // that is the whole of its job.
+    const fixture = makeFixture();
+    beginHunt(fixture.hunts, fixture.mob, fixture.player);
+    const events = fixture.run(1);
+    assert.equal(events.length, 1);
+    assert.equal(events[0]?.kind, 'arrived');
+    assert.ok(fixture.hunts.has(fixture.mob.id), 'still hunting — arriving is not giving up');
+  });
+
+  it('keeps following as the quarry keeps moving', () => {
+    const fixture = makeFixture();
+    fixture.place(fixture.player, 9001);
+    beginHunt(fixture.hunts, fixture.mob, fixture.player);
+    fixture.run(60);
+    assert.equal(fixture.mob.roomId, 9001, 'caught up to the first room');
+
+    fixture.place(fixture.player, 9003);
+    fixture.run(120);
+    assert.equal(fixture.mob.roomId, 9003, 'and followed through two more');
+  });
+
+  it('gives up once the timer runs out with no route', () => {
+    const fixture = makeFixture(hunter({ trackRooms: 1, giveUpMs: 1_000 }));
+    fixture.place(fixture.player, 9004);
+    beginHunt(fixture.hunts, fixture.mob, fixture.player);
+
+    const events = fixture.run(9, 100);
+    assert.deepEqual(events.map((event) => event.kind), [], 'nothing yet at 900ms');
+    const later = fixture.run(2, 100);
+    assert.ok(later.some((event) => event.kind === 'gaveUp'));
+    assert.equal(fixture.hunts.size, 0);
+  });
+
+  it('never gives up on time when the rule says null', () => {
+    const fixture = makeFixture(hunter({ trackRooms: 1, giveUpMs: null }));
+    fixture.place(fixture.player, 9004);
+    beginHunt(fixture.hunts, fixture.mob, fixture.player);
+    const events = fixture.run(200, 1_000);
+    assert.equal(events.filter((event) => event.kind === 'gaveUp').length, 0, '200 seconds later, still coming');
+    assert.equal(fixture.hunts.size, 1);
+  });
+
+  it('drops the hunt when the quarry leaves the world', () => {
+    const fixture = makeFixture();
+    fixture.place(fixture.player, 9001);
+    beginHunt(fixture.hunts, fixture.mob, fixture.player);
+    fixture.sim.remove(fixture.player.id);
+
+    const events = fixture.run(1);
+    assert.equal(events[0]?.kind, 'gaveUp');
+    assert.equal(fixture.hunts.size, 0);
+  });
+
+  it('forgets a quarry on request, for the disconnect path', () => {
+    const fixture = makeFixture();
+    beginHunt(fixture.hunts, fixture.mob, fixture.player);
+    assert.equal(fixture.hunts.size, 1);
+    forgetQuarry(fixture.hunts, fixture.player.id);
+    assert.equal(fixture.hunts.size, 0);
+  });
+
+  it('does not switch quarry when it notices somebody else', () => {
+    // Target selection is a threat question and belongs to Phase 12. Switching on every fresh notice would
+    // make the last person through the door always the victim, which is the opposite of holding aggro.
+    const fixture = makeFixture();
+    const second = fixture.sim.spawn('Someone Else');
+    fixture.place(fixture.player, 9001);
+    beginHunt(fixture.hunts, fixture.mob, fixture.player);
+    beginHunt(fixture.hunts, fixture.mob, second);
+    assert.equal(fixture.hunts.get(fixture.mob.id)?.quarry, fixture.player.id);
+  });
+
+  it('reports the mob as moved so its position can reach the client', () => {
+    // The bug Phase 9 found, in its movement form: `entityMoved` was built from players only, so nothing a
+    // mob did could be drawn. A chase nobody can see is not a chase.
+    const fixture = makeFixture();
+    fixture.place(fixture.player, 9001);
+    beginHunt(fixture.hunts, fixture.mob, fixture.player);
+    const tick = advanceHunts(fixture.sim, fixture.world, fixture.hunts, 100);
+    assert.deepEqual(tick.moved.map((mob) => mob.id), [fixture.mob.id]);
+  });
+
+  it('leaves a mob exactly where it was when it has nowhere to go', () => {
+    const fixture = makeFixture(hunter({ trackRooms: 1 }));
+    fixture.place(fixture.player, 9004);
+    beginHunt(fixture.hunts, fixture.mob, fixture.player);
+    const x = fixture.mob.x;
+    const y = fixture.mob.y;
+    fixture.run(20);
+    assert.equal(fixture.mob.x, x);
+    assert.equal(fixture.mob.y, y);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Sanity on the geometry                                                      */
+/* -------------------------------------------------------------------------- */
+
+describe('the mob stays on the map', () => {
+  it('never walks outside the grid while chasing', () => {
+    const fixture = makeFixture();
+    fixture.place(fixture.player, 9004);
+    beginHunt(fixture.hunts, fixture.mob, fixture.player);
+    const grid = fixture.world.grid(fixture.mob.place);
+    assert.ok(grid);
+    for (let i = 0; i < 200; i++) {
+      advanceHunts(fixture.sim, fixture.world, fixture.hunts, 100);
+      assert.ok(fixture.mob.x >= 0 && fixture.mob.x < grid.width * TILE_SIZE, `x off-grid at tick ${i}`);
+      assert.ok(fixture.mob.y >= 0 && fixture.mob.y < grid.height * TILE_SIZE, `y off-grid at tick ${i}`);
+    }
+    assert.equal(fixture.mob.roomId, 9004, 'and got there');
+  });
+
+  it('stands on a walkable tile at every step', () => {
+    const fixture = makeFixture();
+    fixture.place(fixture.player, 9005);
+    beginHunt(fixture.hunts, fixture.mob, fixture.player);
+    for (let i = 0; i < 200; i++) {
+      advanceHunts(fixture.sim, fixture.world, fixture.hunts, 100);
+      const tx = Math.floor(fixture.mob.x / TILE_SIZE);
+      const ty = Math.floor(fixture.mob.y / TILE_SIZE);
+      assert.ok(tx >= 0 && ty >= 0, `tile ${tx},${ty} at tick ${i}`);
+    }
+    assert.equal(fixture.mob.roomId, 9005, 'round the corner and down the side passage');
+    // Sanity that the fixture geometry is what the test thinks: a room is ROOM_TILES across.
+    assert.equal(ROOM_TILES, 9);
+  });
+});

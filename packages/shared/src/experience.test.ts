@@ -1,0 +1,130 @@
+/**
+ * Experience: contribution, and the group divisor whose sign decides whether players ever group.
+ *
+ * The tank and healer tests are the point of the phase. A last-hit rule would pay them nothing, and
+ * §4.4 is explicit that getting the group divisor backwards makes solo play optimal and stops the whole
+ * social layer forming.
+ */
+
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+
+import {
+  VALUE_PER_SUPPORT_ACT,
+  contributionValue,
+  divideExperience,
+  groupDivisor,
+  type Contribution,
+} from './index.ts';
+
+const did = (over: Partial<Contribution> = {}): Contribution => ({ dealt: 0, taken: 0, supported: 0, ...over });
+
+describe('what a contribution is worth', () => {
+  it('values damage taken as highly as damage dealt', () => {
+    // Deliberate. A tank standing in front of something for a whole fight contributed as much as the
+    // person hitting it, and any discount here tells players that tanking is the lesser job.
+    assert.equal(contributionValue(did({ dealt: 100 })), contributionValue(did({ taken: 100 })));
+  });
+
+  it('pays support per act rather than per point', () => {
+    // Paying by amount healed would make a healer's share depend on how badly the tank was playing.
+    assert.equal(contributionValue(did({ supported: 2 })), VALUE_PER_SUPPORT_ACT * 2);
+  });
+
+  it('is nothing for somebody who did nothing', () => {
+    assert.equal(contributionValue(did()), 0);
+  });
+});
+
+describe('dividing a kill', () => {
+  it('pays in proportion to contribution', () => {
+    const awards = divideExperience(1000, new Map([
+      [1, did({ dealt: 300 })],
+      [2, did({ dealt: 100 })],
+    ]));
+    assert.equal(awards.find((a) => a.actor === 1)?.experience, 750);
+    assert.equal(awards.find((a) => a.actor === 2)?.experience, 250);
+  });
+
+  it('pays a tank who dealt no damage at all', () => {
+    // The phase's headline rule. Under a last-hit or damage-only scheme this character earns nothing,
+    // and tanking becomes something you do for other people rather than something you do.
+    const awards = divideExperience(1000, new Map([
+      [1, did({ dealt: 500 })],
+      [2, did({ taken: 500 })],
+    ]));
+    assert.equal(awards.find((a) => a.actor === 2)?.experience, 500);
+  });
+
+  it('pays a healer who neither dealt nor took anything', () => {
+    const awards = divideExperience(1000, new Map([
+      [1, did({ dealt: 975 })],
+      [2, did({ supported: 1 })],
+    ]));
+    const healer = awards.find((a) => a.actor === 2);
+    assert.ok(healer);
+    assert.ok(healer.experience > 0, 'a share, not nothing');
+  });
+
+  it('ignores somebody who merely stood there', () => {
+    const awards = divideExperience(1000, new Map([[1, did({ dealt: 100 })], [2, did()]]));
+    assert.deepEqual(awards.map((a) => a.actor), [1]);
+  });
+
+  it('pays nothing from an empty pool, and nothing to nobody', () => {
+    assert.deepEqual(divideExperience(0, new Map([[1, did({ dealt: 10 })]])), []);
+    assert.deepEqual(divideExperience(1000, new Map()), []);
+  });
+
+  it('never pays out more than the pool', () => {
+    // Rounding down per share with the remainder lost, rather than handed to the biggest contributor —
+    // a rounding rule that favours damage is the thumb on the scale this module exists to avoid.
+    const awards = divideExperience(1000, new Map([
+      [1, did({ dealt: 33 })],
+      [2, did({ dealt: 33 })],
+      [3, did({ dealt: 33 })],
+    ]));
+    assert.ok(awards.reduce((sum, a) => sum + a.experience, 0) <= 1000);
+  });
+
+  it('divides identically every time', () => {
+    const contributions = new Map([[7, did({ dealt: 10 })], [3, did({ taken: 10 })], [5, did({ supported: 1 })]]);
+    const first = divideExperience(900, contributions).map((a) => `${a.actor}:${a.experience}`);
+    const second = divideExperience(900, contributions).map((a) => `${a.actor}:${a.experience}`);
+    assert.deepEqual(first, second);
+    assert.deepEqual(first.map((s) => Number(s.split(':')[0])), [3, 5, 7], 'sorted by id, not by insertion');
+  });
+
+  it('carries the breakdown, so a player can see why they were paid', () => {
+    const awards = divideExperience(100, new Map([[1, did({ taken: 40 })]]));
+    assert.deepEqual(awards[0]?.contribution, did({ taken: 40 }));
+  });
+});
+
+describe('the group divisor — §4.4, and the sign is the mechanic', () => {
+  it('is Duris\' (N+3)/4 and not exp/N', () => {
+    assert.equal(groupDivisor(1), 1);
+    assert.equal(groupDivisor(2), 1.25);
+    assert.equal(groupDivisor(4), 1.75);
+    assert.equal(groupDivisor(8), 2.75);
+  });
+
+  it('makes the party total RISE with size, which is why players group at all', () => {
+    // The whole point, as an assertion. With `exp / N` the total is flat and solo is strictly optimal,
+    // and §4.4's warning is that the entire social layer then never forms.
+    const total = (members: number) => (members / groupDivisor(members));
+    assert.ok(total(2) > total(1));
+    assert.ok(total(4) > total(2));
+    assert.ok(total(8) > total(4));
+  });
+
+  it('still gives each member less than a solo kill, so grouping is a trade', () => {
+    for (const members of [2, 4, 8]) {
+      assert.ok(1 / groupDivisor(members) < 1, `${members} members`);
+    }
+  });
+
+  it('treats a party of none as a party of one', () => {
+    assert.equal(groupDivisor(0), 1);
+  });
+});

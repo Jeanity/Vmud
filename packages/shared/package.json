@@ -1,0 +1,16 @@
+{
+  "name": "@mygame/shared",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Shared types, wire protocol and rules maths. No I/O, no platform APIs.",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"src/**/*.test.ts\""
+  }
+}

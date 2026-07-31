@@ -1,0 +1,702 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MyGame — The Nightwood</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --ink: #d8d2c4;
+        --dim: #8b8172;
+        --panel: rgba(18, 20, 17, 0.86);
+        --edge: #3a4034;
+        /* Width of a collapsed pane: its bar and nothing else. Wide enough to be an obvious click
+           target, narrow enough that the map takes essentially all of the reclaimed space. */
+        --rail: 26px;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #0b0d0a;
+        color: var(--ink);
+        font-family: 'Iosevka', 'Cascadia Mono', 'Consolas', ui-monospace, monospace;
+      }
+
+      /* ---------------------------------------------------------------- layout */
+
+      /* Three columns: log, map, character sheet.
+         Equal thirds by default, which is what was asked for, and the collapse bars are the escape
+         hatch when the map wants the room. A grid rather than absolutely-positioned overlays, and
+         that is the load-bearing choice here: the canvas now *ends* where the panes begin instead of
+         running underneath them, so nothing has to hit-test a click against a panel that is sitting
+         on top of the world. Phaser runs `Scale.RESIZE` against `#game`, so it follows the middle
+         column's size on its own — including when a pane collapses. */
+      #shell {
+        height: 100%;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+      }
+      /* Collapse one pane and the map takes **two thirds**, not half.
+         `2fr 1fr` rather than `1fr 1fr`: the freed third goes to the map instead of being shared out
+         between the map and the pane that is still open, which would grow a panel nobody asked to
+         grow. So the pane that stays open keeps roughly the third it already had and the map doubles —
+         which is the point of collapsing something. */
+      #shell.log-hidden { grid-template-columns: var(--rail) minmax(0, 2fr) minmax(0, 1fr); }
+      #shell.sheet-hidden { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) var(--rail); }
+      #shell.log-hidden.sheet-hidden {
+        grid-template-columns: var(--rail) minmax(0, 1fr) var(--rail);
+      }
+
+      .pane {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        background: var(--panel);
+        overflow: hidden;
+      }
+      #log { border-right: 1px solid var(--edge); }
+      #sheet { border-left: 1px solid var(--edge); }
+
+      /* The collapse bar. Horizontal while the pane is open; when it collapses, the pane is only a
+         rail wide, so the bar turns on its side and becomes the whole of it. `writing-mode` rather
+         than a rotation, because a rotated element keeps its original box and would still be
+         claiming the full pane width for hit-testing. */
+      .pane-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex: 0 0 auto;
+        height: 26px;
+        padding: 0 10px;
+        font-size: 12px;
+        color: var(--dim);
+        border-bottom: 1px solid var(--edge);
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+      }
+      .pane-bar:hover { color: var(--ink); }
+      .pane-bar b { color: var(--ink); font-weight: 600; }
+      .pane-bar .spacer { flex: 1; }
+      .pane-bar .caret { font-size: 9px; }
+
+      .pane.hidden .pane-body { display: none; }
+      .pane.hidden .pane-bar {
+        writing-mode: vertical-rl;
+        height: 100%;
+        width: var(--rail);
+        padding: 10px 0;
+        border-bottom: 0;
+        letter-spacing: 0.08em;
+      }
+      /* Rotated 180° for the left rail so its label reads bottom-to-top, which is the convention for
+         a tab on the left edge; the right rail reads top-to-bottom unchanged. */
+      #log.hidden .pane-bar { transform: rotate(180deg); }
+      .pane.hidden .pane-bar .spacer,
+      .pane.hidden .pane-bar .hint-when-open { display: none; }
+
+      .pane-body {
+        display: flex;
+        flex-direction: column;
+        flex: 1 1 auto;
+        min-height: 0;
+      }
+
+      /* ------------------------------------------------------------------ map */
+
+      #stage { position: relative; min-width: 0; overflow: hidden; }
+      #game { position: absolute; inset: 0; }
+      #game canvas { display: block; }
+
+      /* The status overlay: who you are, the three pools, your light, and where you are standing.
+         **Pinned to the map, not to the sheet, and that is the point.** These are the numbers you must
+         be able to read at every moment — a pool you cannot see is a pool you find out about by dying —
+         so they cannot live inside a pane that collapses to a 26px rail. Anchored here, the map can take
+         two thirds or the whole width and the vitals come with it.
+
+         Click-through, because it sits over ground you can walk to; `UI_PANELS` in `scene.ts` carries
+         the matching hit-test so a click on the panel is not also a click on the world. Every label
+         takes a hard text shadow: this is drawn over terrain of unpredictable brightness, and the fog
+         slider can make that terrain lighter than the text. */
+      #status {
+        position: absolute;
+        top: 10px; left: 12px;
+        max-width: min(280px, calc(100% - 24px));
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        font-size: 12px;
+        line-height: 1.4;
+        pointer-events: none;
+        text-shadow: 0 1px 3px #0b0d0a, 0 1px 2px #0b0d0a, 0 0 6px #0b0d0a;
+      }
+      #status .name { color: #e8dcc0; font-weight: 600; font-size: 13px; }
+      #status .zone { color: #a8b596; font-size: 11px; }
+      #status .where { color: var(--dim); font-size: 11px; }
+
+      /* Pools. A track with a fill, sized by width — cheap to update and it animates for free, so a
+         point of regeneration reads as a nudge rather than a jump. The track carries its own dark
+         backing rather than relying on the panel behind it, because there is no panel behind it. */
+      #status .pools { display: flex; flex-direction: column; gap: 2px; margin: 1px 0 2px; }
+      #status .pool { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+      #status .pool .tag {
+        width: 1.4em; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em;
+      }
+      #status .pool .track {
+        position: relative; width: 104px; height: 6px;
+        background: rgba(12, 14, 11, 0.85);
+        border: 1px solid var(--edge); border-radius: 2px; overflow: hidden;
+        box-shadow: 0 1px 3px rgba(11, 13, 10, 0.9);
+      }
+      #status .pool .track i {
+        position: absolute; inset: 0 auto 0 0; width: 0;
+        transition: width 180ms linear;
+      }
+      /* Tabular figures so a counting pool does not jitter the line width every point. */
+      #status .pool output { color: var(--dim); font-variant-numeric: tabular-nums; min-width: 4.2em; }
+
+      #bar-hp   { background: #8faa63; }
+      #bar-mana { background: #6f93b8; }
+      #bar-move { background: #b8a468; }
+      /* Below a third, hit points stop being a number and start being a warning. Matches the log's
+         combat and error channels, so urgency reads the same wherever it appears. */
+      #status .pool.low #bar-hp { background: #e0a86a; }
+      #status .pool.critical #bar-hp { background: #d08a7d; }
+      #status .pool.critical output { color: #d08a7d; }
+
+      /* Light radius. A stat that mostly does not change, so it sits quietly under the pools. */
+      #status .light { color: var(--dim); font-size: 11px; letter-spacing: 0.04em; }
+      /* What is producing the radius. Dimmer still than the number, which is the mechanical part. */
+      #status .light .source { color: #b9a882; }
+      /* Tabular figures so a counting-down clock does not jitter the line width every tenth. */
+      #status .light .remaining { font-variant-numeric: tabular-nums; }
+      /* Posture and status. Empty and invisible while standing and awake; `notable` is the only state
+         it ever shows, so it cannot become furniture. */
+      #status .stance { font-size: 11px; letter-spacing: 0.04em; color: var(--dim); }
+      #status .stance.notable { color: #8fc3e8; }
+      #status .stance:empty { display: none; }
+      /* Timed effects. One line per effect, so the block grows and shrinks with what is actually
+         affecting you, and disappears entirely when nothing is. `pre-line` because the panel is one
+         text node whose rows are newlines: no element churn as effects come and go. */
+      #status .affects {
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        color: #9ab48f;
+        white-space: pre-line;
+        font-variant-numeric: tabular-nums;
+      }
+      #status .affects:empty { display: none; }
+
+      /* A light running out is the one thing here that is news, so it stops being quiet. Two stages:
+         amber while there is still time to do something about it, then a guttering pulse for the last
+         few seconds. Colours match the log's combat and error channels, so "this is getting urgent"
+         reads the same wherever it appears. */
+      #status .light.warn { color: #e0a86a; }
+      #status .light.urgent { color: #d08a7d; animation: gutter 620ms ease-in-out infinite; }
+      @keyframes gutter { 0%, 100% { opacity: 1; } 50% { opacity: 0.32; } }
+      /* Respect a reader who has asked the OS for no motion: keep the colour, drop the flicker. */
+      @media (prefers-reduced-motion: reduce) {
+        #status .light.urgent { animation: none; }
+      }
+
+      /* ------------------------------------------------------------------ log */
+
+      #log-lines {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        padding: 8px 12px;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      #log-lines p { margin: 0 0 2px; white-space: pre-wrap; word-break: break-word; }
+      .ch-room   { color: #cfd8c0; }
+      .ch-combat { color: #e0a86a; }
+      .ch-say    { color: #8fc3e8; }
+      .ch-system { color: #8b8172; font-style: italic; }
+      .ch-error  { color: #d08a7d; }
+      /* Your own typed line, echoed into the scrollback so the log reads as a conversation rather
+         than as a feed you happen to be shouting at. Dim, because it is the one line you already
+         know the contents of. */
+      .ch-echo   { color: #6f7a63; }
+
+      /* The command line. Sits below the scrollback and inside the collapsible body, so hiding the
+         log hides the input with it — there is no state where you can type at a log you cannot read. */
+      #log-entry {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        flex: 0 0 auto;
+        padding: 6px 12px 8px;
+        border-top: 1px solid var(--edge);
+      }
+      #log-entry .prompt { color: #8fc3e8; font-size: 13px; }
+      #log-input {
+        flex: 1 1 auto;
+        min-width: 0;
+        background: transparent;
+        border: 0;
+        padding: 0;
+        color: var(--ink);
+        font: inherit;
+        font-size: 13px;
+        outline: none;
+      }
+      #log-input::placeholder { color: #5f5a4e; }
+      /* The panel is the focus ring: an outline on a borderless input inside a dark panel is easy to
+         miss, and knowing whether keys go to the game or the prompt is the whole question here. */
+      #log-entry:focus-within { border-top-color: #8fc3e8; }
+      #log-entry:focus-within .prompt { color: #cfe6f6; }
+
+      /* -------------------------------------------------------- character sheet */
+
+      #sheet-body { overflow-y: auto; padding: 10px 12px 14px; gap: 10px; }
+
+      /* The vitals used to live here. They are now pinned over the map — see `#status` — because a pool
+         you cannot see is a pool you find out about by dying, and this pane collapses. What is left is
+         everything that is genuinely reference rather than moment-to-moment: your gear, what you are
+         carrying, and the display settings. */
+
+      .sheet-section {
+        border-top: 1px solid var(--edge);
+        padding-top: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .sheet-section > h2 {
+        margin: 0;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #6f7a63;
+      }
+
+      /* ------------------------------------------------------------ equipment */
+
+      /* A paper doll: the character in the middle, the slots flanking them where they sit on a body.
+         The slot set is `DESIGN-inventory.md` §6 exactly — head, neck, chest, legs, feet, hands, main
+         hand, off hand, back and two rings — because that set is what maps onto LPC's layered sprites,
+         which is what will eventually make this gear visible *on* the figure rather than named beside
+         it. The arrangement follows the owner's reference: head above, legs below, five on the left and
+         four on the right.
+
+         Three columns and seven rows, with the figure spanning the middle. Areas rather than explicit
+         row/column numbers, so moving a slot is a one-word edit in the picture below and cannot get out
+         of step with the markup. */
+      #equip {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr);
+        gap: 4px;
+        grid-template-areas:
+          ".      head    ."
+          "back   figure  neck"
+          "chest  figure  main"
+          "hands  figure  off"
+          "ring1  figure  ring2"
+          "feet   figure  ."
+          ".      legs    .";
+      }
+      #slot-head { grid-area: head; }
+      #slot-neck { grid-area: neck; }
+      #slot-back { grid-area: back; }
+      #slot-chest { grid-area: chest; }
+      #slot-mainHand { grid-area: main; }
+      #slot-hands { grid-area: hands; }
+      #slot-legs { grid-area: legs; }
+      #slot-offHand { grid-area: off; }
+      #slot-ring1 { grid-area: ring1; }
+      #slot-feet { grid-area: feet; }
+      #slot-ring2 { grid-area: ring2; }
+      #equip-figure { grid-area: figure; }
+
+      /* The figure. A silhouette, and deliberately an obvious one: there is no character art yet — the
+         world sprite is still a generated placeholder — so drawing anything more specific would be
+         inventing an appearance the game has never asserted. Phase 15 replaces this with the layered
+         LPC character, at which point the doll shows the gear rather than merely listing it. */
+      #equip-figure {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 0;
+        padding: 2px;
+        color: #39412f;
+      }
+      #equip-figure svg { width: 100%; height: 100%; max-height: 190px; }
+
+      .slot {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        padding: 4px 3px 3px;
+        border: 1px solid var(--edge);
+        border-radius: 3px;
+        background: rgba(35, 40, 31, 0.55);
+        overflow: hidden;
+        /* The frame corners in the reference, at the weight this size can carry: a faint inner rule. */
+        box-shadow: inset 0 0 0 1px rgba(216, 210, 196, 0.04);
+      }
+      .slot .icon {
+        width: 26px;
+        height: 26px;
+        flex: 0 0 auto;
+        color: #6b7658;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.4;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .slot .tag {
+        font-size: 8px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #5f6a54;
+        text-align: center;
+        line-height: 1.2;
+      }
+      /* The item name, clipped to two lines: names are authored prose ("a pitch-soaked torch") and a
+         slot that grew to fit the longest one would make the whole doll jump about as gear changed.
+         Hidden entirely while empty, so an unequipped doll is icons and labels rather than a column of
+         the word "empty" eleven times. */
+      .slot .item {
+        font-size: 10px;
+        line-height: 1.2;
+        text-align: center;
+        color: var(--ink);
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      /* An empty slot is drawn *quietly* rather than not drawn: the shape of what you could be wearing
+         is information, and eleven boxes that fill in as you find things is the point of a paper doll.
+         Nothing here fakes an item — every slot is empty because it is empty. */
+      .slot.empty { border-style: dashed; border-color: #2c3227; background: transparent; }
+      .slot.empty .icon { color: #414a37; }
+      .slot.empty .item { display: none; }
+      /* A slot holding the thing that is keeping you alive gets to say so. */
+      .slot.lit { border-color: #7d6f4a; background: rgba(60, 52, 30, 0.45); }
+      .slot.lit .icon { color: #d3b877; }
+      .slot.lit .tag { color: #8a7c58; }
+
+      /* ------------------------------------------------------------ inventory */
+
+      .sheet-button {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 4px 8px;
+        background: rgba(35, 40, 31, 0.6);
+        border: 1px solid var(--edge);
+        border-radius: 2px;
+        color: var(--ink);
+        font: inherit;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        text-align: left;
+        cursor: pointer;
+      }
+      .sheet-button:hover { border-color: #55604a; color: #e8dcc0; }
+      .sheet-button .spacer { flex: 1; }
+      .sheet-button .caret { font-size: 9px; color: var(--dim); }
+
+      #inventory { display: none; flex-direction: column; gap: 3px; }
+      #inventory.open { display: flex; }
+      #inventory .empty {
+        font-size: 11px;
+        color: #6f7a63;
+        font-style: italic;
+      }
+      #inventory .row { display: flex; gap: 6px; font-size: 11px; }
+      #inventory .row .bulk { color: var(--dim); font-variant-numeric: tabular-nums; }
+
+      /* ------------------------------------------------------------- settings */
+
+      #sheet .tune {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--dim);
+      }
+      #sheet .tune input { flex: 1 1 auto; min-width: 0; accent-color: #c8b884; cursor: pointer; }
+      #sheet .tune output { min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; }
+
+      /* ----------------------------------------------------------- key reference */
+
+      /* Anchored to the map rather than to the window, because that is what it overlays and what it
+         is about. Collapsed by default now: it is a reference card, indispensable for ten minutes and
+         clutter for every hour after, and the bar is a one-click way back to it. */
+      #hint {
+        position: absolute;
+        top: 10px; right: 12px;
+        max-width: min(340px, calc(100% - 24px));
+        padding: 6px 12px 8px;
+        background: var(--panel);
+        border: 1px solid var(--edge);
+        border-radius: 3px;
+        font-size: 12px;
+        color: var(--dim);
+        line-height: 1.6;
+        /* The bar below re-enables this for itself only. The key rows stay click-through so the
+           canvas underneath is still reachable — the panel sits over the map. */
+        pointer-events: none;
+      }
+      #hint-bar {
+        pointer-events: auto;
+        cursor: pointer;
+        user-select: none;
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #6f7a63;
+      }
+      #hint-bar:hover { color: var(--ink); }
+      #hint-caret { font-size: 9px; }
+      #hint.collapsed #hint-keys { display: none; }
+      #hint.collapsed { padding-bottom: 6px; }
+      kbd {
+        background: #23281f;
+        border: 1px solid var(--edge);
+        border-radius: 2px;
+        padding: 0 4px;
+        font: inherit;
+        color: var(--ink);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="shell">
+      <!-- ------------------------------------------------------------- left: log -->
+      <aside class="pane" id="log">
+        <div class="pane-bar" id="log-bar" title="Show or hide the log">
+          <b>Log</b><span id="log-status">connecting…</span>
+          <span class="spacer"></span>
+          <span class="hint-when-open">` to toggle</span>
+          <span class="caret" id="log-caret">◂</span>
+        </div>
+        <div class="pane-body" id="log-body">
+          <div id="log-lines"></div>
+          <!-- The MUD half of the hybrid, finally two-way. The prompt character is decoration; the
+               input carries the whole line to the server unparsed, because which command "sa" means
+               and which orc "2.orc" is are both server rules. -->
+          <form id="log-entry" autocomplete="off">
+            <span class="prompt" aria-hidden="true">&gt;</span>
+            <input
+              id="log-input"
+              type="text"
+              maxlength="400"
+              spellcheck="false"
+              autocomplete="off"
+              placeholder="type a command — help, look, exits"
+              aria-label="Command"
+            />
+          </form>
+        </div>
+      </aside>
+
+      <!-- ----------------------------------------------------------- centre: map -->
+      <main id="stage">
+        <div id="game"></div>
+
+        <!-- Always on screen, whatever the panes are doing. Name, the three pools, your light, your
+             stance, what is affecting you, and where you are standing — pinned to the map so it
+             survives the character sheet collapsing to a rail. -->
+        <div id="status">
+          <div class="name" id="hud-name">connecting…</div>
+          <!-- Hit points first because it is the one that kills you; movement last because it is the
+               one that moves most. Each row is label, bar, numbers — the bar for the glance and the
+               numbers for the decision. -->
+          <div class="pools">
+            <div class="pool"><span class="tag">hp</span><span class="track"><i id="bar-hp"></i></span><output id="num-hp">—</output></div>
+            <div class="pool"><span class="tag">ma</span><span class="track"><i id="bar-mana"></i></span><output id="num-mana">—</output></div>
+            <div class="pool"><span class="tag">mv</span><span class="track"><i id="bar-move"></i></span><output id="num-move">—</output></div>
+          </div>
+          <!-- One line, three spans: the radius (always), what is producing it, and how long that has
+               left. The source and the clock stay empty for the bare eye, so an unlit character sees
+               exactly what they saw before this existed. -->
+          <div class="light" id="hud-light">
+            <span id="hud-light-radius">—</span><span class="source" id="hud-light-source"></span><span class="remaining" id="hud-light-remaining"></span>
+          </div>
+          <!-- Empty while standing and awake, which is almost always. A line that reads "standing" at
+               all times is furniture the eye learns to skip, and that is exactly when it stops
+               noticing the one state that matters. -->
+          <div class="stance" id="hud-stance"></div>
+          <!-- One line per timed effect, each with its own countdown, and empty when nothing is
+               affecting you. The carried light is deliberately not in here — it has its own line
+               above, and saying it twice in two vocabularies is worse than saying it once. -->
+          <div class="affects" id="hud-affects"></div>
+          <!-- Zone above room: the wider place first, then where you are inside it. -->
+          <div class="zone" id="hud-zone">—</div>
+          <div class="where" id="hud-where">—</div>
+        </div>
+
+        <!-- Collapsed by default, and it remembers either choice. -->
+        <div id="hint">
+          <div id="hint-bar" title="Show or hide the key reference">keys<span id="hint-caret">▸</span></div>
+          <div id="hint-keys">
+          <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk</div>
+          <!-- Portals and staircases carve no corridor, so they are unreachable by walking. Shift is
+               the only way off the level you spawn on — it needs to be on screen. -->
+          <div><kbd>Shift</kbd>+<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> take an exit</div>
+          <!-- No modifier: there is no way to steer vertically, so there is nothing for Shift to
+               disambiguate from. Requiring it was friction with nothing behind it. -->
+          <div><kbd>Q</kbd>/<kbd>E</kbd> up / down</div>
+          <!-- A shut door is a wall: it blocks walking, steering, click-to-move and sight alike.
+               There is no other way through one, so the keys have to be on screen. Direction is the
+               way you face, so you walk up to the door and press the key. -->
+          <div><kbd>O</kbd>/<kbd>C</kbd> open / close a door</div>
+          <!-- The server refuses to path across tiles this character has not seen, so the hint says
+               "you have seen" rather than "anywhere" — the limit is a rule, not a bug to be reported.
+               It is a tile rule now, not a room one: light spilling through a doorway makes the next
+               room clickable without stepping into it first. -->
+          <div><kbd>Click</kbd> walk to ground you have seen</div>
+          <!-- A virtual joystick, not a route: the character walks in a straight line toward the
+               pointer, anywhere, lit or not. No pathfinding, so a wall in the way stops it and the
+               player moves the pointer. Unlike Click this is NOT fog-gated, for the same reason WASD
+               is not — it is steering, and steering earns every tile at walking pace. -->
+          <div><kbd>Hold</kbd>+drag steer toward the pointer</div>
+          <!-- A secondary button, because the left one is already the joystick. The camera lets go of
+               the character while you pan and comes back the moment you drive again. -->
+          <div><kbd>Right</kbd>-drag pan the map</div>
+          <div><kbd>Wheel</kbd> zoom &nbsp; <kbd>M</kbd> whole map</div>
+          <!-- The MUD half. While the caret is in the prompt the game is deaf to the keyboard, so
+               `west` is a command and not four steps; Esc hands the keys back. -->
+          <div><kbd>Enter</kbd> type a command &nbsp; <kbd>Esc</kbd> back to the game</div>
+          <div><kbd>`</kbd> toggle log</div>
+          </div>
+        </div>
+      </main>
+
+      <!-- ------------------------------------------------- right: character sheet -->
+      <aside class="pane" id="sheet">
+        <div class="pane-bar" id="sheet-bar" title="Show or hide the character sheet">
+          <span class="caret" id="sheet-caret">▸</span>
+          <b>Character</b>
+          <span class="spacer"></span>
+        </div>
+        <div class="pane-body" id="sheet-body">
+          <div class="sheet-section" style="border-top: 0; padding-top: 0">
+            <h2>Worn</h2>
+
+            <!-- The slot glyphs, defined once and referenced by `<use>` below.
+                 Line art rather than filled shapes, `stroke="currentColor"` rather than a colour, so
+                 one CSS rule dims an empty slot and lights an occupied one and no icon needs a second
+                 copy in a second colour. Drawn to a 24-unit box so the strokes land on whole pixels at
+                 the 26px they are rendered at. -->
+            <svg width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+              <defs>
+                <!-- Helm: dome, brow band, nasal bar, cheek guards. -->
+                <symbol id="icon-head" viewBox="0 0 24 24">
+                  <path d="M5 13a7 7 0 0 1 14 0v5a1 1 0 0 1-1 1h-3v-4h-6v4H6a1 1 0 0 1-1-1z" />
+                  <path d="M5 12h14M12 6v7" />
+                </symbol>
+                <!-- Amulet: chain over the shoulders, pendant hanging. -->
+                <symbol id="icon-neck" viewBox="0 0 24 24">
+                  <path d="M7 5c0 6 2.2 9 5 9s5-3 5-9" />
+                  <circle cx="12" cy="17" r="3" />
+                </symbol>
+                <!-- Cloak: collar and a fall of cloth. -->
+                <symbol id="icon-back" viewBox="0 0 24 24">
+                  <path d="M9 4h6l4 5-3 1 1 10H7l1-10-3-1z" />
+                  <path d="M12 5v15" />
+                </symbol>
+                <!-- Cuirass: breastplate with pauldrons. -->
+                <symbol id="icon-chest" viewBox="0 0 24 24">
+                  <path d="M6 6h12l-1 4v8a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1v-8z" />
+                  <path d="M12 6v13M8 10h8" />
+                </symbol>
+                <!-- Open hand: the weapon hand, empty. -->
+                <symbol id="icon-mainHand" viewBox="0 0 24 24">
+                  <path d="M9 12V5.5a1.5 1.5 0 0 1 3 0V11" />
+                  <path d="M12 11V4.5a1.5 1.5 0 0 1 3 0V11" />
+                  <path d="M15 11V6.5a1.5 1.5 0 0 1 3 0V15a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5v-3l-1.6 1.2" />
+                  <path d="M9 12l-2.4 1.8" />
+                </symbol>
+                <!-- Glove: a hand with a cuff. -->
+                <symbol id="icon-hands" viewBox="0 0 24 24">
+                  <path d="M8 11V6.5a1.5 1.5 0 0 1 3 0V11" />
+                  <path d="M11 11V5.5a1.5 1.5 0 0 1 3 0V11" />
+                  <path d="M14 11V7.5a1.5 1.5 0 0 1 3 0V14a4 4 0 0 1-4 4h-2a4 4 0 0 1-4-4v-2l-1.5 1" />
+                  <path d="M7 18h10v3H7z" />
+                </symbol>
+                <!-- Greaves: a pair of leg plates. -->
+                <symbol id="icon-legs" viewBox="0 0 24 24">
+                  <path d="M7 4h4v9l-1 7H8l-1-7z" />
+                  <path d="M13 4h4v9l-1 7h-2l-1-7z" />
+                </symbol>
+                <!-- Shield: heraldic, with a boss. -->
+                <symbol id="icon-offHand" viewBox="0 0 24 24">
+                  <path d="M12 3l7 2.5V12c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V5.5z" />
+                  <path d="M12 8v6M9 11h6" />
+                </symbol>
+                <!-- Ring: band and a set stone. -->
+                <symbol id="icon-ring" viewBox="0 0 24 24">
+                  <circle cx="12" cy="14" r="6" />
+                  <path d="M12 8l-2.5-3h5z" />
+                </symbol>
+                <!-- Boot: cuff, shin and a toe. -->
+                <symbol id="icon-feet" viewBox="0 0 24 24">
+                  <path d="M8 4h5v10h3a3 3 0 0 1 3 3v3H8z" />
+                  <path d="M8 8h5" />
+                </symbol>
+                <!-- The figure. A silhouette on purpose — see the CSS. -->
+                <symbol id="icon-figure" viewBox="0 0 60 150">
+                  <circle cx="30" cy="19" r="11" />
+                  <path d="M18 34h24l6 10-7 3 2 30H17l2-30-7-3z" />
+                  <path d="M14 47l-4 30 7 1M46 47l4 30-7 1" />
+                  <path d="M21 77l-2 38h9l1-26M39 77l2 38h-9" />
+                  <path d="M15 120h14M31 120h14" />
+                </symbol>
+              </defs>
+            </svg>
+
+            <div id="equip">
+              <div class="slot empty" id="slot-head"><svg class="icon"><use href="#icon-head" /></svg><span class="tag">head</span><span class="item"></span></div>
+              <div class="slot empty" id="slot-back"><svg class="icon"><use href="#icon-back" /></svg><span class="tag">back</span><span class="item"></span></div>
+              <div id="equip-figure"><svg viewBox="0 0 60 150" aria-hidden="true"><use href="#icon-figure" stroke="currentColor" fill="none" stroke-width="2" stroke-linejoin="round" /></svg></div>
+              <div class="slot empty" id="slot-neck"><svg class="icon"><use href="#icon-neck" /></svg><span class="tag">neck</span><span class="item"></span></div>
+              <div class="slot empty" id="slot-chest"><svg class="icon"><use href="#icon-chest" /></svg><span class="tag">chest</span><span class="item"></span></div>
+              <div class="slot empty" id="slot-mainHand"><svg class="icon"><use href="#icon-mainHand" /></svg><span class="tag">main hand</span><span class="item"></span></div>
+              <div class="slot empty" id="slot-hands"><svg class="icon"><use href="#icon-hands" /></svg><span class="tag">hands</span><span class="item"></span></div>
+              <div class="slot empty" id="slot-offHand"><svg class="icon"><use href="#icon-offHand" /></svg><span class="tag">off hand</span><span class="item"></span></div>
+              <div class="slot empty" id="slot-ring1"><svg class="icon"><use href="#icon-ring" /></svg><span class="tag">ring</span><span class="item"></span></div>
+              <div class="slot empty" id="slot-ring2"><svg class="icon"><use href="#icon-ring" /></svg><span class="tag">ring</span><span class="item"></span></div>
+              <div class="slot empty" id="slot-feet"><svg class="icon"><use href="#icon-feet" /></svg><span class="tag">feet</span><span class="item"></span></div>
+              <div class="slot empty" id="slot-legs"><svg class="icon"><use href="#icon-legs" /></svg><span class="tag">legs</span><span class="item"></span></div>
+            </div>
+          </div>
+
+          <div class="sheet-section">
+            <button type="button" class="sheet-button" id="inventory-toggle" aria-expanded="false" aria-controls="inventory">
+              <span>Inventory</span>
+              <span class="spacer"></span>
+              <span class="caret" id="inventory-caret">▸</span>
+            </button>
+            <div id="inventory"></div>
+          </div>
+
+          <div class="sheet-section">
+            <h2>Display</h2>
+            <div class="tune">
+              <label for="brightness">map</label>
+              <input id="brightness" type="range" min="15" max="85" step="1" aria-label="Map brightness" />
+              <output id="brightness-value">—</output>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,23 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.local
+
+# Third-party world data and everything derived from it. Never commit; reproducible
+# via `npm run worldgen`. See docs/RESEARCH-map-data.md.
+data/zones-source/
+data/world/
+
+# Per-character save data (explored maps, and eventually inventories).
+data/players/
+
+# Art assets are large and fetched from upstream; keep LICENSE files only.
+assets/**
+!assets/**/LICENSE
+!assets/**/*.md
+
+logs/
+*.log
+.DS_Store
+Thumbs.db
