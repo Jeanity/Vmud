@@ -14,6 +14,7 @@
 
 import { call, type RoomDetail, type ZoneRoomsBody, type ZonesBody, type ZoneRow } from '../api.ts';
 import { duration, el, render } from '../dom.ts';
+import { drawZoneMap } from '../zonemap.ts';
 
 let timer: number | undefined;
 let pickedZone: number | undefined;
@@ -59,7 +60,22 @@ export const zonesSection = {
         render(roomPane, el('div', { class: 'card' }, el('p', { class: 'flash err' }, result.error ?? 'gone')));
         return;
       }
-      renderRooms(roomPane, result.body, (room) => void showRoom(room), () => void showZone(id));
+      const body = result.body;
+      // Redrawn from the body already in hand rather than refetched: changing level or picking a
+      // room is a change of *view*, and going back to the server for it would make the map flicker
+      // and the selection arrive a round-trip late.
+      const redraw = (): void => {
+        renderRooms(
+          roomPane,
+          body,
+          (room) => {
+            void showRoom(room);
+            redraw();
+          },
+          redraw,
+        );
+      };
+      redraw();
     };
 
     const refreshZones = async (): Promise<void> => {
@@ -160,6 +176,23 @@ function renderRooms(
       label,
     );
 
+  // **The map, when one level is chosen.** A level is a grid; "all" is eleven grids stacked on top of
+  // each other, which is not a drawing of anything — so the map appears exactly when it means
+  // something, and the table is always there underneath for finding a room by name.
+  const map =
+    pickedLevel === undefined
+      ? el(
+          'p',
+          { class: 'note' },
+          'Pick a level to see it drawn — a zone is up to eleven of them, and stacking them would ' +
+            'be a picture of nothing.',
+        )
+      : el(
+          'div',
+          { class: 'zone-map-frame' },
+          drawZoneMap({ rooms: body.rooms, level: pickedLevel, selected: pickedRoom, onPick: pick }),
+        );
+
   render(
     pane,
     el(
@@ -168,6 +201,7 @@ function renderRooms(
       el('h3', {}, `${body.zone.name} — ${shown.length} room${shown.length === 1 ? '' : 's'}`),
       // A zone is up to eleven levels and two hundred rooms; without this the list is a wall.
       el('div', { class: 'row' }, levelButton(undefined, 'all'), ...levels.map((l) => levelButton(l, `L${l}`))),
+      map,
       el(
         'table',
         {},

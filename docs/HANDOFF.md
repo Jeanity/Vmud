@@ -88,7 +88,7 @@ and restarting is the whole of "installing" a zone.
 | Equipment panel | Paper doll, `DESIGN-inventory.md` §6's eleven slots. Only the main hand can fill today, from the carried light |
 | Admin panel | `@mygame/admin` on 5274, a client of `/admin/api` on the game server. Players section built: live edits through the sim's own seams, offline edits through the store, refusal over pretence, every mutation audited to `data/admin-audit.jsonl`. **Edits are permanent** — level/experience persist and beat the `GAME_DEV_LEVEL` rig, teleports stick because login returns to `lastRoom`, and every live op flushes the file at once. Global announce works; zones/mobs/items/quests are honest stubs. See `DESIGN-admin-panel.md` |
 | Combat feed | The `combat` channel's only destination: a capped, self-scrolling section of the character pane below the display slider. A split, not a mirror — the log no longer carries combat lines. `client/src/combatfeed.ts`; the scene routes the channel |
-| Zone browser | Panel section A3, read-only: zones with a **live repop countdown**, rooms filtered by level with who is standing in each, and one room in full — sector, flags, prose, and every exit with its **live door state**. Three of those four cannot be read off `data/world/`, which is the point of it |
+| Zone browser | Panel section A3/A4b, read-only: zones with a **live repop countdown**, and a **drawn map** of one level at a time — a cell per room at its own grid position, exits as lines, sector as colour, flags and live occupants as marks, click to select. An exit that leaves the grid is a stub, never a neighbour line. Plus one room in full: sector, flags, prose, every exit with its **live door state**. `admin/src/zonemap.ts` |
 | Operator messaging | World, a Place, or one room — one endpoint with an optional target, reporting how many heard it. On the **`announce`** channel (protocol 10), a person's voice styled apart from the machine's. A room line is **not** sight-gated: it comes from outside the world |
 
 ### Not built
@@ -257,8 +257,9 @@ operator's is a person's, and a client that cannot tell them apart can style nei
 with you** — pulled ahead of 14b at the owner's word, because it and V2 are companions — alongside
 **V2 (click a body, get its verbs)** and **A3 (zones, read-only)**.
 
-**Round 3 is next: V3 (speech in the world), Phase 14b (a character worth keeping), A4b (the zone
-map).** V3 renders the `announce` channel A2 built.
+**Round 3 is under way — A4b, the zone map, is done.** What is left in the round is **V3 (speech in
+the world)**, which renders the `announce` channel A2 built, and **Phase 14b (a character worth
+keeping)**.
 
 **The zone editor was under-scoped, and the owner called it (2026-08-02.)** A3 shipped a read-only
 *browser*; what is wanted is a **complete editor** — see the zone, select rooms on it, add and

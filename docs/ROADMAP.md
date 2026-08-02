@@ -86,7 +86,7 @@ a new idea still answers the three questions; its second question now also picks
 | --- | --- | --- | --- |
 | 1 ✅ | V1 — the combat feed ✅ | Phase 14 — mercy and fear ✅ | A2 — messaging to a room or place ✅ |
 | 2 ✅ | V2 — click a body, get its verbs ✅ | Phase 14c — the fight moves with you ✅ | A3 — zones, read-only ✅ |
-| **3 — next** | V3 — speech in the world | Phase 14b — a character worth keeping | A4b — the zone map |
+| **3 — current** | V3 — speech in the world | Phase 14b — a character worth keeping | A4b — the zone map ✅ |
 | 4 | V4 — the world as a graph of Places | Phase 15 — inventory and worn equipment | A5 — authoring overlays, driven from the map |
 | 5 | V5 — arrival cards | Phase 16 — gear that matters | A4 — zones and mobs, live ops |
 
@@ -1170,13 +1170,30 @@ order.
   survive a rebuild.
 - **A4 — Zones and mobs, live ops.** Force a repop, work a door; live mob instances by zone, slay,
   spawn from a harvested template. The mob-testing loop Phase 14's morale work will want.
-- **A4b — The zone map.** A *spatial* view of a zone rather than a table: one cell per room at its
-  own `pos.x, pos.y`, exits drawn as the lines between them, colour by sector, flags and occupants
-  as marks, click a cell to select. **Cheap, because the data is already this shape** — worldgen
-  normalises coordinates per zone, so IceCrag's level 9 is 110 rooms on a 13×14 integer grid and an
-  SVG draws it directly. Owner's, 2026-08-02: *"the zone editor is going to need some kind of visual
-  map so you can see the zone along with being able to select rooms."*
-  **Seen when:** you pick a room by pointing at where it is, not by finding its name in a list.
+- **A4b — The zone map** ✅ **done 2026-08-02, owner-requested.** A *spatial* view of one level of a
+  zone: a cell per room at its own `pos.x, pos.y`, exits as the lines between them, colour by
+  sector, flags and live occupants as marks, click a cell to select. `admin/src/zonemap.ts`.
+  **Seen when:** you pick a room by pointing at where it is rather than finding its name in a list
+  ✅ — clicked a cell on IceCrag's level 9 and got *The Northwestern Corner of the Court of the
+  Icess*, whose detail confirmed **cell 1,5**, a player and a patrol member standing in it, and a
+  shut door to the north.
+
+  **Cheap, because the data was already this shape.** Worldgen normalises coordinates per zone, so
+  every room carries a small integer cell — level 9 is 110 rooms inside 13×14 — and nothing in the
+  map computes a position, it reads one. That is a decision made in Phase 1 for other reasons paying
+  out years later.
+
+  **The one thing it refuses to assert: east is not always the cell to the right.** `HANDOFF.md`'s
+  first decision is that zones are joined by portals rather than roads, so a staircase or a
+  cross-zone exit leaves the grid entirely. An exit is drawn as a **line** only when its destination
+  really is the room the direction points at; everything else is a **stub** — there is a way out
+  here, and this drawing cannot say where it lands. Measured on the shipped world: level 9 draws 260
+  links, 0 stubs and 10 stair carets; level 0 draws 10 links and **1 stub**, which is precisely the
+  exit that leaves the map.
+
+  **A level at a time, and "all" draws nothing.** Eleven levels stacked on one grid is a picture of
+  nothing, so the map appears only once a level is chosen; the table stays underneath for finding a
+  room by name.
 - **A5 — Authoring overlays.** `data/world/overrides/`: room flags and prose first — **hand-authored
   sanctuaries land here**, the parked item §4 has carried since Phase 10 — then mob template
   overrides (name, level, combat numbers, aggression). After Phase 14, so a template's behaviour
@@ -1248,6 +1265,7 @@ mentioned and forgotten comes back every month.
 | Idea | Verdict | Where |
 | --- | --- | --- |
 | **Content editors: mobs, items, zones, quests** | **Done in principle — became Track A.** The admin panel (built 2026-08-02, off-schedule at the owner's request; `DESIGN-admin-panel.md`) is the delivery vehicle for all four, and it keeps this row's one rule: the server is the only writer, and authoring lands as overlay files the game loads — content that can only be edited through a tool is hostage to that tool. The landing order this row chose survives as Track A's order: mob authoring after Phase 14 (A5), items after 16 (A6), quests after 21 (A7) | Track A |
+| **Creating whole new zones, with a local Ollama model writing the prose** (owner, 2026-08-02) | **Agreed, and explicitly last — the owner's own placement: *"that can wait until we do everything else first."*** It sits on top of **A8**: you cannot generate a zone until you can create one room, so nothing about it can start before geometry exists. Two things to settle when it comes up, neither of them about the model. **Where the text goes**: generated prose is authored content, so it lands in the same `data/world/overrides/` overlays A5 built and is reviewable and editable afterwards — a zone that can only be regenerated is hostage to the generator, which is this row's parent rule. **Where the model runs**: locally, and *offline of the game* — worldgen is an offline pipeline by design and generation belongs there or in the panel, never in the simulation, which `CLAUDE.md` rule 3 requires to stay deterministic. A model in the tick is a desync nobody can reproduce | After A8. Not scheduled |
 | **A complete zone editor, with a visual map** (owner, 2026-08-02) | **Agreed, and this row exists because the scoping above was too thin.** "Zone editor" was carried as one line — *the geometry editor is largest and last* — and A3 shipped a read-only browser against it. That is not what the owner means: they want to **see** the zone, **select** rooms on it, and **add and remove** them. Split three ways, because the costs are wildly different: the **map** is cheap and the room data is already a per-zone integer grid (**A4b**); **field editing** was already scheduled and just needs driving from the map (**A5**); **geometry** is a real phase-sized piece with four decisions in front of it, chief among them that resizing a zone's grid invalidates every saved `seen` map for that Place (**A8**) | A4b next, then A5; A8 after a design note |
 | Authoring sanctuaries and other room flags by hand | Lands in **A5**, the first authoring overlay — `safe` is set on one room in the shipped world, so sanctuary has been built and untestable since Phase 10 | Track A5 |
 | Terrain inference quality (23.2% fall back to a default sector) | **Done — became Phase 5c.** Suffix rules plus graph label-diffusion took the default share from 23.2% to 0.2%; see the phase for what the held-out validation says about accuracy | Phase 5c ✅ |

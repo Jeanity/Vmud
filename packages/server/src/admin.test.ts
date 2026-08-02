@@ -495,11 +495,25 @@ describe('the zone browser', () => {
     const { api } = makeRig();
     const body = api.route(req('GET', '/zones/600/rooms')).body as {
       zone: { id: number };
-      rooms: { id: number; name: string; sector: string; exits: string[]; occupants: { mobs: string[] } }[];
+      rooms: {
+        id: number;
+        name: string;
+        x: number;
+        y: number;
+        sector: string;
+        exits: { dir: string; to: number }[];
+        occupants: { mobs: string[] };
+      }[];
     };
     assert.equal(body.zone.id, 600);
     assert.deepEqual(body.rooms.map((r) => r.id), [6001, 6002]);
-    assert.deepEqual(body.rooms[0]!.exits, ['east']);
+    // The cell on this zone's own normalised grid — the map's entire input, so it is worth pinning.
+    assert.deepEqual([body.rooms[0]!.x, body.rooms[0]!.y], [0, 0]);
+    assert.deepEqual([body.rooms[1]!.x, body.rooms[1]!.y], [1, 0]);
+    // Destination as well as direction. The map draws a neighbour line only when the exit really
+    // lands in the cell the direction points at — otherwise it is a portal or a staircase, and a
+    // line would assert an adjacency the world does not have.
+    assert.deepEqual(body.rooms[0]!.exits, [{ dir: 'east', to: 6002 }]);
     assert.deepEqual(body.rooms[0]!.occupants.mobs, ['a sentry'], 'live, not what the reset table meant');
   });
 

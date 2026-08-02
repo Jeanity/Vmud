@@ -174,9 +174,13 @@ export interface ZoneRoomRow {
   id: number;
   name: string;
   level: number;
+  /** Cell position on this zone's own normalised grid — what the map draws. */
+  x: number;
+  y: number;
   sector: string;
   flags: string[];
-  exits: string[];
+  /** Destination as well as direction: an exit off this grid must not be drawn as a neighbour. */
+  exits: { dir: string; to: number }[];
   described: boolean;
   occupants: Occupants;
 }

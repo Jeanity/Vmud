@@ -317,9 +317,18 @@ export class AdminApi {
           id: room.id,
           name: room.name,
           level: room.pos.z,
+          // **The map's whole input.** Worldgen normalises coordinates per zone, so these are small
+          // integers on that zone's own grid — level 9 of IceCrag is 110 rooms inside 13x14 — and a
+          // spatial view is a direct drawing of them rather than a layout problem. See A4b.
+          x: room.pos.x,
+          y: room.pos.y,
           sector: room.sector,
           flags: room.flags ?? [],
-          exits: Object.keys(room.exits),
+          // Destinations as well as directions, because the map cannot assume east means the cell to
+          // the right: a cross-zone exit or a staircase leads off this grid entirely, and drawing it
+          // as a neighbour line would assert an adjacency the world does not have — decision 1 in
+          // `HANDOFF.md`, in its smallest form.
+          exits: Object.entries(room.exits).map(([dir, exit]) => ({ dir, to: exit.to })),
           described: Boolean(room.description),
           // Live, and the reason the browser is worth having open while testing: it says where the
           // population actually *is* rather than where the reset table meant to put it.

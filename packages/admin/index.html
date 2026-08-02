@@ -78,15 +78,49 @@
       .columns { display: grid; grid-template-columns: minmax(320px, 5fr) minmax(380px, 7fr); gap: 16px; align-items: start; }
       /* The zone browser narrows left to right: which zones, which rooms, which room. Each column
          scrolls on its own, because a zone runs to 219 rooms and the detail must stay in view. */
+      /* `auto-fit` rather than three fixed tracks: three columns need ~840px and this panel is
+         routinely opened beside the game at 900-ish, where fixed tracks pushed the room detail
+         clean off the screen. It wraps to two and then one as the window narrows. */
       .columns3 {
         display: grid;
-        grid-template-columns: minmax(230px, 4fr) minmax(280px, 5fr) minmax(300px, 6fr);
+        grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
         gap: 14px;
         align-items: start;
       }
       .columns3 > div > .card { max-height: calc(100vh - 200px); overflow-y: auto; }
       /* Room prose is authored text rather than interface, so it gets room to breathe. */
       p.prose { color: #cfd8c0; line-height: 1.55; margin: 4px 0 0; white-space: pre-wrap; }
+
+      /* ---------------------------------------------------------- the zone map */
+      /* Scrolls in both directions rather than scaling to fit: a room cell that shrank with the zone
+         would be unclickable on the big ones, and IceCrag is the big one. */
+      .zone-map-frame {
+        overflow: auto;
+        max-height: 46vh;
+        margin: 8px 0 4px;
+        padding: 6px;
+        background: #0d0f0b;
+        border: 1px solid var(--edge);
+        border-radius: 3px;
+      }
+      .zone-map { display: block; }
+      /* An exit that really does join the neighbouring cell. */
+      .zone-map-link { stroke: #6f7a63; stroke-width: 2; }
+      /* A way out that leaves this grid — a portal, a staircase, a zone not loaded. Drawn as a stub
+         precisely because the map must not claim to know where it lands. */
+      .zone-map-stub { stroke: #8b8172; stroke-width: 2; stroke-dasharray: 2 2; }
+      .zone-map-vertical { fill: #b9a882; font-size: 9px; pointer-events: none; }
+      .zone-map-room { cursor: pointer; }
+      .zone-map-room rect { stroke: #22261d; stroke-width: 1; }
+      .zone-map-room:hover rect:first-child { stroke: var(--accent); }
+      .zone-map-room rect.picked { stroke: var(--accent); stroke-width: 2; }
+      .zone-map-room:focus { outline: none; }
+      .zone-map-room:focus rect:first-child { stroke: var(--accent); stroke-width: 2; }
+      /* A flag changes a rule — `safe`, `no_mob`, `dark` — so a flagged room is findable at a glance. */
+      .zone-map-flagged { fill: none; stroke: #c9a25c; stroke-width: 1; stroke-dasharray: 3 2; }
+      .zone-map-mob { fill: #e0a86a; }
+      .zone-map-player { fill: #8fc3e8; }
+      .zone-map-corpse { fill: #b06455; }
       button.on { border-color: var(--accent); color: var(--accent); }
 
       table { border-collapse: collapse; width: 100%; }
