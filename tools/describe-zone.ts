@@ -94,39 +94,77 @@ async function main(): Promise<void> {
 
   let done = 0;
   let written = 0;
+  let drafted = 0;
+  let retried = 0;
+  const failed: [string, RoomRow[]][] = [];
   const startedAt = Date.now();
 
-  for (const [title, rooms] of titles) {
-    done++;
+  const attempt = async ([title, rooms]: [string, RoomRow[]], label: string): Promise<boolean> => {
     // The representative: the lowest id, so a re-run picks the same room and the neighbourhood the
     // model is shown does not shift between runs.
     const lead = rooms.reduce((best, room) => (room.id < best.id ? room : best));
     const brief = `${theme} This room: ${title}.`;
 
-    process.stdout.write(`\n[${done}/${titles.length}] ${title}  (${rooms.length} room${rooms.length === 1 ? '' : 's'}, ${lead.sector}) … `);
+    process.stdout.write(`\n[${label}] ${title}  (${rooms.length} room${rooms.length === 1 ? '' : 's'}, ${lead.sector}) … `);
 
-    let draft: { description: string; model: string; ms: number };
+    let draft: { description: string; model: string; ms: number; retriedFor?: string[] };
     try {
       draft = await api('POST', `/rooms/${lead.id}/describe`, { model, brief });
     } catch (err) {
       console.log(`FAILED: ${(err as Error).message.slice(0, 160)}`);
-      continue;
+      return false;
     }
-    console.log(`${(draft.ms / 1000).toFixed(0)}s, ${draft.description.split(/\s+/).length} words`);
+    drafted++;
+    if (draft.retriedFor?.length) retried++;
+    console.log(
+      `${(draft.ms / 1000).toFixed(0)}s, ${draft.description.split(/\s+/).length} words` +
+        (draft.retriedFor?.length ? `  (redrafted: ${draft.retriedFor.join(', ')})` : ''),
+    );
     console.log(`    ${draft.description.replace(/\n+/g, '\n    ')}`);
 
-    if (dry) continue;
+    if (dry) return true;
     for (const room of rooms) {
       await api('PATCH', `/rooms/${room.id}`, { description: draft.description, by: draft.model, brief });
       written++;
     }
+    return true;
+  };
+
+  for (const entry of titles) {
+    done++;
+    if (!(await attempt(entry, `${done}/${titles.length}`))) failed.push(entry);
+  }
+
+  // **A second pass over what failed.** The first full run of this script lost 5 titles to a run of
+  // consecutive 120s timeouts and then recovered on its own — the model had stalled, not broken. A
+  // transient failure should not leave a room blank until somebody notices and re-runs the whole
+  // thing, and the retry costs nothing when there is nothing to retry.
+  if (failed.length > 0) {
+    console.log(`\n${failed.length} title${failed.length === 1 ? '' : 's'} failed. Trying each once more…`);
+    const stillFailed: typeof failed = [];
+    let n = 0;
+    for (const entry of failed) {
+      n++;
+      if (!(await attempt(entry, `retry ${n}/${failed.length}`))) stillFailed.push(entry);
+    }
+    failed.length = 0;
+    failed.push(...stillFailed);
   }
 
   const mins = ((Date.now() - startedAt) / 60000).toFixed(1);
   console.log(
-    `\n${dry ? 'Drafted' : 'Wrote'} ${dry ? titles.length : written} room${written === 1 ? '' : 's'} ` +
-      `from ${titles.length} titles in ${mins} minutes.` +
-      (dry ? '' : '\nEvery one is marked authored and one click from Revert in the panel.'),
+    `\n${dry ? 'Drafted' : 'Wrote'} ${dry ? drafted : written} room${(dry ? drafted : written) === 1 ? '' : 's'} ` +
+      // Counts what actually worked rather than what was attempted. The first version reported
+      // "93 rooms from 25 titles" on a run where 5 of those titles produced nothing at all.
+      `from ${drafted} of ${titles.length} titles in ${mins} minutes.` +
+      (retried > 0 ? `\n${retried} draft${retried === 1 ? '' : 's'} were redrafted for breaking a rule.` : '') +
+      (failed.length > 0
+        ? `\n\nSTILL MISSING — ${failed.length} title${failed.length === 1 ? '' : 's'} failed twice:\n` +
+          failed.map(([title]) => `  ${title}`).join('\n') +
+          '\nRe-run this command; it skips everything already written.'
+        : dry
+          ? ''
+          : '\nEvery one is marked authored and one click from Revert in the panel.'),
   );
 }
 

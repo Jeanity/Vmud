@@ -688,10 +688,24 @@ export class AdminApi {
       // whoever reads it — the panel is fine, the model is not.
       return { status: 502, body: { error: result.error } };
     }
-    this.audit('room.draft', { room: id, model: result.model, brief: brief.trim(), ms: result.ms });
+    this.audit('room.draft', {
+      room: id,
+      model: result.model,
+      brief: brief.trim(),
+      ms: result.ms,
+      ...(result.retriedFor.length > 0 ? { redrafted: result.retriedFor } : {}),
+    });
     return {
       status: 200,
-      body: { description: result.description, model: result.model, brief: brief.trim(), ms: result.ms },
+      body: {
+        description: result.description,
+        model: result.model,
+        brief: brief.trim(),
+        ms: result.ms,
+        // Surfaced rather than swallowed: a draft that had to be asked twice is one worth reading
+        // more carefully, and it is also the signal that would tell you a model is a poor fit here.
+        retriedFor: result.retriedFor,
+      },
     };
   }
 
