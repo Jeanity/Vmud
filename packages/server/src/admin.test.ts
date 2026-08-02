@@ -117,6 +117,10 @@ function makeRig(options: { token?: string; auditFile?: string } = {}): Rig {
     },
     tell: (_player, text) => void calls.push(`tell ${text}`),
     kick: (player) => void calls.push(`kick ${player.name}`),
+    // A3's two reads, answered with fixtures: what these tests check is that the router asks and
+    // shapes the reply, not that the simulation can count bodies.
+    repopIn: (zone) => (zone === 600 ? 90_000 : undefined),
+    occupantsOf: () => ({ players: ['Ravi'], mobs: ['a sentry'], corpses: [] }),
   };
 
   const deps: AdminDeps = {
@@ -469,5 +473,62 @@ describe('identity', () => {
     const response = api.route(req('GET', `/players/${slug}`));
     assert.equal(response.status, 200);
     assert.equal((response.body as { name: string }).name, 'Sir Reginald III');
+  });
+});
+
+describe('the zone browser', () => {
+  it('lists zones with their live repop clock, and says nothing rather than zero', () => {
+    // "Never repops" and "repops now" are opposite facts; a zone with no population file reports
+    // null so the panel can draw a dash instead of an alarming 0.
+    const { api } = makeRig();
+    const body = api.route(req('GET', '/zones')).body as {
+      zones: { id: number; name: string; rooms: number; repopInMs: number | null; described: number }[];
+    };
+    assert.equal(body.zones.length, 1);
+    assert.equal(body.zones[0]!.id, 600);
+    assert.equal(body.zones[0]!.rooms, 2);
+    assert.equal(body.zones[0]!.repopInMs, 90_000);
+    assert.equal(body.zones[0]!.described, 0, 'the synthetic zone carries no prose, and says so');
+  });
+
+  it('browses one zone room by room, with who is standing in each', () => {
+    const { api } = makeRig();
+    const body = api.route(req('GET', '/zones/600/rooms')).body as {
+      zone: { id: number };
+      rooms: { id: number; name: string; sector: string; exits: string[]; occupants: { mobs: string[] } }[];
+    };
+    assert.equal(body.zone.id, 600);
+    assert.deepEqual(body.rooms.map((r) => r.id), [6001, 6002]);
+    assert.deepEqual(body.rooms[0]!.exits, ['east']);
+    assert.deepEqual(body.rooms[0]!.occupants.mobs, ['a sentry'], 'live, not what the reset table meant');
+  });
+
+  it('refuses a zone the server is not running', () => {
+    const { api } = makeRig();
+    assert.equal(api.route(req('GET', '/zones/999/rooms')).status, 404);
+    assert.equal(api.route(req('GET', '/zones/nonsense/rooms')).status, 400);
+  });
+
+  it('describes one room, with the live state of every way out', () => {
+    // Door state is mutated by open/close and put back by the repop, which is exactly why it belongs
+    // in a panel: this is the only place that says whether a door is standing open right now.
+    const { api } = makeRig();
+    const body = api.route(req('GET', '/rooms/6001')).body as {
+      name: string;
+      place: string;
+      description: string | null;
+      exits: { dir: string; to: number; toName: string; door: unknown }[];
+    };
+    assert.equal(body.name, 'A Mossy Hollow');
+    assert.equal(body.place, '600:0');
+    assert.equal(body.description, null, 'absent prose reads as absent, not as an empty string');
+    assert.equal(body.exits.length, 1);
+    assert.equal(body.exits[0]!.dir, 'east');
+    assert.equal(body.exits[0]!.toName, 'A Fallen Log', 'named, so the browser is navigable');
+  });
+
+  it('404s a room the world does not have', () => {
+    const { api } = makeRig();
+    assert.equal(api.route(req('GET', '/rooms/99999')).status, 404);
   });
 });

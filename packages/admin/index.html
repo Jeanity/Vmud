@@ -76,6 +76,18 @@
       h3 { margin: 18px 0 6px; font-size: 13px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; }
       p.note { color: var(--dim); margin: 4px 0 14px; max-width: 72ch; }
       .columns { display: grid; grid-template-columns: minmax(320px, 5fr) minmax(380px, 7fr); gap: 16px; align-items: start; }
+      /* The zone browser narrows left to right: which zones, which rooms, which room. Each column
+         scrolls on its own, because a zone runs to 219 rooms and the detail must stay in view. */
+      .columns3 {
+        display: grid;
+        grid-template-columns: minmax(230px, 4fr) minmax(280px, 5fr) minmax(300px, 6fr);
+        gap: 14px;
+        align-items: start;
+      }
+      .columns3 > div > .card { max-height: calc(100vh - 200px); overflow-y: auto; }
+      /* Room prose is authored text rather than interface, so it gets room to breathe. */
+      p.prose { color: #cfd8c0; line-height: 1.55; margin: 4px 0 0; white-space: pre-wrap; }
+      button.on { border-color: var(--accent); color: var(--accent); }
 
       table { border-collapse: collapse; width: 100%; }
       th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--edge); }
@@ -129,6 +141,9 @@
         display: inline-block;
         font-size: 11px;
         padding: 1px 7px;
+        /* Leading margin, not a space in the markup: a pill sits beside a room name and text nodes
+           that meet with no gap read as one word — "A Corner in the Guards Walkindoors". */
+        margin-left: 6px;
         border: 1px solid var(--edge);
         border-radius: 8px;
         color: var(--dim);

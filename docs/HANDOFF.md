@@ -19,7 +19,7 @@ skills from those projects.
 npm install          # once
 npm run dev          # server + client + admin panel together
 npm run typecheck    # tsc across all five packages
-npm test             # 806 tests
+npm test             # 811 tests
 npm run worldgen     # rebuild world JSON from the zMUD source DB
 ```
 
@@ -32,7 +32,7 @@ and restarting is the whole of "installing" a zone.
 
 ## State: green
 
-- **806 tests** (433 server, 300 shared, 73 worldgen), typecheck clean across all five packages.
+- **811 tests** (438 server, 300 shared, 73 worldgen), typecheck clean across all five packages.
 - `data/` is git-ignored and reproducible. `npm run worldgen` regenerates it.
 - Four zones loaded, 23 places: **36 IceCrag Castle** (219 rooms, 11 levels) and **168 Kobold
   Settlement** (99 rooms, 6 levels), both Duris-matched and carrying harvested prose, flags and real
@@ -88,6 +88,7 @@ and restarting is the whole of "installing" a zone.
 | Equipment panel | Paper doll, `DESIGN-inventory.md` §6's eleven slots. Only the main hand can fill today, from the carried light |
 | Admin panel | `@mygame/admin` on 5274, a client of `/admin/api` on the game server. Players section built: live edits through the sim's own seams, offline edits through the store, refusal over pretence, every mutation audited to `data/admin-audit.jsonl`. **Edits are permanent** — level/experience persist and beat the `GAME_DEV_LEVEL` rig, teleports stick because login returns to `lastRoom`, and every live op flushes the file at once. Global announce works; zones/mobs/items/quests are honest stubs. See `DESIGN-admin-panel.md` |
 | Combat feed | The `combat` channel's only destination: a capped, self-scrolling section of the character pane below the display slider. A split, not a mirror — the log no longer carries combat lines. `client/src/combatfeed.ts`; the scene routes the channel |
+| Zone browser | Panel section A3, read-only: zones with a **live repop countdown**, rooms filtered by level with who is standing in each, and one room in full — sector, flags, prose, and every exit with its **live door state**. Three of those four cannot be read off `data/world/`, which is the point of it |
 | Operator messaging | World, a Place, or one room — one endpoint with an optional target, reporting how many heard it. On the **`announce`** channel (protocol 10), a person's voice styled apart from the machine's. A room line is **not** sight-gated: it comes from outside the world |
 
 ### Not built
@@ -252,10 +253,13 @@ left, violence on the right) and **Phase 14, mercy and fear**.
 dedicated `announce` channel that took **protocol to 10**. `system` is the machine's voice; an
 operator's is a person's, and a client that cannot tell them apart can style neither.
 
-**Round 2 is nearly closed.** Its mechanic slot went to **Phase 14c, the fight moves with you** —
-pulled ahead of 14b at the owner's word, because it and V2 are companions — and both it and **V2
-(click a body, get its verbs)** are done. What remains in the round is **A3, zones read-only**;
-**Phase 14b** moves to round 3.
+**Rounds 1 and 2 are both closed.** Round 2's mechanic slot went to **Phase 14c, the fight moves
+with you** — pulled ahead of 14b at the owner's word, because it and V2 are companions — alongside
+**V2 (click a body, get its verbs)** and **A3 (zones, read-only)**.
+
+**Round 3 is next: V3 (speech in the world), Phase 14b (a character worth keeping), A4 (zones and
+mobs, live ops).** V3 renders the `announce` channel A2 built; A4 gets its navigation from A3's
+room browser.
 
 **What death costs, and progression generally, are Phase 14b** — promoted from ROADMAP §4's parking
 lot onto the schedule (round 2). Its storage half already arrived early (see progression above);

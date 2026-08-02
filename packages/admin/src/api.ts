@@ -144,3 +144,63 @@ export interface RosterBody {
 export interface RoomsBody {
   rooms: { id: number; name: string; zone: number; zoneName: string; level: number }[];
 }
+
+/* ---- A3: the zone browser ------------------------------------------------ */
+
+export interface Occupants {
+  players: string[];
+  mobs: string[];
+  corpses: string[];
+}
+
+export interface ZoneRow {
+  id: number;
+  name: string;
+  rooms: number;
+  levels: number[];
+  populated: boolean;
+  /** Milliseconds to the next repop, or null for a zone with no population at all. */
+  repopInMs: number | null;
+  entryRoom: number;
+  described: number;
+  flagged: number;
+}
+
+export interface ZonesBody {
+  zones: ZoneRow[];
+}
+
+export interface ZoneRoomRow {
+  id: number;
+  name: string;
+  level: number;
+  sector: string;
+  flags: string[];
+  exits: string[];
+  described: boolean;
+  occupants: Occupants;
+}
+
+export interface ZoneRoomsBody {
+  zone: { id: number; name: string };
+  rooms: ZoneRoomRow[];
+}
+
+export interface RoomDetail {
+  id: number;
+  name: string;
+  zone: number;
+  place: string;
+  pos: { x: number; y: number; z: number };
+  sector: string;
+  flags: string[];
+  description: string | null;
+  occupants: Occupants;
+  exits: {
+    dir: string;
+    to: number;
+    toName: string;
+    portal: boolean;
+    door: { name: string; closed: boolean; locked: boolean } | null;
+  }[];
+}

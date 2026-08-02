@@ -85,8 +85,8 @@ a new idea still answers the three questions; its second question now also picks
 | Round | V | M | A |
 | --- | --- | --- | --- |
 | 1 ✅ | V1 — the combat feed ✅ | Phase 14 — mercy and fear ✅ | A2 — messaging to a room or place ✅ |
-| **2 — current** | V2 — click a body, get its verbs ✅ | Phase 14c — the fight moves with you ✅ | A3 — zones, read-only (next) |
-| 3 | V3 — speech in the world | Phase 14b — a character worth keeping | A4 — zones and mobs, live ops |
+| 2 ✅ | V2 — click a body, get its verbs ✅ | Phase 14c — the fight moves with you ✅ | A3 — zones, read-only ✅ |
+| **3 — next** | V3 — speech in the world | Phase 14b — a character worth keeping | A4 — zones and mobs, live ops |
 | 4 | V4 — the world as a graph of Places | Phase 15 — inventory and worn equipment | A5 — authoring overlays |
 
 Two adjacencies are deliberate. A2 (round 1) takes the `announce` channel's protocol bump — a
@@ -1149,8 +1149,24 @@ order.
   operator's is a person's, and a client that cannot tell them apart can style neither. **Seen when:**
   a line aimed at one room reaches the character standing in it and nobody else ✅ — verified with two
   probes on different levels, and an empty room answering *"nobody was there to hear it"*.
-- **A3 — Zones, read-only.** Zone list, room browser with sector/flags/prose, door states, repop
-  clocks. The room browser is what A2's targeting and every later authoring job navigate with.
+- **A3 — Zones, read-only** ✅ **done 2026-08-02.** Three columns narrowing left to right: which
+  zones are loaded, which rooms are in one (filtered by level), and what one room actually is —
+  sector, flags, prose, and every exit with its destination named. The room browser is what A4's
+  live ops and A5's authoring will both navigate with.
+  **Seen when:** the panel tells you something the world files cannot ✅ — IceCrag counting down
+  **71 minutes to its next repop** while the other three read "—" (no population at all, which is a
+  different fact from "due now"), a Court Patrol member shown standing in room 5699, and a door
+  opened *in the game* reading back as **open** in the panel a second later.
+
+  **The live half is what makes it worth having open.** Three of the four things on screen cannot be
+  read off `data/world/`: the repop clock is re-rolled from each zone's own band after every reset,
+  the occupants are where the population actually *is* rather than where the reset table meant to
+  put it, and door state is mutated by `open`/`close` and put back by the repop. The static half —
+  prose, flags, sector — is there so the two can be compared, which is the job of a browser.
+
+  **Read-only, and §1 is the reason rather than the effort.** The base data is generated, so an edit
+  here would be lost by the next `npm run worldgen`. Authoring lands in A5 as overlay files that
+  survive a rebuild.
 - **A4 — Zones and mobs, live ops.** Force a repop, work a door; live mob instances by zone, slay,
   spawn from a harvested template. The mob-testing loop Phase 14's morale work will want.
 - **A5 — Authoring overlays.** `data/world/overrides/`: room flags and prose first — **hand-authored

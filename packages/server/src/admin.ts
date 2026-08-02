@@ -32,6 +32,7 @@ import {
   UNLIMITED_DURATION,
   newAffect,
   placeKey,
+  type Direction,
   type Place,
   type RoomId,
   type ZoneId,
@@ -84,6 +85,24 @@ export interface LiveOps {
   tell(player: Player, text: string): void;
   /** Closes the socket; the ordinary disconnect path does the bookkeeping. */
   kick(player: Player): void;
+
+  /* ---- reads ---------------------------------------------------------- */
+
+  /**
+   * Milliseconds until this zone's next repop, or undefined for one with no population at all.
+   *
+   * A read rather than an operation, and here rather than on `world` because it is *live* state: the
+   * zone clock is a running countdown re-rolled from the zone's own band after every reset, and the
+   * static world knows nothing about it. See `reset.ts`.
+   */
+  repopIn(zone: ZoneId): number | undefined;
+
+  /** Who and what is standing in a room this instant, by name. For the room browser. */
+  occupantsOf(room: RoomId): {
+    readonly players: readonly string[];
+    readonly mobs: readonly string[];
+    readonly corpses: readonly string[];
+  };
 }
 
 /** Who an operator's line is aimed at. See {@link AdminDeps.announce}. */
@@ -146,6 +165,13 @@ export class AdminApi {
 
     if (head === 'status' && parts.length === 1 && request.method === 'GET') return this.status();
     if (head === 'rooms' && parts.length === 1 && request.method === 'GET') return this.rooms();
+    if (head === 'zones' && parts.length === 1 && request.method === 'GET') return this.zones();
+    if (head === 'zones' && slug !== undefined && action === 'rooms' && parts.length === 3 && request.method === 'GET') {
+      return this.zoneRooms(slug);
+    }
+    if (head === 'rooms' && slug !== undefined && parts.length === 2 && request.method === 'GET') {
+      return this.room(slug);
+    }
     if (head === 'announce' && parts.length === 1 && request.method === 'POST') {
       return this.announce(request.body);
     }
@@ -235,6 +261,114 @@ export class AdminApi {
     );
     rooms.sort((a, b) => (a.zone - b.zone) || (a.id - b.id));
     return { status: 200, body: { rooms } };
+  }
+
+  /* ------------------------------------------------------------------------ */
+  /* Zones — A3, read-only                                                     */
+  /* ------------------------------------------------------------------------ */
+
+  /**
+   * Every loaded zone, with its live repop clock.
+   *
+   * The clock is the half that cannot come from the world files: it is re-rolled from the zone's own
+   * band after each reset, so *when the next one is due* is a fact about this run. A zone with no
+   * population file reports `null` rather than 0 — "never repops" and "repops now" are opposite
+   * things and a dash beats a zero.
+   */
+  private zones(): AdminResponse {
+    const { world, live } = this.deps;
+    return {
+      status: 200,
+      body: {
+        zones: world.allZones().map((zone) => {
+          const levels = world.levelsOf(zone.id);
+          const repopInMs = live.repopIn(zone.id);
+          return {
+            id: zone.id,
+            name: zone.name,
+            rooms: zone.rooms.length,
+            levels,
+            populated: world.populate.includes(zone.id),
+            repopInMs: repopInMs ?? null,
+            entryRoom: zone.entryRoom,
+            // Two counts worth having at a glance, because both are things the harvest only
+            // *partly* supplies and the gap is the interesting part: how much of this zone has real
+            // prose, and how much carries a flag. See Phase 3's measured yield.
+            described: zone.rooms.filter((room) => room.description).length,
+            flagged: zone.rooms.filter((room) => (room.flags?.length ?? 0) > 0).length,
+          };
+        }),
+      },
+    };
+  }
+
+  /** Every room of one zone, summarised — the browser's middle column. */
+  private zoneRooms(slug: string): AdminResponse {
+    const id = Number(slug);
+    if (!Number.isInteger(id)) return { status: 400, body: { error: `"${slug}" is not a zone id` } };
+    const zone = this.deps.world.zone(id as ZoneId);
+    if (!zone) return { status: 404, body: { error: `zone ${id} is not loaded` } };
+
+    return {
+      status: 200,
+      body: {
+        zone: { id: zone.id, name: zone.name },
+        rooms: zone.rooms.map((room) => ({
+          id: room.id,
+          name: room.name,
+          level: room.pos.z,
+          sector: room.sector,
+          flags: room.flags ?? [],
+          exits: Object.keys(room.exits),
+          described: Boolean(room.description),
+          // Live, and the reason the browser is worth having open while testing: it says where the
+          // population actually *is* rather than where the reset table meant to put it.
+          occupants: this.deps.live.occupantsOf(room.id),
+        })),
+      },
+    };
+  }
+
+  /** One room in full: its prose, its flags, and the live state of every way out of it. */
+  private room(slug: string): AdminResponse {
+    const id = Number(slug);
+    if (!Number.isInteger(id)) return { status: 400, body: { error: `"${slug}" is not a room id` } };
+    const located = this.deps.world.locate(id as RoomId);
+    if (!located) return { status: 404, body: { error: `no room ${id} in the loaded world` } };
+    const { room, place } = located;
+
+    return {
+      status: 200,
+      body: {
+        id: room.id,
+        name: room.name,
+        zone: room.zone,
+        place: placeKey(place),
+        pos: room.pos,
+        sector: room.sector,
+        flags: room.flags ?? [],
+        // Absent rather than empty for a room the harvest never reached — 5,889 of 46,508 carry
+        // prose, so "no description" is the ordinary case and should read as one.
+        description: room.description ?? null,
+        occupants: this.deps.live.occupantsOf(room.id),
+        exits: Object.entries(room.exits).map(([dir, exit]) => {
+          const destination = this.deps.world.locate(exit.to);
+          // **Door state is live**, mutated by `open`/`close` and put back by the zone reset — which
+          // is exactly why it belongs in a panel rather than in the world files: this says whether
+          // the castle's front door is standing open *right now*.
+          const door = this.deps.world.doorway(room.id, dir as Direction)?.near.door;
+          return {
+            dir,
+            to: exit.to,
+            toName: destination?.room.name ?? '(not loaded)',
+            portal: Boolean(exit.portal),
+            door: door
+              ? { name: door.name, closed: Boolean(door.closed), locked: Boolean(door.locked) }
+              : null,
+          };
+        }),
+      },
+    };
   }
 
   private roster(): AdminResponse {

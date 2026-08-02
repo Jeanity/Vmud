@@ -92,7 +92,7 @@ follows.
 | **Dashboard** | with players slice | `/health` grown up: uptime, zones and places loaded, populated zones, players online, tick and round lengths, protocol version |
 | **Players** | **built first** | §6 below |
 | **Messaging** | **built (A2)** | global announcement, line to a place, line to a room, line to a player. One endpoint with an optional target rather than three, because the validation, the audit line and the "how many heard it" answer are identical and only the set of listeners differs. The player-targeted half lives in the player editor, where you can already see who you are talking to |
-| **Zones** | after messaging | read first: zone list, room browser with flags/sector/prose, door states, repop clocks. Live ops second: force a repop, work a door. Authoring last, as §1 overlays: room prose, flags, sector |
+| **Zones** | **built (A3), read-only** | read first: zone list, room browser with flags/sector/prose, door states, repop clocks. Live ops second: force a repop, work a door. Authoring last, as §1 overlays: room prose, flags, sector |
 | **Mobs** | with zones | live: instances by zone, slay, spawn from template. Authoring: template overrides (name, level, combat numbers, aggro) as §1 overlays over the harvested spawn files |
 | **Items** | stub until Phase 15 | there is no item system. The light catalogue (`shared/src/light.ts`) is the one item-shaped thing in the game and is code, not data; the tab lists it read-only and says why |
 | **Quests** | stub until Phase 17 | nothing exists to edit. The tab names the phase |

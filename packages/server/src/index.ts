@@ -2538,6 +2538,24 @@ const adminLive: LiveOps = {
     send(player.id, { t: 'log', channel: 'system', text: 'You have been disconnected by an admin.' });
     sockets.get(player.id)?.close();
   },
+
+  repopIn(zone) {
+    const clock = zoneClocks.find((candidate) => candidate.spawns.zone === zone);
+    if (!clock) return undefined;
+    // Ticks remaining, converted back to wall time — a zone tick is far slower than the sim's, and
+    // `carryMs` is the fraction already accumulated toward the next one.
+    const remaining = Math.max(0, clock.lifespan - clock.age);
+    return remaining * ZONE_TICK_MS - clock.carryMs;
+  },
+
+  occupantsOf(room) {
+    const players: string[] = [];
+    const mobs: string[] = [];
+    for (const actor of sim.actorsIn(room)) (isPlayer(actor) ? players : mobs).push(actor.name);
+    // Ungated on sight, deliberately, and this is the one place in the project where that is right:
+    // an operator is looking at the world from outside it, not standing in the room with a torch.
+    return { players, mobs, corpses: corpsesIn(graveyard, room).map((corpse) => corpseName(corpse)) };
+  },
 };
 
 const admin = new AdminApi({
