@@ -19,7 +19,7 @@ skills from those projects.
 npm install          # once
 npm run dev          # server + client + admin panel together
 npm run typecheck    # tsc across all five packages
-npm test             # 797 tests
+npm test             # 803 tests
 npm run worldgen     # rebuild world JSON from the zMUD source DB
 ```
 
@@ -32,7 +32,7 @@ and restarting is the whole of "installing" a zone.
 
 ## State: green
 
-- **797 tests** (424 server, 300 shared, 73 worldgen), typecheck clean across all five packages.
+- **803 tests** (430 server, 300 shared, 73 worldgen), typecheck clean across all five packages.
 - `data/` is git-ignored and reproducible. `npm run worldgen` regenerates it.
 - Four zones loaded, 23 places: **36 IceCrag Castle** (219 rooms, 11 levels) and **168 Kobold
   Settlement** (99 rooms, 6 levels), both Duris-matched and carrying harvested prose, flags and real
@@ -63,7 +63,8 @@ and restarting is the whole of "installing" a zone.
 | Pursuit | Room-graph BFS for the exit, tile movement to get there. One room per 1.5 s, which is faster than you walk. 30 of IceCrag's 61 templates hunt |
 | What stops a chase | A Place boundary, `trackRooms`, the give-up timer, or no route. `safe` and `no_mob` rooms are cut out of the graph, so a hunter routes *around* them |
 | Combat | Engagement is a **pointer**, not a distance — blows land wherever you stand in the room. Per-actor round clocks. `kill <target>` starts it |
-| Leaving a fight | **You cannot walk out**, on all four movement paths: the typed direction, the `move` intent a keybind sends, the `moveTo` a click sends, and steering (gated in `Simulation.tick`, the only place that sees a step about to cross). Moving *inside* the room stays free. `flee` is the way out. An engaged mob does not yet keep station on you — that is Phase 14c |
+| Leaving a fight | **You cannot walk out**, on all four movement paths: the typed direction, the `move` intent a keybind sends, the `moveTo` a click sends, and steering (gated in `Simulation.tick`, the only place that sees a step about to cross). Moving *inside* the room stays free. `flee` is the way out |
+| Station-keeping | An engaged mob closes to one tile and **follows you around the room** at a hunter's pace — the fight moves with you. Knocked-down bodies stay down (`canMove` is the gate, so Phase 19's bash needs no code). No range check anywhere: this walks a body toward a fight it is already in. Threat drives it for free, so a tank holds the thing beside them. `server/src/station.ts` |
 | Combat log | The d20, the total and the target's AC on every swing, rendered per recipient — second person for the participants, third for onlookers |
 | Mercy | **Players only.** A downed character stops being a target; a mob fights to the death. A body that cannot defend itself is never missed |
 | Health bars | Over every body but your own, hidden at full health, green → amber → red |
@@ -249,8 +250,10 @@ left, violence on the right) and **Phase 14, mercy and fear**.
 dedicated `announce` channel that took **protocol to 10**. `system` is the machine's voice; an
 operator's is a person's, and a client that cannot tell them apart can style neither.
 
-**Round 2 is next: V2 (click a body, get its verbs), Phase 14b (a character worth keeping), A3
-(zones, read-only).**
+**Round 2 is under way.** Its mechanic slot went to **Phase 14c, the fight moves with you** — pulled
+ahead of 14b at the owner's word, because it and V2 are companions — and it is **done**: an engaged
+mob now closes to a tile and follows you around the room. What remains in the round is **V2 (click a
+body, get its verbs)** and **A3 (zones, read-only)**; **Phase 14b** moves to round 3.
 
 **What death costs, and progression generally, are Phase 14b** — promoted from ROADMAP §4's parking
 lot onto the schedule (round 2). Its storage half already arrived early (see progression above);

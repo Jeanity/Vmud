@@ -139,6 +139,7 @@ import {
   type HuntEvent,
 } from './hunt.ts';
 import { Scheduler } from './scheduler.ts';
+import { advanceStations } from './station.ts';
 import {
   advancePerception,
   forgetTarget,
@@ -2772,11 +2773,23 @@ setInterval(() => {
     for (const room of new Set(outcome.spawned.map((mob) => mob.roomId))) syncEntitiesIn(room);
   }
 
+  // **The fight moves with you** — Phase 14c. Every engaged mob closes on whoever it is fighting and
+  // follows them around the room, which is the half of Phase 6's model that was only ever half true:
+  // blows already landed at any range, but the body stood on the tile it spawned on while you walked
+  // to the far corner.
+  //
+  // After the combat pass rather than before, so a mob that just broke and ran, died or switched
+  // target has already had its pointer settled — this only ever walks bodies whose fight is current.
+  // Nothing here reads the threat table: it closes on `fighting`, which is what threat chooses, so a
+  // tank holding aggro holds the thing in place beside them for free.
+  const stations = advanceStations(sim, world, TICK_MS);
+  for (const mob of stations.turned) syncTurn(mob);
+
   // Players and hunting mobs, in one list. **Actors, not players**, and that widening is the whole of what
   // makes a chase visible: before Phase 10 this batch was built from `moved`, which the simulation fills
   // with players only, so a mob's position had no way onto the wire at all. `syncTurn` had already found
   // the facing half of the same hole.
-  const movedActors: Actor[] = [...moved, ...hunt.moved];
+  const movedActors: Actor[] = [...moved, ...hunt.moved, ...stations.moved];
   if (movedActors.length === 0) return;
 
   // Who needs their view of other entities re-evaluated. Presence depends on the observer's own lit
