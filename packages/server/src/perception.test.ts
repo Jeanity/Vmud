@@ -83,7 +83,7 @@ interface Fixture {
 
 function makeFixture(aggro: AggroRule = hostile()): Fixture {
   const sim = new Simulation(new GameWorld([testZone()], { zone: 600, room: 6000 }));
-  const player = sim.spawn('Intruder');
+  const player = sim.spawn('Intruder', makeRng(1));
   const mob = sim.spawnMob(templateWith(aggro), 6000, makeRng(1));
   assert.ok(mob, 'the fixture mob should have spawned');
   // Both on the same tile, so distance is never what these tests are about unless they say so.

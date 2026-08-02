@@ -10,6 +10,7 @@
  * structure and keeps bandwidth flat no matter how large the world grows.
  */
 
+import type { Equipped } from './equipment.ts';
 import type { Posture, Status } from './position.ts';
 import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
 
@@ -179,6 +180,14 @@ export interface SelfView {
   readonly maxMove: number;
   readonly experience: number;
   readonly experienceToNext: number;
+  /**
+   * What this character is wearing, by slot. Phase 14b's starting kit.
+   *
+   * On the wire because the paper doll draws it, and because armour class is derived from it —
+   * a client that could not see the gear could not explain why one level-1 character is harder to
+   * hit than another, which is the entire point of rolling it.
+   */
+  readonly equipped: Equipped;
   readonly roomId: RoomId;
   /** Which map the player is standing on. See {@link Place}. */
   readonly place: Place;

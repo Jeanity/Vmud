@@ -29,6 +29,7 @@ import { fileURLToPath } from 'node:url';
 import {
   AffectFlag,
   APPLY_LOCATIONS,
+  readEquipped,
   UNLIMITED_DURATION,
   affectKind,
   hasFlag,
@@ -36,6 +37,7 @@ import {
   placeKey,
   type Affect,
   type AffectType,
+  type Equipped,
   type ApplyLocation,
   type Place,
   type RoomId,
@@ -115,16 +117,24 @@ export interface PlayerRecord {
    * neither has ever moved for.
    *
    * **Persisted by the owner's decision (2026-08-02), ahead of Phase 14b — the storage half only.**
-   * What a level *derives* (hit points, attack bonus, round length) is still the dev profile's
-   * arithmetic in `index.ts`, and Phase 14b replaces that derivation with real ability scores and
-   * hit dice; this field is what that will read when it lands. Until then the rule is simple: the
-   * number on the file is the character's level, whatever set it — the admin panel, the
-   * `GAME_DEV_LEVEL` rig, or one day play — and login re-derives the rest from it.
+   * **`maxHp` is stored rather than derived** (Phase 14b). Hit points are rolled once per level —
+   * Duris' `number(0,3) + 1` — so no formula can reproduce them, and a character's maximum must not
+   * change because a function did. It is absent on every record written before that phase, which is
+   * why the restore falls back to the level's expected average instead of to nothing.
    *
-   * `{level: 1, experience: 0}` is stored as undefined: that is what a brand-new character is, and
-   * recording it would have every file assert a fact nothing established.
+   * `{level: 1, experience: 0}` with no hit points is stored as undefined: that is what a brand-new
+   * character is, and recording it would have every file assert a fact nothing established.
    */
-  progress: { level: number; experience: number } | undefined;
+  progress: { level: number; experience: number; maxHp?: number } | undefined;
+  /**
+   * What this character is wearing. Phase 14b's starting kit, and later whatever they have found.
+   *
+   * Stored for the same reason `maxHp` is: it is **rolled**, at creation, and a character who
+   * reconnected into a freshly-rolled kit could reroll until they liked it. Absent on a record from
+   * before the phase, which restores as "keep whatever the fresh spawn rolled" — the only honest
+   * answer, since there is nothing to put back.
+   */
+  equipped: Equipped | undefined;
 }
 
 /**
@@ -155,6 +165,10 @@ export interface PlayerStoreOptions {
 
 interface StoredRecord {
   name: string;
+  /** Rolled hit-point maximum. Absent before Phase 14b, when it was derived from the level instead. */
+  maxHp?: number;
+  /** Worn kit. Absent before Phase 14b. */
+  equipped?: unknown;
   /** Base64 bitset per {@link placeKey}. */
   seen?: Record<string, string>;
   /** Ground pickup keys this character has collected. Absent in any save written before v5. */
@@ -291,6 +305,7 @@ export class PlayerStore {
       lastRoom: undefined,
       missing: undefined,
       progress: undefined,
+      equipped: undefined,
     };
     if (slug) {
       try {
@@ -302,7 +317,8 @@ export class PlayerStore {
           affects: decodeAffects(stored, elapsedSince(stored.savedAt)),
           lastRoom: stored.lastRoom,
           missing: decodeMissing(stored.missing),
-          progress: decodeProgress(stored.level, stored.experience),
+          progress: decodeProgress(stored.level, stored.experience, stored.maxHp),
+        equipped: readEquipped(stored.equipped),
         };
         // A save written by the previous version has room ids and no bitsets. Refusing to load it
         // would lock a character out of their own account over a data format; this converts what it
@@ -399,16 +415,42 @@ export class PlayerStore {
    * and the brand-new-character pair collapsing to "nothing recorded". Callers pass what the live
    * character holds; this decides whether that is worth a byte.
    */
-  setProgress(record: PlayerRecord, level: number, experience: number): void {
+  setProgress(record: PlayerRecord, level: number, experience: number, maxHp?: number): void {
     const cleanLevel = Number.isFinite(level) ? Math.min(60, Math.max(1, Math.round(level))) : 1;
     const cleanExperience = Number.isFinite(experience) ? Math.max(0, Math.round(experience)) : 0;
+    // **Hit points are stored, not derived** (Phase 14b). They are rolled once per level, so a
+    // formula cannot reproduce them — and a character's maximum must not change because a function
+    // did. Absent leaves whatever was already recorded, so a caller that does not know about hit
+    // points cannot erase them.
+    const cleanMaxHp =
+      typeof maxHp === 'number' && Number.isFinite(maxHp) ? Math.max(1, Math.round(maxHp)) : record.progress?.maxHp;
+    // A level-1 character with nothing banked is the default, and writing it down says nothing —
+    // *unless* they have hit points worth remembering, which a rolled starting kit means they might.
     const value =
-      cleanLevel === 1 && cleanExperience === 0 ? undefined : { level: cleanLevel, experience: cleanExperience };
+      cleanLevel === 1 && cleanExperience === 0 && cleanMaxHp === undefined
+        ? undefined
+        : { level: cleanLevel, experience: cleanExperience, ...(cleanMaxHp === undefined ? {} : { maxHp: cleanMaxHp }) };
 
     const current = record.progress;
     if (current === value) return;
-    if (current && value && current.level === value.level && current.experience === value.experience) return;
+    if (
+      current &&
+      value &&
+      current.level === value.level &&
+      current.experience === value.experience &&
+      current.maxHp === value.maxHp
+    ) {
+      return;
+    }
     record.progress = value;
+    this.touch(record);
+  }
+
+  /** Records what a character is wearing. See {@link PlayerRecord.equipped}. */
+  setEquipped(record: PlayerRecord, equipped: Equipped): void {
+    const next = JSON.stringify(equipped);
+    if (JSON.stringify(record.equipped ?? {}) === next) return;
+    record.equipped = readEquipped(JSON.parse(next));
     this.touch(record);
   }
 
@@ -535,7 +577,14 @@ export class PlayerStore {
       ...(record.missing === undefined ? {} : { missing: record.missing }),
       ...(record.progress === undefined
         ? {}
-        : { level: record.progress.level, experience: record.progress.experience }),
+        : {
+            level: record.progress.level,
+            experience: record.progress.experience,
+            ...(record.progress.maxHp === undefined ? {} : { maxHp: record.progress.maxHp }),
+          }),
+      // Absent on a character wearing nothing, which no live character is — but a hand-edited save
+      // might be, and an empty object on disk says less than no key at all.
+      ...(record.equipped && Object.keys(record.equipped).length > 0 ? { equipped: record.equipped } : {}),
       savedAt: new Date().toISOString(),
     };
     try {
@@ -613,7 +662,8 @@ export class PlayerStore {
         affects: decodeAffects(stored, 0),
         lastRoom: stored.lastRoom,
         missing: decodeMissing(stored.missing),
-        progress: decodeProgress(stored.level, stored.experience),
+        progress: decodeProgress(stored.level, stored.experience, stored.maxHp),
+        equipped: readEquipped(stored.equipped),
       };
       out.push({
         slug,
@@ -875,13 +925,21 @@ function sameAffects(a: readonly Affect[], b: readonly Affect[]): boolean {
  * somebody who hand-wrote 99 meant "high", not "forget my level". The brand-new pair reads as
  * nothing recorded, mirroring what {@link PlayerStore.setProgress} writes.
  */
-function decodeProgress(level: unknown, experience: unknown): { level: number; experience: number } | undefined {
+function decodeProgress(
+  level: unknown,
+  experience: unknown,
+  maxHp?: unknown,
+): { level: number; experience: number; maxHp?: number } | undefined {
   if (typeof level !== 'number' || !Number.isFinite(level)) return undefined;
   const cleanLevel = Math.min(60, Math.max(1, Math.round(level)));
   const cleanExperience =
     typeof experience === 'number' && Number.isFinite(experience) ? Math.max(0, Math.round(experience)) : 0;
-  if (cleanLevel === 1 && cleanExperience === 0) return undefined;
-  return { level: cleanLevel, experience: cleanExperience };
+  // Absent on every record written before Phase 14b, which is why the restore falls back to the
+  // level's expected average rather than treating it as a character with no hit points at all.
+  const cleanMaxHp =
+    typeof maxHp === 'number' && Number.isFinite(maxHp) ? Math.max(1, Math.round(maxHp)) : undefined;
+  if (cleanLevel === 1 && cleanExperience === 0 && cleanMaxHp === undefined) return undefined;
+  return { level: cleanLevel, experience: cleanExperience, ...(cleanMaxHp === undefined ? {} : { maxHp: cleanMaxHp }) };
 }
 
 /**

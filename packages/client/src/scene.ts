@@ -22,6 +22,7 @@ import {
   stepMovement,
   tileAt,
   type AffectView,
+  type Equipped,
   type CarriedLight,
   type Direction,
   type EntityId,
@@ -1018,26 +1019,33 @@ export class WorldScene extends Phaser.Scene {
   /**
    * Fills the equipment paper doll.
    *
-   * **The one slot that can be occupied today is the main hand, and the light goes in it.** That is
-   * not a placeholder standing in for real equipment — it is what `DESIGN-inventory.md` §6 says the
-   * carried-light field *is*: an interim stand-in for "the best light among your equipped items", and a
-   * torch is a hand item that costs you a weapon. So the doll shows the trade it already makes.
+   * Two sources, and the order between them is the interesting part.
    *
-   * Every other slot renders empty, because it is. Nothing here invents an item to look furnished.
+   * **Worn kit** arrives from Phase 14b: a rolled starting outfit, each piece with its own armour
+   * value, which is why two level-1 characters are not the same character.
+   *
+   * **A carried light overrides the main hand**, because `DESIGN-inventory.md` §6 says the
+   * carried-light field *is* an interim stand-in for "the best light among your equipped items" — and
+   * a torch is a hand item that costs you your weapon. Showing the light in the hand it occupies is
+   * the trade the design already makes; showing the dagger underneath it would be a lie about what
+   * the character is holding. Phase 15 collapses the two into one list and this special case goes.
    */
-  private applyEquipment(light: CarriedLight | undefined): void {
-    // Written as a full map rather than as one special case, so Phase 15 fills in the rest of the
-    // rows instead of restructuring this.
-    const worn: Partial<Record<string, { readonly name: string; readonly lit?: boolean }>> = {
-      ...(light ? { mainHand: { name: light.name, lit: true } } : {}),
-    };
+  private applyEquipment(light: CarriedLight | undefined, equipped: Equipped | undefined): void {
+    const worn: Partial<Record<string, { readonly name: string; readonly lit?: boolean; readonly ac?: number }>> = {};
+    for (const [slot, item] of Object.entries(equipped ?? {})) {
+      if (item) worn[slot] = { name: item.name, ac: item.ac };
+    }
+    // Last, so it takes the hand from whatever was in it.
+    if (light) worn.mainHand = { name: light.name, lit: true };
 
     for (const id of EQUIPMENT_SLOTS) {
       const cell = document.getElementById(`slot-${id}`);
       if (!cell) continue;
       const item = worn[id];
       const label = cell.querySelector('.item');
-      if (label) label.textContent = item?.name ?? 'empty';
+      // The armour value is shown because it is the whole reason the kit is rolled: without it two
+      // characters in identical-looking leather have no way to know which of them got lucky.
+      if (label) label.textContent = item ? (item.ac ? `${item.name} (+${item.ac})` : item.name) : 'empty';
       cell.classList.toggle('empty', item === undefined);
       cell.classList.toggle('lit', item?.lit === true);
     }
@@ -1205,7 +1213,7 @@ export class WorldScene extends Phaser.Scene {
       setText('hud-name', `${message.view.name}  lvl ${message.view.level}`);
       this.setSelfRoom(message.view.roomId);
       this.applyLight(message.view.lightRadius, message.view.light);
-      this.applyEquipment(message.view.light);
+      this.applyEquipment(message.view.light, message.view.equipped);
       this.applyAffects(message.view.affects);
       this.applyStance(message.view.posture, message.view.status);
       this.applyPools(message.view);

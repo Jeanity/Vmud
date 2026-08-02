@@ -15,6 +15,7 @@ import {
   type RoomExit,
   type Zone,
 } from '@mygame/shared';
+import { makeRng } from '@mygame/shared';
 
 import { Simulation } from './sim.ts';
 import { GameWorld, WORLD_DIR, loadWorldConfig, loadZone, type SpawnConfig } from './world.ts';
@@ -221,7 +222,7 @@ describe('loadWorldConfig', () => {
 describe('Simulation across places', () => {
   it('spawns a player on the spawn room of the spawn zone', () => {
     const sim = new Simulation(makeWorld());
-    const player = sim.spawn('Tester');
+    const player = sim.spawn('Tester', makeRng(1));
     assert.equal(player.roomId, 9001);
     assert.deepEqual(player.place, { zone: 900, level: 0 });
     assert.equal(player.x, FIRST_ROOM_CENTRE);
@@ -231,7 +232,7 @@ describe('Simulation across places', () => {
 
   it('relocates between zones and between levels through one code path', () => {
     const sim = new Simulation(makeWorld());
-    const player = sim.spawn('Tester');
+    const player = sim.spawn('Tester', makeRng(1));
 
     // Another zone.
     assert.deepEqual(sim.relocate(player, 9101), { zone: 901, level: 0 });
@@ -248,7 +249,7 @@ describe('Simulation across places', () => {
 
   it('refuses to relocate into a zone that is not loaded', () => {
     const sim = new Simulation(makeWorld());
-    const player = sim.spawn('Tester');
+    const player = sim.spawn('Tester', makeRng(1));
     assert.equal(sim.relocate(player, 4242), undefined);
     assert.deepEqual(player.place, { zone: 900, level: 0 });
     assert.equal(player.roomId, 9001);
@@ -256,8 +257,8 @@ describe('Simulation across places', () => {
 
   it('collides each player against the grid of their own place', () => {
     const sim = new Simulation(makeWorld());
-    const walker = sim.spawn('Walker');
-    const climber = sim.spawn('Climber');
+    const walker = sim.spawn('Walker', makeRng(1));
+    const climber = sim.spawn('Climber', makeRng(1));
     sim.relocate(climber, 9003);
 
     // East out of 9001 is a real corridor; on the one-room canopy level the same push hits void.
@@ -276,7 +277,7 @@ describe('Simulation across places', () => {
 
   it('reports a room transition with the place it was left from', () => {
     const sim = new Simulation(makeWorld());
-    const player = sim.spawn('Tester');
+    const player = sim.spawn('Tester', makeRng(1));
     sim.setIntent(player.id, 1, 0);
 
     let seen: { from: number; to: number; fromPlace: { zone: number; level: number } } | undefined;

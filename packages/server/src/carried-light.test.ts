@@ -32,6 +32,7 @@ import {
   type TileGrid,
   type Zone,
 } from '@mygame/shared';
+import { makeRng } from '@mygame/shared';
 import { LIGHT_SOURCES, effectiveRadius, type LightSource } from '@mygame/shared/light.ts';
 import { DEFAULT_LIGHT_RADIUS } from '@mygame/shared/vision.ts';
 
@@ -79,7 +80,7 @@ function testZone(): Zone {
 
 function makeSim(): { sim: Simulation; player: Player } {
   const sim = new Simulation(new GameWorld([testZone()], { zone: 900, room: null }));
-  return { sim, player: sim.spawn('Lightbearer') };
+  return { sim, player: sim.spawn('Lightbearer', makeRng(1)) };
 }
 
 /**

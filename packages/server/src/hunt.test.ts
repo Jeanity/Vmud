@@ -110,7 +110,7 @@ interface Fixture {
 function makeFixture(pursuit: PursuitRule = hunter(), zone: Zone = corridor()): Fixture {
   const world = new GameWorld([zone], { zone: 900, room: 9000 });
   const sim = new Simulation(world);
-  const player = sim.spawn('Quarry');
+  const player = sim.spawn('Quarry', makeRng(1));
   const mob = sim.spawnMob(template(pursuit), 9000, makeRng(0x51ee9));
   assert.ok(mob, 'the fixture mob must spawn');
 
@@ -360,7 +360,7 @@ describe('the chase itself', () => {
     // Target selection is a threat question and belongs to Phase 12. Switching on every fresh notice would
     // make the last person through the door always the victim, which is the opposite of holding aggro.
     const fixture = makeFixture();
-    const second = fixture.sim.spawn('Someone Else');
+    const second = fixture.sim.spawn('Someone Else', makeRng(1));
     fixture.place(fixture.player, 9001);
     beginHunt(fixture.hunts, fixture.mob, fixture.player);
     beginHunt(fixture.hunts, fixture.mob, second);

@@ -26,6 +26,7 @@ import {
   type Room,
   type Zone,
 } from '@mygame/shared';
+import { makeRng } from '@mygame/shared';
 import { DEFAULT_LIGHT_RADIUS } from '@mygame/shared/vision.ts';
 
 import { Simulation, type Player } from './sim.ts';
@@ -70,7 +71,7 @@ function testZone(): Zone {
 
 function makeSim(): { sim: Simulation; player: Player } {
   const sim = new Simulation(new GameWorld([testZone()], { zone: 700, room: null }));
-  return { sim, player: sim.spawn('Torchbearer') };
+  return { sim, player: sim.spawn('Torchbearer', makeRng(1)) };
 }
 
 /*

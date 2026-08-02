@@ -43,7 +43,13 @@ import {
   doorwayTiles,
   HP_FLOOR,
   encode,
+  applyExperience,
+  armourClassFrom,
   makeRng,
+  playerCombatStats,
+
+  weaponFrom,
+  STARTING_HIT_POINTS,
   meets,
   summariseAffects,
   parseDirection,
@@ -331,6 +337,16 @@ const graveyard: Graveyard = new Map();
  * never `Math.random()` in simulation.
  */
 const combatRng = makeRng(WORLD_SEED ^ 0xf16847);
+
+/**
+ * Rolls that belong to a character rather than to the world: their starting kit, and the hit points
+ * each level grants. Phase 14b.
+ *
+ * Its own stream, like the two above, so that creating a character does not shift what the next mob
+ * spawn or the next attack rolls. Interleaved streams are reproducible only if every consumer runs in
+ * the same order, which is exactly the property a live server does not have.
+ */
+const progressRng = makeRng(WORLD_SEED ^ 0x14b0de);
 
 /**
  * The opening population, and it is a **forced** reset.
@@ -720,11 +736,20 @@ function rememberVitals(player: Player): void {
   store.setMissing(record, player);
 }
 
-/** Copies the level reached and the experience held onto the record. See {@link restoreProgress}. */
+/**
+ * Copies the level reached, the experience held, the hit points rolled and the kit worn onto the
+ * record. See {@link restoreProgress}.
+ *
+ * Hit points and equipment are here rather than derived at login because both are **rolled** — see
+ * `DESIGN-progression.md` §3 and §5. A character who reconnected into a freshly-rolled kit could
+ * reroll until they liked it, and a maximum recomputed from a formula would change whenever the
+ * formula did.
+ */
 function rememberProgress(player: Player): void {
   const record = records.get(player.id);
   if (!record) return;
-  store.setProgress(record, player.level, player.experience);
+  store.setProgress(record, player.level, player.experience, player.maxHp);
+  store.setEquipped(record, player.equipped);
 }
 
 /**
@@ -742,16 +767,97 @@ function rememberProgress(player: Player): void {
  * full at every login.
  */
 function restoreProgress(player: Player, record: PlayerRecord): void {
+  // **The kit comes back before anything derived from it.** A stored character keeps what they were
+  // wearing; only a genuinely new one rolls a fresh kit, which is what stops a reconnect being a
+  // reroll. `combat` is rebuilt from it below rather than stored, because armour class is a
+  // derivation and storing derivations is how the two drift.
+  if (record.equipped && Object.keys(record.equipped).length > 0) player.equipped = record.equipped;
+
   const progress = record.progress;
-  if (!progress) return;
-  player.experience = progress.experience;
-  if (progress.level === player.level) return;
-  const profile = devProfile(progress.level);
-  player.level = progress.level;
-  player.maxHp = profile.maxHp;
-  player.hp = profile.maxHp;
-  player.combat = profile.combat;
-  player.roundMs = profile.combat.roundMs;
+  if (progress) {
+    player.experience = progress.experience;
+    player.level = progress.level;
+    // **Stored, not derived.** `devProfile`'s arithmetic used to recompute hit points from the level
+    // on every login, which meant a character's maximum silently changed whenever that function did.
+    // Phase 14b rolls them once per level and keeps them — see `DESIGN-progression.md` §3. A record
+    // written before this phase has no `maxHp`, so it falls back to the level's expected average
+    // rather than to nothing.
+    player.maxHp = progress.maxHp ?? expectedHitPoints(progress.level);
+    player.hp = player.maxHp;
+  }
+
+  const base = playerCombatStats(player.level);
+  player.combat = {
+    ...base,
+    armourClass: base.armourClass + armourClassFrom(player.equipped),
+    damage: weaponFrom(player.equipped, base.damage),
+  };
+  player.roundMs = base.roundMs;
+}
+
+/**
+ * What a character of this level would have rolled on average — the migration path only.
+ *
+ * Used for records written before hit points were stored, and for nothing else. The average of
+ * Duris' `number(0,3) + 1` is 2.5 below level 26 and 1 above it, so this reproduces the curve's
+ * expectation without pretending to know what dice a character that never rolled any would have got.
+ */
+function expectedHitPoints(level: number): number {
+  const low = Math.min(level, 25) - 1;
+  const high = Math.max(0, level - 25);
+  return Math.round(STARTING_HIT_POINTS + low * 2.5 + high);
+}
+
+/**
+ * Spends whatever experience a character has banked, and tells them about it.
+ *
+ * Phase 14b, and the point at which the experience economy stops being decorative. Duris' own loop:
+ * the cost is subtracted rather than accumulated, so one kill can carry a low-level character up more
+ * than once, and *"experience to next level"* is a number they can read off their own sheet.
+ *
+ * The hit points gained are **added to the current pool as well as the maximum**, which is the small
+ * kindness Duris also does: levelling mid-fight should help you survive it rather than merely raising
+ * a ceiling you are nowhere near.
+ */
+function levelUpIfEarned(player: Player): void {
+  const before = player.level;
+  const result = applyExperience(progressRng, {
+    level: player.level,
+    experience: player.experience,
+    maxHp: player.maxHp,
+  });
+  if (result.gained === 0) {
+    player.experience = result.experience;
+    return;
+  }
+
+  player.level = result.level;
+  player.experience = result.experience;
+  player.maxHp = result.maxHp;
+  player.hp = Math.min(player.maxHp, player.hp + result.hitPointsGained);
+
+  // Attack bonus and round length move with the level; armour and weapon come from the kit, which
+  // levelling does not change. One rebuild, so nothing can read a stale half.
+  const base = playerCombatStats(player.level);
+  player.combat = {
+    ...base,
+    armourClass: base.armourClass + armourClassFrom(player.equipped),
+    damage: weaponFrom(player.equipped, player.combat.damage),
+  };
+  player.roundMs = base.roundMs;
+  sim.refreshStatus(player);
+
+  send(player.id, {
+    t: 'log',
+    channel: 'system',
+    text:
+      `&+WYou raise a level!&N You are now level ${player.level}` +
+      (result.gained > 1 ? ` (up ${result.gained} from ${before})` : '') +
+      `, with ${result.hitPointsGained} more hit points.`,
+  });
+  // Persisted at once, for the owner's rule that progress is permanent: a level gained and then lost
+  // to a crash is the worst possible bug in a progression system.
+  persistAdminEdit(player);
 }
 
 /** Puts a returning character's wounds back. A save with nothing missing leaves them at full. */
@@ -1146,6 +1252,9 @@ function resolveDeath(death: Death): void {
       channel: 'system',
       text: `You gain ${award.experience} experience${how ? ` (${how})` : ''}.`,
     });
+    // **And this is where it finally buys something.** Experience has been earned and banked since
+    // Phase 13 with nothing to spend it on: the number went up and never did anything. Phase 14b.
+    levelUpIfEarned(earner);
     send(earner.id, { t: 'self', view: sim.selfViewOf(earner) });
   }
 
@@ -2713,7 +2822,7 @@ wss.on('connection', (socket) => {
         return;
       }
       const name = message.name.trim().slice(0, 24) || 'Someone';
-      player = sim.spawn(name);
+      player = sim.spawn(name, progressRng);
       sockets.set(player.id, socket);
       watching.set(player.id, new Set());
       budgets.set(player.id, newCommandBudget(Date.now()));

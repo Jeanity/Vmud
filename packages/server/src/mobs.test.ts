@@ -74,7 +74,7 @@ const place = (sim: Simulation, over: Partial<MobTemplate> = {}, room = 8000) =>
 function makeSim(): { sim: Simulation; player: Player; world: GameWorld } {
   const world = new GameWorld([testZone()], { zone: 800, room: 8000 });
   const sim = new Simulation(world);
-  return { sim, player: sim.spawn('Watcher'), world };
+  return { sim, player: sim.spawn('Watcher', makeRng(1)), world };
 }
 
 const source = (id: string) => {

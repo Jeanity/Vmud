@@ -57,7 +57,7 @@ const template: MobTemplate = {
 
 function fixture() {
   const sim = new Simulation(new GameWorld([graveZone()], { zone: 300, room: 3000 }));
-  const player = sim.spawn('Mourner');
+  const player = sim.spawn('Mourner', makeRng(1));
   const mob = sim.spawnMob(template, 3000, makeRng(0xc0f1e5));
   return { sim, player, mob, yard: new Map() as Graveyard };
 }
@@ -142,7 +142,7 @@ describe('who may loot what', () => {
     // players. Full player looting is a PvP decision that belongs with consent in Phase 21.
     const f = fixture();
     const corpse = makeCorpse(f.yard, f.player, true);
-    const other = f.sim.spawn('Stranger');
+    const other = f.sim.spawn('Stranger', makeRng(1));
     assert.equal(lootRefusal(corpse, other), 'someone-elses');
     assert.equal(lootRefusal(corpse, f.player), undefined, 'but their own is fine');
   });

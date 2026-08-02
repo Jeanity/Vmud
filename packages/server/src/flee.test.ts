@@ -90,7 +90,7 @@ function makeFixture(over: Partial<MobTemplate> = {}, rng: () => number = () => 
   const world = new GameWorld([crossroads()], { zone: 500, room: 5000 });
   const sim = new Simulation(world);
   const scheduler = new Scheduler();
-  const player = sim.spawn('Runner');
+  const player = sim.spawn('Runner', makeRng(1));
   const mob = sim.spawnMob(template(over), 5000, makeRng(0xf1ee));
   assert.ok(mob);
   return { deps: { world, sim, scheduler, rng }, sim, scheduler, world, player, mob };
@@ -134,7 +134,7 @@ describe('the ways out', () => {
     const { deps, sim } = makeFixture();
     // The east arm is a dead end back to the crossroads; move there and shut nothing — one exit exists,
     // so the honest test of "cornered" is a room whose only exit leads nowhere the mob may stand.
-    const player = sim.spawn('Trapped');
+    const player = sim.spawn('Trapped', makeRng(1));
     sim.relocate(player, 5001);
     assert.equal(fleeExits(deps.world, sim, player).length, 1);
     // A mob in a `no_mob` room's neighbour cannot use that exit — same shape, and it is the case the

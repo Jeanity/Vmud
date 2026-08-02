@@ -67,7 +67,7 @@ function makeFixture(): Fixture {
   const world = new GameWorld([hall()], { zone: 700, room: 7000 });
   const sim = new Simulation(world);
   const scheduler = new Scheduler();
-  const player = sim.spawn('Fighter');
+  const player = sim.spawn('Fighter', makeRng(1));
   const mob = sim.spawnMob(template(), 7000, makeRng(0xb00));
   assert.ok(mob);
   return {

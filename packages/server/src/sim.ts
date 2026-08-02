@@ -54,7 +54,12 @@ import {
   type RoomId,
   type SelfView,
   type TilePoint,
-  maxHitPoints,
+  armourClassFrom,
+  experienceToNext,
+  rollStarterKit,
+  weaponFrom,
+  STARTING_HIT_POINTS,
+  type Equipped,
   normaliseIntent,
   parseDice,
   rollDice,
@@ -379,6 +384,18 @@ export interface Player extends Actor {
    */
   visibleRoom: RoomId;
   experience: number;
+  /**
+   * What this character is wearing and wielding. Phase 14b.
+   *
+   * Rolled at creation and stored, never re-derived — the same discipline as `maxHp`, and for the
+   * same reason: a character's gear is a fact about them, not a function that changes when the
+   * function does. `combat.armourClass` and `combat.damage` are folded from it at creation and at
+   * login, so nothing in the fight loop has to know equipment exists.
+   *
+   * Acquiring, dropping and swapping any of it is Phase 15. Today the only kit is the one you
+   * started with.
+   */
+  equipped: Equipped;
 }
 
 /**
@@ -602,14 +619,28 @@ export class Simulation {
     return out;
   }
 
-  spawn(name: string): Player {
+  /**
+   * A brand-new character.
+   *
+   * Takes the rng for the same reason {@link spawnMob} does: the starting kit is rolled, and every
+   * roll in the simulation comes from the seeded source — `CLAUDE.md` rule 3. Character creation is
+   * simulation, and `Math.random()` here would make a character's opening hand unreproducible.
+   */
+  spawn(name: string, rng: Rng): Player {
     const spawnRoom = this.world.spawnRoom();
     const place = placeOf(spawnRoom);
     const origin = this.world.grid(place)?.roomOrigins.get(spawnRoom.id);
     if (!origin) throw new Error(`spawn room ${spawnRoom.id} is not on any rendered grid`);
     const centre = roomCentre(origin);
 
-    const maxHp = maxHitPoints(8, 1, 1);
+    // **Phase 14b: the MUD's scale, not the SRD's.** `maxHitPoints(8, 1, 1)` gave 9 — the SRD's
+    // d8-plus-Con — and the gentlest creature in the world is a level-2 baby kobold with 23. The
+    // player needed seven rounds to kill it and died in five. See `DESIGN-progression.md` §1.
+    const maxHp = STARTING_HIT_POINTS;
+    // Rolled once, here, and stored on the record at the first save. The variance is the point: two
+    // fresh characters are not the same character. See `equipment.ts`.
+    const equipped = rollStarterKit(rng);
+    const base = playerCombatStats(1);
     const player: Player = {
       id: this.nextId++,
       kind: 'player',
@@ -625,8 +656,13 @@ export class Simulation {
       place,
       fighting: undefined,
       wasFighting: undefined,
-      combat: playerCombatStats(1),
-      roundMs: playerCombatStats(1).roundMs,
+      equipped,
+      combat: {
+        ...base,
+        armourClass: base.armourClass + armourClassFrom(equipped),
+        damage: weaponFrom(equipped, base.damage),
+      },
+      roundMs: base.roundMs,
       intentX: 0,
       intentY: 0,
       path: undefined,
@@ -1641,7 +1677,11 @@ export class Simulation {
       move: player.move,
       maxMove: player.maxMove,
       experience: player.experience,
-      experienceToNext: 300,
+      // Phase 14b: the real remainder against Duris' step curve, not the placeholder 300 this held
+      // while nothing consumed experience. `null` at the ceiling reads as "no next level" and is
+      // shown as such rather than as a target of zero, which would look like a level-up stuck.
+      experienceToNext: experienceToNext({ level: player.level, experience: player.experience, maxHp: player.maxHp }) ?? 0,
+      equipped: player.equipped,
       roomId: player.roomId,
       place: player.place,
       posture: player.posture,

@@ -36,6 +36,7 @@ import {
   type TilePoint,
   type Zone,
 } from '@mygame/shared';
+import { makeRng } from '@mygame/shared';
 import { findPath } from '@mygame/shared/pathfind.ts';
 import { DEFAULT_LIGHT_RADIUS, bitsetToSet, computeVisible } from '@mygame/shared/vision.ts';
 
@@ -144,7 +145,7 @@ const VOID_TY = ROOM_TILES;
 function makeSim(): { world: GameWorld; sim: Simulation; player: Player } {
   const world = new GameWorld([testZone()], { zone: 800, room: null });
   const sim = new Simulation(world);
-  return { world, sim, player: sim.spawn('Walker') };
+  return { world, sim, player: sim.spawn('Walker', makeRng(1)) };
 }
 
 /** World-pixel centre of a tile, the only place movement ever aims for. */
@@ -292,7 +293,7 @@ describe('path following', () => {
     // The guard on "one movement code path". If click-to-move ever grows its own stepping, these two
     // drift apart and client-side prediction breaks for one of them.
     const { world, sim, player: manual } = makeSim();
-    const clicker = sim.spawn('Clicker');
+    const clicker = sim.spawn('Clicker', makeRng(1));
 
     sim.setIntent(manual.id, 1, 0);
     const seen = seenWalking(gridOf(world, clicker), WEST, MIDDLE);

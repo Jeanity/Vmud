@@ -102,7 +102,7 @@ interface Fixture {
 function makeFixture(template: MobTemplate = dummy()): Fixture {
   const world = new GameWorld([arena()], { zone: 400, room: 4000 });
   const sim = new Simulation(world);
-  const player = sim.spawn('Fighter');
+  const player = sim.spawn('Fighter', makeRng(1));
   const mob = sim.spawnMob(template, 4000, makeRng(0xa4e4a));
   assert.ok(mob);
   const scheduler = new Scheduler();
@@ -351,6 +351,11 @@ describe('the mercy rule', () => {
   function doomed(): Fixture {
     const fixture = makeFixture(dummy({ combat: readCombatStats({ level: 1, armour: -200, damage: '20d6+50' }) }));
     fixture.player.hp = 1;
+    // **The mob must not miss.** Everything in this block is about what happens *after* the killing
+    // blow, so a fight that turns on an armour roll makes each of these a coin flip. Phase 14b gave
+    // players a rolled starting kit, which raised their armour class and did exactly that — the
+    // fixture had been relying on an unarmoured AC 10 without saying so.
+    fixture.mob.combat = { ...fixture.mob.combat, attackBonus: 50 };
     return fixture;
   }
 
@@ -523,7 +528,10 @@ describe('threat decides who a mob fights', () => {
   /** A second player, so there is somebody to take aggro from. */
   function pair(): Fixture & { readonly other: Player } {
     const fixture = makeFixture(dummy({ hp: '1d1+9999' }));
-    const other = fixture.sim.spawn('Other');
+    const other = fixture.sim.spawn('Other', makeRng(1));
+    // The player must land their blows: these tests are about *who threat is credited to*, not about
+    // whether an attack connected. Same reason as `doomed()` above.
+    fixture.player.combat = { ...fixture.player.combat, attackBonus: 50 };
     return { ...fixture, other };
   }
 
@@ -611,7 +619,7 @@ describe('opening on the weakest thing in the room', () => {
     // Duris' rule, used only where there is no threat to read. The bystander is on far fewer hit points,
     // so that is who a fresh arrival goes for.
     const fixture = makeFixture();
-    const weak = fixture.sim.spawn('Weakling');
+    const weak = fixture.sim.spawn('Weakling', makeRng(1));
     weak.hp = 3;
     assert.equal(openingTarget(fixture.sim, fixture.mob)?.id, weak.id);
   });
@@ -668,7 +676,7 @@ describe('assist -- the room that comes to help', () => {
     const fixture = makeFixture();
     const guard = fixture.sim.spawnMob(protector(), 4000, makeRng(0x9a12));
     assert.ok(guard);
-    const other = fixture.sim.spawn('Other');
+    const other = fixture.sim.spawn('Other', makeRng(1));
     engage(fixture.scheduler, guard, other, { immediate: true });
     engage(fixture.scheduler, fixture.player, fixture.mob, { immediate: true });
     retaliate(fixture.scheduler, fixture.mob, fixture.player);
@@ -705,7 +713,7 @@ describe('assist -- the room that comes to help', () => {
     const fixture = makeFixture();
     const guard = fixture.sim.spawnMob(protector(), 4000, makeRng(0x9a12));
     assert.ok(guard);
-    const other = fixture.sim.spawn('Other');
+    const other = fixture.sim.spawn('Other', makeRng(1));
     // Two players fighting each other, and no mob involved at all.
     engage(fixture.scheduler, fixture.player, other, { immediate: true });
     retaliate(fixture.scheduler, other, fixture.player);
@@ -725,7 +733,7 @@ describe('a mob fights its aggressors, and nobody else', () => {
    */
   function inn(): Fixture & { readonly drinker: Player } {
     const fixture = makeFixture(dummy({ hp: '1d1+9999' }));
-    const drinker = fixture.sim.spawn('Drinker');
+    const drinker = fixture.sim.spawn('Drinker', makeRng(1));
     return { ...fixture, drinker };
   }
 
@@ -794,7 +802,7 @@ describe('helping somebody is joining their fight', () => {
    */
   function party(): Fixture & { readonly healer: Player } {
     const fixture = makeFixture(dummy({ hp: '1d1+9999' }));
-    const healer = fixture.sim.spawn('Healer');
+    const healer = fixture.sim.spawn('Healer', makeRng(1));
     return { ...fixture, healer };
   }
 

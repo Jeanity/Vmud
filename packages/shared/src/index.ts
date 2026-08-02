@@ -10,6 +10,8 @@ export * from './pursuit.ts';
 export * from './threat.ts';
 export * from './morale.ts';
 export * from './colour.ts';
+export * from './progression.ts';
+export * from './equipment.ts';
 export * from './spawn.ts';
 export * from './protocol.ts';
 export * from './tilemap.ts';

@@ -1,0 +1,202 @@
+/**
+ * Worn equipment, and the kit a character starts with.
+ *
+ * Owner-requested with Phase 14b: *"give new players some basic equipment… something with a tiny AC
+ * boost so not every level 1 is a cookie-cutter version of every other one."* It belongs here rather
+ * than in Phase 15 because **variance at level 1 is a progression question, not an inventory
+ * question** — two characters who roll differently have different first hours, and that is the
+ * difference between a starting band and a starting number.
+ *
+ * ## What this is not
+ *
+ * Not inventory. There is no picking up, dropping, container, capacity or trade here, and no item
+ * that is not the kit you were created with — all of that is Phase 15, and
+ * `DESIGN-inventory.md` already specifies it. This module knows what a leather tunic *is* and what
+ * wearing one does. Who has one and how they got it is the server's, and today the answer is always
+ * "they started with it".
+ *
+ * ## Armour class is expressed the SRD way here, and that is deliberate
+ *
+ * `armourToAc` exists to convert **Duris' armour scale**, where *lower is better* and a well-armoured
+ * mob carries −122. That conversion is needed because those numbers were harvested. These items were
+ * not harvested — they are authored by us, in the SRD's own terms — so they carry a straight AC bonus
+ * and need no conversion at all. Routing authored gear through a scale built to translate foreign
+ * data would be a round trip for nothing, and one sign error from making armour hurt.
+ *
+ * Slots are `DESIGN-inventory.md` §6's exactly, because that document already settled them and they
+ * map onto LPC's layered sprites — which is what makes worn gear *visible on the character*.
+ */
+
+import type { Dice, Rng } from './rules.ts';
+
+export const EQUIP_SLOTS = [
+  'head',
+  'neck',
+  'back',
+  'chest',
+  'hands',
+  'mainHand',
+  'offHand',
+  'legs',
+  'feet',
+  'ring1',
+  'ring2',
+] as const;
+
+export type EquipSlot = (typeof EQUIP_SLOTS)[number];
+
+export interface Item {
+  /** Stable id, so a stored kit survives a rename of the display name. */
+  readonly id: string;
+  readonly name: string;
+  readonly slot: EquipSlot;
+  /**
+   * Added to armour class. Higher is harder to hit — the SRD's direction, not Duris'.
+   *
+   * Rolled per item within its own band, which is what makes two fresh characters different. A
+   * lucky one starts several points harder to hit than an unlucky one, and both are viable.
+   */
+  readonly ac: number;
+  /** What it hits for, on a weapon. Absent on everything worn rather than wielded. */
+  readonly damage?: Dice;
+}
+
+/** A character's worn gear. Absent slots are empty — most of them, for a starting character. */
+export type Equipped = Partial<Record<EquipSlot, Item>>;
+
+/**
+ * One entry a starter kit can roll.
+ *
+ * `acMin`/`acMax` is the band, inclusive. The *choice* of item varies as well as its quality, so two
+ * characters differ in what they are wearing and not only in how good it is — a rough spread of kit
+ * reads as a person who scraped together what they could, which is the fiction anyway.
+ */
+interface StarterEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly acMin: number;
+  readonly acMax: number;
+  readonly damage?: Dice;
+}
+
+/**
+ * What a new character might be wearing, by slot.
+ *
+ * Modest on purpose. The totals land between roughly **+2 and +9 armour class**, so an unlucky
+ * character sits near AC 12 and a lucky one near AC 19 — against the level 1–5 band's attack bonus of
+ * 0, that is the difference between being hit about 45% of the time and about 30%. A real gap that
+ * neither trivialises the starter zone nor makes it unplayable.
+ *
+ * Weapons vary in **damage die** rather than armour: a dagger is quick and light, a club is heavier.
+ * The spread is small because a level-1 weapon should not decide the first ten levels.
+ *
+ * **Their magnitude is Duris', not the SRD's, and that was learned the hard way.** The first version
+ * used SRD dice — a 1d6 short sword — against mobs whose hit points are on the MUD scale, and a
+ * level-1 character dealt about 2 damage a round to a 35-hit-point kobold. They survived it
+ * comfortably and could never finish it: the kobold hit its morale threshold and fled, over and over.
+ * Fixing hit points without fixing damage had corrected one half of the same collision. These sit
+ * where a same-level fight lasts six to eight rounds, which is what `DESIGN-progression.md` §2 asks
+ * for and what the flee threshold assumes.
+ */
+const STARTER_KIT: Readonly<Partial<Record<EquipSlot, readonly StarterEntry[]>>> = {
+  mainHand: [
+    { id: 'dagger', name: 'a notched iron dagger', acMin: 0, acMax: 1, damage: { count: 2, sides: 4, bonus: 0 } },
+    { id: 'shortsword', name: 'a short sword with a worn grip', acMin: 0, acMax: 0, damage: { count: 2, sides: 5, bonus: 0 } },
+    { id: 'club', name: 'a knotted wooden club', acMin: 0, acMax: 0, damage: { count: 2, sides: 6, bonus: 0 } },
+    { id: 'handaxe', name: 'a chipped hand axe', acMin: 0, acMax: 0, damage: { count: 2, sides: 4, bonus: 2 } },
+  ],
+  chest: [
+    { id: 'leather_tunic', name: 'a leather tunic', acMin: 1, acMax: 3 },
+    { id: 'padded_jerkin', name: 'a padded jerkin', acMin: 1, acMax: 3 },
+    { id: 'quilted_vest', name: 'a quilted vest, much mended', acMin: 1, acMax: 2 },
+  ],
+  legs: [
+    { id: 'leather_leggings', name: 'a pair of leather leggings', acMin: 0, acMax: 2 },
+    { id: 'rough_breeches', name: 'rough woollen breeches', acMin: 0, acMax: 1 },
+  ],
+  feet: [
+    { id: 'worn_shoes', name: 'a pair of worn-out leather shoes', acMin: 0, acMax: 1 },
+    { id: 'travel_boots', name: 'scuffed travelling boots', acMin: 0, acMax: 2 },
+  ],
+  head: [
+    { id: 'leather_cap', name: 'a plain leather cap', acMin: 0, acMax: 1 },
+    { id: 'cloth_hood', name: 'a patched cloth hood', acMin: 0, acMax: 1 },
+  ],
+  hands: [
+    { id: 'hand_wraps', name: 'a set of frayed hand wraps', acMin: 0, acMax: 1 },
+    { id: 'work_gloves', name: 'a pair of stiff work gloves', acMin: 0, acMax: 1 },
+  ],
+};
+
+/** Inclusive integer in `[min, max]`, through the seeded rng. */
+function between(rng: Rng, min: number, max: number): number {
+  return min + Math.floor(rng() * (max - min + 1));
+}
+
+/**
+ * Rolls the kit a character is created with.
+ *
+ * **Seeded, and rolled exactly once.** `CLAUDE.md` rule 3 forbids `Math.random()` in simulation code
+ * and character creation is simulation; storing the result is what stops a player rerolling their kit
+ * by reconnecting until they like it. The same reason hit points are stored rather than derived.
+ *
+ * Every slot in {@link STARTER_KIT} is filled — a new character is dressed, not naked with one shoe.
+ * The variance is in *which* item and *how good*, not in whether you got one.
+ */
+export function rollStarterKit(rng: Rng): Equipped {
+  const kit: Equipped = {};
+  for (const slot of EQUIP_SLOTS) {
+    const choices = STARTER_KIT[slot];
+    if (!choices || choices.length === 0) continue;
+    const pick = choices[Math.floor(rng() * choices.length)]!;
+    kit[slot] = {
+      id: pick.id,
+      name: pick.name,
+      slot,
+      ac: between(rng, pick.acMin, pick.acMax),
+      ...(pick.damage ? { damage: pick.damage } : {}),
+    };
+  }
+  return kit;
+}
+
+/** Every point of armour class the worn kit is worth. */
+export function armourClassFrom(equipped: Equipped): number {
+  let total = 0;
+  for (const slot of EQUIP_SLOTS) total += equipped[slot]?.ac ?? 0;
+  return total;
+}
+
+/**
+ * What this character swings.
+ *
+ * The main hand if it holds something with damage on it; otherwise the caller's fallback, which is
+ * still `DEFAULT_WEAPON` — a character can be disarmed of a concept we do not have yet, and an
+ * unarmed character must still be able to fight.
+ */
+export function weaponFrom(equipped: Equipped, fallback: Dice): Dice {
+  return equipped.mainHand?.damage ?? fallback;
+}
+
+/** Rebuilds a kit from whatever was on disk, dropping anything that is not a well-formed item. */
+export function readEquipped(raw: unknown): Equipped {
+  if (typeof raw !== 'object' || raw === null) return {};
+  const out: Equipped = {};
+  for (const slot of EQUIP_SLOTS) {
+    const value = (raw as Record<string, unknown>)[slot];
+    if (typeof value !== 'object' || value === null) continue;
+    const item = value as Record<string, unknown>;
+    if (typeof item.id !== 'string' || typeof item.name !== 'string' || typeof item.ac !== 'number') continue;
+    const damage = item.damage as Dice | undefined;
+    out[slot] = {
+      id: item.id,
+      name: item.name,
+      slot,
+      ac: item.ac,
+      ...(damage && typeof damage.count === 'number' && typeof damage.sides === 'number'
+        ? { damage: { count: damage.count, sides: damage.sides, bonus: damage.bonus ?? 0 } }
+        : {}),
+    };
+  }
+  return out;
+}
