@@ -163,6 +163,15 @@ export function buildPrompt(request: DraftRequest): string {
     '- Third person, present tense. Describe the place; do not address the reader. Never write "you".',
     // Measured: 16 of 216 mention exits, and the game already prints "Exits: east." on its own line.
     '- Do not list or mention exits, directions or doors. The game prints those separately.',
+    // **Both of these were learned from drafts.** Told only "describe the place", a model ends every
+    // room with "a narrow path winds deeper into the wood" — which is an exit wearing a coat — and
+    // fills the middle with "secrets in a language long forgotten", which is atmosphere standing in
+    // for detail. The house style is physical: things that are there, in the sizes and colours they
+    // are. Stated as positives rather than as a list of banned words, which a model routes around.
+    '- Describe only this room. Do not say where a path, trail, stream or opening leads.',
+    '- Every sentence must name something physically present that a person standing here could see,',
+    '  hear, smell or touch. Mood comes from the detail, not from words about mood.',
+    '- No claims about history, magic, memory or meaning unless something visible shows it.',
     '- Do not name or place any creature, person or item. Those are placed by the world, not the prose.',
     '- Plain text only. No markup, no colour codes, no quotation marks around the whole thing.',
     '- Output the description and nothing else. No preamble, no title, no commentary.',
@@ -209,6 +218,27 @@ export interface DraftResult {
   readonly description: string;
   readonly model: string;
   readonly ms: number;
+  /** Rules the first draft broke, when a retry was needed. Empty on a clean first answer. */
+  readonly retriedFor: readonly string[];
+}
+
+/**
+ * Rules a draft broke that a person would have to fix by hand.
+ *
+ * Only the ones that are **mechanically decidable and always wrong** — a model can be told six times
+ * not to write "you" and still write it, and across a 25-room batch that is 25 hand-edits. Vaguer
+ * failings ("too purple") are left to the reader, because a regex that judged prose would be worse
+ * than the prose.
+ */
+export function violations(text: string): readonly string[] {
+  const broken: string[] = [];
+  // Measured: 1 of 216 shipped descriptions uses the second person. It is the rule models break most.
+  if (/\b(you|your|yourself)\b/i.test(text)) broken.push('addresses the reader as "you"');
+  // "Exits: north." or "To the east lies…" — the game prints exits on their own line already.
+  if (/\bexits?\s*:/i.test(text) || /\bto the (north|south|east|west)\b/i.test(text)) {
+    broken.push('mentions exits or directions');
+  }
+  return broken;
 }
 
 export interface DraftFailure {
@@ -230,6 +260,30 @@ export async function draftDescription(
   now: () => number = Date.now,
 ): Promise<DraftResult | DraftFailure> {
   const started = now();
+  const first = await generateOnce(request, fetchImpl);
+  if (!first.ok) return first;
+
+  const broken = violations(first.text);
+  if (broken.length === 0) return { ok: true, description: first.text, model: request.model, ms: now() - started, retriedFor: [] };
+
+  // **One retry, with the failure named.** Models break the "you" rule about one draft in three, and
+  // in a 25-room batch that is eight hand-edits. Telling it what it did wrong works far better than
+  // asking again identically, and one retry is the whole budget — a model that breaks the rule twice
+  // is telling you the draft is worth reading before keeping, which is the default anyway.
+  const scolded: DraftRequest = {
+    ...request,
+    brief: `${request.brief}\n\nYour previous attempt was rejected because it ${broken.join(' and ')}. Do not do that.`,
+  };
+  const second = await generateOnce(scolded, fetchImpl);
+  if (!second.ok) return second;
+  return { ok: true, description: second.text, model: request.model, ms: now() - started, retriedFor: broken };
+}
+
+/** One call to the model, with the failure modes an operator needs told apart. */
+async function generateOnce(
+  request: DraftRequest,
+  fetchImpl: typeof fetch,
+): Promise<{ ok: true; text: string } | DraftFailure> {
   let response: Response;
   try {
     response = await fetchImpl(`${OLLAMA_URL}/api/generate`, {
@@ -262,7 +316,7 @@ export async function draftDescription(
     return { ok: false, error: `${request.model} returned nothing` };
   }
 
-  return { ok: true, description: tidy(body.response), model: request.model, ms: now() - started };
+  return { ok: true, text: tidy(body.response) };
 }
 
 /**

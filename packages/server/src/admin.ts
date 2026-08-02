@@ -710,14 +710,31 @@ export class AdminApi {
    * of the voice than a 130-word one, and the median is 115.
    */
   private styleSamples(room: Room): readonly { name: string; description: string }[] {
-    const zone = this.deps.world.zone(room.zone);
-    if (!zone) return [];
-    const described = zone.rooms.filter((candidate) => candidate.description && candidate.id !== room.id);
+    const described = this.deps.world
+      .allZones()
+      .flatMap((zone) => zone.rooms)
+      .filter((candidate) => candidate.description && candidate.id !== room.id);
     if (described.length === 0) return [];
 
-    const step = Math.max(1, Math.floor(described.length / SAMPLE_COUNT));
+    // **Sector outranks zone**, and the Stag Forest is why. It has prose for 0 of 98 rooms, so
+    // "sample the same zone" returns nothing and every room in it would be written with no examples
+    // at all. Widening to the whole loaded world finds 24 described forest rooms and 7 roads — in
+    // IceCrag, but outdoors and in the right register. Where they conflict, sector wins: showing a
+    // model three stone corridors while asking it for a forest is actively harmful, whereas showing
+    // it a forest another builder wrote is merely second best. Same zone still breaks the tie.
+    const tier = (candidate: Room): number =>
+      (candidate.sector === room.sector ? 2 : 0) + (candidate.zone === room.zone ? 1 : 0);
+    const best = Math.max(...described.map(tier));
+    const pool = described.filter((candidate) => tier(candidate) === best);
+
+    // Spread through the pool rather than taking the first three, which would be three rooms from
+    // the same corridor — and deterministic, so pressing the button twice varies by the model's own
+    // sampling rather than by which examples it happened to get.
+    const step = Math.max(1, Math.floor(pool.length / SAMPLE_COUNT));
     const picked: Room[] = [];
-    for (let i = 0; i < described.length && picked.length < SAMPLE_COUNT; i += step) picked.push(described[i]!);
+    for (let i = 0; i < pool.length && picked.length < SAMPLE_COUNT; i += step) picked.push(pool[i]!);
+    // Longest first: a 51-word room demonstrates less of the voice than a 130-word one, and the
+    // median is 115.
     return picked
       .sort((a, b) => (b.description?.length ?? 0) - (a.description?.length ?? 0))
       .map((candidate) => ({ name: candidate.name, description: candidate.description! }));

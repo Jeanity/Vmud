@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { buildPrompt, draftDescription, listModels, tidy, type DraftRequest } from './ollama.ts';
+import { buildPrompt, draftDescription, listModels, tidy, violations, type DraftRequest } from './ollama.ts';
 
 function request(over: Partial<DraftRequest> = {}): DraftRequest {
   return {
@@ -104,7 +104,60 @@ describe('tidying a draft', () => {
   });
 });
 
+describe('rules a draft can be caught breaking', () => {
+  it('catches the second person, which is the rule models break most', () => {
+    // Told six times not to, qwen still wrote "The trunks of ancient oak trees rise around you".
+    // Across a 25-room batch that is eight hand-edits, so it is caught rather than hoped about.
+    assert.deepEqual(violations('The trunks rise around you.'), ['addresses the reader as "you"']);
+    assert.deepEqual(violations('Stone rises on every side.'), []);
+  });
+
+  it('catches exits smuggled back in as prose', () => {
+    assert.deepEqual(violations('Exits: north and south.'), ['mentions exits or directions']);
+    assert.deepEqual(violations('To the east lies a hall.'), ['mentions exits or directions']);
+    // A path *in* the room is physical detail and stays: the rule is about where it leads.
+    assert.deepEqual(violations('A narrow path winds between the bushes, worn smooth.'), []);
+  });
+});
+
 describe('talking to Ollama', () => {
+  it('retries once when the first draft breaks a rule, and says so', async () => {
+    const answers = ['The oaks rise around you.', 'The oaks rise on every side.'];
+    let calls = 0;
+    const fetchImpl = (async () => {
+      const text = answers[calls++];
+      return { ok: true, status: 200, json: async () => ({ response: text }), text: async () => '' } as Response;
+    }) as unknown as typeof fetch;
+
+    const result = await draftDescription(request(), fetchImpl);
+    assert.equal(calls, 2);
+    assert.equal(result.ok && result.description, 'The oaks rise on every side.');
+    assert.deepEqual(result.ok && result.retriedFor, ['addresses the reader as "you"']);
+  });
+
+  it('does not retry a clean draft', async () => {
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      return { ok: true, status: 200, json: async () => ({ response: 'Stone rises.' }), text: async () => '' } as Response;
+    }) as unknown as typeof fetch;
+
+    const result = await draftDescription(request(), fetchImpl);
+    assert.equal(calls, 1);
+    assert.deepEqual(result.ok && result.retriedFor, []);
+  });
+
+  it('keeps the second draft even if it also breaks the rule — one retry is the whole budget', async () => {
+    const fetchImpl = (async () =>
+      ({ ok: true, status: 200, json: async () => ({ response: 'It rises around you.' }), text: async () => '' }) as Response
+    ) as unknown as typeof fetch;
+    const result = await draftDescription(request(), fetchImpl);
+    // Returned rather than failed: a draft is offered for review, and a model that breaks the rule
+    // twice has told you this one is worth reading before keeping — which is the default anyway.
+    assert.equal(result.ok, true);
+    assert.equal(result.ok && result.retriedFor.length, 1);
+  });
+
   it('returns the description when the model answers', async () => {
     const result = await draftDescription(
       request(),
