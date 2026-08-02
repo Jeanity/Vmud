@@ -181,6 +181,28 @@ const ROOM_PATCH_KEYS = new Set(['name', 'description', 'sector', 'flags']);
 const ROOM_NAME_MAX = 120;
 const ROOM_PROSE_MAX = 4000;
 
+/**
+ * How far the neighbourhood shown beside a room reaches, and how much of it is kept.
+ *
+ * Two hops because a corner's neighbours are often other corners — the room that actually describes
+ * the place can be a step past the ones touching it. Twelve because a castle hub reaches twenty in
+ * two steps and past a handful this stops being context and becomes something the author has to read.
+ */
+const NEARBY_HOPS = 2;
+const NEARBY_MAX = 12;
+
+/** One room in the neighbourhood shown beside the editor. See `AdminApi.neighbourhood`. */
+interface NearbyRoom {
+  readonly id: number;
+  readonly hops: number;
+  readonly dir: string | null;
+  readonly name: string;
+  readonly sector: string;
+  readonly description: string | null;
+  /** False for a room read from a zone this server does not run — good context, not reachable. */
+  readonly loaded: boolean;
+}
+
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 export class AdminApi {
@@ -377,6 +399,79 @@ export class AdminApi {
     };
   }
 
+  /**
+   * The rooms around this one, with their prose — the context you cannot write without.
+   *
+   * **The case that demands it** (owner, 2026-08-02): "Southwestern Corner Of the Banquet Hall" is
+   * one of three IceCrag rooms with no description, and its name is nearly all you have. Whether it
+   * is a corner of a hall laid for a feast or a corner of a hall in ruins is not in the name, is not
+   * in the sector, and is not recoverable by thinking harder — it is in the room next door. An author
+   * given only the room they are editing writes something plausible and wrong, and a model given only
+   * the room they are editing does the same thing faster.
+   *
+   * Two hops rather than one, because a corner's neighbours are frequently other corners: the
+   * Southwestern Corner's neighbour may be the Southern Wall, and the hall itself a step beyond it.
+   * Two is where the prose usually starts. Bounded at {@link NEARBY_MAX} because a hub room in a
+   * castle can reach twenty in two steps, and past a handful this stops being context and becomes a
+   * wall — the author has to read it.
+   *
+   * Breadth-first, so what comes back is ordered by *nearness*, which is also the order of relevance:
+   * a truncated list keeps the adjacent rooms and drops the far ones, which is the right thing to
+   * lose. Rooms with prose come first at equal distance, since a described neighbour is the only kind
+   * that carries information — an undescribed one contributes its name and nothing else.
+   *
+   * This is also, deliberately, the shape the Ollama slice needs: prompt context is exactly "what do
+   * the rooms around this one say", and building it here means the panel and the generator read the
+   * same neighbourhood rather than two subtly different ones.
+   */
+  private neighbourhood(room: Room): readonly NearbyRoom[] {
+    const seen = new Set<RoomId>([room.id]);
+    const out: NearbyRoom[] = [];
+    // `dir` is the *first* step taken to reach a room, which is what an author reads as "north of
+    // here". Beyond one hop there is no single direction, so it is carried forward rather than
+    // recomputed — "two rooms off to the north" is true and useful; a second bearing would not be.
+    let frontier: { id: RoomId; dir: string | null }[] = [{ id: room.id, dir: null }];
+
+    for (let hops = 1; hops <= NEARBY_HOPS; hops++) {
+      const next: { id: RoomId; dir: string | null }[] = [];
+      const reached: NearbyRoom[] = [];
+      for (const step of frontier) {
+        // **`referenceRoom`, not `locate` — the walk crosses zone boundaries.** IceCrag's staircases
+        // lead into zone 219, which this server does not run, and stopping there would leave every
+        // room at the top of a stair with no context in the one direction that has any. The rooms
+        // are on disk; not playing a zone is a different thing from not knowing what is in it.
+        const here = this.deps.world.referenceRoom(step.id);
+        if (!here) continue;
+        for (const [dir, exit] of Object.entries(here.exits)) {
+          if (seen.has(exit.to)) continue;
+          seen.add(exit.to);
+          const found = this.deps.world.referenceRoom(exit.to);
+          if (!found) continue;
+          const from = step.dir ?? dir;
+          next.push({ id: exit.to, dir: from });
+          reached.push({
+            id: found.id,
+            hops,
+            dir: from,
+            name: found.name,
+            sector: found.sector,
+            description: found.description ?? null,
+            // Said plainly, because it changes what the room *is*: prose from an unplayed zone is
+            // still good context for writing, but a player cannot walk there today.
+            loaded: this.deps.world.locate(found.id) !== undefined,
+          });
+        }
+      }
+      // Described first *within* this ring, never across rings: nearness outranks prose, because a
+      // silent room next door still tells you where you are.
+      reached.sort((a, b) => Number(Boolean(b.description)) - Number(Boolean(a.description)));
+      out.push(...reached);
+      if (out.length >= NEARBY_MAX) break;
+      frontier = next;
+    }
+    return out.slice(0, NEARBY_MAX);
+  }
+
   /** One room in full: its prose, its flags, and the live state of every way out of it. */
   private room(slug: string): AdminResponse {
     const id = Number(slug);
@@ -401,6 +496,8 @@ export class AdminApi {
         // Which of the fields above are hand-authored rather than harvested, so the editor can offer
         // to revert exactly those and no others. Null for an untouched room.
         authored: this.deps.world.overrides.get(room.id) ?? null,
+        // **The neighbourhood, with its prose.** See {@link neighbourhood}.
+        nearby: this.neighbourhood(room),
         occupants: this.deps.live.occupantsOf(room.id),
         exits: Object.entries(room.exits).map(([dir, exit]) => {
           const destination = this.deps.world.locate(exit.to);
@@ -408,11 +505,25 @@ export class AdminApi {
           // is exactly why it belongs in a panel rather than in the world files: this says whether
           // the castle's front door is standing open *right now*.
           const door = this.deps.world.doorway(room.id, dir as Direction)?.near.door;
+          // **An exit off the loaded world still goes somewhere, and the room is on disk.** `up` and
+          // `down` out of IceCrag lead into zone 219, "IceCrag Castle - Lower Level", a separate
+          // zone file not in `world.config.json` — so every staircase in the castle used to report
+          // `(not loaded)` and nothing else. It reports the actual room now, named and described,
+          // because not *playing* a zone is a different thing from not knowing what is in it.
+          const beyond = destination ? undefined : this.deps.world.referenceRoom(exit.to);
+          const zone = destination ? undefined : this.deps.world.zoneOf(exit.to);
           return {
             dir,
             to: exit.to,
-            toName: destination?.room.name ?? '(not loaded)',
+            toName: destination?.room.name ?? beyond?.name ?? null,
             portal: Boolean(exit.portal),
+            // Null when the destination *is* loaded — the room name already says everything, and a
+            // zone label on every local exit would be noise on 99% of them.
+            toZone:
+              destination || zone === undefined
+                ? null
+                : { id: zone, name: this.deps.world.zoneName(zone) ?? `zone ${zone}` },
+            loaded: destination !== undefined,
             door: door
               ? { name: door.name, closed: Boolean(door.closed), locked: Boolean(door.locked) }
               : null,

@@ -548,6 +548,40 @@ describe('the zone browser', () => {
     const { api } = makeRig();
     assert.equal(api.route(req('GET', '/rooms/99999')).status, 404);
   });
+
+  it('carries the neighbouring rooms and their prose', () => {
+    // The context a room cannot be written without: "Southwestern Corner Of the Banquet Hall" does
+    // not say whether the hall is laid for a feast or in ruins, and the room next door does.
+    const { api } = makeRig();
+    const body = api.route(req('GET', '/rooms/6001')).body as {
+      nearby: { id: number; hops: number; dir: string | null; name: string; description: string | null }[];
+    };
+    assert.equal(body.nearby.length, 1);
+    assert.deepEqual(
+      { id: body.nearby[0]!.id, hops: body.nearby[0]!.hops, dir: body.nearby[0]!.dir },
+      { id: 6002, hops: 1, dir: 'east' },
+    );
+  });
+
+  it('never lists the room itself, however the exits loop back', () => {
+    const { api } = makeRig();
+    const body = api.route(req('GET', '/rooms/6001')).body as { nearby: { id: number }[] };
+    // 6001 → east → 6002 → west → 6001. Without the seen-set the second hop walks straight home and
+    // the author is shown the room they are editing as context for itself.
+    assert.ok(!body.nearby.some((near) => near.id === 6001));
+  });
+
+  it('says whether an exit leads anywhere this server has loaded', () => {
+    const { api } = makeRig();
+    const body = api.route(req('GET', '/rooms/6001')).body as {
+      exits: { dir: string; toName: string | null; loaded: boolean; toZone: unknown }[];
+    };
+    assert.equal(body.exits[0]!.loaded, true);
+    assert.equal(body.exits[0]!.toName, 'A Fallen Log');
+    // Null for a loaded destination: the room name says everything, and a zone label on every local
+    // exit would be noise on 99% of them.
+    assert.equal(body.exits[0]!.toZone, null);
+  });
 });
 
 describe('authoring a room', () => {

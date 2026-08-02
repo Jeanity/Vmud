@@ -241,6 +241,23 @@
         color: #b8b2a4;
       }
 
+      /* The neighbourhood, above the editor and readable while you type. A room cannot be written
+         from its own name — "Southwestern Corner Of the Banquet Hall" does not say whether the hall
+         is laid for a feast or in ruins, and the room next door does. */
+      .nearby { margin: 10px 0; border: 1px solid var(--edge); border-radius: 3px; padding: 6px 9px; }
+      .nearby summary { cursor: pointer; color: var(--dim); font-size: 12px; }
+      .near { margin: 8px 0 0; padding-top: 7px; border-top: 1px solid var(--edge); }
+      .near:first-of-type { border-top: none; }
+      .near-head { font-size: 12px; }
+      .near-prose {
+        margin-top: 2px;
+        font-family: Consolas, monospace;
+        font-size: 11.5px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        color: #9d9789;
+      }
+
       .flag-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2px 10px; }
       .flagbox { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink); }
       .flagbox input { padding: 0; }

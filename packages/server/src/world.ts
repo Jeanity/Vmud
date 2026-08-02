@@ -272,6 +272,15 @@ export class GameWorld {
   private readonly places: Place[] = [];
   private readonly spawn: SpawnConfig;
   private directory: Map<RoomId, ZoneId> | undefined;
+  /** Zone names for every zone that exists, loaded or not. See {@link zoneName}. */
+  private zoneNames: Map<ZoneId, string> | undefined;
+  /**
+   * Zones read from disk for *reading* rather than for playing. See {@link referenceRoom}.
+   *
+   * Kept apart from `zonesById` on purpose: nothing in here is indexed, gridded, populated, or
+   * reachable by any path a player can take. It exists so an author can read across a zone boundary.
+   */
+  private readonly reference = new Map<ZoneId, Zone>();
 
   /** Which zones spawn inhabitants. See {@link WorldConfig.populate}. */
   readonly populate: readonly ZoneId[];
@@ -563,6 +572,71 @@ export class GameWorld {
     if (loaded) return loaded.place.zone;
     this.directory ??= readRoomDirectory();
     return this.directory.get(roomId);
+  }
+
+  /**
+   * A room from a zone this server does not run, **for reading only**.
+   *
+   * The generated world holds all 327 zones on disk; `world.config.json` decides which four are
+   * *played*. Those are different questions, and this answers the second one: an authoring tool
+   * standing at the top of IceCrag's stairs should be able to read what is at the bottom, in zone
+   * 219, even though nothing there is simulated. Owner's reason, 2026-08-02 — a description written
+   * without the neighbouring prose is written blind, and that is as true across a zone boundary as
+   * within one.
+   *
+   * **Deliberately not `locate`, and deliberately not added to the index.** A room reached this way
+   * has no Place, no tilemap, no population and no business being walked into; conflating the two
+   * would let a teleport or an exit resolve into an unloaded zone and put a player somewhere the
+   * simulation cannot tick. The name says reference, and the return type is a bare `Room` with no
+   * `place` beside it, so a caller cannot use it as a destination by accident.
+   *
+   * Caches the whole zone it came from, which is the right granularity: authoring walks a
+   * neighbourhood, so the next lookup is nearly always in the same file. Reference zones are never
+   * mutated and never composed with overrides — they are not the world, they are notes about it.
+   */
+  referenceRoom(roomId: RoomId): Room | undefined {
+    if (this.index.has(roomId)) return this.index.get(roomId)!.room;
+    const zoneId = this.zoneOf(roomId);
+    if (zoneId === undefined || this.zonesById.has(zoneId)) return undefined;
+
+    let zone = this.reference.get(zoneId);
+    if (!zone) {
+      try {
+        zone = loadZone(zoneId);
+      } catch {
+        return undefined;
+      }
+      this.reference.set(zoneId, zone);
+    }
+    return zone.rooms.find((room) => room.id === roomId);
+  }
+
+  /**
+   * What a zone is called, **including one this server has not loaded**.
+   *
+   * Read from the generated `index.json`, which names all 327 of them. The reason it exists is that
+   * `(not loaded)` is a true answer and a useless one: IceCrag's stairs go *down* into zone 219,
+   * "IceCrag Castle - Lower Level", which is a different zone file and not in `world.config.json` —
+   * so every up and down exit off the loaded levels reported nothing at all. Naming the zone turns a
+   * dead end back into a fact about the world, which is what an author standing at the top of those
+   * stairs actually needs.
+   *
+   * Cached on first use, like the room directory, and for the same reason: it is one small file, read
+   * at most once per process and only when something asks about a room off the map.
+   */
+  zoneName(id: ZoneId): string | undefined {
+    if (this.zoneNames === undefined) {
+      this.zoneNames = new Map();
+      try {
+        const index = JSON.parse(readFileSync(join(WORLD_DIR, 'index.json'), 'utf8')) as {
+          zones?: readonly { id: ZoneId; name: string }[];
+        };
+        for (const zone of index.zones ?? []) this.zoneNames.set(zone.id, zone.name);
+      } catch {
+        // No index is survivable — every caller falls back to the bare id, which is still a fact.
+      }
+    }
+    return this.zonesById.get(id)?.name ?? this.zoneNames.get(id);
   }
 
   /**

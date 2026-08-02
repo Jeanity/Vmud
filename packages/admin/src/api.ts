@@ -218,11 +218,32 @@ export interface RoomDetail {
    * precisely those and leaves the harvested ones alone. See `server/src/overrides.ts`.
    */
   authored: RoomOverride | null;
+  /**
+   * The rooms within two steps, with their prose — the context a room cannot be written without.
+   *
+   * "Southwestern Corner Of the Banquet Hall" does not say whether the hall is laid for a feast or
+   * in ruins. The room next door does. Ordered by nearness, described rooms first within each ring.
+   */
+  nearby: {
+    id: number;
+    hops: number;
+    /** The first step taken to get here — "north of you", even two rooms out. Null for the room itself. */
+    dir: string | null;
+    name: string;
+    sector: string;
+    description: string | null;
+    /** False for a room read from a zone this server does not run — good context, not reachable. */
+    loaded: boolean;
+  }[];
   occupants: Occupants;
   exits: {
     dir: string;
     to: number;
-    toName: string;
+    /** Null when the destination is in a zone this server has not loaded — see `toZone`. */
+    toName: string | null;
+    /** Named when the destination is off the loaded world: `up` out of IceCrag goes to zone 219. */
+    toZone: { id: number; name: string } | null;
+    loaded: boolean;
     portal: boolean;
     door: { name: string; closed: boolean; locked: boolean } | null;
   }[];

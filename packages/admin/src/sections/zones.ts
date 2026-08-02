@@ -13,7 +13,7 @@
  * can be read off the world files.
  */
 
-import { ROOM_FLAGS, SECTORS } from '@mygame/shared';
+import { ROOM_FLAGS, SECTORS, parseColour } from '@mygame/shared';
 
 import { call, type RoomDetail, type ZoneRoomsBody, type ZonesBody, type ZoneRow } from '../api.ts';
 import { colourBox } from '../colourbox.ts';
@@ -82,6 +82,13 @@ export const zonesSection = {
           roomPane,
           body,
           (room) => {
+            // **Picking a room shows it in place.** Owner, 2026-08-02: the "needs prose" list is a
+            // work queue, and a queue that answers "which room" without answering "where" is half
+            // an answer — the surrounding rooms are the context you write from. The map only draws
+            // one level (eleven stacked is a picture of nothing), so choosing a room chooses its
+            // level too, and the map appears around the selection rather than staying hidden.
+            const row = body.rooms.find((candidate) => candidate.id === room);
+            if (row) pickedLevel = row.level;
             void showRoom(room);
             redraw();
           },
@@ -315,7 +322,18 @@ function renderRoom(pane: HTMLElement, room: RoomDetail, reload: () => void): vo
                   'tr',
                   {},
                   el('td', {}, exit.dir),
-                  el('td', {}, `${exit.toName} (${exit.to})`),
+                  // A destination off the loaded world is still a destination. Every staircase in
+                  // IceCrag leads into zone 219 — a separate zone file — and used to read as
+                  // "(not loaded)", which told an author nothing about what is up those stairs.
+                  exit.loaded
+                    ? el('td', {}, `${exit.toName} (${exit.to})`)
+                    : el(
+                        'td',
+                        {},
+                        exit.toName ?? `room ${exit.to}`,
+                        ` (${exit.to})`,
+                        el('span', { class: 'pill' }, exit.toZone ? exit.toZone.name : 'unmapped'),
+                      ),
                   el(
                     'td',
                     { class: 'muted' },
@@ -330,9 +348,75 @@ function renderRoom(pane: HTMLElement, room: RoomDetail, reload: () => void): vo
               ),
             ),
           ),
+      nearbyProse(room),
       roomEditor(room, reload),
     ),
   );
+}
+
+/**
+ * The neighbourhood's prose, above the editor.
+ *
+ * **The owner's case, and it is the whole argument** (2026-08-02): "Southwestern Corner Of the
+ * Banquet Hall" is one of IceCrag's three unwritten rooms, and its name is nearly everything you
+ * have. Whether that hall is laid for a feast or standing in ruins is not in the name, not in the
+ * sector, and not recoverable by thinking harder — it is in the room next door. Writing without it
+ * produces something plausible and wrong, and a model writing without it does the same thing faster.
+ *
+ * Placed *above* the box rather than in a tab or a popover: it has to be readable while you type, or
+ * it is not context, it is a lookup.
+ *
+ * Prose is rendered through the same painter the client uses, because the neighbours are coloured and
+ * a new room should match its neighbours' colour as well as their subject.
+ */
+function nearbyProse(room: RoomDetail): HTMLElement | null {
+  if (room.nearby.length === 0) return null;
+  const described = room.nearby.filter((near) => near.description);
+
+  return el(
+    'details',
+    // Open when the room being looked at has nothing of its own — which is exactly when it is about
+    // to be written, and exactly when the neighbours are the only thing to write from.
+    room.description ? { class: 'nearby' } : { class: 'nearby', open: true },
+    el(
+      'summary',
+      {},
+      `Nearby — ${room.nearby.length} room${room.nearby.length === 1 ? '' : 's'} within two steps`,
+      described.length === 0
+        ? el('span', { class: 'pill' }, 'none described')
+        : el('span', { class: 'pill' }, `${described.length} with prose`),
+    ),
+    ...room.nearby.map((near) =>
+      el(
+        'div',
+        { class: 'near' },
+        el(
+          'div',
+          { class: 'near-head' },
+          el('span', { class: 'muted' }, near.dir ? `${near.dir}${near.hops > 1 ? ` ×${near.hops}` : ''} · ` : ''),
+          near.name,
+          el('span', { class: 'muted' }, ` · ${near.sector} · #${near.id}`),
+          // A room from a zone this server does not run is still good context; it is just not
+          // somewhere a player can walk today, and conflating the two would mislead.
+          near.loaded ? null : el('span', { class: 'pill' }, 'not in play'),
+        ),
+        near.description
+          ? painted('div', 'near-prose', near.description)
+          : el('div', { class: 'near-prose muted' }, 'no description'),
+      ),
+    ),
+  );
+}
+
+/** A node whose text is rendered with the MUD's colour codes honoured. Spans, never HTML. */
+function painted(tag: 'div' | 'p', className: string, text: string): HTMLElement {
+  const node = el(tag, { class: className });
+  for (const span of parseColour(text)) {
+    const part = el('span', {}, span.text);
+    if (span.colour !== undefined) part.style.color = span.colour;
+    node.append(part);
+  }
+  return node;
 }
 
 /* -------------------------------------------------------------------------- */
