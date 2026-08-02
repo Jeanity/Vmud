@@ -60,6 +60,8 @@ const templateWith = (aggro: AggroRule, pursuit: PursuitRule = noPursuit()): Mob
   pursuit,
   combat: readCombatStats({ level: 50, armour: 0, damage: '1d4+0' }),
   experience: 5000,
+  // Never breaks off: these fixtures are about pointers, corpses and pathing, not morale.
+  wimpyAt: 0,
   vnum: 600_01,
   keywords: ['sentinel'],
   name: 'a vault sentinel',

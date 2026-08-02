@@ -44,14 +44,14 @@ reorder:
 
 ## 2. Progress
 
-23 phases. Fifteen done — Acts I–III complete, Act IV nearly.
+24 phases. Sixteen done — Acts I–III complete, Act IV all but its progression half.
 
 | Act | Phases | State |
 | --- | --- | --- |
 | I — The world answers back | 1–3 | **3 of 3 ✅** |
 | II — Bodies | 4, 5, 5b, 5c, 6 | **5 of 5 ✅** |
 | III — Life | 7–10 | **4 of 4 ✅** |
-| IV — Violence | 11–14 | 3 of 4 |
+| IV — Violence | 11–14, 14b | 4 of 5 |
 | V — Things | 15–17 | not started |
 | VI — Together | 18–21 | not started |
 
@@ -84,7 +84,7 @@ a new idea still answers the three questions; its second question now also picks
 
 | Round | V | M | A |
 | --- | --- | --- | --- |
-| **1 — current** | V1 — the combat feed ✅ | Phase 14 — mercy and fear (next) | A2 — messaging to a room or place |
+| 1 | V1 — the combat feed ✅ | Phase 14 — mercy and fear ✅ | A2 — messaging to a room or place (next) |
 | 2 | V2 — click a body, get its verbs | Phase 14b — a character worth keeping | A3 — zones, read-only |
 | 3 | V3 — speech in the world | Phase 15 — inventory and worn equipment | A4 — zones and mobs, live ops |
 
@@ -823,24 +823,81 @@ a corpse is plainly visible reads as the game being broken rather than as a reas
 flip the flag and change the sprite, which is the whole of what can honestly happen — and when items
 arrive the transfer goes in beside the flag.
 
-#### Phase 14 — Mercy and fear
+#### Phase 14 — Mercy and fear ✅ **done**
 
 - **Mechanic.** The mercy rule (stop auto-attacking the helpless), the damage clamp that makes the
   dying window real, morale and wimpy, fleeing with a chance and a cost.
 - **Seen when.** A wounded mob breaks and runs; you go *dying* rather than straight to dead, and can
-  be saved.
+  be saved. ✅ — *"A masonary craftsman tries to flee, but cannot get away!"*, and the round after,
+  *"A masonary craftsman flees east!"*
 - **Why here.** Without these, combat is a damage race. §4.6 and §4.7 are both about exactly this,
   and both are cheap once Phase 11's clock exists.
 
-**Scope note, 2026-08-02.** The first two items arrived early: the mercy rule and the negative-floor
-damage clamp both landed inside Phase 11, where building the dying window without them would have
-built it as dead code (see that phase). What remains here is the *fear* half: morale, `wimpyAt`
-(`ACT_WIMPY` is harvested by `isWimpy` and has no caller), the `flee` command — which
-`DESIGN-engagement.md` §5 makes the **only voluntary way out of a fight**, so until this phase
-leaving a fight means winning it, dying, or disconnecting — and §2.8's rule that a high-intelligence
-mob flees *toward* its allies (`firstStepToward` in `hunt.ts` is the pathing it needs), which turns
-a fleeing mob into a developing problem rather than an escape. What death *costs* a player is
-deliberately not here — it needs progression's numbers to mean anything, and lands in Phase 14b.
+**The first two items arrived early**, inside Phase 11: building the dying window without the mercy
+rule and the negative-floor clamp would have built it as dead code, and that phase says so. What
+landed here is the *fear* half — `shared/src/morale.ts` for the numbers, `server/src/flee.ts` for
+the attempt. What death *costs* is deliberately still not here; it needs progression's numbers to
+mean anything and moved to Phase 14b with them.
+
+**One `do_flee` for players and mobs**, which is the source's own shape: a player typing `flee`, a
+mob whose nerve broke, and half a dozen Duris spells all reach the same function. Two copies would
+drift, and the half that drifted would be the mob's.
+
+**§4.7's trap, avoided by transcribing rather than assuming.** *"`wimpy` means auto-flee"* is what
+everyone believes and it is wrong: on a player it merely suppresses your own auto-engagement while
+hurt, and the only thing that actually runs away is a mob with `ACT_WIMPY`, below `level * 6` hit
+points. So there is no player wimpy setting and there will not be one — a player leaves a fight by
+typing `flee`, which is what §5 makes it.
+
+**The threshold is absolute, and §2.8's "HP fraction" wording is what changed.** Hit points are
+*rolled per instance* (Phase 8), so a fraction of `maxHp` would break two guards of one vnum at
+different wounds — one at 180 and one at 240 — for no reason a player could ever read. The source's
+flat `level * 6` breaks every guard of a template at the same number of points *taken*, which is
+what makes "this one is nearly done" a thing you can learn.
+
+**Failing to get out is not the same as being switched off.** A cornered coward fights on that
+round, which is what stops "block the only exit" from being a way to disarm a mob. Seen in the first
+live drive: the craftsman panicked, swung anyway, and left the round after.
+
+**Our one divergence is §2.8's, and its predicate is a capability rather than a stand-in.** A mob
+that can path flees **toward its allies**; the test is `pursues(rule)` — the same faculty hunting
+needs — because fleeing toward allies *is* a room-graph search, so a mob that cannot search cannot
+search toward anything either. `firstStepToward` was generalised into `firstStepWhere` for it, since
+the destination is not known before the search runs: the question is which friend is nearest. It
+lands well in the shipped world — of IceCrag's five placed cowards the Archivist's two assistants
+run for help while the cleaning crew, the garden attendant and the mason scatter. **Verified live:**
+the assistant in 5793 broke and ran *west*, into the room its colleague was standing in, with both
+rooms to its east empty.
+
+**Fleeing buys distance from the blow, not from the encounter.** A pursuer that can chase begins a
+hunt on the spot — Phase 10's machinery answering Phase 14's exit, and our version of the source
+rescheduling the mob half a second later *"to allow fast, but not impossible chases"*. Measured:
+fled west from Malice, and *"Malice, the half-breed son of Strife, arrives from the east."*
+**1,731 ms** later.
+
+**Harvested honestly: 204 of 1,503 templates flee (13.6%); 8 of IceCrag's 61, of which 5 are
+placed.** They are the castle's *staff* rather than its guards — cleaning crew, an ice garden
+attendant, a mason, the Archivist's assistants. Nobody chose that; it is the builder's own flags
+read back, and it is the kind of texture the harvest keeps producing for free. The count prints on
+every `npm run worldgen` for the same reason the `safe` room count does: a morale mechanic that
+nothing in the shipped world carries the flag for would look built and be invisible.
+
+**A live bug no test could have caught, and the third of its exact kind.** The departure line came
+out as *"Someone flees west!"* — `canSee` tests the subject's **tile**, and by the time the line was
+rendered the body was already in the next room, so every escape was anonymous. The fix is to
+snapshot who could see it while it was still standing there. Phases 9 and 10 each hit this same
+ordering hazard once, for the same underlying reason: `index.ts` starts a server on import, so its
+message-emitting layer has no test harness.
+
+**Left for later, both by the same rule.** `courage` and `callsWhenAfraid` from §2.8 have no `.mob`
+bit to read, so they are not built rather than invented — the wall `ACT2_NO_LURE` hit in Phase 10.
+And the direction argument (`flee west`) is a rogue skill in the source (`SKILL_CONTROL_FLEE`), so
+until Phase 19 flight is panicked by definition and the way out is not yours to choose.
+
+**Riding along, at the owner's request:** `loot` now takes the **nearest unlooted** corpse, then the
+next-nearest, and only then a looted one. A corpse lies where it fell, so three dead guards leave
+three on the floor — and taking whichever the graveyard happened to store first meant `loot` twice
+running searched the same body while the one at your feet stayed untouched.
 
 #### Phase 14b — A character worth keeping
 
@@ -1059,7 +1116,7 @@ mentioned and forgotten comes back every month.
 | **Character progression: ability scores, hit dice, levelling, and somewhere to start** | **Done — became Phase 14b**, on exactly the placement this row had already argued: after Phase 14, before Act V, signature work by §4's first question. The "what death costs" decision Phase 13 left open moves there with it, because it needs progression's numbers to mean anything | Phase 14b |
 | **Mob health bars on screen** | **Agreed — and it is arguably Phase 11's own Seen-when.** `EntityView.healthFraction` has been on the wire since Phase 7 and *no client code reads it*, so "a health bar drops" is currently true of the data and false of the screen. Open question the owner raised: shown on `look` or only once engaged | Phase 11, as the rendering half of its own completion test |
 | **Combat outcome vocabulary — dodged, parried, shield blocked, casting** | **Agreed, and it splits.** The *mechanisms* are later: dodge, parry and shield block are defence skills (Phase 19) and casting is Phase 20. But the *wire shape* is §4's first question exactly — a reason on `attackResolved` costs one optional field now and a rewrite of every combat message site later, so the field is reserved in Phase 11 and the rolls that can populate it arrive with the skills | Field in Phase 11; dodge/parry/block in Phase 19; casting in Phase 20 |
-| **`loot` targets the nearest unlooted corpse** (owner, 2026-08-02) | **Agreed.** `loot corpse` currently resolves like any keyword and lands on whichever corpse matches first, looted or not — in a room of them, that is the wrong one most of the time. The rule: nearest unlooted first, then next-nearest, and only then a looted one (with the "already gone through" line). A targeting refinement of Phase 13's own command, not a phase — question 2's answer exactly | Beside Phase 14, in round 1 — the same act, and combat testing feels it daily |
+| **`loot` targets the nearest unlooted corpse** (owner, 2026-08-02) | **Done — landed with Phase 14**, as a targeting refinement of Phase 13's own command rather than a phase of its own. Nearest unlooted first, then next-nearest, and only then a looted one, which keeps the "already picked clean" line reachable. `nearestLootable` in `corpses.ts` | Phase 14 ✅ |
 | **Bash — a warrior's shield opening that knocks the target down, doubling damage until it stands** (owner, 2026-08-02) | **Agreed, and it is two things.** The *skill* is Phase 19's shape exactly: an opening attack, a knockdown roll, and it needs posture (built), the dying-window damage rules (built) and a skill system (Phase 19) to hang from — inventing it early would be the fifth tested-and-never-called mechanism. The *surface* — a menu offering it on a click — is V2, which grows a row per mechanic as the mechanics land | Skill in Phase 19; its button arrives with whatever V2 offers by then |
 
 ---

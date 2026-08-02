@@ -407,6 +407,15 @@ export interface Mob extends Actor {
    */
   readonly pursuit: PursuitRule;
   /**
+   * The hit points it breaks off and runs at, or 0 for one that never does — `ACT_WIMPY`, resolved to a
+   * number by the harvest. Read on round boundaries; see `morale.ts`.
+   *
+   * Beside {@link pursuit} for the same reason that sits beside {@link aggro}: whether a thing chases
+   * you and whether it stays to be fought are different decisions read by different passes, and a mob
+   * can perfectly well be a relentless hunter *and* a coward.
+   */
+  readonly wimpyAt: number;
+  /**
    * The MUD's own mob vnum — never a renumbering of ours, the same rule room and zone ids follow.
    *
    * **Instance limits are counted on this**, and the count is world-wide: a mob of this vnum standing
@@ -1498,6 +1507,7 @@ export class Simulation {
       vnum: template.vnum,
       aggro: template.aggro,
       pursuit: template.pursuit,
+      wimpyAt: template.wimpyAt,
       name: template.name,
       sprite: template.sprite,
       // Centre of the tile, as `spawn` does, so the collision box starts clear of walls.

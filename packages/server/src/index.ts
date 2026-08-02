@@ -122,6 +122,7 @@ import {
   advanceCorpses,
   corpseViewOf,
   corpsesIn,
+  nearestLootable,
   lootCorpse,
   lootRefusal,
   corpseName,
@@ -129,6 +130,7 @@ import {
   withinReach,
   type Graveyard,
 } from './corpses.ts';
+import { attemptFlee, type FleeOutcome } from './flee.ts';
 import {
   advanceHunts,
   beginHunt,
@@ -1165,6 +1167,88 @@ function announceHunt(event: HuntEvent): void {
   }
 }
 
+/**
+ * One flee attempt, resolved and said out loud — Phase 14, and `DESIGN-engagement.md` §5's only
+ * voluntary way out of a fight.
+ *
+ * **The single entry point for both kinds of flight**: a player typing `flee`, and a mob whose morale
+ * broke on a round boundary. `attemptFlee` decides what happened and this renders it, which is the same
+ * split every other event in this file keeps — and it is what stops a servant bolting and a character
+ * escaping from drifting into two different mechanics.
+ */
+function runFlee(actor: Actor): FleeOutcome {
+  // Both captured *before* the attempt, and the second is load-bearing rather than tidy.
+  //
+  // `left` is who is owed the departure line — a successful flight moves the body out of this room, and
+  // the line belongs to the people it left standing there. **`sawIt` is the harder half.** `canSee`
+  // tests the subject's *tile* against the observer's lit set, so asking it after the body has gone
+  // through the doorway answers about a tile in the next room, and every escape comes out as
+  // "Someone flees west!" — observed live before this line existed. Snapshotting who could see it while
+  // it was still standing here is the fix, and it is the same ordering hazard Phases 9 and 10 each hit
+  // once: the observation has to be made while the fact is still true, not when the message is written.
+  const left = [...sim.playersIn(actor.roomId)];
+  const sawIt = new Set(left.filter((observer) => canSee(observer, actor)).map((observer) => observer.id));
+  const outcome = attemptFlee({ world, sim, scheduler, rng: combatRng }, actor);
+  const self = isPlayer(actor) ? actor : undefined;
+
+  // Per recipient, like every line that names an actor — a body nobody could see is still "someone",
+  // which is the whole reason `act.ts` exists.
+  const toRoom = (render: (who: string) => string): void => {
+    for (const line of actLines(actor, left, (observer) => sawIt.has(observer.id), render)) {
+      send(line.to, { t: 'log', channel: 'combat', text: line.text });
+    }
+  };
+
+  switch (outcome.kind) {
+    case 'helpless':
+      if (self) send(self.id, { t: 'log', channel: 'error', text: 'You are in no state to run.' });
+      break;
+
+    case 'scrambled':
+      // `do_flee`'s own consolation: the round is spent, and you are on your feet for the next one.
+      if (self) {
+        send(self.id, { t: 'log', channel: 'combat', text: 'You scramble madly to your feet!' });
+        send(self.id, { t: 'self', view: sim.selfViewOf(self) });
+      }
+      toRoom((who) => `${capitalise(who)} scrambles madly to their feet!`);
+      syncEntitiesIn(actor.roomId);
+      break;
+
+    case 'cornered':
+      if (self) send(self.id, { t: 'log', channel: 'combat', text: 'You look for a way out, and find none!' });
+      toRoom((who) => `${capitalise(who)} looks for a way out, and finds none!`);
+      break;
+
+    case 'panicked':
+      if (self) send(self.id, { t: 'log', channel: 'combat', text: 'PANIC! You could not escape!' });
+      toRoom((who) => `${capitalise(who)} tries to flee, but cannot get away!`);
+      break;
+
+    case 'fled': {
+      toRoom((who) => `${capitalise(who)} flees ${outcome.dir}!`);
+      // Everyone whose pointer this broke — they stopped swinging and their combat indicator must go.
+      for (const other of outcome.changed) syncEntityState(other);
+      if (self) {
+        send(self.id, { t: 'log', channel: 'combat', text: `You flee ${outcome.dir}!` });
+        // The whole arrival, exactly as walking through the exit would produce: the departure diff for
+        // the room behind, the map and bitset if the Place changed, the new room's description.
+        announceArrival(self, outcome.from, outcome.fromPlace, outcome.dir);
+      } else {
+        // A mob moved itself, so both rooms need re-evaluating — nothing else in the tick will do it.
+        syncEntitiesIn(outcome.from);
+        syncEntitiesIn(actor.roomId);
+      }
+      // **And it comes after you.** Fleeing buys distance from the blow, not from the encounter: a
+      // pursuer that can path starts hunting, which is Phase 10's machinery answering Phase 14's exit.
+      // `beginHunt` refuses a mob whose rule cannot chase, so this needs no guard of its own.
+      const chaser = outcome.wasFighting;
+      if (self && chaser && isMob(chaser)) beginHunt(hunts, chaser, self);
+      break;
+    }
+  }
+  return outcome;
+}
+
 /** `affects` — the text half of the display path. Duris shows the same list on `score`. */
 function listAffects(player: Player): void {
   const shown = summariseAffects(player.affects);
@@ -2024,6 +2108,10 @@ function runCommand(player: Player, line: string): void {
 
     case 'wake': return wakeUp(player, rest);
 
+    case 'flee':
+      runFlee(player);
+      return;
+
     case 'stop':
       sim.clearPath(player);
       send(player.id, { t: 'path', points: [] });
@@ -2050,9 +2138,13 @@ function runCommand(player: Player, line: string): void {
       // Matched on the dead thing's own name, so `loot sentry` works on "the corpse of a sentry" without
       // the player having to type the whole phrase. Same whole-word rule target resolution uses.
       const wanted = rest.trim().toLowerCase();
-      const corpse = wanted
-        ? here.find((c) => keywordsFromName(c.of).some((k) => k === wanted) || c.of.toLowerCase().includes(wanted))
-        : here[0];
+      const matching = wanted
+        ? here.filter((c) => keywordsFromName(c.of).some((k) => k === wanted) || c.of.toLowerCase().includes(wanted))
+        : here;
+      // **Nearest unlooted first** — the owner's rule, and it applies to `loot sentry` as much as to a
+      // bare `loot`: three dead guards on one floor are three bodies with the same name, and searching
+      // the same one repeatedly while another lies at your feet is the bug this closes.
+      const corpse = nearestLootable(matching, player.x, player.y);
       const refusal = lootRefusal(corpse, player);
       if (!corpse || refusal) {
         const why = refusal === 'someone-elses'
@@ -2181,9 +2273,14 @@ function handle(player: Player, message: ClientMessage): void {
       // Already handled during the handshake; a second hello is ignored rather than trusted.
       break;
 
-    case 'attack':
+    // The typed `flee` and the protocol's own intent reach the same place, exactly as `command` and the
+    // movement intents do. A keybind or a UI button sends this; the command line sends the other.
     case 'flee':
-      send(player.id, { t: 'log', channel: 'system', text: 'Combat is not implemented yet.' });
+      runFlee(player);
+      break;
+
+    case 'attack':
+      send(player.id, { t: 'log', channel: 'system', text: 'Use `kill <target>` to start a fight.' });
       break;
 
     default: {
@@ -2564,7 +2661,14 @@ setInterval(() => {
   }
 
   // Blows land. Driven by the scheduler rather than a scan: most ticks pop nothing at all.
-  const combat = advanceCombat(sim, scheduler, threat, ledger, combatRng, TICK_MS);
+  //
+  // The last argument is Phase 14's morale check, injected the way `advanceAssists` takes `perceives`:
+  // `combat.ts` decides *when* a mob's nerve is tested (its own round boundary) and this decides what
+  // happens when it goes — the same `runFlee` a player's own `flee` runs.
+  const combat = advanceCombat(sim, scheduler, threat, ledger, combatRng, TICK_MS, (mob) => {
+    const outcome = runFlee(mob);
+    return outcome.kind === 'fled';
+  });
   for (const outcome of combat.attacks) announceAttack(outcome);
   for (const change of combat.switches) announceSwitch(change);
   for (const death of combat.deaths) resolveDeath(death);

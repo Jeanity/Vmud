@@ -91,6 +91,8 @@ const template = (pursuit: PursuitRule): MobTemplate => ({
   pursuit,
   combat: readCombatStats({ level: 20, armour: 0, damage: '1d4+0' }),
   experience: 2000,
+  // Never breaks off: these fixtures are about pointers, corpses and pathing, not morale.
+  wimpyAt: 0,
 });
 
 interface Fixture {

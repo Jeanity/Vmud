@@ -114,6 +114,27 @@ export function firstStepToward(
   to: RoomId,
 ): { readonly dir: Direction; readonly room: RoomId; readonly rooms: number } | undefined {
   if (from === to) return undefined;
+  return firstStepWhere(world, rule, from, (room) => room === to);
+}
+
+/**
+ * The same search, stopping at the first room that satisfies a predicate rather than at a named one.
+ *
+ * {@link firstStepToward} is this with `room === to`, and Phase 14's flight toward allies is this with
+ * *"is one of mine standing there"* — a destination that is not known before the search runs, because the
+ * question is which friend is **nearest**. Asking the room-id form once per candidate would repeat the
+ * same breadth-first walk for every mob in the zone to learn what one walk already knows.
+ *
+ * `maxRooms` defaults to the rule's own leash, which is what hunting wants. Fleeing passes a much shorter
+ * bound: running to a friend six rooms away is not fleeing, it is commuting.
+ */
+export function firstStepWhere(
+  world: GameWorld,
+  rule: PursuitRule,
+  from: RoomId,
+  goal: (room: RoomId) => boolean,
+  maxRooms: number = rule.trackRooms,
+): { readonly dir: Direction; readonly room: RoomId; readonly rooms: number } | undefined {
   const origin = world.locate(from);
   if (!origin) return undefined;
   const home = origin.room.zone;
@@ -151,8 +172,8 @@ export function firstStepToward(
   expand(from, undefined, 1);
   for (let head = 0; head < queue.length; head++) {
     const node = queue[head]!;
-    if (node.room === to) return { dir: node.dir, room: node.next, rooms: node.depth };
-    if (node.depth >= rule.trackRooms) continue;
+    if (goal(node.room)) return { dir: node.dir, room: node.next, rooms: node.depth };
+    if (node.depth >= maxRooms) continue;
     expand(node.room, { dir: node.dir, next: node.next }, node.depth + 1);
   }
   return undefined;

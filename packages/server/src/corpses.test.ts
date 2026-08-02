@@ -12,6 +12,7 @@ import { describe, it } from 'node:test';
 import { boundsOf, makeRng, noPursuit, passiveRule, readCombatStats, type MobTemplate, type Room, type Zone } from '@mygame/shared';
 
 import {
+  nearestLootable,
   CORPSE_DECAY_MS,
   CORPSE_WARN_MS,
   PLAYER_CORPSE_DECAY_MS,
@@ -24,6 +25,7 @@ import {
   lootRefusal,
   makeCorpse,
   withinReach,
+  type Corpse,
   type Graveyard,
 } from './corpses.ts';
 import { Simulation } from './sim.ts';
@@ -49,6 +51,8 @@ const template: MobTemplate = {
   pursuit: noPursuit(),
   combat: readCombatStats({ level: 10, armour: 0, damage: '1d4+0' }),
   experience: 1000,
+  // Never breaks off: these fixtures are about pointers, corpses and pathing, not morale.
+  wimpyAt: 0,
 };
 
 function fixture() {
@@ -213,5 +217,39 @@ describe('finding one', () => {
     assert.equal(withinReach(corpse, corpse.x, corpse.y), true);
     assert.equal(withinReach(corpse, corpse.x + 64, corpse.y), true);
     assert.equal(withinReach(corpse, corpse.x + 640, corpse.y), false);
+  });
+});
+
+describe('which body a loot means', () => {
+  /** Three corpses on one floor, at increasing distance, so "nearest" is something to get wrong. */
+  function scatter(): Corpse[] {
+    const at = (id: number, x: number, looted: boolean): Corpse =>
+      ({ id, of: 'a sentry', roomId: 6001, x, y: 0, looted, ageMs: 0, decayMs: 300_000 }) as unknown as Corpse;
+    return [at(-901, 90, false), at(-902, 30, false), at(-903, 10, true)];
+  }
+
+  it('takes the nearest one still worth searching', () => {
+    // The looted body at 10 is closest and is not the answer; the unlooted one at 30 is.
+    assert.equal(nearestLootable(scatter(), 0, 0)?.id, -902);
+  });
+
+  it('falls to the next-nearest once that one is emptied', () => {
+    const corpses = scatter();
+    const first = nearestLootable(corpses, 0, 0);
+    assert.ok(first);
+    lootCorpse(first);
+    assert.equal(nearestLootable(corpses, 0, 0)?.id, -901, 'the far unlooted one, not the near empty one');
+  });
+
+  it('still names a body when every one of them is empty', () => {
+    // So the caller can say "already picked clean" rather than "there is nothing here to loot" while a
+    // corpse is plainly visible — two different problems, two different answers.
+    const corpses = scatter();
+    for (const corpse of corpses) corpse.looted = true;
+    assert.equal(nearestLootable(corpses, 0, 0)?.id, -903, 'nearest of the empties');
+  });
+
+  it('has nothing to say about an empty floor', () => {
+    assert.equal(nearestLootable([], 0, 0), undefined);
   });
 });

@@ -33,6 +33,7 @@ import {
   THREAT_PER_DAMAGE,
   THREAT_PER_HEAL,
   addThreat,
+  breaksMorale,
   dropThreat,
   markParticipant,
   pickByThreat,
@@ -381,6 +382,17 @@ function swing(rng: Rng, attacker: Actor, target: Actor): AttackOutcome {
 }
 
 /**
+ * "This mob's nerve has gone — get it out if you can, and say so." Returns whether it left.
+ *
+ * Injected rather than called directly, exactly as `advanceAssists` takes `perceives`: breaking off means
+ * moving a body through the room graph and telling every client that can see it, and this file knows
+ * about neither. `index.ts` implements it over `attemptFlee`, which is also what a player's own `flee`
+ * runs — so a servant bolting and a character escaping cannot come to disagree about what leaving a
+ * fight means.
+ */
+export type MoraleCheck = (mob: Mob) => boolean;
+
+/**
  * Advances every fight by one tick.
  *
  * Driven by the scheduler rather than by a scan: a `swing` event comes due, is resolved, and reschedules
@@ -394,6 +406,7 @@ export function advanceCombat(
   ledger: LedgerBook,
   rng: Rng,
   elapsedMs: number,
+  morale?: MoraleCheck,
 ): CombatTick {
   const attacks: AttackOutcome[] = [];
   const changed: Actor[] = [];
@@ -481,6 +494,21 @@ export function advanceCombat(
     // An attacker who has been knocked out mid-round stops, and is not rescheduled.
     if (incapacitated(attacker)) {
       if (disengage(scheduler, attacker)) changed.push(attacker);
+      continue;
+    }
+
+    // **Morale, on the round boundary** — `DESIGN-mobs-and-movement.md` §2.8. A mob below its template's
+    // threshold turns to run *instead of* swinging, because it has stopped fighting you.
+    //
+    // Here rather than per tick, and that is the mechanic rather than an optimisation: a body that
+    // re-evaluated ten times a second would break and rally inside a single swing. And note what happens
+    // when the attempt fails — nothing. It falls through and fights this round, so **a coward you have
+    // cornered is not a harmless one**, which is what stops "block the only exit" from being a way to
+    // switch a mob off.
+    if (morale && isMob(attacker) && breaksMorale(attacker.hp, attacker.wimpyAt) && morale(attacker)) {
+      // Gone: the callback moved it, cleared every pointer aimed at it and told everyone who could see.
+      // Its swing event has already been popped and `disengage` cancelled any successor, so there is
+      // nothing here to reschedule.
       continue;
     }
 

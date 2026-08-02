@@ -82,6 +82,8 @@ const dummy = (over: Partial<MobTemplate> = {}): MobTemplate => ({
   // AC 10 and a single point of damage: every roll is decidable by hand and nothing dies by accident.
   combat: readCombatStats({ level: 1, armour: 0, damage: '1d1+0' }),
   experience: 100,
+  // Never breaks off: these fixtures are about pointers, corpses and pathing, not morale.
+  wimpyAt: 0,
   ...over,
 });
 
@@ -872,3 +874,53 @@ describe('tearing a fight down', () => {
 /** Nothing in here should ever need this, but a stray `Actor` import would otherwise be unused. */
 const _typecheck: (a: Actor) => number = (a) => a.id;
 void _typecheck;
+
+describe('morale on the round boundary', () => {
+  /** Engages both ways and runs one round, recording every mob the morale check was consulted about. */
+  function fightWithMorale(wimpyAt: number, getsAway: boolean) {
+    const f = makeFixture(dummy({ wimpyAt }));
+    engage(f.scheduler, f.player, f.mob);
+    engage(f.scheduler, f.mob, f.player);
+    const asked: Mob[] = [];
+    const attacks: ReturnType<typeof advanceCombat>['attacks'][number][] = [];
+    for (let elapsed = 0; elapsed < ROUND_MS + 200; elapsed += 100) {
+      attacks.push(
+        ...advanceCombat(f.sim, f.scheduler, f.book, f.ledger, f.rng, 100, (mob) => {
+          asked.push(mob);
+          if (getsAway) {
+            // What the real callback does through `attemptFlee`: the body leaves and every pointer goes.
+            clearEngagements(f.scheduler, f.sim, mob);
+          }
+          return getsAway;
+        }).attacks,
+      );
+    }
+    return { ...f, asked, attacks };
+  }
+
+  it('asks about a mob below its threshold, and it does not swing if it gets out', () => {
+    // The dummy rolls 1000 hit points, so a threshold above that means its nerve is already gone.
+    const { asked, attacks, mob } = fightWithMorale(2000, true);
+    assert.ok(asked.length > 0, 'the check is consulted on the round boundary');
+    assert.equal(
+      attacks.some((a) => a.attacker.id === mob.id),
+      false,
+      'it turned to run rather than swinging',
+    );
+  });
+
+  it('has it fight on when it cannot get out — a cornered coward is not a harmless one', () => {
+    const { asked, attacks, mob } = fightWithMorale(2000, false);
+    assert.ok(asked.length > 0);
+    assert.ok(
+      attacks.some((a) => a.attacker.id === mob.id),
+      'the attempt failed, so the round is spent fighting',
+    );
+  });
+
+  it('never asks about a mob that does not carry the flag', () => {
+    // Most of them: 8 of IceCrag's 61 templates, and 0 is the whole of "this one stands its ground".
+    const { asked } = fightWithMorale(0, true);
+    assert.deepEqual(asked, []);
+  });
+});

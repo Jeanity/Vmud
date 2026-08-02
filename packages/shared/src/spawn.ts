@@ -88,6 +88,15 @@ export interface MobTemplate {
    * a builder's tuning into `level * something`.
    */
   readonly experience: number;
+  /**
+   * The hit points below which this breaks off and runs — `ACT_WIMPY`, resolved to a number.
+   *
+   * **0 is a mob that never runs**, which is most of them. Stored as an absolute rather than as a
+   * fraction of its roll: that is the source's rule (`level * 6`) and the right one here for a reason of
+   * ours — {@link MobTemplate.hp} is dice, so two guards of one vnum have different maxima and a fraction
+   * would break them at different wounds. See `morale.ts`.
+   */
+  readonly wimpyAt: number;
 }
 
 /* -------------------------------------------------------------------------- */

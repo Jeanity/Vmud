@@ -39,6 +39,7 @@ import {
   huntRule,
   readCombatStats,
   reactionFor,
+  wimpyThreshold,
   type AggroClause,
   type AggroRule,
   type PursuitRule,
@@ -168,9 +169,21 @@ export function readAggro(act: number, words: readonly number[], level: number):
   };
 }
 
-/** Whether a mob flees when hurt — Duris' `ACT_WIMPY`. Harvested nowhere yet; Phase 14 wants it. */
+/** Whether a mob flees when hurt — Duris' `ACT_WIMPY`. Read by {@link readWimpyAt}, Phase 14. */
 export function isWimpy(act: number): boolean {
   return (act & ACT_WIMPY) !== 0;
+}
+
+/**
+ * The hit points this mob breaks off at, or 0 for one that never does.
+ *
+ * The flag is a boolean and the threshold is derived from level, exactly as `mobact.c` does it —
+ * `GET_HIT(ch) < GET_LEVEL(ch) * 6` — so there is one number per template and it is resolved here rather
+ * than at every round boundary. §4.7's trap is that this applies to *mobs only*: a player's `wimpy` never
+ * ran anybody anywhere. See `morale.ts`.
+ */
+export function readWimpyAt(act: number, level: number): number {
+  return isWimpy(act) ? wimpyThreshold(level) : 0;
 }
 
 /**
@@ -328,6 +341,7 @@ export function parseMobFile(path: string): MobHarvest {
       sprite,
       aggro: readAggro(act, aggroWords, level),
       pursuit: readPursuit(act),
+      wimpyAt: readWimpyAt(act, level),
       experience: Number.isFinite(experience) && experience > 0 ? experience : 0,
       combat: readCombatStats({
         level,

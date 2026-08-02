@@ -19,7 +19,7 @@ skills from those projects.
 npm install          # once
 npm run dev          # server + client + admin panel together
 npm run typecheck    # tsc across all five packages
-npm test             # 761 tests
+npm test             # 790 tests
 npm run worldgen     # rebuild world JSON from the zMUD source DB
 ```
 
@@ -32,7 +32,7 @@ and restarting is the whole of "installing" a zone.
 
 ## State: green
 
-- **761 tests** (398 server, 290 shared, 73 worldgen), typecheck clean across all five packages.
+- **790 tests** (417 server, 300 shared, 73 worldgen), typecheck clean across all five packages.
 - `data/` is git-ignored and reproducible. `npm run worldgen` regenerates it.
 - Four zones loaded, 23 places: **36 IceCrag Castle** (219 rooms, 11 levels) and **168 Kobold
   Settlement** (99 rooms, 6 levels), both Duris-matched and carrying harvested prose, flags and real
@@ -70,7 +70,9 @@ and restarting is the whole of "installing" a zone.
 | Participation | Separate from threat: helping an aggressor in any way joins the fight, so a healer on zero threat is still a target |
 | Assist | `ACT_PROTECTOR`, room-scoped as the source has it. 34 of IceCrag's 61 templates |
 | Death | A mob dies, is removed, and leaves a corpse where it fell. Players stop at the dying window |
-| Corpses | Decay on a clock (5 min; 30 for a player's), lootable within reach, `loot` refused in combat |
+| Morale | `ACT_WIMPY` below `level * 6` hit points — **absolute, not a fraction**, because hp is rolled per instance. Checked on the mob's own round boundary; a cornered one fights on. 8 of IceCrag's 61 templates, 5 of them placed, and they are the castle's *staff* rather than its guards |
+| Fleeing | One `do_flee` for players and mobs. 78–86% by exits, automatic when not engaged, costs 20–30 movement, a closed door is not a way out. A mob that can path runs **toward its allies**; whatever it fled starts hunting it |
+| Corpses | Decay on a clock (5 min; 30 for a player's), lootable within reach, `loot` refused in combat, and `loot` takes the **nearest unlooted** body |
 | Corpse sprites | A pile of bones, and a **single bone once picked clean** — so "has anyone been here" reads from across the room |
 | Experience | Divided by contribution: damage **dealt**, damage **taken**, and support. Pool harvested from the `.mob` record. The breakdown is printed |
 | Event scheduler | A deterministic min-heap, ties broken on insertion order. One timer per combatant; most actors have none |
@@ -105,7 +107,9 @@ wins over the `GAME_DEV_LEVEL` rig. The numbers a level derives are still `devPr
 non-test callers**. `resolveAttack` and `rollDamage` came off this list in Phase 11 — they had been
 written and tested since the beginning and never once called, which is the exact failure `ROADMAP.md`
 rule 1 exists to prevent. `ROUND_MS` is now read through `roundLengthFor` and stored per actor, which is
-§4.1's requirement rather than a tidy-up. `SECTOR_MOVE_COST` came off in Phase 5.
+§4.1's requirement rather than a tidy-up. `SECTOR_MOVE_COST` came off in Phase 5, and **`isWimpy` came
+off it in Phase 14** — harvested since Phase 8 with no reader, it now resolves to `wimpyAt` on every
+template and is what breaks a mob's nerve.
 
 Phase 5b added exactly one thing to it, knowingly: **`AffectFlag.Offline`** — "keep counting down while
 logged out" — has a reader in the save loader and no setter, because the default (a saved affect
@@ -152,7 +156,8 @@ half of pursuit is tested rather than demonstrated.
    cannot route round anything you cannot see.
 6. **Engagement is sticky, and fully specified.** [DESIGN-engagement.md](DESIGN-engagement.md) — one
    directed `fighting` pointer per actor with the inbound set *derived*, no range check anywhere in
-   melee, `flee` as the only voluntary exit, and no timeout ever. Decided, not built.
+   melee, `flee` as the only voluntary exit, and no timeout ever. **All of it built now** — the
+   pointer in Phase 11, the exit in Phase 14.
 
 ## Gotchas that have already cost time
 
@@ -233,27 +238,49 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-**Fifteen of 23 phases done — Acts I–III complete, Act IV nearly; Track A is 1 of 7, Track V is 1
-of 5.** Round 1 is under way: **V1, the combat feed, is done** (the `combat` channel now renders
-*only* in its own section of the character pane, below the display controls — the owner's split:
-prose and speech on the left, violence on the right). Next in the round: **Phase 14, mercy and
-fear** — take the owner's `loot`-nearest-unlooted refinement with it (ROADMAP §4 has the row) —
-then **A2, messaging to a room or place**, which takes the `announce` channel's protocol bump.
+**Sixteen of 24 phases done — Acts I–III complete, Act IV all but its progression half; Track A is 1
+of 7, Track V is 1 of 5.** Round 1 is complete: **V1 the combat feed** (the `combat` channel now
+renders *only* in its own section of the character pane — the owner's split: prose and speech on the
+left, violence on the right) and **Phase 14, mercy and fear**.
 
-Phase 14's remaining scope is the fear half — morale, `wimpyAt`, fleeing toward allies, and the
-`flee` command, which is the **only voluntary way out of a fight** (`DESIGN-engagement.md` §5) and
-currently does not exist, so leaving a fight means winning it, dying, or disconnecting. `ACT_WIMPY`
-is harvested by `isWimpy` in `worldgen/src/mobs.ts` and has **no caller**; §2.8 wants a
-high-intelligence mob to flee *toward* its allies — `firstStepToward` in `hunt.ts` is the pathing
-that needs. The mercy rule and damage clamp already landed in Phase 11.
+**Next is A2, messaging to a room or place**, which closes round 1 and takes the `announce`
+channel's protocol bump — a decision `DESIGN-admin-panel.md` §5 says to take deliberately rather
+than in passing, and the seam V3 later renders in the world. Then round 2 opens with **V2, click a
+body to get its verbs**.
 
-**What death costs, and progression generally, are now Phase 14b** — promoted from ROADMAP §4's
-parking lot onto the schedule (round 2), because the death-cost decision needs progression's
-numbers to mean anything.
+**What death costs, and progression generally, are Phase 14b** — promoted from ROADMAP §4's parking
+lot onto the schedule (round 2). Its storage half already arrived early (see progression above);
+what it still owns is the *derivation* — ability scores, hit dice, a way to earn a level — and the
+decision about what dying takes from you.
 
 **Have an idea?** `ROADMAP.md` §4 places it — do not append it to the end and do not build it now.
 
-### Just landed: Phase 13, death and corpses
+### Just landed: Phase 14, mercy and fear
+
+`shared/src/morale.ts` holds the numbers, `server/src/flee.ts` the attempt. **A fight can now be
+left** — until today, leaving one meant winning it, dying, or closing the tab.
+
+- **One `do_flee` for players and mobs**, as the source has it: the player's `flee` command, a mob
+  whose nerve broke, and (later) any spell that makes something run all reach the same function.
+- **§4.7's trap, transcribed rather than assumed.** `wimpy` does *not* mean auto-flee, and on a
+  player it never did — it suppresses your own auto-engagement while hurt. Only `ACT_WIMPY` mobs run,
+  below `level * 6` hit points. There is no player wimpy setting and there will not be one.
+- **The threshold is absolute, not a fraction of maximum**, which is a divergence from
+  `DESIGN-mobs-and-movement.md` §2.8's wording and the right one: hit points are rolled per instance,
+  so a fraction would break two guards of one vnum at different wounds.
+- **A cornered coward is not a harmless one.** A failed attempt spends the round *and* swings, so
+  blocking the only exit is not a way to switch a mob off.
+- **A mob that can path flees toward its allies** — §2.8's rule, and the predicate is `pursues(rule)`
+  rather than a stand-in for the intelligence the simple `.mob` record lacks: fleeing toward allies
+  *is* a room-graph search. `firstStepToward` was generalised into `firstStepWhere` for it.
+- **Fleeing escapes the blow, not the encounter.** Whatever you fled begins a hunt. Measured: Malice
+  arrived one room behind, 1,731 ms later.
+- **Third wire-level bug of the same kind.** Departures read "Someone flees west!" because `canSee`
+  tests the subject's *tile* and the body had already moved. Who could see it has to be snapshotted
+  before the move. `index.ts` still has no test harness; that is still the reason.
+- **`loot` now takes the nearest unlooted corpse** — the owner's request, riding along.
+
+### Before that: Phase 13, death and corpses
 
 `server/src/corpses.ts` holds the corpse, `shared/src/experience.ts` the division rule.
 

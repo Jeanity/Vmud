@@ -59,6 +59,8 @@ const template = (over: Partial<MobTemplate> = {}): MobTemplate => ({
   pursuit: noPursuit(),
   combat: readCombatStats({ level: 3, armour: 0, damage: '1d4+0' }),
   experience: 300,
+  // Never breaks off: these fixtures are about pointers, corpses and pathing, not morale.
+  wimpyAt: 0,
   ...over,
 });
 

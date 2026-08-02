@@ -62,6 +62,9 @@ export const COMMANDS = [
   // into them, so appending keeps the inherited prefixes above untouched.
   'open',
   'close',
+  // After `open`, which is where `interp.c`'s own array puts it. Nothing above begins with `f`, so `f`
+  // is flee — which is what a player under pressure will actually type.
+  'flee',
   'stop',
   // Duris has no `affects` command — it prints the same list inside `score`, which we do not have
   // because the HUD is the score sheet. Appended rather than placed at `score`'s slot for the usual
@@ -168,6 +171,10 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // You may flee through a door. You may not slam it behind you.
   open: { status: 'resting', posture: 'sitting' },
   close: { status: 'resting', posture: 'sitting', inCombat: false },
+  // `CMD_Y(CMD_FLEE, STAT_NORMAL + POS_PRONE, ...)`, and the posture floor is the interesting half: you
+  // may try from the floor, and the attempt is then spent scrambling to your feet rather than refused
+  // (`do_flee`). Allowed in combat for the obvious reason — §5 makes it the only voluntary way out.
+  flee: { status: 'normal', posture: 'prone' },
   // Ours: cancelling a walk you are no longer taking should never be refused.
   stop: { status: 'dead', posture: 'prone' },
   // Interface rather than action, so it sits at the floor with `help` and `who`. Reading what is

@@ -226,3 +226,31 @@ export function corpsesIn(yard: Graveyard, roomId: RoomId): Corpse[] {
 export function withinReach(corpse: Corpse, x: number, y: number): boolean {
   return Math.hypot(corpse.x - x, corpse.y - y) <= TILE_SIZE * 3;
 }
+
+/**
+ * Which of several bodies a `loot` means: **the nearest one still worth searching**.
+ *
+ * Owner's rule (2026-08-02). A corpse lies where it fell, so a fight against three guards leaves three
+ * of them scattered across the floor — and taking whichever the graveyard happened to store first meant
+ * `loot` twice running searched the same body twice while the one at your feet stayed untouched.
+ *
+ * Two keys in order: **unlooted before looted**, then distance. Emptied bodies stay in the running
+ * rather than being filtered out, so a room holding nothing else still resolves to one and the caller
+ * can answer *"already picked clean"* — a different and far more useful line than "there is nothing here
+ * to loot" while a corpse is plainly visible.
+ */
+export function nearestLootable(candidates: readonly Corpse[], x: number, y: number): Corpse | undefined {
+  let best: Corpse | undefined;
+  for (const corpse of candidates) {
+    if (!best) {
+      best = corpse;
+      continue;
+    }
+    if (best.looted !== corpse.looted) {
+      if (best.looted) best = corpse;
+      continue;
+    }
+    if (Math.hypot(corpse.x - x, corpse.y - y) < Math.hypot(best.x - x, best.y - y)) best = corpse;
+  }
+  return best;
+}

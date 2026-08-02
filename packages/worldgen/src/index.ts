@@ -234,6 +234,11 @@ function reportSpawns(spawns: readonly ZoneSpawns[], stats: SpawnBuildStats): vo
   line('rooms vnum-mapped', stats.roomsMapped);
   line('reset commands read', stats.commands);
   line('dropped (no room)', stats.commandsDropped, stats.commands);
+  // Phase 14: how much of the world will actually break and run. Printed because `ACT_WIMPY` is set
+  // sparingly upstream, and a morale mechanic that nothing in the shipped world carries the flag for
+  // would look built and be invisible — the same reason the `safe` room count is reported.
+  const harvested = spawns.flatMap((zone) => zone.templates);
+  line('templates that flee', harvested.filter((t) => t.wimpyAt > 0).length, harvested.length);
   const kinds = Object.entries(stats.byKind).sort((a, b) => b[1] - a[1]);
   if (kinds.length > 0) console.log('    kept: ' + kinds.map(([k, v]) => `${k}=${v}`).join('  '));
   // Which of those the server can currently act on. `M` and `D` have executors; the object commands are

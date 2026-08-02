@@ -52,6 +52,8 @@ const GUARD: MobTemplate = {
   pursuit: noPursuit(),
   combat: readCombatStats({ level: 5, armour: 0, damage: '1d4+0' }),
   experience: 500,
+  // Never breaks off: these fixtures are about pointers, corpses and pathing, not morale.
+  wimpyAt: 0,
 };
 const COOK: MobTemplate = {
   vnum: 700_02,
@@ -65,6 +67,8 @@ const COOK: MobTemplate = {
   pursuit: noPursuit(),
   combat: readCombatStats({ level: 3, armour: 0, damage: '1d4+0' }),
   experience: 300,
+  // Never breaks off: these fixtures are about pointers, corpses and pathing, not morale.
+  wimpyAt: 0,
 };
 
 const mob = (over: Partial<ResetCommand> = {}): ResetCommand => ({
