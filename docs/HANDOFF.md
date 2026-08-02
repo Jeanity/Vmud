@@ -81,6 +81,7 @@ and restarting is the whole of "installing" a zone.
 | Vitals | Pinned **over the map**, not in the sheet — pools, light, stance, affects and room are on screen whatever the panes are doing |
 | Equipment panel | Paper doll, `DESIGN-inventory.md` §6's eleven slots. Only the main hand can fill today, from the carried light |
 | Admin panel | `@mygame/admin` on 5274, a client of `/admin/api` on the game server. Players section built: live edits through the sim's own seams, offline edits through the store, refusal over pretence, every mutation audited to `data/admin-audit.jsonl`. Global announce works; zones/mobs/items/quests are honest stubs. See `DESIGN-admin-panel.md` |
+| Combat feed | The `combat` channel's only destination: a capped, self-scrolling section of the character pane below the display slider. A split, not a mirror — the log no longer carries combat lines. `client/src/combatfeed.ts`; the scene routes the channel |
 
 ### Not built
 
@@ -224,21 +225,28 @@ and a mob that stopped fighting entirely when its target disconnected. **If you 
 ## Next, in order
 
 **The schedule now lives in [ROADMAP.md](ROADMAP.md)** — 23 phases, each pairing a mechanic with
-something you can see, so progress is legible rather than inferred. Read that for *what next and
-why*; this file stays the answer to *where things stand*.
+something you can see, plus two lighter tracks and a **cadence** (its §2b, owner's rule 2026-08-02):
+work proceeds in rounds of three — one visual MUD aspect, one mechanic, one admin-panel job — so
+every stretch ships something testable of a different kind. Read that for *what next and why*; this
+file stays the answer to *where things stand*.
 
-**Fifteen of 23 done — Acts I–III complete, Act IV nearly.** Next is **Phase 14, mercy and fear**: morale,
-`wimpyAt`, fleeing toward allies, and the `flee` command — which is also the **only voluntary way out of a
-fight** (`DESIGN-engagement.md` §5) and currently does not exist, so leaving a fight means winning it,
-dying, or disconnecting.
+**Fifteen of 23 phases done — Acts I–III complete, Act IV nearly; Track A is 1 of 7, Track V is 1
+of 5.** Round 1 is under way: **V1, the combat feed, is done** (the `combat` channel now renders
+*only* in its own section of the character pane, below the display controls — the owner's split:
+prose and speech on the left, violence on the right). Next in the round: **Phase 14, mercy and
+fear** — take the owner's `loot`-nearest-unlooted refinement with it (ROADMAP §4 has the row) —
+then **A2, messaging to a room or place**, which takes the `announce` channel's protocol bump.
 
-`ACT_WIMPY` is harvested by `isWimpy` in `worldgen/src/mobs.ts` and has **no caller**. §2.8 wants a
-high-intelligence mob to flee *toward* its allies rather than randomly, which turns a fleeing mob into a
-developing problem rather than an escape — and `firstStepToward` in `hunt.ts` is the pathing that needs.
+Phase 14's remaining scope is the fear half — morale, `wimpyAt`, fleeing toward allies, and the
+`flee` command, which is the **only voluntary way out of a fight** (`DESIGN-engagement.md` §5) and
+currently does not exist, so leaving a fight means winning it, dying, or disconnecting. `ACT_WIMPY`
+is harvested by `isWimpy` in `worldgen/src/mobs.ts` and has **no caller**; §2.8 wants a
+high-intelligence mob to flee *toward* its allies — `firstStepToward` in `hunt.ts` is the pathing
+that needs. The mercy rule and damage clamp already landed in Phase 11.
 
-**Two things Phase 13 deliberately left open**, both needing a decision rather than more code: what death
-*costs* a player (respawn point, experience loss, whether a corpse can be resurrected), and character
-progression generally — see `ROADMAP.md` §4, where it is recorded as the largest hole in the schedule.
+**What death costs, and progression generally, are now Phase 14b** — promoted from ROADMAP §4's
+parking lot onto the schedule (round 2), because the death-cost decision needs progression's
+numbers to mean anything.
 
 **Have an idea?** `ROADMAP.md` §4 places it — do not append it to the end and do not build it now.
 

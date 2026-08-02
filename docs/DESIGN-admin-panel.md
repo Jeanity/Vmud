@@ -83,6 +83,10 @@ In panel order. Each slice ships only what its underlying system can honestly do
 mechanic that does not exist yet says so and does nothing, the same rule the inventory drawer
 follows.
 
+> **When each slice lands is no longer this file's call.** As of 2026-08-02 the panel is **Track A
+> of `ROADMAP.md`**, interleaved with the phases one slice per round (§2b there). This table stays
+> the spec of *what* each slice is; the roadmap owns *when*.
+
 | Section | State | Contents |
 | --- | --- | --- |
 | **Dashboard** | with players slice | `/health` grown up: uptime, zones and places loaded, populated zones, players online, tick and round lengths, protocol version |

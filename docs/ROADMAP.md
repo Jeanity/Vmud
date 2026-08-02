@@ -1,6 +1,6 @@
 # Roadmap
 
-_Last updated 2026-07-30._
+_Last updated 2026-08-02._
 
 The order of work, cut so that **every phase ends with something you can see**. Numbers are stable: a
 phase inserted later gets a letter (`5b`) rather than shifting everything after it, because these
@@ -55,7 +55,44 @@ reorder:
 | V — Things | 15–17 | not started |
 | VI — Together | 18–21 | not started |
 
+Beside the phases run two lighter tracks, added 2026-08-02: **Track V** (the world on screen) and
+**Track A** (the operator's panel, A1 of 7 done) — see §2b for how the three interleave, and the end
+of §3 for their contents.
+
 A phase is `done` only when its **Seen when** line is true in the running game.
+
+---
+
+## 2b. The cadence
+
+Owner's rule, set 2026-08-02: **vary the work, so every stretch ends with something testable of a
+different kind.** Work now proceeds in rounds of three — one item from each track, in this order:
+
+1. **V — a visual MUD aspect.** Presentation of things that already exist: client work, at most an
+   additive message field. No new rules. What it buys is that the game *reads* as the graphical MUD
+   it is, and that there is always something to look at between systems.
+2. **M — a mechanic.** The next numbered phase of §3, order unchanged. The phases are still the
+   spine; the cadence decides what happens *between* them, not their sequence.
+3. **A — an admin job.** The next slice of Track A. Each one makes the next mechanic cheaper to
+   test, which is the point of interleaving them rather than batching the panel at the end.
+
+A track with nothing unblocked skips its turn rather than inventing work. §4's intake is unchanged —
+a new idea still answers the three questions; its second question now also picks the track
+(presentation → V, rules → M, operator tooling → A).
+
+**The next three rounds:**
+
+| Round | V | M | A |
+| --- | --- | --- | --- |
+| **1 — current** | V1 — the combat feed ✅ | Phase 14 — mercy and fear (next) | A2 — messaging to a room or place |
+| 2 | V2 — click a body, get its verbs | Phase 14b — a character worth keeping | A3 — zones, read-only |
+| 3 | V3 — speech in the world | Phase 15 — inventory and worn equipment | A4 — zones and mobs, live ops |
+
+Two adjacencies are deliberate. A2 (round 1) takes the `announce` channel's protocol bump — a
+decision `DESIGN-admin-panel.md` §5 says to take deliberately, not in passing — and V3 (round 3)
+renders that channel in the world, so the seam is exercised from both sides a round apart. And
+Phase 14's morale work lands beside V2's click-targeting, which is the tool for watching exactly
+who breaks and runs.
 
 ---
 
@@ -795,6 +832,39 @@ arrive the transfer goes in beside the flag.
 - **Why here.** Without these, combat is a damage race. §4.6 and §4.7 are both about exactly this,
   and both are cheap once Phase 11's clock exists.
 
+**Scope note, 2026-08-02.** The first two items arrived early: the mercy rule and the negative-floor
+damage clamp both landed inside Phase 11, where building the dying window without them would have
+built it as dead code (see that phase). What remains here is the *fear* half: morale, `wimpyAt`
+(`ACT_WIMPY` is harvested by `isWimpy` and has no caller), the `flee` command — which
+`DESIGN-engagement.md` §5 makes the **only voluntary way out of a fight**, so until this phase
+leaving a fight means winning it, dying, or disconnecting — and §2.8's rule that a high-intelligence
+mob flees *toward* its allies (`firstStepToward` in `hunt.ts` is the pathing it needs), which turns
+a fleeing mob into a developing problem rather than an escape. What death *costs* a player is
+deliberately not here — it needs progression's numbers to mean anything, and lands in Phase 14b.
+
+#### Phase 14b — A character worth keeping
+
+Promoted out of §4's parking lot, where it has sat since Phase 11 as "the largest hole in the
+schedule"; lettered rather than renumbering, per this file's own rule. The `GAME_DEV_*` switches
+are the stopgap it retires.
+
+- **Mechanic.** Character progression: ability scores, hit dice, levelling with a curve worth
+  climbing, and a starting band a new character can survive — either a starter zone or spawn-side
+  tuning. Plus the decision Phase 13 left open, which needs these numbers to mean anything: **what
+  death costs** — respawn point, experience loss, and whether a corpse can be retrieved for
+  something (`ROADMAP` rule: decide, then build; the corpse and its clock already exist).
+- **Seen when.** A brand-new character, with **no `GAME_DEV_*` switch set**, survives their first
+  fight in the world they spawn into, levels from the experience the game already divides — and
+  dying costs something you can point at in the log.
+- **Carries.** Persisting `level` and `experience` at all — `PlayerRecord` holds neither today, a
+  character is level 1 every login, and this is also what turns the admin panel's level control from
+  the labelled test rig into a real edit. And the numbers decision itself: SRD 5e ability scores and
+  hit dice against the `.mob` records' own 15–60 curve, which is a design pass, not an evening.
+- **Why here.** §4's own placement — after Phase 14, before Act V — and its first question lands the
+  same way: gear (Phase 16) reads ability modifiers off the character, so the scores must exist
+  before the things that modify them. Every phase after this is authored against real numbers
+  instead of the rig.
+
 ---
 
 ### Act V — Things
@@ -872,6 +942,71 @@ The content layer the previous twenty phases exist to support.
 
 ---
 
+### Track V — the world on screen
+
+Presentation of what already exists: client work, at most an additive message field, no new rules.
+One per round (§2b). Each entry is small on purpose — a V item that grows a mechanic has answered
+§4's second question wrongly and belongs in a phase.
+
+- **V1 — The combat feed** ✅ **done 2026-08-02, owner-requested and owner-corrected twice in the
+  building.** The `combat` channel's one destination is now its own section of the character pane,
+  docked below the display controls — first built as a fading ticker over the map, moved on the
+  owner's direction, then made a **split rather than a mirror** on the owner's direction: the log
+  no longer carries combat lines at all, so the reading rule is spatial — prose and speech on the
+  left, violence on the right. `combatfeed.ts`; the scene routes the channel.
+  **Seen when:** a fight streams down the right pane, and the log stays prose. ✅
+- **V2 — Click a body, get its verbs.** Owner-requested: click a mob or a corpse and a small menu
+  offers what you can do to it — `look`, `kill`, `loot` — issuing the same typed commands the
+  prompt would, with the target already resolved. The point is target *identity*: in a room of
+  same-named patrol members, "which one am I about to hit" currently has no answer on screen. The
+  menu grows a row per mechanic as later phases land (bash arrives with Phase 19's skills, and is
+  recorded there); the menu itself stays presentation.
+  **Seen when:** you click the mob you mean and act on that one, never the wrong twin.
+- **V3 — Speech in the world.** `say` exists only as a log line; nothing in the world shows who
+  spoke. A short-lived speech bubble over the speaker — rendered per recipient exactly as the log
+  line is, so an unseen speaker's bubble is not drawn (the `act()` gate already answers who may
+  know). Announcements land as a distinct banner — A2's channel, rendered.
+  **Seen when:** someone says something and you watch them say it, in the world, not the log.
+- **V4 — The world as a graph of Places.** The `M` overview shows the Place you are on; there is no
+  view of anywhere else. Decision 1 in `HANDOFF.md` constrains this hard: zones overlap and share no
+  coordinate space, so any wider map **must be a graph of Places, not a map of them** — nodes you
+  have visited, edges you have walked, laid out as a diagram rather than geography.
+  **Seen when:** you open the map and see where you have been as a web, and how the castle joins
+  the bog.
+- **V5 — Arrival cards.** Crossing into a new Place is currently a change of floor tiles. A brief
+  title card — zone name, level — gives travel the sense of arrival every MUD gets from its room
+  header line. **Seen when:** you climb the stairs and the game tells you where you have arrived,
+  then gets out of the way.
+- **Parked, needs the owner's taste before scheduling:** floating combat numbers over heads (the
+  rolls are deliberately in the log; duplicating them in the world is a tone decision), day/night
+  tinting (touches the tuned light model — same caution as room-scoped shared light in §4).
+
+### Track A — the operator's panel
+
+The admin suite, `DESIGN-admin-panel.md`. One slice per round (§2b); a slice is done when its
+operations verifiably land in the running game — the audit line, the wire message, or the file
+change, per §6 of the design doc. The section-by-section detail lives there; this list is the
+order.
+
+- **A1 — Players, messaging's first line, the shell** ✅ **done 2026-08-02.** The player editor end
+  to end (live edits through the sim's seams, offline through the store, refusal over pretence),
+  global announcements, per-player tells, the audit trail, honest stubs for everything else.
+- **A2 — Messaging to a room or a place.** The remaining targets, plus the dedicated `announce`
+  `LogChannel` — a protocol bump taken deliberately, and the seam V1's banner renders.
+- **A3 — Zones, read-only.** Zone list, room browser with sector/flags/prose, door states, repop
+  clocks. The room browser is what A2's targeting and every later authoring job navigate with.
+- **A4 — Zones and mobs, live ops.** Force a repop, work a door; live mob instances by zone, slay,
+  spawn from a harvested template. The mob-testing loop Phase 14's morale work will want.
+- **A5 — Authoring overlays.** `data/world/overrides/`: room flags and prose first — **hand-authored
+  sanctuaries land here**, the parked item §4 has carried since Phase 10 — then mob template
+  overrides (name, level, combat numbers, aggression). After Phase 14, so a template's behaviour
+  surface is settled before it is authorable; overlays survive `npm run worldgen` by design.
+- **A6 — Items.** After Phases 15–16 exist to give it something to edit. Until then the tab stays a
+  stub and the light catalogue stays read-only on the dashboard.
+- **A7 — Quests.** After Phase 21, same rule.
+
+---
+
 ### Explicitly not scheduled
 
 Hunger, thirst and aging — Duris built all three, shipped them, and switched them off. Racewar
@@ -911,15 +1046,17 @@ mentioned and forgotten comes back every month.
 
 | Idea | Verdict | Where |
 | --- | --- | --- |
-| **Content editors: mobs, items, zones, quests** | **Agreed, four of them, and they share one rule: each must read and write the same validated data files the game already loads.** Content that can only be edited through a tool is hostage to that tool, and a format the editor invents is a second source of truth that will drift from the harvest. They are listed separately because they land at different times — each one wants the mechanic it edits to exist first, or it is an editor for a guess. **Mob editor** after Phase 14, when a mob's full behaviour surface (aggression, pursuit, assist, morale) is settled and worth authoring by hand. **Item editor** after Phase 16, when gear actually does something. **Quest editor** after Phase 21, which is where quests are. **Zone editor** is the largest and the last — it has to understand the room graph, the three direction encodings and the per-zone coordinate normalisation, and it is the one that would let the world grow beyond what Duris supplies | Mob editor after Phase 14; item after 16; quest after 21; zone last |
-| Authoring sanctuaries and other room flags by hand | The zone editor's first real job — `safe` is set on one room in the shipped world, so sanctuary is built and untestable. A small hand-authored pass could come sooner | With the zone editor, or sooner as a data-only pass |
+| **Content editors: mobs, items, zones, quests** | **Done in principle — became Track A.** The admin panel (built 2026-08-02, off-schedule at the owner's request; `DESIGN-admin-panel.md`) is the delivery vehicle for all four, and it keeps this row's one rule: the server is the only writer, and authoring lands as overlay files the game loads — content that can only be edited through a tool is hostage to that tool. The landing order this row chose survives as Track A's order: mob authoring after Phase 14 (A5), items after 16 (A6), quests after 21 (A7). The full zone *geometry* editor — room graph, three direction encodings, per-zone normalisation — remains the largest and last, and is **not** any current A slice | Track A; geometry editor still last, unscheduled |
+| Authoring sanctuaries and other room flags by hand | Lands in **A5**, the first authoring overlay — `safe` is set on one room in the shipped world, so sanctuary has been built and untestable since Phase 10 | Track A5 |
 | Terrain inference quality (23.2% fall back to a default sector) | **Done — became Phase 5c.** Suffix rules plus graph label-diffusion took the default share from 23.2% to 0.2%; see the phase for what the held-out validation says about accuracy | Phase 5c ✅ |
 | Temples or churches as sanctuary | Agreed in principle, not scheduled. Must be **authored**: nothing upstream marks them, and `ROOM_SAFE` is set on 11 of Duris' 781,053 rooms | After Phase 10, once pursuit gives sanctuary a mechanical meaning worth placing by hand |
 | Container nesting depth (proposed max 2) | Open, not decided | Decide during Phase 17 |
 | Room-scoped shared light (one player lights the room for all) | Real Duris mechanism (`char_light` → `room_light`), and a change to a tuned relationship — see `ROOM_GAP` in `tilemap.ts` | Not scheduled; needs a design note before it gets a phase |
-| **Character progression: ability scores, hit dice, levelling, and somewhere to start** | **Agreed, and it is the largest hole in the schedule.** A new character is level 1 with 9 hit points; the only populated zone is levels 15–60 and its weakest inhabitant has ~130. So combat is correct and unsurvivable, which Phase 11 demonstrated honestly rather than hid. Needs ability scores, a hit-die progression, and either a starter zone or a level band worth spawning into — and it is **signature work** by §4's first question, since every action will eventually read a modifier off the character | Before Act V. Sits naturally after Phase 14, where the combat loop is complete enough to know what the numbers have to serve |
+| **Character progression: ability scores, hit dice, levelling, and somewhere to start** | **Done — became Phase 14b**, on exactly the placement this row had already argued: after Phase 14, before Act V, signature work by §4's first question. The "what death costs" decision Phase 13 left open moves there with it, because it needs progression's numbers to mean anything | Phase 14b |
 | **Mob health bars on screen** | **Agreed — and it is arguably Phase 11's own Seen-when.** `EntityView.healthFraction` has been on the wire since Phase 7 and *no client code reads it*, so "a health bar drops" is currently true of the data and false of the screen. Open question the owner raised: shown on `look` or only once engaged | Phase 11, as the rendering half of its own completion test |
 | **Combat outcome vocabulary — dodged, parried, shield blocked, casting** | **Agreed, and it splits.** The *mechanisms* are later: dodge, parry and shield block are defence skills (Phase 19) and casting is Phase 20. But the *wire shape* is §4's first question exactly — a reason on `attackResolved` costs one optional field now and a rewrite of every combat message site later, so the field is reserved in Phase 11 and the rolls that can populate it arrive with the skills | Field in Phase 11; dodge/parry/block in Phase 19; casting in Phase 20 |
+| **`loot` targets the nearest unlooted corpse** (owner, 2026-08-02) | **Agreed.** `loot corpse` currently resolves like any keyword and lands on whichever corpse matches first, looted or not — in a room of them, that is the wrong one most of the time. The rule: nearest unlooted first, then next-nearest, and only then a looted one (with the "already gone through" line). A targeting refinement of Phase 13's own command, not a phase — question 2's answer exactly | Beside Phase 14, in round 1 — the same act, and combat testing feels it daily |
+| **Bash — a warrior's shield opening that knocks the target down, doubling damage until it stands** (owner, 2026-08-02) | **Agreed, and it is two things.** The *skill* is Phase 19's shape exactly: an opening attack, a knockdown roll, and it needs posture (built), the dying-window damage rules (built) and a skill system (Phase 19) to hang from — inventing it early would be the fifth tested-and-never-called mechanism. The *surface* — a menu offering it on a click — is V2, which grows a row per mechanic as the mechanics land | Skill in Phase 19; its button arrives with whatever V2 offers by then |
 
 ---
 
@@ -929,5 +1066,9 @@ mentioned and forgotten comes back every month.
   code merges.
 - When a phase completes, update §2, tick the phase heading, and update the matching rows in
   `REFERENCE-mud-mechanics.md` §2 so the two files cannot drift.
+- Track items follow the same rule: a V or A item is done when its **Seen when** is true — in the
+  game for V, in the panel against the running server for A. When one completes, tick it in its
+  track list and advance §2b's rounds table so the next round is always written down.
 - `HANDOFF.md` says where things stand *right now*; this file says what is next and why. If they
-  disagree, `HANDOFF.md` is right about the present and this file is right about the order.
+  disagree, `HANDOFF.md` is right about the present and this file is right about the order. For the
+  panel's internals, `DESIGN-admin-panel.md` is the spec and this file's Track A is the order.
