@@ -139,6 +139,7 @@ import {
   type Graveyard,
 } from './corpses.ts';
 import { attemptFlee, type FleeOutcome } from './flee.ts';
+import { markPursuers, pursuitTarget } from './pursue.ts';
 import {
   advanceHunts,
   beginHunt,
@@ -1255,6 +1256,16 @@ function resolveDeath(death: Death): void {
     // **And this is where it finally buys something.** Experience has been earned and banked since
     // Phase 13 with nothing to spend it on: the number went up and never did anything. Phase 14b.
     levelUpIfEarned(earner);
+    // **Checkpointed at the award, not only at level-up and disconnect.** Found live: a browser
+    // reload races the dying socket's close handler against the new session's join, and the join
+    // can read the record before the close writes it — 388 experience evaporated exactly that way.
+    // A kill is rare enough that paying for the flush here is nothing, and it makes the owner's
+    // rule — progress is permanent — hold for the experience itself, not only for the level it buys.
+    const ledger = records.get(earner.id);
+    if (ledger) {
+      rememberProgress(earner);
+      store.flush(ledger);
+    }
     send(earner.id, { t: 'self', view: sim.selfViewOf(earner) });
   }
 
@@ -1425,6 +1436,11 @@ function runFlee(actor: Actor): FleeOutcome {
       // `beginHunt` refuses a mob whose rule cannot chase, so this needs no guard of its own.
       const chaser = outcome.wasFighting;
       if (self && chaser && isMob(chaser)) beginHunt(hunts, chaser, self);
+      // The mirror (owner's pick, §5b option 2): a mob that flees leaves everyone it escaped
+      // pointing at it, and walking after it re-engages *that* body rather than its freshest twin.
+      markPursuers(actor, outcome.changed);
+      // Fleeing is an escape, not a reposition: a player who runs gives up any chase of their own.
+      if (self) self.pursuing = undefined;
       break;
     }
   }
@@ -1562,6 +1578,18 @@ function announceArrival(player: Player, from: RoomId, fromPlace: Place, via?: D
   // After the room description, which re-seeded this player's own watch set — and for everyone in
   // the destination room, who pick the arrival up only if their light reaches them.
   syncEntitiesIn(player.roomId);
+
+  // **Pursuit closes here** (owner's pick, `DESIGN-progression.md` §5b option 2). On the watch set
+  // `describeRoom` just re-seeded, so the quarry check passes the exact visibility gate a typed
+  // `kill` would — a mob that fled into darkness is gone, not tracked through a wall. Placed on the
+  // one arrival path rather than on any command, because the pointer rides the player: walking,
+  // clicking, whatever brought them here, the chase resumes the moment they and the quarry share a
+  // lit room.
+  const quarry = pursuitTarget(sim, player, (id) => watching.get(player.id)?.has(id) ?? false);
+  if (quarry) {
+    send(player.id, { t: 'log', channel: 'combat', text: `You close in on ${quarry.name}!` });
+    startFight(player, quarry.id);
+  }
 }
 
 /**
@@ -2415,6 +2443,9 @@ function startFight(player: Player, id: EntityId): void {
     send(player.id, { t: 'log', channel: 'error', text: `You cannot attack ${target.name}.` });
     return;
   }
+  // Any engagement retires the chase — either this *is* the pursuit landing, or the player picked a
+  // new fight and the old claim is history. One clear on the one engage path, so it cannot go stale.
+  player.pursuing = undefined;
   send(player.id, { t: 'log', channel: 'combat', text: `You attack ${target.name}!` });
   actToRoom(player, 'combat', (who) => `${who} attacks ${target.name}!`);
   syncEntityState(player);

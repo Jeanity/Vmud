@@ -161,33 +161,43 @@ light among your equipment"* and should collapse into equipment rather than surv
 phase does not do that — it adds worn items without disturbing `CarriedLight` — but it is the first
 step toward it, and the merge is Phase 15's.
 
-## 5b. Open: a level-1 character still cannot land a kill
+## 5b. Pursuit that closes — option 2, built (owner's pick, 2026-08-02)
 
-Found by playing it, and recorded rather than papered over.
+The problem, found by playing: a kobold youth flees at half health, and `kill youth` resolves by
+keyword — it picks the freshest youth in the room, so the wounded one that ran walked away from every
+chase. A level-1 character could not land a kill on anything that flees.
 
-A fresh character now **survives** comfortably — 22 hit points, armour class 14 from the kit, taking
-1–4 a round from a level-3 kobold and finishing fights at full health. That was the phase's main
-target and it is met. But **no kill happened**, across many attempts, and the reason is a genuine
-interaction between this phase and Phase 14's morale:
+**The fix is two rules in `server/src/pursue.ts`.** A mob that flees from you leaves you pointing at
+it — at its **entity id**, the identity a keyword cannot express. And arriving in a room where that
+body stands, visible and alive, re-engages it automatically: *"You close in on a kobold youth!"* The
+sighting passes the same watch-set gate a typed `kill` does, so a mob that flees into darkness is
+gone, not tracked through a wall. Engaging anything clears the pointer; so does fleeing yourself —
+running away is not a claim on the kill.
 
-- A kobold youth averages 35 hit points and its `wimpyAt` is ~18 — it **flees at about half health**.
-- A level-1 character deals 3–8 a round, so it takes ~4 rounds to push a mob to its threshold and
-  another ~4 to finish it. The mob leaves after the first four.
-- Re-attacking picks a *fresh* target rather than the wounded one, and following a flight by hand
-  does not reliably re-engage the same body.
+**Verified live**: four kills landed, two of them through long multi-room chases in which the pursuit
+re-engaged the same wounded body six times and finished it when its flee roll finally failed
+(`fleeChance` ≈ 80% per attempt).
 
-Three ways out, none of them chosen yet because it is a balance decision rather than a bug:
+### What the chase revealed about pace, left for the owner
 
-1. **More burst at level 1**, so the window between "flees" and "dead" is one round rather than four.
-   Simple, and risks trivialising the starter zone.
-2. **Pursuit that closes** — `flee.ts` already models a cornered mob, and a player who follows should
-   re-engage the body they were fighting rather than the nearest one with the same name.
-3. **Leave it to Phase 19.** `bash` and `trip` are exactly the skills that stop a fleeing enemy in a
-   MUD, and this may simply be what level 1 feels like without them.
+A youth regenerates while it runs. With level-1 damage (3–8 a round) against 35 hit points, the
+practical kill window is the failed flee — a chase can cross four rooms and end back near full
+health if the roll keeps succeeding. That is arguably correct MUD cat-and-mouse, and Phase 19's
+`bash` is the designed answer to it; but if the first hour feels too slippery, the levers are the
+youth's regen rate while fleeing, or a short no-regen window after taking damage. Not tuned here:
+that is a feel decision, and it wants playing rather than arithmetic.
 
-Worth noting for whoever picks it up: **half the low-level population never flees at all** —
-`wimpyAt: 0` on the kobold fisherman (91 hp), the wet nurse (57) and one of the two guards (132).
-Those are a level-1 character's real prey, and the first kill probably wants to come from there.
+### A real bug the chase found: experience lost across a reload
+
+Experience was checkpointed only at level-up and at disconnect — and a browser reload races the
+dying socket's close handler against the new session's join, which can read the record *before* the
+close writes it. **388 experience evaporated exactly that way, live.** The award now flushes the
+record the moment it lands, which is also what the owner's progress-is-permanent rule implied all
+along. (`levelUpIfEarned`'s caller in `index.ts`.)
+
+Still true and still useful: **half the low-level population never flees at all** — `wimpyAt: 0` on
+the fisherman (91 hp), the wet nurse (57) and one guard (132). Too tough for level 1 today, but they
+become the efficient prey the moment a character has a level or two.
 
 ## 6. What death costs — deferred, with the options recorded
 

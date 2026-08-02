@@ -254,6 +254,15 @@ export interface Actor {
    */
   wasFighting: EntityId | undefined;
   /**
+   * The enemy that fled from this player and is owed a re-engagement on arrival. See `pursue.ts`.
+   *
+   * By **entity id**, not keyword, which is the whole point: `kill youth` picks the freshest youth
+   * in the room, and the wounded one that ran is the one being chased. Players only — a mob's chase
+   * is `hunt.ts`, with rules and give-up clocks a pair of legs does not need. Never persisted: a
+   * pursuit is a moment, not a property.
+   */
+  pursuing: EntityId | undefined;
+  /**
    * What this body fights with and how hard it is to hit. See `combat.ts`.
    *
    * On the actor rather than looked up from a template per swing, for the same reason `aggro` is: the
@@ -656,6 +665,7 @@ export class Simulation {
       place,
       fighting: undefined,
       wasFighting: undefined,
+      pursuing: undefined,
       equipped,
       combat: {
         ...base,
@@ -1575,6 +1585,7 @@ export class Simulation {
       place,
       fighting: undefined,
       wasFighting: undefined,
+      pursuing: undefined,
       combat: template.combat,
       roundMs: template.combat.roundMs,
       lightRadius: DEFAULT_LIGHT_RADIUS,
