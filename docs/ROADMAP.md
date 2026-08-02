@@ -856,10 +856,14 @@ are the stopgap it retires.
 - **Seen when.** A brand-new character, with **no `GAME_DEV_*` switch set**, survives their first
   fight in the world they spawn into, levels from the experience the game already divides — and
   dying costs something you can point at in the log.
-- **Carries.** Persisting `level` and `experience` at all — `PlayerRecord` holds neither today, a
-  character is level 1 every login, and this is also what turns the admin panel's level control from
-  the labelled test rig into a real edit. And the numbers decision itself: SRD 5e ability scores and
-  hit dice against the `.mob` records' own 15–60 curve, which is a design pass, not an evening.
+- **Carries.** ~~Persisting `level` and `experience` at all~~ — **done early, 2026-08-02, by the
+  owner's decision**: an admin edit must be permanent, so the storage half was pulled forward.
+  `PlayerRecord.progress` holds both, login restores them (and returns the character to `lastRoom`),
+  and a saved level wins over the `GAME_DEV_LEVEL` rig. What this phase still carries is the
+  **derivation**: `devProfile`'s arithmetic is the placeholder that turns a stored level into hit
+  points and attack bonus, and `restoreProgress` in `index.ts` is the named seam where real ability
+  scores and hit dice replace it. And the numbers decision itself: SRD 5e ability scores and hit
+  dice against the `.mob` records' own 15–60 curve, which is a design pass, not an evening.
 - **Why here.** §4's own placement — after Phase 14, before Act V — and its first question lands the
   same way: gear (Phase 16) reads ability modifiers off the character, so the scores must exist
   before the things that modify them. Every phase after this is authored against real numbers

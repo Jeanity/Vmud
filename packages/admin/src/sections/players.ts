@@ -157,7 +157,8 @@ function renderRoster(pane: HTMLElement, roster: RosterBody, pick: (slug: string
                   summary.name,
                   false,
                   summary.savedAt ? `saved ${ago(summary.savedAt)}` : 'never saved',
-                  `${summary.seenTiles} tiles seen · ${summary.takenCount} pickups` +
+                  `${summary.level !== undefined ? `L${summary.level} · ` : ''}` +
+                    `${summary.seenTiles} tiles seen · ${summary.takenCount} pickups` +
                     (summary.wound ? ` · wounded` : ''),
                 ),
               ),
@@ -288,8 +289,8 @@ function liveBlock(
       'div',
       { class: 'row' },
       el('label', {}, 'level'), level,
-      el('button', { onclick: () => void patch({ level: Number(level.value) }, `level set — lapses at disconnect`) }, 'Set'),
-      el('span', { class: 'rig' }, 'test rig: GAME_DEV_LEVEL’s own arithmetic, not persisted — progression is ROADMAP §4'),
+      el('button', { onclick: () => void patch({ level: Number(level.value) }, `level set — saved to the character file`) }, 'Set'),
+      el('span', { class: 'rig' }, 'the level persists; the numbers it derives are the dev profile’s until Phase 14b'),
     ),
     el(
       'div',
@@ -356,7 +357,15 @@ function recordBlock(
       el('dt', {}, 'saved'),
       el('dd', {}, record.savedAt ? `${ago(record.savedAt)}` : 'never'),
       el('dt', {}, 'last room'),
-      el('dd', {}, record.lastRoom ? `${record.lastRoom.name} (${record.lastRoom.id}) — recorded, but login always starts at spawn` : '—'),
+      el('dd', {}, record.lastRoom ? `${record.lastRoom.name} (${record.lastRoom.id}) — login returns them here` : '—'),
+      el('dt', {}, 'level'),
+      el(
+        'dd',
+        {},
+        record.level !== null
+          ? `${record.level} · ${record.experience ?? 0} experience`
+          : 'never set — logs in as a fresh level 1',
+      ),
       el('dt', {}, 'seen'),
       el('dd', {}, `${record.seenTiles} tiles across ${record.seenPlaces} place${record.seenPlaces === 1 ? '' : 's'}`),
       el('dt', {}, 'pickups'),
@@ -374,11 +383,30 @@ function recordBlock(
     const woundHp = el('input', { type: 'number', value: String(record.wound?.hp ?? 0), min: '0' });
     const woundMana = el('input', { type: 'number', value: String(record.wound?.mana ?? 0), min: '0' });
     const woundMove = el('input', { type: 'number', value: String(record.wound?.move ?? 0), min: '0' });
+    const levelInput = el('input', { type: 'number', value: String(record.level ?? 1), min: '1', max: '60' });
+    const moveRoom = el('input', { type: 'number', list: 'room-list-offline', value: record.lastRoom ? String(record.lastRoom.id) : '' });
+    const moveRoomList = el('datalist', { id: 'room-list-offline' });
+    for (const room of rooms) {
+      moveRoomList.append(el('option', { value: String(room.id) }, `${room.name} — z${room.zone} L${room.level}`));
+    }
     const lightPick = el('select', {});
     for (const source of lights) {
       lightPick.append(el('option', { value: source.id }, `${source.name} (r${source.radius})`));
     }
     rows.push(
+      el(
+        'div',
+        { class: 'row' },
+        el('label', {}, 'level'), levelInput,
+        el('button', { onclick: () => void patch({ level: Number(levelInput.value) }, 'level saved to the file') }, 'Set'),
+        el('span', { class: 'rig' }, 'permanent — login derives their numbers from it'),
+      ),
+      el(
+        'div',
+        { class: 'row' },
+        el('label', {}, 'move to'), moveRoom, moveRoomList,
+        el('button', { onclick: () => void verb('teleport', { room: Number(moveRoom.value) }, 'moved — takes effect at login') }, 'Go'),
+      ),
       el(
         'div',
         { class: 'row' },

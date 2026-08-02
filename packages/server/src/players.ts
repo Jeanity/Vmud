@@ -110,6 +110,21 @@ export interface PlayerRecord {
    * `undefined` means unhurt, which is what a new character is.
    */
   missing: { hp: number; mana: number; move: number } | undefined;
+  /**
+   * The level this character has reached and the experience they hold, or undefined for one
+   * neither has ever moved for.
+   *
+   * **Persisted by the owner's decision (2026-08-02), ahead of Phase 14b — the storage half only.**
+   * What a level *derives* (hit points, attack bonus, round length) is still the dev profile's
+   * arithmetic in `index.ts`, and Phase 14b replaces that derivation with real ability scores and
+   * hit dice; this field is what that will read when it lands. Until then the rule is simple: the
+   * number on the file is the character's level, whatever set it — the admin panel, the
+   * `GAME_DEV_LEVEL` rig, or one day play — and login re-derives the rest from it.
+   *
+   * `{level: 1, experience: 0}` is stored as undefined: that is what a brand-new character is, and
+   * recording it would have every file assert a fact nothing established.
+   */
+  progress: { level: number; experience: number } | undefined;
 }
 
 /**
@@ -162,6 +177,13 @@ interface StoredRecord {
    */
   missing?: { hp?: number; mana?: number; move?: number };
   /**
+   * The level reached and the experience held. Absent for a character neither has moved for — see
+   * {@link PlayerRecord.progress}. Flat rather than nested because this file is hand-editable and
+   * `"level": 35` is the edit somebody will actually make.
+   */
+  level?: number;
+  experience?: number;
+  /**
    * Pre-v4 only: the rooms this character had entered, when fog was room-granular.
    *
    * Read on load, converted to tiles, and never written again — the next save of a migrated
@@ -209,6 +231,8 @@ export interface StoredSummary {
   readonly affectCount: number;
   /** The stored deficit, when one is recorded. See {@link PlayerRecord.missing}. */
   readonly wound: { hp: number; mana: number; move: number } | undefined;
+  /** The stored level, when one is recorded. See {@link PlayerRecord.progress}. */
+  readonly level: number | undefined;
 }
 
 /**
@@ -266,6 +290,7 @@ export class PlayerStore {
       affects: [],
       lastRoom: undefined,
       missing: undefined,
+      progress: undefined,
     };
     if (slug) {
       try {
@@ -277,6 +302,7 @@ export class PlayerStore {
           affects: decodeAffects(stored, elapsedSince(stored.savedAt)),
           lastRoom: stored.lastRoom,
           missing: decodeMissing(stored.missing),
+          progress: decodeProgress(stored.level, stored.experience),
         };
         // A save written by the previous version has room ids and no bitsets. Refusing to load it
         // would lock a character out of their own account over a data format; this converts what it
@@ -363,6 +389,26 @@ export class PlayerStore {
   setLastRoom(record: PlayerRecord, room: RoomId): void {
     if (record.lastRoom === room) return;
     record.lastRoom = room;
+    this.touch(record);
+  }
+
+  /**
+   * Records the level reached and the experience held. See {@link PlayerRecord.progress}.
+   *
+   * Sanitised the way the loader would: the level clamped to the game's own band, both rounded,
+   * and the brand-new-character pair collapsing to "nothing recorded". Callers pass what the live
+   * character holds; this decides whether that is worth a byte.
+   */
+  setProgress(record: PlayerRecord, level: number, experience: number): void {
+    const cleanLevel = Number.isFinite(level) ? Math.min(60, Math.max(1, Math.round(level))) : 1;
+    const cleanExperience = Number.isFinite(experience) ? Math.max(0, Math.round(experience)) : 0;
+    const value =
+      cleanLevel === 1 && cleanExperience === 0 ? undefined : { level: cleanLevel, experience: cleanExperience };
+
+    const current = record.progress;
+    if (current === value) return;
+    if (current && value && current.level === value.level && current.experience === value.experience) return;
+    record.progress = value;
     this.touch(record);
   }
 
@@ -487,6 +533,9 @@ export class PlayerStore {
           }),
       ...(record.lastRoom === undefined ? {} : { lastRoom: record.lastRoom }),
       ...(record.missing === undefined ? {} : { missing: record.missing }),
+      ...(record.progress === undefined
+        ? {}
+        : { level: record.progress.level, experience: record.progress.experience }),
       savedAt: new Date().toISOString(),
     };
     try {
@@ -550,6 +599,7 @@ export class PlayerStore {
           takenCount: cached.taken.size,
           affectCount: cached.affects.length,
           wound: cached.missing ? { ...cached.missing } : undefined,
+          level: cached.progress?.level,
         });
         continue;
       }
@@ -563,6 +613,7 @@ export class PlayerStore {
         affects: decodeAffects(stored, 0),
         lastRoom: stored.lastRoom,
         missing: decodeMissing(stored.missing),
+        progress: decodeProgress(stored.level, stored.experience),
       };
       out.push({
         slug,
@@ -573,6 +624,7 @@ export class PlayerStore {
         takenCount: record.taken.size,
         affectCount: record.affects.length,
         wound: record.missing,
+        level: record.progress?.level,
       });
     }
     return out.sort((a, b) => a.slug.localeCompare(b.slug));
@@ -812,6 +864,24 @@ function sameAffects(a: readonly Affect[], b: readonly Affect[]): boolean {
       left.context === right.context
     );
   });
+}
+
+/**
+ * The stored level and experience, shape-checked.
+ *
+ * The same defensive posture as everything else here — the file is hand-editable, and
+ * `"level": "big"` has to produce a character with no recorded progress rather than a NaN that
+ * derives NaN hit points. A level outside the game's own band is clamped rather than dropped:
+ * somebody who hand-wrote 99 meant "high", not "forget my level". The brand-new pair reads as
+ * nothing recorded, mirroring what {@link PlayerStore.setProgress} writes.
+ */
+function decodeProgress(level: unknown, experience: unknown): { level: number; experience: number } | undefined {
+  if (typeof level !== 'number' || !Number.isFinite(level)) return undefined;
+  const cleanLevel = Math.min(60, Math.max(1, Math.round(level)));
+  const cleanExperience =
+    typeof experience === 'number' && Number.isFinite(experience) ? Math.max(0, Math.round(experience)) : 0;
+  if (cleanLevel === 1 && cleanExperience === 0) return undefined;
+  return { level: cleanLevel, experience: cleanExperience };
 }
 
 /**

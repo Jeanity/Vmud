@@ -251,6 +251,8 @@ export class AdminApi {
           seenPlaces: record.seen.size,
           seenTiles: seenTileCount(record),
           takenCount: record.taken.size,
+          level: record.progress?.level ?? null,
+          experience: record.progress?.experience ?? null,
           wound: record.missing ?? null,
           affects: record.affects.map((affect) => ({
             type: affect.type,
@@ -371,20 +373,16 @@ export class AdminApi {
         };
       }
     }
-    if (patch.level !== undefined) {
-      return {
-        status: 409,
-        body: {
-          error:
-            `${summary.name} is offline — level is not persisted anywhere yet (progression is ` +
-            `ROADMAP.md §4's open hole), so it can only be set on a live character, as the test rig it is`,
-        },
-      };
-    }
-
     const record = this.deps.store.load(summary.name);
     const applied: Record<string, unknown> = {};
 
+    if (patch.level !== undefined) {
+      // Real since 2026-08-02, the owner's rule: the number on the file is the character's level,
+      // and login derives the rest from it (`restoreProgress` in `index.ts`). Experience is kept
+      // as it was — a level edit is not an opinion about what they have earned.
+      this.deps.store.setProgress(record, patch.level as number, record.progress?.experience ?? 0);
+      applied.level = patch.level;
+    }
     if (patch.wound !== undefined) {
       const wound = patch.wound;
       if (wound !== null && (typeof wound !== 'object' || Array.isArray(wound))) {
@@ -431,21 +429,27 @@ export class AdminApi {
   }
 
   private teleport(slug: string, body: unknown): AdminResponse {
-    const player = this.findOnline(slug);
-    if (!player) {
-      const summary = this.deps.store.list().find((s) => s.slug === slug);
-      if (!summary) return { status: 404, body: { error: `no character "${slug}"` } };
-      // `lastRoom` is written on every move and read by nothing at login — a character always
-      // starts at the spawn room. Pretending to move an offline character would edit a field that
-      // does nothing, which is worse than saying so.
-      return { status: 409, body: { error: `${summary.name} is offline — login always starts at the spawn room, so there is nothing an offline move would change` } };
-    }
     const room = (body as { room?: unknown } | null)?.room;
     if (typeof room !== 'number' || !Number.isInteger(room)) {
       return { status: 400, body: { error: 'body must be {"room": <id>}' } };
     }
     const located = this.deps.world.locate(room as RoomId);
     if (!located) return { status: 400, body: { error: `no room ${room} in the loaded world` } };
+
+    const player = this.findOnline(slug);
+    if (!player) {
+      // Offline is a real move since 2026-08-02: login returns a character to `lastRoom`, so
+      // writing it is exactly "they will be standing there when they next log in".
+      const summary = this.deps.store.list().find((s) => s.slug === slug);
+      if (!summary) return { status: 404, body: { error: `no character "${slug}"` } };
+      const record = this.deps.store.load(summary.name);
+      const from = record.lastRoom;
+      this.deps.store.setLastRoom(record, room as RoomId);
+      this.deps.store.flush(record);
+      this.audit('teleport', { slug, online: false, from: from ?? null, to: room, place: placeKey(located.place) });
+      return this.player(slug);
+    }
+
     const from = player.roomId;
     if (!this.deps.live.teleport(player, room as RoomId)) {
       return { status: 400, body: { error: `room ${room} has no floor to stand on` } };

@@ -109,6 +109,9 @@ export interface StoredHalf {
   seenPlaces: number;
   seenTiles: number;
   takenCount: number;
+  /** The stored level and experience, or null where never set. Real, persisted facts since 2026-08-02. */
+  level: number | null;
+  experience: number | null;
   wound: { hp: number; mana: number; move: number } | null;
   affects: AffectRow[];
 }
@@ -130,6 +133,7 @@ export interface StoredSummary {
   takenCount: number;
   affectCount: number;
   wound: { hp: number; mana: number; move: number } | undefined;
+  level: number | undefined;
 }
 
 export interface RosterBody {

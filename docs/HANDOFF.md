@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated 2026-07-30. Read this first; it is the shortest path back into the project._
+_Last updated 2026-08-02. Read this first; it is the shortest path back into the project._
 
 ---
 
@@ -17,9 +17,9 @@ skills from those projects.
 
 ```bash
 npm install          # once
-npm run dev          # server + client together
-npm run typecheck    # tsc across all four packages
-npm test             # 714 tests
+npm run dev          # server + client + admin panel together
+npm run typecheck    # tsc across all five packages
+npm test             # 761 tests
 npm run worldgen     # rebuild world JSON from the zMUD source DB
 ```
 
@@ -32,7 +32,7 @@ and restarting is the whole of "installing" a zone.
 
 ## State: green
 
-- **714 tests** (363 server, 278 shared, 73 worldgen), typecheck clean across all packages.
+- **761 tests** (398 server, 290 shared, 73 worldgen), typecheck clean across all five packages.
 - `data/` is git-ignored and reproducible. `npm run worldgen` regenerates it.
 - Four zones loaded, 23 places: **36 IceCrag Castle** (219 rooms, 11 levels) and **168 Kobold
   Settlement** (99 rooms, 6 levels), both Duris-matched and carrying harvested prose, flags and real
@@ -80,7 +80,7 @@ and restarting is the whole of "installing" a zone.
 | UI shell | Three columns — log, map, character sheet. Both side panes collapse to a rail and remember it; collapsing one gives the map two thirds |
 | Vitals | Pinned **over the map**, not in the sheet — pools, light, stance, affects and room are on screen whatever the panes are doing |
 | Equipment panel | Paper doll, `DESIGN-inventory.md` §6's eleven slots. Only the main hand can fill today, from the carried light |
-| Admin panel | `@mygame/admin` on 5274, a client of `/admin/api` on the game server. Players section built: live edits through the sim's own seams, offline edits through the store, refusal over pretence, every mutation audited to `data/admin-audit.jsonl`. Global announce works; zones/mobs/items/quests are honest stubs. See `DESIGN-admin-panel.md` |
+| Admin panel | `@mygame/admin` on 5274, a client of `/admin/api` on the game server. Players section built: live edits through the sim's own seams, offline edits through the store, refusal over pretence, every mutation audited to `data/admin-audit.jsonl`. **Edits are permanent** — level/experience persist and beat the `GAME_DEV_LEVEL` rig, teleports stick because login returns to `lastRoom`, and every live op flushes the file at once. Global announce works; zones/mobs/items/quests are honest stubs. See `DESIGN-admin-panel.md` |
 | Combat feed | The `combat` channel's only destination: a capped, self-scrolling section of the character pane below the display slider. A split, not a mirror — the log no longer carries combat lines. `client/src/combatfeed.ts`; the scene routes the channel |
 
 ### Not built
@@ -93,10 +93,13 @@ nothing else, and it says so rather than pretending.
 there is no respawn, no experience loss and no resurrection. That is the half of Phase 13 the roadmap
 calls *corpse retrieval*, and it needs a decision about what death costs before it can be built.
 
-**The largest hole is character progression** — no ability scores, no hit dice, no levelling, and nowhere
-to start. A new character is level 1 with 9 hit points and the only populated zone is levels 15–60, so
-combat is correct and unsurvivable. It is recorded in `ROADMAP.md` §4 and the `GAME_DEV_*` switches are
-the stopgap.
+**The largest hole is character progression, now scheduled as Phase 14b** — no ability scores, no hit
+dice, no way to *earn* a level, and nowhere to start. A new character is level 1 with 9 hit points and
+the only populated zone is levels 15–60, so combat is correct and unsurvivable. **The storage half
+arrived early (2026-08-02, owner's rule: admin edits are permanent):** `PlayerRecord.progress` persists
+level and experience, login restores both and returns the character to `lastRoom`, and a saved level
+wins over the `GAME_DEV_LEVEL` rig. The numbers a level derives are still `devProfile`'s arithmetic —
+`restoreProgress` in `index.ts` is the seam 14b's real ability scores and hit dice replace.
 
 **Be aware of the inert surface.** `SECTOR_REQUIRES_MOVEMENT` and `proficiencyBonus` still have **zero
 non-test callers**. `resolveAttack` and `rollDamage` came off this list in Phase 11 — they had been

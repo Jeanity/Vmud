@@ -681,6 +681,40 @@ function rememberVitals(player: Player): void {
   store.setMissing(record, player);
 }
 
+/** Copies the level reached and the experience held onto the record. See {@link restoreProgress}. */
+function rememberProgress(player: Player): void {
+  const record = records.get(player.id);
+  if (!record) return;
+  store.setProgress(record, player.level, player.experience);
+}
+
+/**
+ * Puts a returning character's level and experience back — the owner's rule (2026-08-02): the
+ * number on the file is the character's level, whatever set it, and it survives logout.
+ *
+ * The profile it derives is still {@link devProfile}'s arithmetic — the storage half of progression
+ * arrived ahead of Phase 14b, the *derivation* half did not, and this function is the seam where
+ * 14b's real ability scores and hit dice take over. Applied only when the stored level differs from
+ * the fresh spawn's: a natural level-1 character keeps `playerCombatStats(1)`'s numbers rather than
+ * being quietly re-profiled by the rig's slightly different level-1 row.
+ *
+ * **Before {@link restoreVitals}, always** — the wound is a deficit against maxima, so the maxima
+ * must be right before the deficit is applied, or a 4-point wound on a 420-point warrior heals to
+ * full at every login.
+ */
+function restoreProgress(player: Player, record: PlayerRecord): void {
+  const progress = record.progress;
+  if (!progress) return;
+  player.experience = progress.experience;
+  if (progress.level === player.level) return;
+  const profile = devProfile(progress.level);
+  player.level = progress.level;
+  player.maxHp = profile.maxHp;
+  player.hp = profile.maxHp;
+  player.combat = profile.combat;
+  player.roundMs = profile.combat.roundMs;
+}
+
 /** Puts a returning character's wounds back. A save with nothing missing leaves them at full. */
 function restoreVitals(player: Player, record: PlayerRecord): void {
   const missing = record.missing;
@@ -2170,6 +2204,23 @@ function handle(player: Player, message: ClientMessage): void {
 const ADMIN_TOKEN = process.env.GAME_ADMIN_TOKEN || undefined;
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
+/**
+ * Writes everything an admin edit changed straight to disk — the owner's rule (2026-08-02): a
+ * panel edit is a permanent fact the moment it is made, not at the next disconnect. The ordinary
+ * play paths keep their debounce; this is the one caller that pays for immediacy, because the
+ * operator is looking at the file's truth right now and a crash between edit and disconnect must
+ * not undo their work.
+ */
+function persistAdminEdit(player: Player): void {
+  const record = records.get(player.id);
+  if (!record) return;
+  rememberAffects(player);
+  rememberVitals(player);
+  rememberProgress(player);
+  store.setLastRoom(record, player.roomId);
+  store.flush(record);
+}
+
 const adminLive: LiveOps = {
   online: () => [...sim.allPlayers()],
   setVitals(player, pools) {
@@ -2181,11 +2232,12 @@ const adminLive: LiveOps = {
     sim.refreshStatus(player);
     send(player.id, { t: 'self', view: sim.selfViewOf(player) });
     syncEntityState(player);
+    persistAdminEdit(player);
   },
   setLevel(player, level) {
-    // `GAME_DEV_LEVEL`'s own arithmetic, per character — a test rig, not a progression, exactly as
-    // the join-time switch is. It lapses at disconnect for the same reason the switch does: nothing
-    // persists a level yet, and inventing that persistence here is what `ROADMAP.md` §4 forbids.
+    // The numbers are still `GAME_DEV_LEVEL`'s arithmetic — `devProfile` is the derivation until
+    // Phase 14b replaces it — but the level itself is a recorded fact now, persisted below and
+    // restored at every login. The owner's rule: an admin edit is permanent.
     const profile = devProfile(level);
     player.level = level;
     player.maxHp = profile.maxHp;
@@ -2195,12 +2247,15 @@ const adminLive: LiveOps = {
     sim.refreshStatus(player);
     send(player.id, { t: 'self', view: sim.selfViewOf(player) });
     syncEntityState(player);
+    persistAdminEdit(player);
   },
   setLight(player, source) {
     sim.setCarriedLight(player, source);
+    persistAdminEdit(player);
   },
   clearAffects(player) {
     sim.restoreAffects(player, []);
+    persistAdminEdit(player);
   },
   teleport(player, room) {
     const from = player.roomId;
@@ -2210,6 +2265,9 @@ const adminLive: LiveOps = {
     // the room ends a fight, and a summons is a way of leaving the room.
     announceArrival(player, from, fromPlace);
     for (const actor of clearEngagements(scheduler, sim, player)) syncEntityState(actor);
+    // `describeRoom` inside the arrival already recorded the new room; this makes it durable now,
+    // because login honours `lastRoom` and an admin move is a permanent one.
+    persistAdminEdit(player);
     return true;
   },
   tell(player, text) {
@@ -2292,8 +2350,19 @@ wss.on('connection', (socket) => {
       // Before the first `foldSeen` below: a returning torch-bearer must light their spawn tile at
       // the radius they are carrying, not at the bare one and then again a tick later.
       restoreAffects(player, record);
+      // Level before wounds — the wound is a deficit against maxima the level derives, so this
+      // order is what makes "4 below full" mean the same thing it meant at logout.
+      restoreProgress(player, record);
       // Wounds too, and before the first `self` goes out so the HUD opens on the right numbers.
       restoreVitals(player, record);
+      // Login returns you to where you were — the owner's rule (2026-08-02), and what makes an
+      // admin teleport a permanent fact rather than a session one. Before `welcome`, so everything
+      // the client is told (`zone`, the bitset, the room) describes where the character actually
+      // is. A room the server no longer loads leaves them at spawn: `relocate` refuses it, and a
+      // shrunken zone list is configuration, not an error.
+      if (record.lastRoom !== undefined && record.lastRoom !== player.roomId) {
+        sim.relocate(player, record.lastRoom);
+      }
 
       send(player.id, {
         t: 'welcome',
@@ -2324,8 +2393,10 @@ wss.on('connection', (socket) => {
         sendSeen(player);
       }
       // Level first, then the weapon override, so `GAME_DEV_DAMAGE` can still tune one number of a
-      // profile rather than having to replace the whole thing.
-      if (DEV_LEVEL && Number.isFinite(DEV_LEVEL)) {
+      // profile rather than having to replace the whole thing. **A saved level wins over the rig**:
+      // the switch exists to make a fresh character watchable, not to re-flatten one whose level is
+      // now a recorded fact — see `restoreProgress`.
+      if (DEV_LEVEL && Number.isFinite(DEV_LEVEL) && !record.progress) {
         const profile = devProfile(DEV_LEVEL);
         player.level = DEV_LEVEL;
         player.maxHp = profile.maxHp;
@@ -2355,6 +2426,7 @@ wss.on('connection', (socket) => {
       // moment anyone can read it off the player. After `sim.remove` below it is gone.
       rememberAffects(player);
       rememberVitals(player);
+      rememberProgress(player);
       store.flush(record);
       records.delete(player.id);
     }
@@ -2604,6 +2676,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     for (const player of sim.allPlayers()) {
       rememberAffects(player);
       rememberVitals(player);
+      rememberProgress(player);
     }
     store.flushAll();
     process.exit(0);

@@ -552,3 +552,64 @@ describe('the admin edits', () => {
     void dir;
   });
 });
+
+describe('the progress on disk', () => {
+  it('round-trips level and experience, flat in the file', () => {
+    const { store, dir } = makeStore();
+    const record = store.load('Veteran');
+    store.setProgress(record, 35, 67_635);
+    store.flush(record);
+
+    const saved = readSaved(dir, 'Veteran');
+    assert.equal(saved['level'], 35);
+    assert.equal(saved['experience'], 67_635);
+
+    const reloaded = new PlayerStore({ dir }).load('Veteran');
+    assert.deepEqual(reloaded.progress, { level: 35, experience: 67_635 });
+  });
+
+  it('stores a brand-new character as nothing recorded', () => {
+    const { store, dir } = makeStore();
+    const record = store.load('Fresh');
+    store.setProgress(record, 1, 0);
+    assert.equal(record.progress, undefined);
+    store.flush(record);
+    const saved = readSaved(dir, 'Fresh');
+    assert.equal('level' in saved, false);
+    assert.equal('experience' in saved, false);
+  });
+
+  it('keeps level 1 when there is experience worth keeping', () => {
+    const { store } = makeStore();
+    const record = store.load('Beginner');
+    store.setProgress(record, 1, 500);
+    assert.deepEqual(record.progress, { level: 1, experience: 500 });
+  });
+
+  it('sanitises what it is given and what it reads back', () => {
+    const { store, dir } = makeStore();
+    const record = store.load('Suspicious');
+    store.setProgress(record, 400.7, -12);
+    assert.deepEqual(record.progress, { level: 60, experience: 0 }, 'clamped to the band, floored at zero');
+    store.flush(record);
+
+    // A hand-edited file: "big" is not a level, and 99 means "high", not "forget my level".
+    writeFileSync(
+      join(dir, 'hacked.json'),
+      JSON.stringify({ name: 'Hacked', level: 99, experience: 'lots', savedAt: 'x' }),
+    );
+    const hacked = new PlayerStore({ dir }).load('Hacked');
+    assert.deepEqual(hacked.progress, { level: 60, experience: 0 });
+
+    writeFileSync(join(dir, 'wordy.json'), JSON.stringify({ name: 'Wordy', level: 'big', savedAt: 'x' }));
+    assert.equal(new PlayerStore({ dir }).load('Wordy').progress, undefined);
+  });
+
+  it('shows the stored level on the roster', () => {
+    const { store } = makeStore();
+    const record = store.load('Veteran');
+    store.setProgress(record, 40, 1);
+    store.flush(record);
+    assert.equal(store.list()[0]!.level, 40);
+  });
+});

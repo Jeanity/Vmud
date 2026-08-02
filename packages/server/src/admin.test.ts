@@ -316,17 +316,27 @@ describe('editing a stored character', () => {
     assert.equal(reloaded.affects[0]!.context, 'torch');
   });
 
-  it('refuses pools and level offline, each with the reason', () => {
+  it('refuses pools offline, with the reason', () => {
     const { api, store } = makeRig();
     store.flush(store.load('Asleep'));
     assert.match(
       (api.route(req('PATCH', '/players/asleep', { hp: 5 })).body as { error: string }).error,
       /stored as the wound/,
     );
-    assert.match(
-      (api.route(req('PATCH', '/players/asleep', { level: 30 })).body as { error: string }).error,
-      /not persisted/,
-    );
+  });
+
+  it('sets a level offline, permanently, keeping the experience they had', () => {
+    const { api, store, dir } = makeRig();
+    const record = store.load('Asleep');
+    store.setProgress(record, 10, 4_000);
+    store.flush(record);
+
+    const response = quietly(() => api.route(req('PATCH', '/players/asleep', { level: 30 })));
+    assert.equal(response.status, 200);
+    assert.equal((response.body as { record: { level: number } }).record.level, 30);
+    const saved = JSON.parse(readFileSync(join(dir, 'asleep.json'), 'utf8')) as { level?: number; experience?: number };
+    assert.equal(saved.level, 30);
+    assert.equal(saved.experience, 4_000, 'a level edit is not an opinion about what they earned');
   });
 });
 
@@ -342,12 +352,16 @@ describe('the verbs', () => {
     assert.equal((response.body as { live: { room: { id: number } } }).live.room.id, 6002);
   });
 
-  it('refuses to teleport the offline, because login would not honour it', () => {
-    const { api, store } = makeRig();
+  it('moves the offline by writing lastRoom, which login now honours', () => {
+    const { api, store, dir } = makeRig();
     store.flush(store.load('Asleep'));
-    const response = api.route(req('POST', '/players/asleep/teleport', { room: 6002 }));
-    assert.equal(response.status, 409);
-    assert.match((response.body as { error: string }).error, /spawn room/);
+    const response = quietly(() => api.route(req('POST', '/players/asleep/teleport', { room: 6002 })));
+    assert.equal(response.status, 200);
+    assert.equal((response.body as { record: { lastRoom: { id: number } } }).record.lastRoom.id, 6002);
+    const saved = JSON.parse(readFileSync(join(dir, 'asleep.json'), 'utf8')) as { lastRoom?: number };
+    assert.equal(saved.lastRoom, 6002);
+    // A room the world does not have is still refused, offline or not.
+    assert.equal(api.route(req('POST', '/players/asleep/teleport', { room: 99999 })).status, 400);
   });
 
   it('tells and kicks the connected, and says why it cannot otherwise', () => {

@@ -118,11 +118,14 @@ overlap has sharp rules:
 - **Offline, the record is all there is.** Vitals are edited as the wound (a deficit against
   maxima that are derived at login, not stored); affects are edited as the stored list, validated
   by the same catalogue checks the loader already applies to hand edits.
-- **Level and experience are not persisted at all** — progression is `ROADMAP.md` §4's largest
-  hole, and this panel must not quietly become it. Setting a level is offered **live-only** through
-  the same `devProfile` the `GAME_DEV_LEVEL` switch uses, labelled in the UI as the test rig it is:
-  it lapses at disconnect exactly as the env switch does. The day real progression exists, this
-  control starts persisting through whatever that phase builds — and not before.
+- **Level and experience are persisted facts — the owner's rule, 2026-08-02.** An admin edit is
+  permanent: the level on the file is the character's level, `restoreProgress` re-derives their
+  numbers from it at every login, a saved level wins over the `GAME_DEV_LEVEL` rig, and login
+  returns the character to `lastRoom` — which is what makes a teleport permanent too. Every admin
+  live op flushes the record immediately rather than waiting for the disconnect. What is *not*
+  pulled forward is the derivation: hit points and attack bonus still come from `devProfile`'s
+  arithmetic until Phase 14b replaces that seam with real ability scores and hit dice — the
+  storage is real, the numbers are still the rig's.
 
 ### Operations
 
@@ -131,10 +134,10 @@ overlap has sharp rules:
 | Inspect (pools, position, affects, seen/taken counts, save file) | ✓ | ✓ | merged view, provenance labelled |
 | Set hp / mana / move | ✓ clamped to `[1..max]` / `[0..max]` | as wound | `sim` + `refreshStatus`; `store.setWound` |
 | Heal fully | ✓ | ✓ (clear wound) | same |
-| Set level (test rig) | ✓ | — | `devProfile`, as `GAME_DEV_LEVEL` |
+| Set level (permanent) | ✓ | ✓ | `store.setProgress` both ways; live also re-profiles through `devProfile` — the derivation Phase 14b replaces. Experience is kept as it was |
 | Grant / extinguish light | ✓ | ✓ | `sim.setCarriedLight`; a `light` affect written the way the pre-v9 migration writes one |
 | Clear affects | ✓ | ✓ | `sim.restoreAffects(player, [])` — the wholesale replace that recomputes; `record.affects = []` |
-| Teleport to room | ✓ | — | `sim.relocate` + `announceArrival`, engagement cleared both ways first. Offline is refused because `lastRoom` is written and never read at login: there is nothing an offline move would change, and pretending otherwise is a lie in a tool |
+| Teleport to room | ✓ | ✓ | live: `sim.relocate` + `announceArrival`, engagement cleared both ways first. Offline: `store.setLastRoom` — login returns a character to `lastRoom` (2026-08-02), so the write *is* the move |
 | Send a line (tell) | ✓ | — | `send` on the `system` channel, named as from the operator |
 | Kick | ✓ | — | socket close; the ordinary disconnect path does the bookkeeping |
 | Reset pickups | ✓ | ✓ | `taken.clear()` — the found-torch state is per-character and this is the tester's "give me my torches back" |
