@@ -86,8 +86,9 @@ a new idea still answers the three questions; its second question now also picks
 | --- | --- | --- | --- |
 | 1 ✅ | V1 — the combat feed ✅ | Phase 14 — mercy and fear ✅ | A2 — messaging to a room or place ✅ |
 | 2 ✅ | V2 — click a body, get its verbs ✅ | Phase 14c — the fight moves with you ✅ | A3 — zones, read-only ✅ |
-| **3 — next** | V3 — speech in the world | Phase 14b — a character worth keeping | A4 — zones and mobs, live ops |
-| 4 | V4 — the world as a graph of Places | Phase 15 — inventory and worn equipment | A5 — authoring overlays |
+| **3 — next** | V3 — speech in the world | Phase 14b — a character worth keeping | A4b — the zone map |
+| 4 | V4 — the world as a graph of Places | Phase 15 — inventory and worn equipment | A5 — authoring overlays, driven from the map |
+| 5 | V5 — arrival cards | Phase 16 — gear that matters | A4 — zones and mobs, live ops |
 
 Two adjacencies are deliberate. A2 (round 1) takes the `announce` channel's protocol bump — a
 decision `DESIGN-admin-panel.md` §5 says to take deliberately, not in passing — and V3 (round 3)
@@ -1169,10 +1170,38 @@ order.
   survive a rebuild.
 - **A4 — Zones and mobs, live ops.** Force a repop, work a door; live mob instances by zone, slay,
   spawn from a harvested template. The mob-testing loop Phase 14's morale work will want.
+- **A4b — The zone map.** A *spatial* view of a zone rather than a table: one cell per room at its
+  own `pos.x, pos.y`, exits drawn as the lines between them, colour by sector, flags and occupants
+  as marks, click a cell to select. **Cheap, because the data is already this shape** — worldgen
+  normalises coordinates per zone, so IceCrag's level 9 is 110 rooms on a 13×14 integer grid and an
+  SVG draws it directly. Owner's, 2026-08-02: *"the zone editor is going to need some kind of visual
+  map so you can see the zone along with being able to select rooms."*
+  **Seen when:** you pick a room by pointing at where it is, not by finding its name in a list.
 - **A5 — Authoring overlays.** `data/world/overrides/`: room flags and prose first — **hand-authored
   sanctuaries land here**, the parked item §4 has carried since Phase 10 — then mob template
   overrides (name, level, combat numbers, aggression). After Phase 14, so a template's behaviour
-  surface is settled before it is authorable; overlays survive `npm run worldgen` by design.
+  surface is settled before it is authorable; overlays survive `npm run worldgen` by design. With
+  A4b it becomes *edit the room you clicked on the map*, which is what makes it feel like an editor
+  rather than a form.
+- **A8 — Zone geometry: adding and removing rooms.** The rest of what "a complete zone editor" means,
+  and the largest thing in this track. **It needs a design note before any code**, because four of
+  its five problems are decisions rather than work:
+
+  1. **A new room has no vnum.** `CLAUDE.md`: ids are the MUD's own and are never renumbered, because
+     they are the join key between every data source we have. Authored rooms therefore need an id
+     space that cannot collide with the 46,508 real ones and stays stable across a rebuild.
+  2. **Changing a zone's bounds resizes its grid, and that invalidates every saved `seen` map for
+     that Place.** `players.ts` says so outright — tile indices are row-major, so a wider grid shifts
+     every one of them. Adding a single room outside the current extent would silently wipe explored
+     maps unless something is decided about it. The sharpest edge here, and the least obvious.
+  3. **Exits are two-sided.** Deleting a room leaves dangling exits in its neighbours; adding one has
+     to wire the reverse. Any UI for it meets gotcha 1, the three direction encodings.
+  4. **Reset tables name rooms.** Deleting one orphans the spawn commands pointing at it.
+  5. **The overlay has to *add*, not merely override** — a different merge shape from A5's, which
+     only replaces fields on rooms the harvest already produced.
+
+  **Seen when:** you draw a room Duris never had, walk into it, and it is still there after
+  `npm run worldgen`.
 - **A6 — Items.** After Phases 15–16 exist to give it something to edit. Until then the tab stays a
   stub and the light catalogue stays read-only on the dashboard.
 - **A7 — Quests.** After Phase 21, same rule.
@@ -1218,7 +1247,8 @@ mentioned and forgotten comes back every month.
 
 | Idea | Verdict | Where |
 | --- | --- | --- |
-| **Content editors: mobs, items, zones, quests** | **Done in principle — became Track A.** The admin panel (built 2026-08-02, off-schedule at the owner's request; `DESIGN-admin-panel.md`) is the delivery vehicle for all four, and it keeps this row's one rule: the server is the only writer, and authoring lands as overlay files the game loads — content that can only be edited through a tool is hostage to that tool. The landing order this row chose survives as Track A's order: mob authoring after Phase 14 (A5), items after 16 (A6), quests after 21 (A7). The full zone *geometry* editor — room graph, three direction encodings, per-zone normalisation — remains the largest and last, and is **not** any current A slice | Track A; geometry editor still last, unscheduled |
+| **Content editors: mobs, items, zones, quests** | **Done in principle — became Track A.** The admin panel (built 2026-08-02, off-schedule at the owner's request; `DESIGN-admin-panel.md`) is the delivery vehicle for all four, and it keeps this row's one rule: the server is the only writer, and authoring lands as overlay files the game loads — content that can only be edited through a tool is hostage to that tool. The landing order this row chose survives as Track A's order: mob authoring after Phase 14 (A5), items after 16 (A6), quests after 21 (A7) | Track A |
+| **A complete zone editor, with a visual map** (owner, 2026-08-02) | **Agreed, and this row exists because the scoping above was too thin.** "Zone editor" was carried as one line — *the geometry editor is largest and last* — and A3 shipped a read-only browser against it. That is not what the owner means: they want to **see** the zone, **select** rooms on it, and **add and remove** them. Split three ways, because the costs are wildly different: the **map** is cheap and the room data is already a per-zone integer grid (**A4b**); **field editing** was already scheduled and just needs driving from the map (**A5**); **geometry** is a real phase-sized piece with four decisions in front of it, chief among them that resizing a zone's grid invalidates every saved `seen` map for that Place (**A8**) | A4b next, then A5; A8 after a design note |
 | Authoring sanctuaries and other room flags by hand | Lands in **A5**, the first authoring overlay — `safe` is set on one room in the shipped world, so sanctuary has been built and untestable since Phase 10 | Track A5 |
 | Terrain inference quality (23.2% fall back to a default sector) | **Done — became Phase 5c.** Suffix rules plus graph label-diffusion took the default share from 23.2% to 0.2%; see the phase for what the held-out validation says about accuracy | Phase 5c ✅ |
 | Temples or churches as sanctuary | Agreed in principle, not scheduled. Must be **authored**: nothing upstream marks them, and `ROOM_SAFE` is set on 11 of Duris' 781,053 rooms | After Phase 10, once pursuit gives sanctuary a mechanical meaning worth placing by hand |

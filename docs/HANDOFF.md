@@ -257,9 +257,17 @@ operator's is a person's, and a client that cannot tell them apart can style nei
 with you** — pulled ahead of 14b at the owner's word, because it and V2 are companions — alongside
 **V2 (click a body, get its verbs)** and **A3 (zones, read-only)**.
 
-**Round 3 is next: V3 (speech in the world), Phase 14b (a character worth keeping), A4 (zones and
-mobs, live ops).** V3 renders the `announce` channel A2 built; A4 gets its navigation from A3's
-room browser.
+**Round 3 is next: V3 (speech in the world), Phase 14b (a character worth keeping), A4b (the zone
+map).** V3 renders the `announce` channel A2 built.
+
+**The zone editor was under-scoped, and the owner called it (2026-08-02.)** A3 shipped a read-only
+*browser*; what is wanted is a **complete editor** — see the zone, select rooms on it, add and
+remove them. Now split three ways in `ROADMAP.md` because the costs are nothing alike: **A4b** the
+visual map (cheap — room coordinates are already a per-zone integer grid, so an SVG draws it),
+**A5** field editing driven from that map (already scheduled), and **A8** geometry. A8 needs a
+design note before code, and its sharpest problem is not the room graph: **resizing a zone's grid
+invalidates every saved `seen` map for that Place**, so adding one room outside the current extent
+would quietly wipe explored maps.
 
 **What death costs, and progression generally, are Phase 14b** — promoted from ROADMAP §4's parking
 lot onto the schedule (round 2). Its storage half already arrived early (see progression above);
