@@ -30,10 +30,18 @@ export class TargetMenu {
     if (!root) throw new Error('target-menu element missing from index.html');
     this.root = root;
 
-    // Anywhere else closes it, including inside the canvas — Phaser stops propagation on its own
-    // pointer handling, so the scene closes it explicitly there. This catches the rest of the page.
+    // Anywhere else closes it. This catches the rest of the page — the panels, the log, the bars.
     document.addEventListener('pointerdown', (event) => {
-      if (!this.root.contains(event.target as Node)) this.close();
+      const target = event.target as Node;
+      if (this.root.contains(target)) return;
+      // **Except the canvas, and this exception is load-bearing.** Phaser dispatches its pointer
+      // handling synchronously inside this same DOM event, so the order is: canvas listener runs,
+      // the scene opens the menu, the event bubbles here, and this closes it again microseconds
+      // later. The menu appeared to do nothing at all. The scene is already the owner of that case
+      // — `onPointerDown` closes any open menu before deciding whether to open a new one — so
+      // deferring to it costs nothing and is the only ordering that works.
+      if (target instanceof HTMLCanvasElement) return;
+      this.close();
     });
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') this.close();
