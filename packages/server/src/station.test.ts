@@ -22,7 +22,7 @@ import {
   type Zone,
 } from '@mygame/shared';
 
-import { engage } from './combat.ts';
+import { disengage, engage } from './combat.ts';
 import { Scheduler } from './scheduler.ts';
 import { Simulation, type Mob, type Player } from './sim.ts';
 import { MELEE_STATION, advanceStations, atStation } from './station.ts';
@@ -181,5 +181,55 @@ describe('what holds it still', () => {
     assert.equal(mob.x, x);
     assert.equal(mob.y, y);
     assert.equal(mob.roomId, 7000, 'still in the room the fight was in');
+  });
+});
+
+describe('face to face', () => {
+  it('turns the player toward what they are fighting, not the way they are walking', () => {
+    // The owner's rule: back away from something north of you and you walk backwards, eyes on it.
+    const { sim, world, scheduler, player, mob } = makeFixture();
+    engage(scheduler, player, mob);
+    engage(scheduler, mob, player);
+    mob.x = player.x;
+    mob.y = player.y - TILE_SIZE * 2;
+    player.facing = 'south';
+
+    const tick = advanceStations(sim, world, 100);
+    assert.equal(player.facing, 'north', 'looking at it');
+    assert.ok(tick.turned.some((a) => a.id === player.id), 'and the turn is reported');
+  });
+
+  it('does not let the walk overwrite it', () => {
+    // `Simulation.tick` stands down while engaged, so steering *away* cannot spin the character
+    // round. Without that the two writers fight over one field and the walk wins every tick.
+    const { sim, world, scheduler, player, mob } = makeFixture();
+    engage(scheduler, player, mob);
+    engage(scheduler, mob, player);
+    mob.x = player.x;
+    mob.y = player.y - TILE_SIZE * 2;
+    advanceStations(sim, world, 100);
+    assert.equal(player.facing, 'north');
+
+    // Walk south, hard, for a second.
+    sim.setIntent(player.id, 0, 1);
+    for (let tick = 0; tick < 10; tick++) {
+      sim.tick();
+      advanceStations(sim, world, 100);
+    }
+    assert.equal(player.facing, 'north', 'still watching it while retreating');
+  });
+
+  it('goes back to following the walk once the fight is over', () => {
+    const { sim, world, scheduler, player, mob } = makeFixture();
+    engage(scheduler, player, mob);
+    mob.x = player.x;
+    mob.y = player.y - TILE_SIZE * 2;
+    advanceStations(sim, world, 100);
+    assert.equal(player.facing, 'north');
+
+    disengage(scheduler, player);
+    sim.setIntent(player.id, 0, 1);
+    for (let tick = 0; tick < 10; tick++) sim.tick();
+    assert.equal(player.facing, 'south', 'movement is the default, for when nothing else has a claim');
   });
 });

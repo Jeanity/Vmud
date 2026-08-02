@@ -1385,7 +1385,12 @@ export class Simulation {
 
       if (player.x === startX && player.y === startY) continue;
 
-      player.facing = facingOf(intentX, intentY, player.facing);
+      // **Facing follows the walk only when nothing else has a claim on it.** In a fight it belongs to
+      // the opponent — `station.ts` points every engaged body at what it is fighting, so a character
+      // backing away from something northward keeps their eyes on it and walks backwards, which is what
+      // face-to-face combat looks like from outside. Setting it here as well would have the two writers
+      // fight over the same field once per tick, and the walk would win every time.
+      if (player.fighting === undefined) player.facing = facingOf(intentX, intentY, player.facing);
       moved.push(player);
 
       const roomId = roomAtTile(

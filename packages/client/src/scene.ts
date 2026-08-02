@@ -1205,6 +1205,9 @@ export class WorldScene extends Phaser.Scene {
         entity.serverX = move.x;
         entity.serverY = move.y;
         entity.view = { ...entity.view, facing: move.facing };
+        // Everyone else turns here; *you* turn in the update loop, off the same stored value — it
+        // reconciles your predicted position in the same place, and both halves of "where am I and
+        // which way am I looking" should be settled together rather than a frame apart.
         if (move.id !== this.selfId) this.faceEntity(entity, move.facing);
       }
     });
@@ -2431,8 +2434,20 @@ export class WorldScene extends Phaser.Scene {
           const next = stepMovement(grid, entity.x, entity.y, intent.x, intent.y, PLAYER_SPEED * seconds);
           entity.x = next.x;
           entity.y = next.y;
-          this.faceEntity(entity, facingOf(intent.x, intent.y, entity.view.facing));
         }
+        // **Position is predicted; facing is not, any more.**
+        //
+        // It used to be guessed from the movement keys, which was right while facing *meant* the way
+        // you were walking. It no longer does: you turn to the door you open, the corpse you go
+        // through, the person you look at, and — the case that made guessing untenable — the thing you
+        // are fighting, so that backing away from something reads as backing away rather than as
+        // turning your back on it. The client cannot know any of those; it does not know which corpse
+        // `loot` picked or where the door is. So it stops deciding and takes the server's answer,
+        // which arrives in the same `entityMoved` that carries everyone else's.
+        //
+        // The lag this costs is one tick, and facing tolerates it where position does not: a sprite a
+        // tick late to turn is invisible, a sprite a tick late to move is the reason prediction exists.
+        this.faceEntity(entity, entity.view.facing);
         const drift = Math.hypot(entity.serverX - entity.x, entity.serverY - entity.y);
         if (drift > SNAP_DISTANCE) {
           entity.x = entity.serverX;
@@ -2907,11 +2922,10 @@ function layerFrame(texture: Phaser.Textures.Texture, facing: Direction): number
   return LPC_ROW[facing] * columns;
 }
 
-function facingOf(dx: number, dy: number, previous: Direction): Direction {
-  if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'east' : 'west';
-  if (Math.abs(dy) > Math.abs(dx)) return dy > 0 ? 'south' : 'north';
-  return previous;
-}
+// `facingOf` used to live here — the client's own copy of "which way am I looking", derived from the
+// movement keys. It is gone, and its absence is the point: facing is a game rule now (you turn to what
+// you are dealing with, and in a fight to your opponent), and a rule is the server's. The client draws
+// the row the server names. Deleting it is also the check that nothing else was quietly guessing.
 
 /**
  * Positional hash for tile variation.

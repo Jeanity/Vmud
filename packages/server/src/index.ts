@@ -601,12 +601,45 @@ function syncEntitiesIn(
  */
 function syncTurn(actor: Actor): void {
   const move = { id: actor.id, x: actor.x, y: actor.y, facing: actor.facing };
+  // Themselves first, and this was a real gap: a character is never in their own `watching` set, so
+  // before this a player learned which way everyone in the room was looking and never which way they
+  // were. It did not show while facing was a thing the client guessed from its own keyboard; the
+  // moment facing became a *rule* — you look at what you are dealing with — the client stopped
+  // guessing and this became the only way it could know.
+  if (isPlayer(actor)) send(actor.id, { t: 'entityMoved', moves: [move] });
   for (const observer of sim.playersIn(actor.roomId)) {
     // Gated on what this observer can actually see, like every other entity message: a mob turning in
     // the dark is nobody's business, and telling them would put its position on the wire.
     if (!watching.get(observer.id)?.has(actor.id)) continue;
     send(observer.id, { t: 'entityMoved', moves: [move] });
   }
+}
+
+/**
+ * **You face what you are dealing with** — the owner's rule, 2026-08-02.
+ *
+ * Facing used to mean one thing only: the way you were walking. It now means *what has your
+ * attention*, which is a different fact and a better one — you turn to the door you open, the corpse
+ * you go through, the person you look at, and the thing trying to kill you. Movement is only the
+ * default, for when nothing else has a claim.
+ *
+ * Two helpers rather than one because the two kinds of claim arrive differently: an interaction with
+ * a *body* knows where it stands ({@link faceToward}) and an interaction with an *exit* knows only
+ * which way it lies ({@link faceDirection}).
+ */
+function faceToward(player: Player, x: number, y: number): void {
+  if (sim.turnToward(player, x, y)) syncTurn(player);
+}
+
+/**
+ * Turns to a compass direction. `up` and `down` are ignored on purpose — LPC has four sheet rows and
+ * no stair-ward one, so a character working a trapdoor keeps the facing they had rather than
+ * snapping to an arbitrary substitute. Phase 7's note on the row order is the same fact.
+ */
+function faceDirection(player: Player, dir: Direction): void {
+  if (dir === 'up' || dir === 'down' || player.facing === dir) return;
+  player.facing = dir;
+  syncTurn(player);
 }
 
 /**
@@ -1518,6 +1551,10 @@ function workDoor(player: Player, verb: 'open' | 'close', dir: Direction): void 
     return;
   }
 
+  // You turn to the door before you touch it. After the existence check rather than before, so
+  // `open north` at a blank wall does not spin the character round to look at nothing.
+  faceDirection(player, dir);
+
   const { near, far } = doorway;
   const name = near.door.name;
   if (near.door.closed === closing) {
@@ -1775,6 +1812,10 @@ function lookAt(player: Player, argument: string): void {
   }
   const target = resolveTarget(player, argument);
   if (!target) return;
+
+  // Looking at something is the lightest interaction there is and it still turns you: a room where
+  // everyone is examining each other and nobody has moved their head reads as a room of statues.
+  if (target.id !== player.id) faceToward(player, target.x, target.y);
 
   if (target.id === player.id) {
     send(player.id, { t: 'log', channel: 'room', text: 'You look yourself over.' });
@@ -2179,6 +2220,9 @@ function runCommand(player: Player, line: string): void {
         send(player.id, { t: 'log', channel: 'error', text: why });
         return;
       }
+      // You kneel to the body you are going through, not the one you were last looking at.
+      faceToward(player, corpse.x, corpse.y);
+
       if (!lootCorpse(corpse)) {
         send(player.id, {
           t: 'log',

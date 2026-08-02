@@ -952,6 +952,22 @@ how you watch positioning work.
   safe to add: the mob closing is *presentation of a relationship that already exists*, so nothing
   about threat, tanking or rescue depends on it landing correctly.
 
+**Facing became a rule, and the client stopped guessing it.** The owner's follow-on, same day: *"it
+is face-to-face combat"* — and then, more generally, *"player facing should always happen when there
+is an interaction."* So facing no longer means *the way you are walking*; it means **what has your
+attention**. You turn to the door you open, the corpse you go through, the person you look at, and
+your opponent — and movement is only the default, for when nothing else has a claim. In a fight both
+parties turn, so backing away from something north of you walks you backwards with your eyes on it
+rather than turning your back.
+
+The consequence is the interesting part: **`facingOf` is deleted from the client.** It had its own
+copy of "which way am I looking", derived from the movement keys, and that was correct exactly while
+facing meant movement. It cannot be correct now — the client does not know which corpse `loot` picked
+or where the door is — so the client draws the row the server names, and `syncTurn` grew the one line
+that tells a character about their *own* turn (they are never in their own `watching` set, which had
+never mattered before). Facing costs a tick of lag now and tolerates it where position does not: a
+sprite a tick late to turn is invisible, a sprite a tick late to move is why prediction exists.
+
 **Nothing here is a range check, and that is the load-bearing sentence.** `combat.ts` still contains
 no distance test anywhere, and a test is named after that fact. This moves a body toward a fight it is
 *already* in; whether the blow connects was settled in Phase 6 and stays settled. That is exactly what

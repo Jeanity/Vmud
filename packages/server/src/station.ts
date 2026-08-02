@@ -73,8 +73,12 @@ const SETTLED = 1;
 export interface StationTick {
   /** Mobs whose position changed, for the tick's `entityMoved` batch. */
   readonly moved: readonly Mob[];
-  /** Mobs that only turned. Facing is on `EntityView`, so a turn is a change worth sending. */
-  readonly turned: readonly Mob[];
+  /**
+   * Everyone who turned — **players included**, because facing is face-to-face and a character in a
+   * fight is pointed at their opponent rather than at their feet. Facing is on `EntityView`, so a turn
+   * is a change worth sending even when nothing moved.
+   */
+  readonly turned: readonly Actor[];
 }
 
 /**
@@ -87,11 +91,11 @@ export interface StationTick {
  */
 export function advanceStations(sim: Simulation, world: GameWorld, elapsedMs: number): StationTick {
   const moved: Mob[] = [];
-  const turned: Mob[] = [];
+  const turned: Actor[] = [];
   const reach = STATION_SPEED * (elapsedMs / 1000);
 
   for (const actor of sim.allActors()) {
-    if (!isMob(actor) || actor.fighting === undefined) continue;
+    if (actor.fighting === undefined) continue;
 
     const target = sim.get(actor.fighting);
     // Same room and same map. The pointer can legitimately outlive the target being *here* — a
@@ -99,15 +103,21 @@ export function advanceStations(sim: Simulation, world: GameWorld, elapsedMs: nu
     // that chased a stale pointer across a Place boundary would walk through a wall to do it.
     if (!target || target.roomId !== actor.roomId || !samePlace(target.place, actor.place)) continue;
 
+    // **Both parties turn, which is what makes it face-to-face** (the owner's rule, 2026-08-02).
+    // Turning is free and costs no round, so it happens whether or not anything closes: a body
+    // already at station still tracks its opponent as they circle it, and a player backing away
+    // keeps their eyes on the thing they are backing away from. Facing while engaged belongs here
+    // and nowhere else — the walk in `Simulation.tick` stands down for exactly this reason.
+    if (sim.turnToward(actor, target.x, target.y)) turned.push(actor);
+
+    // Everything below moves a body, and only a mob is moved: a player walks themselves.
+    if (!isMob(actor)) continue;
+
     // **A body that has been put on the floor stays on the floor.** The owner's rule, and it is what
     // makes knocking something down worth doing: `canMove` is the simulation's own authority on who
     // may move at all, so a stunned or prone mob is held here by the same test that holds a sitting
     // player still. When `bash` arrives in Phase 19 it will need no code here.
     if (!sim.canMove(actor)) continue;
-
-    // Turning is free and happens whether or not it closes: a mob already at station still tracks you
-    // as you circle it, which is most of what makes the fight look like a fight.
-    if (sim.turnToward(actor, target.x, target.y)) turned.push(actor);
 
     const gap = Math.hypot(target.x - actor.x, target.y - actor.y) - MELEE_STATION;
     if (gap <= SETTLED) continue;

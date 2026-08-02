@@ -19,7 +19,7 @@ skills from those projects.
 npm install          # once
 npm run dev          # server + client + admin panel together
 npm run typecheck    # tsc across all five packages
-npm test             # 803 tests
+npm test             # 806 tests
 npm run worldgen     # rebuild world JSON from the zMUD source DB
 ```
 
@@ -32,7 +32,7 @@ and restarting is the whole of "installing" a zone.
 
 ## State: green
 
-- **803 tests** (430 server, 300 shared, 73 worldgen), typecheck clean across all five packages.
+- **806 tests** (433 server, 300 shared, 73 worldgen), typecheck clean across all five packages.
 - `data/` is git-ignored and reproducible. `npm run worldgen` regenerates it.
 - Four zones loaded, 23 places: **36 IceCrag Castle** (219 rooms, 11 levels) and **168 Kobold
   Settlement** (99 rooms, 6 levels), both Duris-matched and carrying harvested prose, flags and real
@@ -65,6 +65,7 @@ and restarting is the whole of "installing" a zone.
 | Combat | Engagement is a **pointer**, not a distance — blows land wherever you stand in the room. Per-actor round clocks. `kill <target>` starts it |
 | Leaving a fight | **You cannot walk out**, on all four movement paths: the typed direction, the `move` intent a keybind sends, the `moveTo` a click sends, and steering (gated in `Simulation.tick`, the only place that sees a step about to cross). Moving *inside* the room stays free. `flee` is the way out |
 | Station-keeping | An engaged mob closes to one tile and **follows you around the room** at a hunter's pace — the fight moves with you. Knocked-down bodies stay down (`canMove` is the gate, so Phase 19's bash needs no code). No range check anywhere: this walks a body toward a fight it is already in. Threat drives it for free, so a tank holds the thing beside them. `server/src/station.ts` |
+| Facing | **You face what you are dealing with**, not the way you are walking: the door you open, the corpse you loot, the person you `look` at, and in a fight your opponent — *both* parties, so retreating walks you backwards with your eyes on it. Movement is the fallback. **Server-authoritative**: the client's own `facingOf` is deleted, and `syncTurn` tells a character about their own turn |
 | Combat log | The d20, the total and the target's AC on every swing, rendered per recipient — second person for the participants, third for onlookers |
 | Mercy | **Players only.** A downed character stops being a target; a mob fights to the death. A body that cannot defend itself is never missed |
 | Health bars | Over every body but your own, hidden at full health, green → amber → red |
