@@ -44,14 +44,14 @@ reorder:
 
 ## 2. Progress
 
-24 phases. Sixteen done — Acts I–III complete, Act IV all but its progression half.
+25 phases. Sixteen done — Acts I–III complete, Act IV's combat loop closed.
 
 | Act | Phases | State |
 | --- | --- | --- |
 | I — The world answers back | 1–3 | **3 of 3 ✅** |
 | II — Bodies | 4, 5, 5b, 5c, 6 | **5 of 5 ✅** |
 | III — Life | 7–10 | **4 of 4 ✅** |
-| IV — Violence | 11–14, 14b | 4 of 5 |
+| IV — Violence | 11–14, 14b, 14c | 4 of 6 |
 | V — Things | 15–17 | not started |
 | VI — Together | 18–21 | not started |
 
@@ -86,7 +86,8 @@ a new idea still answers the three questions; its second question now also picks
 | --- | --- | --- | --- |
 | 1 | V1 — the combat feed ✅ | Phase 14 — mercy and fear ✅ | A2 — messaging to a room or place (next) |
 | 2 | V2 — click a body, get its verbs | Phase 14b — a character worth keeping | A3 — zones, read-only |
-| 3 | V3 — speech in the world | Phase 15 — inventory and worn equipment | A4 — zones and mobs, live ops |
+| 3 | V3 — speech in the world | Phase 14c — the fight moves with you | A4 — zones and mobs, live ops |
+| 4 | V4 — the world as a graph of Places | Phase 15 — inventory and worn equipment | A5 — authoring overlays |
 
 Two adjacencies are deliberate. A2 (round 1) takes the `announce` channel's protocol bump — a
 decision `DESIGN-admin-panel.md` §5 says to take deliberately, not in passing — and V3 (round 3)
@@ -925,6 +926,44 @@ are the stopgap it retires.
   same way: gear (Phase 16) reads ability modifiers off the character, so the scores must exist
   before the things that modify them. Every phase after this is authored against real numbers
   instead of the rig.
+
+#### Phase 14c — The fight moves with you
+
+Owner's, 2026-08-02, and it arrived as a question — *"does combat lock the player in the room?"* Half
+of it turned out to be built and unenforced, and that half was fixed on the spot as a bug rather than
+scheduled (see below). What is left is a real mechanic and gets a phase.
+
+- **Mechanic.** An engaged mob **keeps station on its target inside the room**. Today a mob only ever
+  moves through the room *graph* (`advanceHunts`); once you are both in the same room it is nailed to
+  the tile it started on, so walking to the far corner leaves it swinging at you from across the
+  floor. It should close to its weapon's distance and follow you around — and a body that has been
+  knocked down stays where it is until it is on its feet again.
+- **Seen when.** You back away across the room mid-fight and the thing you are fighting *comes with
+  you*, keeping its distance rather than teleporting or standing still.
+- **Carries.** A default reach, and the threat table finally driving *position* as well as target
+  selection: a mob with a tank on the top of its table closes on the tank, so pulling it off you is
+  something you can watch happen on the floor rather than infer from the log.
+- **Why here.** It is the last piece of Phase 6's engagement model that is still only half true.
+  Blows already land at any range in the room, which was the important half and is what makes this
+  safe to add: the mob closing is *presentation of a relationship that already exists*, so nothing
+  about threat, tanking or rescue depends on it landing correctly.
+
+**Deliberately not in it, both by §4's second question.** **Per-weapon reach** — fists against the
+body, a sword a tile off, a bow across the room — needs weapons to be items with properties, so it
+rides with **Phase 16**, where `reach` (reserved in `DESIGN-engagement.md` §8 for ranged attacks and
+spells) gets its first real reader. And **a knocked-down mob's stand-up time feeding the hunt**, so
+that bashing something buys you the seconds to get out of its range, needs `bash` — a defence-skill
+mechanic, so **Phase 19**. This phase only has to make sure a mob that is *already* off its feet does
+not slide along the floor.
+
+**The half that was a bug, fixed 2026-08-02 rather than scheduled.** `DESIGN-engagement.md` §4 and §6
+already say exits are refused in combat, and `COMMAND_REQUIREMENTS` already carried
+`north: { inCombat: false }` — but that table is read in `runCommand`, which only the *typed* command
+passes through. Three other ways out ignored it: the `move` intent a keybind sends, the `moveTo`
+intent a click sends, and steering, which is pure geometry and treats a doorway tile as walkable like
+any other. So the refusal was a formality you could step around with WASD. There is now a gate on
+each of the three, and the steering one is in `Simulation.tick` because it is the only place that can
+see a step *about to leave* — the threshold counts as outside, so you stop in the doorway.
 
 ---
 

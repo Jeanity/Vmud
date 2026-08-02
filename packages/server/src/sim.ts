@@ -1353,6 +1353,22 @@ export class Simulation {
       // here beyond choosing the direction: a second implementation would drift from the client's
       // predictor and desync every walk.
       const next = stepMovement(grid, player.x, player.y, intentX, intentY, distance);
+
+      // **`DESIGN-engagement.md` §4: steering works inside the room, every exit is refused.**
+      //
+      // The gate has to be here as well as on the command table, and that is not a scattered check —
+      // it is the *only* place that can see a step about to leave. Steering is pure geometry: a
+      // doorway tile is walkable like any other, so nothing above this line knows the difference
+      // between crossing a room and crossing a floor. Without it, WASD walked straight out of a fight
+      // that `north` was refusing, which made the refusal a formality.
+      //
+      // The threshold counts as outside: a corridor tile reports -1, and stopping at it is what "you
+      // cannot leave" should feel like from inside the room.
+      if (player.fighting !== undefined) {
+        const into = roomAtTile(grid, Math.floor(next.x / TILE_SIZE), Math.floor(next.y / TILE_SIZE));
+        if (into !== player.roomId) continue;
+      }
+
       player.x = next.x;
       player.y = next.y;
 

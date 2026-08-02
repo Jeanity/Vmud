@@ -63,6 +63,7 @@ and restarting is the whole of "installing" a zone.
 | Pursuit | Room-graph BFS for the exit, tile movement to get there. One room per 1.5 s, which is faster than you walk. 30 of IceCrag's 61 templates hunt |
 | What stops a chase | A Place boundary, `trackRooms`, the give-up timer, or no route. `safe` and `no_mob` rooms are cut out of the graph, so a hunter routes *around* them |
 | Combat | Engagement is a **pointer**, not a distance — blows land wherever you stand in the room. Per-actor round clocks. `kill <target>` starts it |
+| Leaving a fight | **You cannot walk out**, on all four movement paths: the typed direction, the `move` intent a keybind sends, the `moveTo` a click sends, and steering (gated in `Simulation.tick`, the only place that sees a step about to cross). Moving *inside* the room stays free. `flee` is the way out. An engaged mob does not yet keep station on you — that is Phase 14c |
 | Combat log | The d20, the total and the target's AC on every swing, rendered per recipient — second person for the participants, third for onlookers |
 | Mercy | **Players only.** A downed character stops being a target; a mob fights to the death. A body that cannot defend itself is never missed |
 | Health bars | Over every body but your own, hidden at full health, green → amber → red |

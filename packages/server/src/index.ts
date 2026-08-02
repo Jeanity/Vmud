@@ -1375,8 +1375,26 @@ function capitalise(name: string): string {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
+/**
+ * "Not while you are fighting." §6's `CMD_N` on every direction, for the paths the command table
+ * cannot reach.
+ *
+ * `COMMAND_REQUIREMENTS` gates the *typed* `north`; it is read in `runCommand` and nothing else goes
+ * through there. The protocol's own `move` and `moveTo` intents are what a keybind and a click send,
+ * and they arrive at `handle` — so without this a player refused the word walked out with the keyboard
+ * instead, which is the failure Phase 4 warned about landing on a different axis than expected.
+ */
+function refuseIfFighting(player: Player): boolean {
+  if (player.fighting === undefined) return false;
+  send(player.id, { t: 'log', channel: 'error', text: 'Not while you are fighting! (Try "flee".)' });
+  return true;
+}
+
 /** Classic MUD single-step movement: walk one room and land in its centre. */
 function stepRoom(player: Player, dir: Direction): void {
+  // Reached by the `move` intent as well as the typed command, and only the latter has been through
+  // the table's gate. §5: `flee` is the one way out, and it is named in the refusal.
+  if (refuseIfFighting(player)) return;
   const room = sim.room(player.roomId);
   const exit = room?.exits[dir];
   if (!exit) {
@@ -1581,6 +1599,11 @@ const PATH_FAILURE: Readonly<Record<PathFailure, { readonly channel: LogChannel;
  * mattering.
  */
 function moveTo(player: Player, rawTx: number, rawTy: number): void {
+  // Refused outright rather than clamped to the room, because a route is a *plan* and a plan that
+  // silently stops at the doorway would look like the pathfinder failing. The steering gate in
+  // `sim.ts` would stall it there anyway and report "something blocks the way", which is a worse
+  // answer than the true one.
+  if (refuseIfFighting(player)) return;
   const grid = world.grid(player.place);
   const record = records.get(player.id);
   if (!grid || !record) {

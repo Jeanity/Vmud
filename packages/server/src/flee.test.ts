@@ -240,3 +240,38 @@ describe('which way it runs', () => {
     assert.ok(['north', 'east'].includes(dir));
   });
 });
+
+describe('you cannot walk out of a fight', () => {
+  /** Steers hard toward the east arm for a second of ticks and reports the room landed in. */
+  function steerEast(sim: Simulation, player: Player): number {
+    sim.setIntent(player.id, 1, 0);
+    for (let tick = 0; tick < 40; tick++) sim.tick();
+    return player.roomId;
+  }
+
+  it('lets steering cross a room boundary when nothing is swinging at you', () => {
+    const { sim, player } = makeFixture();
+    assert.notEqual(steerEast(sim, player), 5000, 'walking out is ordinary movement');
+  });
+
+  it('stops steering at the threshold while engaged — §4, the gate the command table cannot reach', () => {
+    // The typed `north` was refused by COMMAND_REQUIREMENTS from the start; WASD was not, and
+    // steering is pure geometry, so a doorway tile is walkable like any other. This is that hole.
+    const { sim, scheduler, player, mob } = makeFixture();
+    engage(scheduler, player, mob);
+    engage(scheduler, mob, player);
+    assert.equal(steerEast(sim, player), 5000, 'held inside the room it is fighting in');
+  });
+
+  it('lets you move around inside the room, which is the divergence §4 kept', () => {
+    // Blows land wherever either party stands, so intra-room movement stays free — a character
+    // rooted to the spot for a whole fight reads as a hung server.
+    const { sim, scheduler, player, mob } = makeFixture();
+    engage(scheduler, player, mob);
+    const startX = player.x;
+    sim.setIntent(player.id, 1, 0);
+    for (let tick = 0; tick < 4; tick++) sim.tick();
+    assert.notEqual(player.x, startX, 'still able to shift position inside the room');
+    assert.equal(player.roomId, 5000);
+  });
+});
