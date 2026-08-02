@@ -170,6 +170,16 @@ export interface ZonesBody {
   zones: ZoneRow[];
 }
 
+/** What a builder has authored on top of the generated room. Every field optional — it is a patch. */
+export interface RoomOverride {
+  name?: string;
+  description?: string;
+  sector?: string;
+  flags?: string[];
+  /** When it was last written. */
+  at?: string;
+}
+
 export interface ZoneRoomRow {
   id: number;
   name: string;
@@ -182,6 +192,8 @@ export interface ZoneRoomRow {
   /** Destination as well as direction: an exit off this grid must not be drawn as a neighbour. */
   exits: { dir: string; to: number }[];
   described: boolean;
+  /** Whether this room carries hand-authored content — how you find your own work in a 219-room zone. */
+  authored: boolean;
   occupants: Occupants;
 }
 
@@ -199,6 +211,13 @@ export interface RoomDetail {
   sector: string;
   flags: string[];
   description: string | null;
+  /**
+   * The authored overlay for this room, or null for one still exactly as generated.
+   *
+   * **Which fields it names is what matters**, not just that it exists: the editor offers to revert
+   * precisely those and leaves the harvested ones alone. See `server/src/overrides.ts`.
+   */
+  authored: RoomOverride | null;
   occupants: Occupants;
   exits: {
     dir: string;

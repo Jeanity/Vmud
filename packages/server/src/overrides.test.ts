@@ -118,6 +118,20 @@ test('merging keeps fields the new patch does not mention', () => {
   assert.equal(merged.at, 'b');
 });
 
+test('a fully reverted room leaves no entry behind, not a bare timestamp', () => {
+  // The shape of the bug: revert drops every authored field, then the patch that follows is empty —
+  // and stamping it anyway leaves `{"5753": {"at": …}}`, which reads as authored to every check that
+  // asks whether an entry exists. The room would wear the editor's mark forever for having once been
+  // edited and then un-edited. See `GameWorld.authorRoom`.
+  const file = tempFile();
+  const overrides: RoomOverrides = new Map();
+  mergeOverride(overrides, 9 as RoomId, { description: 'Written.' }, 'a');
+  overrides.delete(9 as RoomId);
+  saveRoomOverrides(overrides, file);
+
+  assert.equal(loadRoomOverrides(file).size, 0);
+});
+
 test('rooms with no override are left exactly as generated', () => {
   const file = tempFile(JSON.stringify({ 1: { description: 'Edited.' } }));
   const edited = room(1);

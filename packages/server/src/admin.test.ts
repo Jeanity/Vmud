@@ -549,3 +549,109 @@ describe('the zone browser', () => {
     assert.equal(api.route(req('GET', '/rooms/99999')).status, 404);
   });
 });
+
+describe('authoring a room', () => {
+  /** The room as the router now reports it — the shape the panel re-renders from after a save. */
+  const roomOf = (api: AdminApi, id: number) =>
+    api.route(req('GET', `/rooms/${id}`)).body as {
+      name: string;
+      sector: string;
+      flags: string[];
+      description: string | null;
+      authored: Record<string, unknown> | null;
+    };
+
+  it('writes name, prose, terrain and flags onto the live room', () => {
+    const { api } = makeRig();
+    const response = quietly(() =>
+      api.route(
+        req('PATCH', '/rooms/6001', {
+          name: '&+GThe Mossy Hollow&N',
+          description: 'Green light, and no sound at all.',
+          sector: 'swamp',
+          flags: ['dark', 'safe'],
+        }),
+      ),
+    );
+    assert.equal(response.status, 200);
+
+    const room = roomOf(api, 6001);
+    assert.equal(room.name, '&+GThe Mossy Hollow&N', 'colour codes are content, stored verbatim');
+    assert.equal(room.description, 'Green light, and no sound at all.');
+    assert.equal(room.sector, 'swamp');
+    assert.deepEqual(room.flags, ['dark', 'safe']);
+  });
+
+  it('refuses geometry rather than ignoring it', () => {
+    const { api } = makeRig();
+    // Silently dropping these is the dangerous version: a panel that posts `pos` and gets a 200 has
+    // told its operator the room moved. Position, exits and id are A8's, and they are the join key.
+    for (const field of ['pos', 'exits', 'id', 'zone']) {
+      const response = quietly(() => api.route(req('PATCH', '/rooms/6001', { [field]: 1 })));
+      assert.equal(response.status, 400, `${field} must be refused`);
+      assert.match(String((response.body as { error: string }).error), /not authorable/);
+    }
+    assert.equal(roomOf(api, 6001).authored, null, 'and nothing was written');
+  });
+
+  it('refuses a sector the game does not have, and changes nothing', () => {
+    const { api } = makeRig();
+    const response = quietly(() => api.route(req('PATCH', '/rooms/6001', { sector: 'forrest' })));
+    assert.equal(response.status, 400);
+    assert.equal(roomOf(api, 6001).sector, 'forest');
+  });
+
+  it('says when the terrain moved, because that re-carves the tilemap', () => {
+    const { rig } = { rig: makeRig() };
+    quietly(() => rig.api.route(req('PATCH', '/rooms/6001', { description: 'Prose only.' })));
+    assert.ok(rig.calls.includes('publishRoom 6001 regrid=false'), 'prose is description, not terrain');
+
+    quietly(() => rig.api.route(req('PATCH', '/rooms/6001', { sector: 'deep_water' })));
+    assert.ok(rig.calls.includes('publishRoom 6001 regrid=true'), 'terrain re-carves the grid');
+  });
+
+  it('re-carves on the way back too — a reverted sector is still a sector change', () => {
+    // The live desync this prevents: reverting restores the terrain without *setting* one, so a test
+    // shaped like "did the patch name a sector" answers no while the terrain has in fact changed
+    // back. The server kept a water grid under a floor of ice.
+    const { api, calls } = makeRig();
+    quietly(() => api.route(req('PATCH', '/rooms/6001', { sector: 'deep_water' })));
+    calls.length = 0;
+    quietly(() => api.route(req('PATCH', '/rooms/6001', { sector: null })));
+
+    assert.equal(roomOf(api, 6001).sector, 'forest');
+    assert.ok(calls.includes('publishRoom 6001 regrid=true'));
+  });
+
+  it('reverts a field to the generated value and leaves the others authored', () => {
+    const { api } = makeRig();
+    quietly(() => api.route(req('PATCH', '/rooms/6001', { name: 'Renamed', description: 'Written.' })));
+    quietly(() => api.route(req('PATCH', '/rooms/6001', { description: null })));
+
+    const room = roomOf(api, 6001);
+    assert.equal(room.name, 'Renamed', 'reverting prose must not silently rename the room back');
+    assert.equal(room.description, null);
+    assert.deepEqual(Object.keys(room.authored ?? {}).filter((k) => k !== 'at'), ['name']);
+  });
+
+  it('leaves no entry behind when the last authored field is reverted', () => {
+    const { api } = makeRig();
+    quietly(() => api.route(req('PATCH', '/rooms/6001', { description: 'Written.' })));
+    quietly(() => api.route(req('PATCH', '/rooms/6001', { description: null })));
+
+    // Not `{ at: … }`: an override of nothing but a timestamp still reads as authored to every
+    // check that asks whether an entry exists, so the room would wear the mark forever.
+    assert.equal(roomOf(api, 6001).authored, null);
+  });
+
+  it('refuses an empty patch rather than stamping the room', () => {
+    const { api } = makeRig();
+    assert.equal(quietly(() => api.route(req('PATCH', '/rooms/6001', {}))).status, 400);
+    assert.equal(roomOf(api, 6001).authored, null);
+  });
+
+  it('404s a room that is not loaded', () => {
+    const { api } = makeRig();
+    assert.equal(quietly(() => api.route(req('PATCH', '/rooms/99999', { name: 'Nowhere' }))).status, 404);
+  });
+});

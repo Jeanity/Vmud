@@ -32,8 +32,10 @@ and restarting is the whole of "installing" a zone.
 
 ## State: green
 
-- **823 tests** (438 server, 312 shared, 73 worldgen), typecheck clean across all five packages.
-- `data/` is git-ignored and reproducible. `npm run worldgen` regenerates it.
+- **843 tests** (458 server, 312 shared, 73 worldgen), typecheck clean across all five packages.
+- `data/` is git-ignored and reproducible by `npm run worldgen` — **except `data/world/overrides/`**,
+  which is hand-authored content no command can regenerate and is therefore the one thing under
+  `data/` that git tracks. See `server/src/overrides.ts`.
 - Four zones loaded, 23 places: **36 IceCrag Castle** (219 rooms, 11 levels) and **168 Kobold
   Settlement** (99 rooms, 6 levels), both Duris-matched and carrying harvested prose, flags and real
   terrain; plus **260 The Stag Forest** and **261 The Stump Bog** (98 + 93 rooms), unmatched but joined
@@ -89,7 +91,10 @@ and restarting is the whole of "installing" a zone.
 | Admin panel | `@mygame/admin` on 5274, a client of `/admin/api` on the game server. Players section built: live edits through the sim's own seams, offline edits through the store, refusal over pretence, every mutation audited to `data/admin-audit.jsonl`. **Edits are permanent** — level/experience persist and beat the `GAME_DEV_LEVEL` rig, teleports stick because login returns to `lastRoom`, and every live op flushes the file at once. Global announce works; zones/mobs/items/quests are honest stubs. See `DESIGN-admin-panel.md` |
 | Combat feed | The `combat` channel's only destination: a capped, self-scrolling section of the character pane below the display slider. A split, not a mirror — the log no longer carries combat lines. `client/src/combatfeed.ts`; the scene routes the channel |
 | Colour | **The MUD's own `&+R` / `&n` notation, kept rather than invented.** `shared/src/colour.ts` parses it; the client log renders spans. The harvest used to strip every code — there are **4.6M of them across the world files** — and now keeps them, so all 216 of IceCrag's descriptions carry the colour their builder wrote. The **join key still strips**. Backgrounds are parsed and dropped (dark ground); the parser emits segments, never markup, because half of what passes through it is other players' `say` |
-| Zone browser | Panel section A3/A4b, read-only: zones with a **live repop countdown**, and a **drawn map** of one level at a time — a cell per room at its own grid position, exits as lines, sector as colour, flags and live occupants as marks, click to select. An exit that leaves the grid is a stub, never a neighbour line. Plus one room in full: sector, flags, prose, every exit with its **live door state**. `admin/src/zonemap.ts` |
+| Zone browser | Panel section A3/A4b: zones with a **live repop countdown**, and a **drawn map** of one level at a time — a cell per room at its own grid position, exits as lines, sector as colour, flags, live occupants and authoring state as marks, click to select. An exit that leaves the grid is a stub, never a neighbour line. Plus one room in full: sector, flags, prose, every exit with its **live door state**. `admin/src/zonemap.ts` |
+| Room authoring | A5. Pick a room on the map and rewrite its **name, prose, terrain and flags**; it takes effect with no restart and is saved to `data/world/overrides/rooms.json`, which **survives `npm run worldgen`** and is the one thing under `data/` that git tracks. **Geometry is refused, not ignored** — id, position and exits are the join key and the grid, and they are A8's. Revert restores from a snapshot `GameWorld` took before the first edit, so undo cannot fail. A sector change re-carves the tilemap and resends `zone` to everyone on the Place; whether it did is decided by comparing the room's terrain **before and after**, never by inspecting the patch. `server/src/overrides.ts` |
+| Colour authoring | A palette above every prose box — sixteen swatches, insert-at-caret, wrapping a selection — with a **live preview rendered through the client's own `parseColour`**, because a code you cannot see rendered is a code you get wrong. One component (`admin/src/colourbox.ts`); A6 and A7 reuse it |
+| Undescribed rooms say so | A room with no prose logs a dim `[ No description yet. ]`. **Rendered, never stored**: writing it into 40,619 override entries would mark every room authored and destroy the ✎ mark's meaning. The panel has the matching **"needs prose"** filter, which is the authoring queue — 3 rooms in IceCrag, all 98 in The Stag Forest. Giving them prose from a short prompt via a local model is the next A slice |
 | Operator messaging | World, a Place, or one room — one endpoint with an optional target, reporting how many heard it. On the **`announce`** channel (protocol 10), a person's voice styled apart from the machine's. A room line is **not** sight-gated: it comes from outside the world |
 
 ### Not built
@@ -258,18 +263,27 @@ operator's is a person's, and a client that cannot tell them apart can style nei
 with you** — pulled ahead of 14b at the owner's word, because it and V2 are companions — alongside
 **V2 (click a body, get its verbs)** and **A3 (zones, read-only)**.
 
-**Round 3 is under way — A4b, the zone map, is done.** What is left in the round is **V3 (speech in
-the world)**, which renders the `announce` channel A2 built, and **Phase 14b (a character worth
-keeping)**.
+**Round 3 ran long and out of order, and both A slices are done: A4b (the map) and A5 (authoring).**
+V6 took the round's visual slot ahead of V3, because A5's prose editor *is* a colour editor and
+building the palette before the renderer would have been guesswork. What is left in the round is
+**Phase 14b (a character worth keeping)**; **V3 (speech in the world)** and **V4** slid a round
+rather than being dropped.
 
 **The zone editor was under-scoped, and the owner called it (2026-08-02.)** A3 shipped a read-only
 *browser*; what is wanted is a **complete editor** — see the zone, select rooms on it, add and
-remove them. Now split three ways in `ROADMAP.md` because the costs are nothing alike: **A4b** the
-visual map (cheap — room coordinates are already a per-zone integer grid, so an SVG draws it),
-**A5** field editing driven from that map (already scheduled), and **A8** geometry. A8 needs a
-design note before code, and its sharpest problem is not the room graph: **resizing a zone's grid
-invalidates every saved `seen` map for that Place**, so adding one room outside the current extent
-would quietly wipe explored maps.
+remove them. Split three ways in `ROADMAP.md` because the costs are nothing alike: **A4b** the
+visual map ✅, **A5** field editing driven from that map ✅, and **A8** geometry. Two of the three
+are now done, and what is left is the expensive one. A8 needs a design note before code, and its
+sharpest problem is not the room graph: **resizing a zone's grid invalidates every saved `seen` map
+for that Place**, so adding one room outside the current extent would quietly wipe explored maps.
+
+**Two things A5 found that are worth not rediscovering.** First, the world data had never been
+rebuilt after V6 — the code kept the Duris colour codes and the JSON on disk still had them
+stripped, so nothing was coloured in game until `npm run worldgen` ran again. **A code change to
+worldgen is not visible until the world is regenerated, and in a worktree the result has to be
+copied across.** Second, `data/world/` was git-ignored wholesale, which would have sent every
+hand-authored room to a fresh clone's oblivion; the ignore now carries a negation for
+`data/world/overrides/` and nothing else.
 
 **What death costs, and progression generally, are Phase 14b** — promoted from ROADMAP §4's parking
 lot onto the schedule (round 2). Its storage half already arrived early (see progression above);

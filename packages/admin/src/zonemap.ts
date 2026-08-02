@@ -171,12 +171,23 @@ export function drawZoneMap(options: ZoneMapOptions): SVGElement {
     if (room.occupants.corpses.length > 0) {
       group.append(svg('circle', { cx: cx + 6, cy: cy + 6, r: 2, class: 'zone-map-corpse' }));
     }
+    // A5's mark: a corner pip on every room somebody has written. Placed opposite the corpse dot so
+    // the two never sit on each other, and small enough that a zone with fifty authored rooms still
+    // reads as a map rather than as a rash.
+    if (room.authored) {
+      group.append(svg('circle', { cx: cx - ROOM / 2 + 4, cy: cy - ROOM / 2 + 4, r: 2.5, class: 'zone-map-authored' }));
+    } else if (!room.described) {
+      // A hollow pip in the same corner for a room nobody has written at all — filled means done,
+      // empty means waiting, and the map becomes the work queue rather than only a picture.
+      group.append(svg('circle', { cx: cx - ROOM / 2 + 4, cy: cy - ROOM / 2 + 4, r: 2.5, class: 'zone-map-unwritten' }));
+    }
 
     const title = svg('title', {});
     const who = occupantLine(room.occupants);
     title.textContent =
       `${room.name} (#${room.id})\n${room.sector}` +
       (room.flags.length > 0 ? ` · ${room.flags.join(' ')}` : '') +
+      (room.authored ? '\nauthored' : room.described ? '' : '\nno description yet') +
       (who ? `\n${who}` : '');
     group.append(title);
 

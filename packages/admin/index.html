@@ -121,6 +121,11 @@
       .zone-map-mob { fill: #e0a86a; }
       .zone-map-player { fill: #8fc3e8; }
       .zone-map-corpse { fill: #b06455; }
+      /* A5: somebody has written this room. Same hue as the authored pill, so the map and the table
+         say the same thing in the same colour. */
+      .zone-map-authored { fill: #cfa8e0; }
+      /* Hollow: nobody has written this room. Filled means done, empty means waiting. */
+      .zone-map-unwritten { fill: none; stroke: #6a6558; stroke-width: 1; }
       button.on { border-color: var(--accent); color: var(--accent); }
 
       table { border-collapse: collapse; width: 100%; }
@@ -184,6 +189,61 @@
       }
       .pill.live { color: var(--good); border-color: var(--good); }
       .pill.disk { color: var(--warn); border-color: var(--warn); }
+      .pill.authored { color: #cfa8e0; border-color: #cfa8e0; }
+
+      /* ---- A5: the prose editor, and the colour it can carry --------------------- */
+
+      .field { display: block; margin: 10px 0; }
+      .field > span, .field-label {
+        display: block;
+        color: var(--dim);
+        font-size: 12px;
+        margin-bottom: 3px;
+      }
+      .field-label { margin-top: 10px; }
+      .colour-box { display: block; }
+      .colour-field { width: 100%; box-sizing: border-box; resize: vertical; }
+      textarea.colour-field { font-family: Consolas, monospace; line-height: 1.45; }
+
+      .colour-palette { display: flex; gap: 3px; flex-wrap: wrap; margin-bottom: 4px; }
+      /* Square, unlabelled and the colour itself — the swatch *is* the information, and a row of
+         sixteen named buttons would be a wall of text for a choice the eye makes instantly. */
+      .swatch {
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        border: 1px solid var(--edge);
+        border-radius: 2px;
+      }
+      .swatch:hover { border-color: var(--ink); }
+      .swatch.reset, .swatch.strip {
+        width: auto;
+        padding: 0 7px;
+        background: #14170f;
+        color: var(--dim);
+        font-size: 11px;
+      }
+
+      /* The preview is the point of the palette: `&+L` reads as "light" and is near-black, and two
+         codes differ by one shift key. Rendered through the client's own parser, on the client's own
+         background, so this is what the player sees rather than an impression of it. */
+      .colour-preview {
+        margin-top: 4px;
+        padding: 7px 9px;
+        min-height: 20px;
+        background: #0d0f0a;
+        border: 1px dashed var(--edge);
+        border-radius: 2px;
+        font-family: Consolas, monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        color: #b8b2a4;
+      }
+
+      .flag-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2px 10px; }
+      .flagbox { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink); }
+      .flagbox input { padding: 0; }
       .rig {
         font-size: 11px;
         color: var(--warn);

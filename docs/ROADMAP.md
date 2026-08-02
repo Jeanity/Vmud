@@ -86,9 +86,14 @@ a new idea still answers the three questions; its second question now also picks
 | --- | --- | --- | --- |
 | 1 ✅ | V1 — the combat feed ✅ | Phase 14 — mercy and fear ✅ | A2 — messaging to a room or place ✅ |
 | 2 ✅ | V2 — click a body, get its verbs ✅ | Phase 14c — the fight moves with you ✅ | A3 — zones, read-only ✅ |
-| **3 — current** | V3 — speech in the world | Phase 14b — a character worth keeping | A4b — the zone map ✅ |
-| 4 | V4 — the world as a graph of Places | Phase 15 — inventory and worn equipment | A5 — authoring overlays, driven from the map |
-| 5 | V5 — arrival cards | Phase 16 — gear that matters | A4 — zones and mobs, live ops |
+| **3 — current** | V6 — the world in its own colours ✅ | Phase 14b — a character worth keeping | A4b — the zone map ✅, then A5 — authoring ✅ |
+| 4 | V3 — speech in the world | Phase 15 — inventory and worn equipment | A4 — zones and mobs, live ops |
+| 5 | V4 — the world as a graph of Places | Phase 16 — gear that matters | A6 — items |
+
+Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
+A5, because A5's prose editor is a colour editor and building the palette before the renderer would
+have been guesswork. A4b and A5 then came as one piece — a map you can click and nothing to do when
+you get there is half a feature. V3 and V4 slid a round rather than being dropped.
 
 Two adjacencies are deliberate. A2 (round 1) takes the `announce` channel's protocol bump — a
 decision `DESIGN-admin-panel.md` §5 says to take deliberately, not in passing — and V3 (round 3)
@@ -1216,12 +1221,34 @@ order.
   **A level at a time, and "all" draws nothing.** Eleven levels stacked on one grid is a picture of
   nothing, so the map appears only once a level is chosen; the table stays underneath for finding a
   room by name.
-- **A5 — Authoring overlays.** `data/world/overrides/`: room flags and prose first — **hand-authored
-  sanctuaries land here**, the parked item §4 has carried since Phase 10 — then mob template
-  overrides (name, level, combat numbers, aggression). After Phase 14, so a template's behaviour
-  surface is settled before it is authorable; overlays survive `npm run worldgen` by design. With
-  A4b it becomes *edit the room you clicked on the map*, which is what makes it feel like an editor
-  rather than a form.
+- **A5 — Authoring overlays** ✅ **rooms done 2026-08-02.** `data/world/overrides/rooms.json` holds
+  hand-authored **name, prose, terrain and flags**, composed over the generated zones at load and
+  edited from the room you clicked on the A4b map. **Hand-authored sanctuaries land here** — the
+  parked item §4 has carried since Phase 10, and `safe` is now a checkbox.
+
+  Four things it settled that are worth not re-deciding:
+
+  1. **The overlay is git-tracked, and `data/world/` is not.** It is the only thing under `data/`
+     that no command can regenerate, and it was heading for an ignored directory. The ignore carries
+     a negation for exactly this path.
+  2. **Geometry is refused, not ignored.** A room's id, position and exits are the join key and the
+     grid; posting them gets a 400 naming why. Silently dropping them would tell an operator the
+     room moved. That is A8's, below.
+  3. **Revert restores from a snapshot, not from disk.** `GameWorld` keeps each edited room's
+     generated values from before the first edit, so undo cannot fail and needs no fixture to test.
+     It must be able to express *absent* — most rooms have no prose, and reverting to `''` is a
+     different room from reverting to none.
+  4. **Whether the tilemap must be re-carved is decided by comparing the room's terrain before and
+     after, never by inspecting the patch.** A revert restores a sector without setting one; the
+     patch-shaped test said "no change" and left the server holding a water grid under a floor of
+     ice that every client had correctly redrawn.
+
+  The **colour picker** rides here as promised in §4: one component (`admin/src/colourbox.ts`),
+  sixteen swatches and a live preview rendered through the client's own `parseColour`. A6 and A7
+  reuse it unchanged.
+
+  **Still to come on this line:** mob template overrides — name, level, combat numbers, aggression —
+  which wait on the Mobs tab (A4) rather than on anything here.
 - **A8 — Zone geometry: adding and removing rooms.** The rest of what "a complete zone editor" means,
   and the largest thing in this track. **It needs a design note before any code**, because four of
   its five problems are decisions rather than work:
@@ -1287,11 +1314,12 @@ mentioned and forgotten comes back every month.
 | Idea | Verdict | Where |
 | --- | --- | --- |
 | **Content editors: mobs, items, zones, quests** | **Done in principle — became Track A.** The admin panel (built 2026-08-02, off-schedule at the owner's request; `DESIGN-admin-panel.md`) is the delivery vehicle for all four, and it keeps this row's one rule: the server is the only writer, and authoring lands as overlay files the game loads — content that can only be edited through a tool is hostage to that tool. The landing order this row chose survives as Track A's order: mob authoring after Phase 14 (A5), items after 16 (A6), quests after 21 (A7) | Track A |
-| **A colour picker in every editable text field** (owner, 2026-08-02) | **Agreed, and it rides with A5**, which is the first slice with a text field to put it in. The notation and the renderer landed as **V6**; what is left is the *authoring* half — a small palette above any prose box that inserts `&+R`-style codes at the caret, and a live preview beside it, because a code you cannot see rendered is a code you get wrong. The same control belongs on every later text field (mob names in A5, items in A6, quests in A7), so it is one component from the start rather than three | With A5 |
+| **A colour picker in every editable text field** (owner, 2026-08-02) | ✅ **Done with A5**, as planned. The notation and the renderer landed as **V6**; the authoring half is `admin/src/colourbox.ts` — sixteen swatches above the box, insert-at-caret (wrapping a selection, opening at a bare caret), and a live preview rendered through the client's own `parseColour` so what is shown is what the player gets. Built as one component from the start, so A6 and A7 reuse it rather than reimplementing it | ✅ A5 |
 | **Colour a name by what the character *is* — race, level, carried item** (owner, 2026-08-02) | **Agreed, and it is a different mechanism from the one V6 built.** V6 is *authored* colour: text that carries codes because somebody wrote them. This is **derived** colour — a rule that says what a name should look like — and it needs the facts to derive from: races and alignment are **Phase 21**, and "carrying a certain item" is Phase 15. Deciding it early would also mean choosing where it happens, and there is a right answer worth writing down now: the **server** paints the name, because who you may know a thing about is already a server question (`act.ts` renders an unseen speaker as "someone"), and a client colouring by race would be telling players a fact the server had deliberately withheld | After Phase 21 |
 | **Creating whole new zones, with a local Ollama model writing the prose** (owner, 2026-08-02) | **Agreed, and explicitly last — the owner's own placement: *"that can wait until we do everything else first."*** It sits on top of **A8**: you cannot generate a zone until you can create one room, so nothing about it can start before geometry exists. Two things to settle when it comes up, neither of them about the model. **Where the text goes**: generated prose is authored content, so it lands in the same `data/world/overrides/` overlays A5 built and is reviewable and editable afterwards — a zone that can only be regenerated is hostage to the generator, which is this row's parent rule. **Where the model runs**: locally, and *offline of the game* — worldgen is an offline pipeline by design and generation belongs there or in the panel, never in the simulation, which `CLAUDE.md` rule 3 requires to stay deterministic. A model in the tick is a desync nobody can reproduce. **Which model is a picker, not a constant** — owner, 2026-08-02: *"will need to have a selectable model drop down as I have a few models installed."* Read the list from Ollama's own `/api/tags` when the panel opens rather than hardcoding names, so pulling or deleting a model on the machine needs no change here; remember the last choice; and **record which model wrote a room beside its prose in the overlay**, because *"why does this one read differently"* is otherwise unanswerable a month later — the same reason the audit trail exists | After A8. Not scheduled |
 | **A complete zone editor, with a visual map** (owner, 2026-08-02) | **Agreed, and this row exists because the scoping above was too thin.** "Zone editor" was carried as one line — *the geometry editor is largest and last* — and A3 shipped a read-only browser against it. That is not what the owner means: they want to **see** the zone, **select** rooms on it, and **add and remove** them. Split three ways, because the costs are wildly different: the **map** is cheap and the room data is already a per-zone integer grid (**A4b**); **field editing** was already scheduled and just needs driving from the map (**A5**); **geometry** is a real phase-sized piece with four decisions in front of it, chief among them that resizing a zone's grid invalidates every saved `seen` map for that Place (**A8**) | A4b next, then A5; A8 after a design note |
-| Authoring sanctuaries and other room flags by hand | Lands in **A5**, the first authoring overlay — `safe` is set on one room in the shipped world, so sanctuary has been built and untestable since Phase 10 | Track A5 |
+| Authoring sanctuaries and other room flags by hand | ✅ **Done with A5.** `safe` is a checkbox on the room editor, and it was set on exactly one room in the shipped world — so sanctuary, built in Phase 10, is testable for the first time | ✅ A5 |
+| **Rooms should say so when they have no description, and later be given one from a short prompt via Ollama** (owner, 2026-08-02) | **Split, because the halves are days apart in cost.** The *placeholder* is done now — a room with no prose says so in the log, in dim text that reads as a builder's note rather than as the world's voice. Deliberately **rendered, not stored**: writing "description needed" into 40,619 override entries would mark every room authored, destroy the ✎ mark's meaning, and have to be undone one room at a time. It costs nothing and vanishes the instant real prose is written. The *generation* half — select a room, type `forest by a stream`, get prose in the house style — is **the first genuinely useful piece of the Ollama work** and is much cheaper than the zone-creation row below it: it needs no new geometry, no vnum space, and no new storage, because it writes into A5's existing overlay through A5's existing editor. Two things to settle: the **style prompt** is few-shot rather than described — sample real descriptions from the same zone, since "the style of the rest of the game" is Duris' style and it is on disk in quantity — and **which model wrote it is recorded beside the prose**, for the same reason the audit trail exists. Model choice is the `/api/tags` picker the zone-creation row already specifies | **Next A slice after A4** — before the zone-creation row, which needs A8 |
 | Terrain inference quality (23.2% fall back to a default sector) | **Done — became Phase 5c.** Suffix rules plus graph label-diffusion took the default share from 23.2% to 0.2%; see the phase for what the held-out validation says about accuracy | Phase 5c ✅ |
 | Temples or churches as sanctuary | Agreed in principle, not scheduled. Must be **authored**: nothing upstream marks them, and `ROOM_SAFE` is set on 11 of Duris' 781,053 rooms | After Phase 10, once pursuit gives sanctuary a mechanical meaning worth placing by hand |
 | Container nesting depth (proposed max 2) | Open, not decided | Decide during Phase 17 |

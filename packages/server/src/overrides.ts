@@ -108,11 +108,17 @@ export function saveRoomOverrides(overrides: RoomOverrides, file = ROOMS_FILE): 
  * same room objects afterwards through {@link applyRoomOverride}, which is why the two must agree
  * about what a patch means — hence one function.
  */
-export function applyOverridesToZone(zone: Zone, overrides: RoomOverrides): number {
+export function applyOverridesToZone(
+  zone: Zone,
+  overrides: RoomOverrides,
+  /** Called with each room *before* it is changed, so the caller can keep what it is about to lose. */
+  before?: (room: Room) => void,
+): number {
   let applied = 0;
   for (const room of zone.rooms) {
     const override = overrides.get(room.id);
     if (!override) continue;
+    before?.(room);
     applyRoomOverride(room, override);
     applied++;
   }

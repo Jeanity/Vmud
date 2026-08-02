@@ -1,10 +1,11 @@
 /**
- * Zones — read-only. Track A3.
+ * Zones — browse at A3, author at A5.
  *
  * Three columns, narrowing left to right: which zones are loaded, which rooms are in one, and what
- * one room actually is. Read-only on purpose and by the design doc's §1: the base world data is
- * *generated*, so anything editable here would be lost by the next `npm run worldgen` — authoring
- * lands in A5 as overlay files that survive it.
+ * one room actually is — with, since A5, the form that changes it. The design doc's §1 is what shapes
+ * the write half: the base world data is *generated*, so an edit made there would be lost by the next
+ * `npm run worldgen`. Authoring therefore lands in `data/world/overrides/rooms.json` and is composed
+ * over the generated zones at load. The panel never writes a world file.
  *
  * **What makes it worth having open while testing is the live half.** The room list says where the
  * population actually *is*, not where the reset table meant to put it; the zone list counts down to
@@ -12,8 +13,11 @@
  * can be read off the world files.
  */
 
+import { ROOM_FLAGS, SECTORS } from '@mygame/shared';
+
 import { call, type RoomDetail, type ZoneRoomsBody, type ZonesBody, type ZoneRow } from '../api.ts';
-import { duration, el, render } from '../dom.ts';
+import { colourBox } from '../colourbox.ts';
+import { ago, duration, el, render } from '../dom.ts';
 import { drawZoneMap } from '../zonemap.ts';
 
 let timer: number | undefined;
@@ -21,6 +25,8 @@ let pickedZone: number | undefined;
 let pickedRoom: number | undefined;
 /** Only rooms on this level are listed, or every one when undefined. */
 let pickedLevel: number | undefined;
+/** Narrow the list to rooms nobody has written yet — the authoring queue. */
+let needProse = false;
 
 export const zonesSection = {
   slug: 'zones',
@@ -37,8 +43,9 @@ export const zonesSection = {
         'p',
         { class: 'note' },
         'What is loaded, what is in it, and what is happening in it right now — repop clocks, who is ' +
-          'standing where, and which doors are shut. Read-only: the world data is generated, so ' +
-          'authoring lands in A5 as overlay files that survive a rebuild.',
+          'standing where, and which doors are shut. Pick a room to rewrite its name, prose, terrain ' +
+          'and flags: edits land in an overlay that survives npm run worldgen and take effect without ' +
+          'a restart.',
       ),
       el('div', { class: 'columns3' }, zonePane, roomPane, detailPane),
     );
@@ -50,7 +57,13 @@ export const zonesSection = {
         render(detailPane, el('div', { class: 'card' }, el('p', { class: 'flash err' }, result.error ?? 'gone')));
         return;
       }
-      renderRoom(detailPane, result.body);
+      // Re-fetched after a save rather than patched in place: the server decides what an edit
+      // actually became — a trimmed name, a flag list deduplicated — and the form must show that
+      // rather than what was typed. The zone is refetched too, so the map's authored marks follow.
+      renderRoom(detailPane, result.body, () => {
+        void showRoom(id);
+        if (pickedZone !== undefined) void showZone(pickedZone);
+      });
     };
 
     const showZone = async (id: number): Promise<void> => {
@@ -161,7 +174,12 @@ function renderRooms(
   rerender: () => void,
 ): void {
   const levels = [...new Set(body.rooms.map((room) => room.level))].sort((a, b) => a - b);
-  const shown = pickedLevel === undefined ? body.rooms : body.rooms.filter((room) => room.level === pickedLevel);
+  const onLevel = pickedLevel === undefined ? body.rooms : body.rooms.filter((room) => room.level === pickedLevel);
+  // **The work queue.** Two thirds of the loaded world has no prose, so "which rooms still need
+  // writing" is the question an author actually opens this pane with — and without a filter the
+  // answer is scrolling 219 rows looking for a blank column.
+  const shown = needProse ? onLevel.filter((room) => !room.described) : onLevel;
+  const undescribed = onLevel.filter((room) => !room.described).length;
 
   const levelButton = (level: number | undefined, label: string): HTMLElement =>
     el(
@@ -201,6 +219,21 @@ function renderRooms(
       el('h3', {}, `${body.zone.name} — ${shown.length} room${shown.length === 1 ? '' : 's'}`),
       // A zone is up to eleven levels and two hundred rooms; without this the list is a wall.
       el('div', { class: 'row' }, levelButton(undefined, 'all'), ...levels.map((l) => levelButton(l, `L${l}`))),
+      el(
+        'div',
+        { class: 'row' },
+        el(
+          'button',
+          {
+            class: needProse ? 'on' : '',
+            onclick: () => {
+              needProse = !needProse;
+              rerender();
+            },
+          },
+          `needs prose — ${undescribed}`,
+        ),
+      ),
       map,
       el(
         'table',
@@ -224,6 +257,9 @@ function renderRooms(
                 {},
                 room.name,
                 room.flags.length > 0 ? el('span', { class: 'pill' }, room.flags.join(' ')) : null,
+                // The one mark that says "somebody wrote this" — without it, finding your own work
+                // again in a 219-room zone means opening rooms until you recognise one.
+                room.authored ? el('span', { class: 'pill authored' }, '✎') : null,
               ),
               el('td', { class: 'muted' }, room.sector),
               el(
@@ -241,7 +277,7 @@ function renderRooms(
   );
 }
 
-function renderRoom(pane: HTMLElement, room: RoomDetail): void {
+function renderRoom(pane: HTMLElement, room: RoomDetail, reload: () => void): void {
   const here = [
     ...room.occupants.players.map((name) => `${name} (player)`),
     ...room.occupants.mobs,
@@ -294,14 +330,158 @@ function renderRoom(pane: HTMLElement, room: RoomDetail): void {
               ),
             ),
           ),
-      el('h3', {}, 'Prose'),
-      room.description
-        ? el('p', { class: 'prose' }, room.description)
-        : el(
-            'p',
-            { class: 'note' },
-            'None. Most rooms have none — 5,889 of 46,508 carry prose, all of it from the Duris harvest.',
-          ),
+      roomEditor(room, reload),
+    ),
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* The editor — A5                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The authoring half: name, terrain, flags and prose, saved to the overlay and applied live.
+ *
+ * **What is missing is deliberate.** No exits, no position, no id — those are geometry, they are the
+ * join key into every data source we have and the grid the tilemap is carved from, and the server
+ * refuses them rather than ignoring them. A5 is content; A8 is geometry, and it has four decisions in
+ * front of it.
+ *
+ * The save button stays disabled until something actually changes, which is not politeness: an
+ * unchanged save would still stamp the overlay and mark the room authored, so a room could acquire a
+ * permanent override by being *looked at*. Comparing against what was loaded is the whole guard.
+ */
+function roomEditor(room: RoomDetail, reload: () => void): HTMLElement {
+  const authored = room.authored;
+  const flash = el('p', { class: 'note' });
+
+  const name = colourBox({ value: room.name, placeholder: 'the room’s name' });
+  const prose = colourBox({
+    value: room.description ?? '',
+    multiline: true,
+    rows: 10,
+    placeholder: 'What a player reads on walking in. Colour it with the swatches above.',
+  });
+
+  const sector = el(
+    'select',
+    {},
+    ...SECTORS.map((s) => el('option', { value: s, ...(s === room.sector ? { selected: true } : {}) }, s)),
+  );
+
+  const flagBoxes = ROOM_FLAGS.map((flag) => {
+    const box = el('input', { type: 'checkbox', id: `flag-${flag}` });
+    box.checked = room.flags.includes(flag);
+    return { flag, box };
+  });
+
+  const save = el('button', { class: 'primary', disabled: true }, 'Save');
+
+  // Compared against what was loaded rather than tracked as a dirty bit, so undoing an edit by hand
+  // correctly disables the button again.
+  const changed = (): boolean =>
+    name.value() !== room.name ||
+    prose.value() !== (room.description ?? '') ||
+    sector.value !== room.sector ||
+    flagBoxes.some(({ flag, box }) => box.checked !== room.flags.includes(flag));
+
+  const retest = (): void => {
+    if (changed()) save.removeAttribute('disabled');
+    else save.setAttribute('disabled', '');
+  };
+  name.field.addEventListener('input', retest);
+  prose.field.addEventListener('input', retest);
+  sector.addEventListener('change', retest);
+  for (const { box } of flagBoxes) box.addEventListener('change', retest);
+
+  save.addEventListener('click', () => {
+    void (async () => {
+      save.setAttribute('disabled', '');
+      flash.className = 'note';
+      flash.textContent = 'saving…';
+      // Only what moved. Sending the whole form would author every field of a room whose prose was
+      // the only thing touched, and "authored" is what the revert button acts on.
+      const patch: Record<string, unknown> = {};
+      if (name.value() !== room.name) patch.name = name.value();
+      if (prose.value() !== (room.description ?? '')) patch.description = prose.value();
+      if (sector.value !== room.sector) patch.sector = sector.value;
+      if (flagBoxes.some(({ flag, box }) => box.checked !== room.flags.includes(flag))) {
+        patch.flags = flagBoxes.filter(({ box }) => box.checked).map(({ flag }) => flag);
+      }
+      const result = await call('PATCH', `/rooms/${room.id}`, patch);
+      if (!result.ok) {
+        flash.className = 'flash err';
+        flash.textContent = result.error ?? 'refused';
+        retest();
+        return;
+      }
+      flash.className = 'flash ok';
+      flash.textContent = 'Saved. Anyone standing there has been re-shown the room.';
+      reload();
+    })();
+  });
+
+  const revert = (fields: readonly string[], label: string): HTMLElement =>
+    el(
+      'button',
+      {
+        onclick: () => {
+          void (async () => {
+            // `null` per field is how the server is told to *unauthor* rather than to blank — an
+            // empty description is a room deliberately left silent, which is a different thing.
+            const patch = Object.fromEntries(fields.map((f) => [f, null]));
+            const result = await call('PATCH', `/rooms/${room.id}`, patch);
+            flash.className = result.ok ? 'flash ok' : 'flash err';
+            flash.textContent = result.ok ? `Reverted ${label} to the generated world.` : result.error ?? 'refused';
+            if (result.ok) reload();
+          })();
+        },
+      },
+      `Revert ${label}`,
+    );
+
+  const authoredFields = authored ? Object.keys(authored).filter((k) => k !== 'at') : [];
+
+  return el(
+    'div',
+    {},
+    el(
+      'h3',
+      {},
+      'Edit',
+      authoredFields.length > 0 ? el('span', { class: 'pill' }, `authored: ${authoredFields.join(', ')}`) : null,
+    ),
+    el(
+      'p',
+      { class: 'note' },
+      authoredFields.length > 0
+        ? `Saved to data/world/overrides/rooms.json${authored?.at ? ` — last written ${ago(authored.at)}` : ''}. ` +
+          'It survives npm run worldgen.'
+        : 'Exactly as generated. Anything saved here lands in data/world/overrides/rooms.json and ' +
+          'survives npm run worldgen — the generated files are never written to.',
+    ),
+    el('label', { class: 'field' }, el('span', {}, 'name'), name.node),
+    el('label', { class: 'field' }, el('span', {}, 'prose'), prose.node),
+    el(
+      'div',
+      { class: 'row' },
+      el('label', { class: 'field' }, el('span', {}, 'sector'), sector),
+    ),
+    el('span', { class: 'field-label' }, 'flags'),
+    el(
+      'div',
+      { class: 'flag-grid' },
+      ...flagBoxes.map(({ flag, box }) => el('label', { class: 'flagbox' }, box, el('span', {}, flag))),
+    ),
+    el('div', { class: 'row' }, save, ...(authoredFields.length > 0 ? [revert(authoredFields, 'everything')] : [])),
+    flash,
+    // Stated rather than left to be discovered by trying it: a builder who expects to move a room and
+    // finds no control should learn why here, not from a 400.
+    el(
+      'p',
+      { class: 'note' },
+      'Exits, position and room id are not editable: they are the join key into the source data and ' +
+        'the grid the tilemap is carved from. Zone geometry is A8.',
     ),
   );
 }

@@ -25,7 +25,9 @@ import {
   type Door,
   type Place,
   type Room,
+  type RoomFlag,
   type RoomId,
+  type Sector,
   type TileGrid,
   type Zone,
   type ZoneId,
@@ -289,6 +291,34 @@ export class GameWorld {
   /** How many rooms carry authored content. Reported at boot so a lost overlay is visible. */
   readonly roomsAuthored: number;
 
+  /**
+   * What each authored room said *before* anybody wrote on it.
+   *
+   * The whole of "revert", and the reason it cannot fail. The alternative — re-reading the zone file
+   * when an operator asks to undo — needs the disk at the worst possible moment, invents a failure
+   * mode with no good answer ("the override is gone but the running room still shows the old text"),
+   * and cannot be unit-tested without a fixture on disk. Snapshotting instead costs four fields per
+   * *edited* room, which for a session's worth of authoring is nothing.
+   *
+   * Filled lazily, immediately before a room is first changed: at boot for the rooms the overlay
+   * already covers, and in {@link authorRoom} for one being edited now. A room nobody has touched has
+   * no entry, which is exactly right — there is nothing to restore it to but itself.
+   *
+   * **Not a {@link RoomOverride}**, though it holds the same four fields, because a patch cannot say
+   * "absent". In a patch `description: undefined` means *leave it alone*; here it has to mean *this
+   * room had no prose*, and restoring it must remove the field rather than set it to `''`. Most rooms
+   * are in that state — 5,889 of 46,508 carry prose — so it is the ordinary case, not a corner.
+   */
+  private readonly pristine = new Map<
+    RoomId,
+    {
+      readonly name: string;
+      readonly description: string | undefined;
+      readonly sector: Sector;
+      readonly flags: readonly RoomFlag[];
+    }
+  >();
+
   constructor(
     zones: readonly Zone[],
     spawn: SpawnConfig,
@@ -309,7 +339,8 @@ export class GameWorld {
       if (!LOCKS_HOLD) relaxed += relaxLocks(zone);
       // Also before the grids: an override can change a room's sector, and the tilemap is carved from
       // sectors. Composing after the fact would leave the map showing the terrain the harvest had.
-      authored += applyOverridesToZone(zone, overrides);
+      // The snapshot is taken first, inside, so `revertRoom` can undo what is about to be applied.
+      authored += applyOverridesToZone(zone, overrides, (room) => this.remember(room));
 
       const levels = new Set<number>();
       for (const room of zone.rooms) {
@@ -376,18 +407,93 @@ export class GameWorld {
    * terrain changed** — the grid is carved from sectors, so a cached one would keep rendering, and
    * keep charging movement for, the terrain the harvest had.
    *
-   * Returns whether the Place needs redrawing, which is the caller's cue to resend `zone` to whoever
-   * is standing on it. The client rebuilds its grid from that message with the same function the
-   * server uses, so one resync fixes both copies. Persisting is the caller's job too — it is I/O, and
-   * this class does none.
+   * Persisting is the caller's job — it is I/O, and this class does none. So is deciding whether the
+   * terrain moved: see {@link dropGrid}, which the caller invokes after comparing the room's sector
+   * across the whole operation rather than across this one call.
    */
-  authorRoom(roomId: RoomId, patch: RoomOverride, now: string): { room: Room; place: Place; regrid: boolean } | undefined {
+  authorRoom(roomId: RoomId, patch: RoomOverride, now: string): { room: Room; place: Place } | undefined {
     const located = this.index.get(roomId);
     if (!located) return undefined;
-    const regrid = patch.sector !== undefined && patch.sector !== located.room.sector;
-    applyRoomOverride(located.room, mergeOverride(this.overrides, roomId, patch, now));
-    if (regrid) this.grids.delete(placeKey(located.place));
-    return { room: located.room, place: located.place, regrid };
+    // **An empty patch must not create an entry.** A full revert arrives here with nothing left to
+    // apply, and merging it anyway would stamp a timestamp onto a room with no authored fields —
+    // leaving `{"5753": {"at": …}}` behind, which reads as authored everywhere it is checked. The
+    // room would wear the editor's mark forever for having once been edited and then un-edited.
+    if (Object.keys(patch).length > 0) {
+      this.remember(located.room);
+      applyRoomOverride(located.room, mergeOverride(this.overrides, roomId, patch, now));
+    }
+    return { room: located.room, place: located.place };
+  }
+
+  /**
+   * Drops named authored fields from a room and puts the generated values back.
+   *
+   * Restores from {@link pristine} rather than from disk, which is what makes it total: there is no
+   * "could not re-read the zone" branch, because the values were kept from before the first edit.
+   * Fields not named are left authored — reverting the prose of a room whose name you also wrote
+   * should not silently rename it back.
+   */
+  revertRoom(roomId: RoomId, fields: readonly string[]): { room: Room; place: Place } | undefined {
+    const located = this.index.get(roomId);
+    if (!located) return undefined;
+    const existing = this.overrides.get(roomId);
+    if (!existing) return { room: located.room, place: located.place };
+
+    const kept = { ...existing };
+    for (const field of fields) delete (kept as Record<string, unknown>)[field];
+    // An override of nothing but a timestamp is not an override. See `authorRoom`.
+    if (Object.keys(kept).filter((k) => k !== 'at').length === 0) this.overrides.delete(roomId);
+    else this.overrides.set(roomId, kept);
+
+    const original = this.pristine.get(roomId);
+    if (original) {
+      // Everything back to as-generated, then whatever override survived on top. Wholesale rather
+      // than per-field: one code path regardless of which fields were dropped.
+      const mutable = located.room as {
+        name: string;
+        description?: string;
+        sector: Sector;
+        flags?: readonly RoomFlag[];
+      };
+      mutable.name = original.name;
+      // **Deleted, not blanked.** A room the harvest gave no prose must go back to having none: `''`
+      // would read as "deliberately silent" and the API would report an empty string where it should
+      // report null. This is the one restore a patch cannot express, which is why it is written out.
+      if (original.description === undefined) delete mutable.description;
+      else mutable.description = original.description;
+      mutable.sector = original.sector;
+      mutable.flags = [...original.flags];
+
+      const surviving = this.overrides.get(roomId);
+      if (surviving) applyRoomOverride(located.room, surviving);
+    }
+    return { room: located.room, place: located.place };
+  }
+
+  /** Snapshots a room's authorable fields, once, before the first thing is written over them. */
+  private remember(room: Room): void {
+    if (this.pristine.has(room.id)) return;
+    this.pristine.set(room.id, {
+      name: room.name,
+      description: room.description,
+      sector: room.sector,
+      flags: room.flags ?? [],
+    });
+  }
+
+  /**
+   * Throws away a Place's cached tilemap, so the next reader rebuilds it from the rooms as they
+   * stand now.
+   *
+   * **Called when a sector changes, and the caller decides that by comparing the room's terrain
+   * before and after — not by looking at what the patch asked for.** The distinction cost a live
+   * desync to find: reverting an authored sector restores the room's terrain without *setting* a
+   * sector, so a patch-shaped test says "no terrain change" while the terrain has in fact changed
+   * back. The grid kept the water. The clients, correctly resynced, kept the ice, and the server
+   * would then have refused every step across a floor the player could see was solid.
+   */
+  dropGrid(place: Place): void {
+    this.grids.delete(placeKey(place));
   }
 
   /**

@@ -45,10 +45,10 @@ import {
 // A subpath import, as `vision.ts` is in `players.ts`: the catalogue is not in the package barrel.
 import { LIGHT_SOURCES, lightSource, type LightSource } from '@mygame/shared/light.ts';
 
-import { applyRoomOverride, saveRoomOverrides } from './overrides.ts';
+import { saveRoomOverrides } from './overrides.ts';
 import { seenTileCount, slugify, type PlayerStore, type StoredSummary } from './players.ts';
 import type { Player } from './sim.ts';
-import { loadZone, type GameWorld } from './world.ts';
+import type { GameWorld } from './world.ts';
 
 /** The request as the router sees it: transport details already reduced to facts. */
 export interface AdminRequest {
@@ -546,70 +546,34 @@ export class AdminApi {
       }
     }
 
+    // **Read before anything moves.** Whether the tilemap must be re-carved is decided by comparing
+    // the room's terrain across the *whole* operation, not by asking what the patch requested — a
+    // revert restores a sector without setting one, and a patch-shaped test calls that no change
+    // while the terrain has in fact changed back. See `GameWorld.dropGrid`.
+    const sectorBefore = located.room.sector;
+
     // Clearing is a different operation from patching — it removes keys rather than setting them —
     // so it runs against the stored override before the patch is merged over the top.
-    const restored = cleared.length > 0 ? this.unauthor(id as RoomId, cleared) : true;
+    if (cleared.length > 0) this.deps.world.revertRoom(id as RoomId, cleared);
 
     const applied = this.deps.world.authorRoom(id as RoomId, next, new Date().toISOString());
     if (!applied) return { status: 404, body: { error: `no room ${id} in the loaded world` } };
     if (this.deps.overridesFile) saveRoomOverrides(this.deps.world.overrides, this.deps.overridesFile);
-    this.deps.live.publishRoom(applied.room, applied.place, applied.regrid || cleared.includes('sector'));
 
-    this.audit('room.author', { room: id, fields: keys, cleared, regrid: applied.regrid });
+    const regrid = applied.room.sector !== sectorBefore;
+    if (regrid) this.deps.world.dropGrid(applied.place);
+    this.deps.live.publishRoom(applied.room, applied.place, regrid);
+
+    this.audit('room.author', { room: id, fields: keys, cleared, regrid });
     return {
       status: 200,
       body: {
         ok: true,
         room: { id: applied.room.id, name: applied.room.name, sector: applied.room.sector },
-        regrid: applied.regrid,
+        regrid,
         authored: this.deps.world.overrides.get(id as RoomId) ?? null,
-        // Said plainly rather than swallowed: the override is gone either way, but if the generated
-        // room could not be re-read the *live* room still shows what was authored until a restart.
-        ...(restored ? {} : { note: 'reverted on disk; the running world keeps the old text until restart' }),
       },
     };
-  }
-
-  /**
-   * Drops named fields from a room's override and puts the generated values back.
-   *
-   * Reverting has to *reload* rather than remember: the room object in memory was overwritten at boot
-   * and holds no copy of what the harvest said. Re-reading the zone file is the only source of that
-   * truth, and it is a rare operator action against a file already on disk, so the read is free.
-   *
-   * Returns whether the live room was actually restored. False means the zone file could not be read —
-   * the override is still dropped, because the operator asked for that and it is the durable half, but
-   * the caller has to say so rather than report a revert that only half happened.
-   */
-  private unauthor(id: RoomId, fields: readonly string[]): boolean {
-    const { world } = this.deps;
-    const existing = world.overrides.get(id);
-    if (!existing) return true;
-    const kept = { ...existing };
-    for (const field of fields) delete (kept as Record<string, unknown>)[field];
-    if (Object.keys(kept).filter((k) => k !== 'at').length === 0) world.overrides.delete(id);
-    else world.overrides.set(id, kept);
-
-    const located = world.locate(id);
-    if (!located) return false;
-    let original;
-    try {
-      original = loadZone(located.room.zone).rooms.find((r) => r.id === id);
-    } catch {
-      return false;
-    }
-    if (!original) return false;
-    // Every authorable field back to the harvest, then `authorRoom` puts whatever override survived
-    // back on top. Wholesale rather than per-field: one code path regardless of what was dropped.
-    applyRoomOverride(located.room, {
-      name: original.name,
-      description: original.description ?? '',
-      sector: original.sector,
-      flags: original.flags ?? [],
-    });
-    const surviving = world.overrides.get(id);
-    if (surviving) applyRoomOverride(located.room, surviving);
-    return true;
   }
 
   /* ------------------------------------------------------------------------ */

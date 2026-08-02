@@ -1376,6 +1376,25 @@ function buildRoomView(player: Player): RoomView | undefined {
   };
 }
 
+/**
+ * What a room says when nobody has written it yet. Owner-requested, 2026-08-02.
+ *
+ * **Rendered, never stored.** The obvious version — write this sentence into an override for every
+ * undescribed room — would put 40,619 entries in the overlay, mark every one of them authored, and
+ * destroy the meaning of the ✎ mark that exists to show where the real work is. It would also have to
+ * be undone one room at a time. This costs nothing, and the moment prose is written it disappears on
+ * its own, because it is only ever the `||` branch of a room that has none.
+ *
+ * Dim, and in brackets, because it is a **builder's note and not the world's voice**. A player who
+ * cannot tell the difference between a room the game has not finished and a room that is deliberately
+ * bare has been lied to. Two thirds of the loaded world is in this state — The Stag Forest and The
+ * Stump Bog have prose for 0 of 191 rooms between them — so it will be read a great deal.
+ *
+ * The other half of the owner's request, giving a room prose from a short prompt through a local
+ * model, is the next A slice: see `ROADMAP.md` §4.
+ */
+const NO_DESCRIPTION = '&+L[ No description yet. ]&N';
+
 function describeRoom(player: Player): void {
   const record = records.get(player.id);
   if (record) store.setLastRoom(record, player.roomId);
@@ -1391,9 +1410,7 @@ function describeRoom(player: Player): void {
     new Set(view.entities.filter((e) => e.id !== player.id).map((e) => e.id)),
   );
   send(player.id, { t: 'log', channel: 'room', text: view.room.name });
-  if (view.room.description) {
-    send(player.id, { t: 'log', channel: 'room', text: view.room.description });
-  }
+  send(player.id, { t: 'log', channel: 'room', text: view.room.description || NO_DESCRIPTION });
   const exits = Object.keys(view.adjacent);
   send(player.id, {
     t: 'log',
