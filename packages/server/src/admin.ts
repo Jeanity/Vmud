@@ -45,6 +45,7 @@ import {
 // A subpath import, as `vision.ts` is in `players.ts`: the catalogue is not in the package barrel.
 import { LIGHT_SOURCES, lightSource, type LightSource } from '@mygame/shared/light.ts';
 
+import { draftDescription, listModels, ollamaReachable } from './ollama.ts';
 import { saveRoomOverrides } from './overrides.ts';
 import { seenTileCount, slugify, type PlayerStore, type StoredSummary } from './players.ts';
 import type { Player } from './sim.ts';
@@ -175,7 +176,10 @@ const PATCH_KEYS = new Set(['hp', 'mana', 'move', 'level', 'light', 'clearAffect
  * A closed list rather than a filter, because the failure mode of the open version is silent: a
  * panel that posts `pos` and gets a 200 back has told its operator the room moved.
  */
-const ROOM_PATCH_KEYS = new Set(['name', 'description', 'sector', 'flags']);
+const ROOM_PATCH_KEYS = new Set(['name', 'description', 'sector', 'flags', 'by', 'brief']);
+
+/** Fields the panel may record about a draft, but which are not themselves authored content. */
+const ROOM_META_KEYS = new Set(['by', 'brief']);
 
 /** Bounds on authored prose. A room name is a line; a description is a paragraph or three. */
 const ROOM_NAME_MAX = 120;
@@ -190,6 +194,22 @@ const ROOM_PROSE_MAX = 4000;
  */
 const NEARBY_HOPS = 2;
 const NEARBY_MAX = 12;
+
+/**
+ * How much of the neighbourhood the *model* is shown, and how many style examples it gets.
+ *
+ * Fewer neighbours than the panel displays: an author skims twelve rooms and takes what is useful,
+ * whereas a model given twelve adjacent descriptions writes a summary of the wing rather than a room
+ * in it. Four is enough to fix what the place is without drowning the brief.
+ *
+ * Three samples because that is where few-shot stops paying: a fourth example of the same voice adds
+ * little, and every one of them is ~115 words of context competing with the instruction at the end.
+ */
+const NEARBY_IN_PROMPT = 4;
+const SAMPLE_COUNT = 3;
+
+/** A brief is a few words. Longer is prose the author should simply write themselves. */
+const BRIEF_MAX = 400;
 
 /** One room in the neighbourhood shown beside the editor. See `AdminApi.neighbourhood`. */
 interface NearbyRoom {
@@ -211,6 +231,31 @@ export class AdminApi {
   constructor(deps: AdminDeps) {
     this.deps = deps;
     if (deps.auditFile) mkdirSync(dirname(deps.auditFile), { recursive: true });
+  }
+
+  /**
+   * The whole API, including the two routes that cannot answer immediately.
+   *
+   * **`route` is synchronous and stays that way.** Every operation on the world is a function call
+   * against objects already in memory, and making 30 endpoints `async` to accommodate two would make
+   * every test `await` something that never waits. Drafting prose is the exception in kind, not in
+   * degree: it is an HTTP call to a model that may spend half a minute loading weights. So it lives
+   * on this path, and everything else falls through to the sync router unchanged.
+   *
+   * The gate runs here too, before the fall-through — an async route must not be reachable without it.
+   */
+  async routeAsync(request: AdminRequest): Promise<AdminResponse> {
+    const refused = this.gate(request);
+    if (refused) return refused;
+
+    const parts = request.path.split('/').filter((p) => p.length > 0);
+    const [head, slug, action] = parts;
+
+    if (head === 'ollama' && parts.length === 1 && request.method === 'GET') return this.ollama();
+    if (head === 'rooms' && slug !== undefined && action === 'describe' && parts.length === 3 && request.method === 'POST') {
+      return this.describe(slug, request.body);
+    }
+    return this.route(request);
   }
 
   route(request: AdminRequest): AdminResponse {
@@ -578,6 +623,107 @@ export class AdminApi {
   }
 
   /* ------------------------------------------------------------------------ */
+  /* Drafting prose with a local model                                         */
+  /* ------------------------------------------------------------------------ */
+
+  /** What Ollama has, for the picker. An empty list is "not running", not an error. */
+  private async ollama(): Promise<AdminResponse> {
+    const models = await listModels();
+    return {
+      status: 200,
+      body: {
+        reachable: models.length > 0 || (await ollamaReachable()),
+        models: models.map((model) => ({ name: model.name, size: model.size, parameters: model.parameters })),
+      },
+    };
+  }
+
+  /**
+   * Drafts a description for one room. **Saves nothing.**
+   *
+   * The draft comes back to the editor's box, where it can be read, rewritten, coloured or discarded,
+   * and only the ordinary `PATCH` writes it. That order is the point: unreviewed machine prose must
+   * never be the thing already in the world, and *not* keeping a draft must be the cheap path.
+   *
+   * Everything the model is shown is assembled here rather than in the panel, so the prompt cannot
+   * drift between what an operator sees and what is actually sent — and so the same context the
+   * editor already displays is the context the model gets.
+   */
+  private async describe(slug: string, body: unknown): Promise<AdminResponse> {
+    const id = Number(slug);
+    if (!Number.isInteger(id)) return { status: 400, body: { error: `"${slug}" is not a room id` } };
+    const located = this.deps.world.locate(id as RoomId);
+    if (!located) return { status: 404, body: { error: `no room ${id} in the loaded world` } };
+
+    if (typeof body !== 'object' || body === null) return { status: 400, body: { error: 'expected a JSON object' } };
+    const { model, brief } = body as { model?: unknown; brief?: unknown };
+    if (typeof model !== 'string' || !model.trim()) {
+      return { status: 400, body: { error: 'model is required — GET /ollama lists what is installed' } };
+    }
+    if (typeof brief !== 'string' || !brief.trim()) {
+      // Refused rather than defaulted, because a brief is the one thing only the author knows. A
+      // model given the room name alone writes the name back at you in seven sentences.
+      return { status: 400, body: { error: 'a brief is required — a few words, e.g. "forest by a stream"' } };
+    }
+    if (brief.length > BRIEF_MAX) return { status: 400, body: { error: `brief must be at most ${BRIEF_MAX} characters` } };
+
+    const { room } = located;
+    const result = await draftDescription({
+      model: model.trim(),
+      brief: brief.trim(),
+      room: {
+        name: room.name,
+        sector: room.sector,
+        zone: this.deps.world.zoneName(room.zone) ?? `zone ${room.zone}`,
+      },
+      nearby: this.neighbourhood(room)
+        .filter((near) => near.description)
+        .slice(0, NEARBY_IN_PROMPT)
+        .map((near) => ({ name: near.name, description: near.description!, dir: near.dir })),
+      samples: this.styleSamples(room),
+    });
+
+    if (!result.ok) {
+      // 502, not 500: the failure is a service this server talks to, and the distinction matters to
+      // whoever reads it — the panel is fine, the model is not.
+      return { status: 502, body: { error: result.error } };
+    }
+    this.audit('room.draft', { room: id, model: result.model, brief: brief.trim(), ms: result.ms });
+    return {
+      status: 200,
+      body: { description: result.description, model: result.model, brief: brief.trim(), ms: result.ms },
+    };
+  }
+
+  /**
+   * Real descriptions from the same zone, to show the model the style rather than describe it.
+   *
+   * **Spread across the zone rather than taken from beside the room.** The neighbours are already in
+   * the prompt doing a different job — they constrain the *content* — and re-using them as style
+   * examples would show the model three rooms that all describe the same hall and invite it to write
+   * a fourth. Sampling at intervals through the zone's described rooms gives it the range of the
+   * style instead: a corridor, a courtyard, a chamber.
+   *
+   * Deterministically chosen, so pressing the button twice varies by the model's own sampling and not
+   * by which examples it happened to get — otherwise a worse second draft tells you nothing about
+   * whether to try a third. Longest-first within the pick, because a 51-word room demonstrates less
+   * of the voice than a 130-word one, and the median is 115.
+   */
+  private styleSamples(room: Room): readonly { name: string; description: string }[] {
+    const zone = this.deps.world.zone(room.zone);
+    if (!zone) return [];
+    const described = zone.rooms.filter((candidate) => candidate.description && candidate.id !== room.id);
+    if (described.length === 0) return [];
+
+    const step = Math.max(1, Math.floor(described.length / SAMPLE_COUNT));
+    const picked: Room[] = [];
+    for (let i = 0; i < described.length && picked.length < SAMPLE_COUNT; i += step) picked.push(described[i]!);
+    return picked
+      .sort((a, b) => (b.description?.length ?? 0) - (a.description?.length ?? 0))
+      .map((candidate) => ({ name: candidate.name, description: candidate.description! }));
+  }
+
+  /* ------------------------------------------------------------------------ */
   /* Writes — authored world content (A5)                                      */
   /* ------------------------------------------------------------------------ */
 
@@ -619,8 +765,26 @@ export class AdminApi {
     }
 
     // Validated whole before anything is written, so an edit either lands or does not.
-    const next: { name?: string; description?: string; sector?: Sector; flags?: readonly RoomFlag[] } = {};
+    const next: {
+      name?: string;
+      description?: string;
+      sector?: Sector;
+      flags?: readonly RoomFlag[];
+      by?: string;
+      brief?: string;
+    } = {};
     const cleared: string[] = [];
+
+    // Provenance rides along with a save rather than being written at generation time, because the
+    // draft is only ever *offered* — nothing is authored until a person presses Save, and recording
+    // "written by qwen2.5:14b" against prose that was then rejected would be a lie about the world.
+    for (const key of ROOM_META_KEYS) {
+      const value = patch[key];
+      if (value === undefined) continue;
+      if (value === null) cleared.push(key);
+      else if (typeof value !== 'string') return { status: 400, body: { error: `${key} must be a string or null` } };
+      else next[key as 'by' | 'brief'] = value.slice(0, BRIEF_MAX);
+    }
 
     if (patch.name !== undefined) {
       if (patch.name === null) cleared.push('name');
@@ -1081,15 +1245,22 @@ export function serveAdmin(api: AdminApi, req: IncomingMessage, res: ServerRespo
       }
     }
     const token = req.headers['x-admin-token'];
-    respond(
-      api.route({
+    // `routeAsync`, which answers the two model-backed routes and hands everything else to the sync
+    // router untouched. The `catch` is the difference between a bug and a hung browser tab: a
+    // rejected promise here would leave the response never written and the panel spinning forever.
+    api
+      .routeAsync({
         method: req.method ?? 'GET',
         path: (req.url ?? '').slice('/admin/api'.length).split('?')[0] || '/',
         token: typeof token === 'string' ? token : undefined,
         remote: req.socket.remoteAddress,
         body,
-      }),
-    );
+      })
+      .then(respond)
+      .catch((err: unknown) => {
+        console.error('[admin] route threw:', err);
+        respond({ status: 500, body: { error: (err as Error).message ?? 'admin route failed' } });
+      });
   });
 }
 

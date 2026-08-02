@@ -46,9 +46,37 @@ export interface RoomOverride {
   readonly flags?: readonly RoomFlag[];
   /** When it was last written, so the panel can say how stale a room's authoring is. */
   readonly at?: string;
+  /**
+   * The model that drafted this room's prose, and the brief it was given.
+   *
+   * Recorded for the same reason the audit trail is: *"why does this one read differently"* is
+   * otherwise unanswerable a month later, and with nine models installed the answer is usually the
+   * model. The brief is kept too because it is the half a diff cannot show — the prose is on disk,
+   * but `forest by a stream` is what the author actually decided, and re-drafting without it means
+   * starting the thought again.
+   *
+   * Absent on hand-written rooms, which is the honest default: nothing drafted them.
+   */
+  readonly by?: string;
+  readonly brief?: string;
 }
 
 export type RoomOverrides = Map<RoomId, RoomOverride>;
+
+/**
+ * The fields that are *about* an override rather than part of one.
+ *
+ * An entry carrying only these is not an authored room — it is a record of one having been edited and
+ * then reverted, and it must be deleted rather than kept, or the room wears the editor's mark forever.
+ * Named once because two files ask the question and a third field (`by`, `brief`) arrived later; a
+ * hardcoded `k !== 'at'` in each of them would have silently started answering wrongly.
+ */
+export const OVERRIDE_META: readonly string[] = ['at', 'by', 'brief'];
+
+/** Whether an override still authors anything, or is only metadata left over from a revert. */
+export function authorsAnything(override: RoomOverride): boolean {
+  return Object.keys(override).some((key) => !OVERRIDE_META.includes(key));
+}
 
 const SECTOR_SET = new Set<string>(SECTORS);
 const FLAG_SET = new Set<string>(ROOM_FLAGS);
@@ -85,6 +113,8 @@ export function loadRoomOverrides(file = ROOMS_FILE): RoomOverrides {
         ? { flags: (patch.flags as unknown[]).filter((f): f is RoomFlag => typeof f === 'string' && FLAG_SET.has(f)) }
         : {}),
       ...(typeof patch.at === 'string' ? { at: patch.at } : {}),
+      ...(typeof patch.by === 'string' ? { by: patch.by } : {}),
+      ...(typeof patch.brief === 'string' ? { brief: patch.brief } : {}),
     };
     if (Object.keys(override).length > 0) out.set(id as RoomId, override);
   }

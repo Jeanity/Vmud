@@ -178,6 +178,21 @@ export interface RoomOverride {
   flags?: string[];
   /** When it was last written. */
   at?: string;
+  /** The model that drafted the prose, and the brief it was given. Absent on hand-written rooms. */
+  by?: string;
+  brief?: string;
+}
+
+export interface OllamaBody {
+  reachable: boolean;
+  models: { name: string; size: number; parameters: string | null }[];
+}
+
+export interface DraftBody {
+  description: string;
+  model: string;
+  brief: string;
+  ms: number;
 }
 
 export interface ZoneRoomRow {

@@ -1,0 +1,144 @@
+/**
+ * The two halves of drafting that can be tested without a model: what gets sent, and what is done
+ * with what comes back.
+ *
+ * The generation itself is one `fetch`, exercised here with a fake so the shape of a failure is
+ * pinned — a model that is not installed and a model that is merely slow must not read the same.
+ */
+
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+
+import { buildPrompt, draftDescription, listModels, tidy, type DraftRequest } from './ollama.ts';
+
+function request(over: Partial<DraftRequest> = {}): DraftRequest {
+  return {
+    model: 'qwen2.5:14b',
+    brief: 'a war room high in the guard tower',
+    room: { name: 'Tactical Room', sector: 'inside', zone: 'IceCrag Castle' },
+    nearby: [{ name: "Western Guard's Walk", description: 'There is no view to the outside here.', dir: 'north' }],
+    samples: [{ name: 'A Table In the Banquet Hall', description: '&+yThis is the main Banquet Hall.&N' }],
+    ...over,
+  };
+}
+
+/** A fetch that answers with whatever is given, so failure shapes can be driven exactly. */
+function fakeFetch(answer: { ok?: boolean; status?: number; json?: unknown; text?: string } | Error): typeof fetch {
+  return (async () => {
+    if (answer instanceof Error) throw answer;
+    return {
+      ok: answer.ok ?? true,
+      status: answer.status ?? 200,
+      json: async () => answer.json,
+      text: async () => answer.text ?? '',
+    } as Response;
+  }) as unknown as typeof fetch;
+}
+
+describe('the prompt', () => {
+  it('shows the style rather than describing it', () => {
+    const prompt = buildPrompt(request());
+    assert.match(prompt, /EXAMPLES/);
+    assert.match(prompt, /This is the main Banquet Hall/);
+  });
+
+  it('strips colour codes out of the examples', () => {
+    // Left in, they teach the model to emit `&+y` — and a malformed code is not a cosmetic failure,
+    // it is a literal ampersand in the middle of a sentence in the game.
+    const prompt = buildPrompt(request());
+    assert.ok(!prompt.includes('&+y'), 'no colour codes reach the model');
+    assert.ok(!prompt.includes('&N'));
+  });
+
+  it('forbids the two things a model reaches for unprompted', () => {
+    // Measured on the shipped world: 16 of 216 descriptions mention exits, and 1 of 216 says "you".
+    // Left unsaid, a model writes "You find yourself in a dark room. Exits: north."
+    const prompt = buildPrompt(request());
+    assert.match(prompt, /Never write "you"/);
+    assert.match(prompt, /Do not list or mention exits/);
+  });
+
+  it('puts the brief last, where it will not be diluted', () => {
+    const prompt = buildPrompt(request({ brief: 'THE BRIEF' }));
+    const briefAt = prompt.indexOf('THE BRIEF');
+    assert.ok(briefAt > prompt.indexOf('EXAMPLES'), 'after the examples');
+    assert.ok(briefAt > prompt.indexOf('ADJACENT'), 'after the neighbours');
+  });
+
+  it('carries the adjacent rooms, so a corner of a hall is a corner of that hall', () => {
+    const prompt = buildPrompt(request());
+    assert.match(prompt, /north: Western Guard's Walk/);
+  });
+
+  it('holds together with no samples and no neighbours', () => {
+    // The Stag Forest has prose for 0 of 98 rooms — there is nothing to show it, and the first room
+    // written in a zone must still be writable.
+    const prompt = buildPrompt(request({ samples: [], nearby: [] }));
+    assert.ok(!prompt.includes('EXAMPLES'));
+    assert.ok(!prompt.includes('ADJACENT'));
+    assert.match(prompt, /NOW WRITE THIS ROOM/);
+  });
+});
+
+describe('tidying a draft', () => {
+  it('drops a conversational opener', () => {
+    assert.equal(tidy("Here is the description:\n\nStone walls rise."), 'Stone walls rise.');
+    assert.equal(tidy('**The Tactical Room**\n\nStone walls rise.'), 'Stone walls rise.');
+  });
+
+  it('unwraps the whole answer from quotes', () => {
+    assert.equal(tidy('"Stone walls rise."'), 'Stone walls rise.');
+  });
+
+  it('removes markdown emphasis that would print as asterisks', () => {
+    assert.equal(tidy('The **cold** wind and *old* stone.'), 'The cold wind and old stone.');
+  });
+
+  it('normalises punctuation to ASCII, because the world is ASCII', () => {
+    // Measured across the 315 real descriptions: 110 straight quotes, zero curly, zero em dashes.
+    assert.equal(tidy('IceCrag’s halls — “cold” and still…'), 'IceCrag\'s halls - "cold" and still...');
+  });
+
+  it('unwraps hard wrapping but keeps paragraph breaks', () => {
+    assert.equal(tidy('A long\nwrapped line.\n\nA second\nparagraph.'), 'A long wrapped line.\n\nA second paragraph.');
+  });
+});
+
+describe('talking to Ollama', () => {
+  it('returns the description when the model answers', async () => {
+    const result = await draftDescription(
+      request(),
+      fakeFetch({ json: { response: '  Stone walls rise.  ' } }),
+      (() => { let t = 0; return () => (t += 1200); })(),
+    );
+    assert.equal(result.ok, true);
+    assert.equal(result.ok && result.description, 'Stone walls rise.');
+  });
+
+  it('passes Ollama\'s own refusal through, because it names the model', async () => {
+    const result = await draftDescription(
+      request({ model: 'nosuchmodel' }),
+      fakeFetch({ ok: false, status: 404, text: 'model "nosuchmodel" not found' }),
+    );
+    assert.equal(result.ok, false);
+    assert.match(result.ok === false ? result.error : '', /not found/);
+  });
+
+  it('tells a timeout apart from a refusal, because the advice differs', async () => {
+    const timeout = Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+    const result = await draftDescription(request(), fakeFetch(timeout));
+    assert.equal(result.ok, false);
+    assert.match(result.ok === false ? result.error : '', /cold start|smaller one/);
+  });
+
+  it('refuses an empty answer rather than authoring nothing', async () => {
+    const result = await draftDescription(request(), fakeFetch({ json: { response: '   ' } }));
+    assert.equal(result.ok, false);
+  });
+
+  it('reports no models rather than throwing when Ollama is not running', async () => {
+    // Not installed is an ordinary state of a machine. The panel should say so calmly, in the place
+    // a dropdown would have been.
+    assert.deepEqual(await listModels(fakeFetch(new Error('ECONNREFUSED'))), []);
+  });
+});

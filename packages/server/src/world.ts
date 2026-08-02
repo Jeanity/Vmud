@@ -36,6 +36,7 @@ import {
 import {
   applyOverridesToZone,
   applyRoomOverride,
+  authorsAnything,
   loadRoomOverrides,
   mergeOverride,
   type RoomOverride,
@@ -451,7 +452,7 @@ export class GameWorld {
     const kept = { ...existing };
     for (const field of fields) delete (kept as Record<string, unknown>)[field];
     // An override of nothing but a timestamp is not an override. See `authorRoom`.
-    if (Object.keys(kept).filter((k) => k !== 'at').length === 0) this.overrides.delete(roomId);
+    if (!authorsAnything(kept)) this.overrides.delete(roomId);
     else this.overrides.set(roomId, kept);
 
     const original = this.pristine.get(roomId);

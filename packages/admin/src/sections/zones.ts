@@ -17,6 +17,7 @@ import { ROOM_FLAGS, SECTORS, parseColour } from '@mygame/shared';
 
 import { call, type RoomDetail, type ZoneRoomsBody, type ZonesBody, type ZoneRow } from '../api.ts';
 import { colourBox } from '../colourbox.ts';
+import { draftControl } from '../draft.ts';
 import { ago, duration, el, render } from '../dom.ts';
 import { drawZoneMap } from '../zonemap.ts';
 
@@ -461,6 +462,17 @@ function roomEditor(room: RoomDetail, reload: () => void): HTMLElement {
 
   const save = el('button', { class: 'primary', disabled: true }, 'Save');
 
+  // The model drafts into the prose box and saves nothing; the Save button below is still the only
+  // thing that writes. `retest` is called on apply so a draft enables Save exactly as typing would.
+  const draft = draftControl({
+    roomId: room.id,
+    current: () => prose.value(),
+    apply: (text) => {
+      prose.set(text);
+      retest();
+    },
+  });
+
   // Compared against what was loaded rather than tracked as a dirty bit, so undoing an edit by hand
   // correctly disables the button again.
   const changed = (): boolean =>
@@ -491,6 +503,14 @@ function roomEditor(room: RoomDetail, reload: () => void): HTMLElement {
       if (sector.value !== room.sector) patch.sector = sector.value;
       if (flagBoxes.some(({ flag, box }) => box.checked !== room.flags.includes(flag))) {
         patch.flags = flagBoxes.filter(({ box }) => box.checked).map(({ flag }) => flag);
+      }
+      // Provenance rides with the prose it belongs to and only then: recording "written by
+      // qwen2.5:14b" against a draft that was rejected would be a lie about the world, so it is
+      // attached at the moment the description is actually saved.
+      const from = draft.provenance();
+      if (from && patch.description !== undefined) {
+        patch.by = from.by;
+        patch.brief = from.brief;
       }
       const result = await call('PATCH', `/rooms/${room.id}`, patch);
       if (!result.ok) {
@@ -544,7 +564,19 @@ function roomEditor(room: RoomDetail, reload: () => void): HTMLElement {
         : 'Exactly as generated. Anything saved here lands in data/world/overrides/rooms.json and ' +
           'survives npm run worldgen — the generated files are never written to.',
     ),
+    // Provenance, shown where it is read. "Why does this one sound different" is otherwise
+    // unanswerable a month later, and with nine models installed the answer is usually the model.
+    authored?.by
+      ? el(
+          'p',
+          { class: 'note' },
+          'Prose drafted by ',
+          el('b', {}, authored.by),
+          authored.brief ? ` from the brief “${authored.brief}”.` : '.',
+        )
+      : null,
     el('label', { class: 'field' }, el('span', {}, 'name'), name.node),
+    draft.node,
     el('label', { class: 'field' }, el('span', {}, 'prose'), prose.node),
     el(
       'div',

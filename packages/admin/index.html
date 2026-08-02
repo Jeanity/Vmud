@@ -258,6 +258,19 @@
         color: #9d9789;
       }
 
+      /* The draft control. Sits above the prose box because that is where its output lands, and the
+         eye should travel from the brief downward into the result. */
+      .draft {
+        margin: 10px 0 4px;
+        padding: 8px 10px;
+        border: 1px dashed var(--edge);
+        border-radius: 3px;
+      }
+      .draft .row { margin: 4px 0; }
+      .draft .brief { width: 100%; box-sizing: border-box; }
+      .draft .model { max-width: 200px; }
+      .draft .flash { flex: 1; min-width: 0; }
+
       .flag-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 2px 10px; }
       .flagbox { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink); }
       .flagbox input { padding: 0; }
