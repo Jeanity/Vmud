@@ -174,9 +174,8 @@ export function regenBonus(total: number): number {
 export function regenPerMinute(
   pool: VitalPool,
   stance: Stance,
-  options: { readonly fighting?: boolean; readonly bonus?: number } = {},
+  options: { readonly fighting?: boolean; readonly winded?: boolean; readonly bonus?: number } = {},
 ): number {
-  if (options.fighting) return 0;
   // A corpse is not a body doing slow arithmetic, and this has to be said *before* the clauses below
   // rather than fall out of them: with a bonus in play, `gain = 0` plus a positive modifier would have
   // the dead healing, and the standstill rule at the bottom would otherwise have them bleeding. Duris
@@ -197,6 +196,16 @@ export function regenPerMinute(
 
   if (pool === 'hp' || gain !== 0 || bonus < 0) gain += bonus;
 
+  // **The two suppressors — fighting, and winded (the owner's flee lever, 2026-08-02) — zero only a
+  // *positive* result, and they run before the standstill clause below.** Both facts are the fix for
+  // the same failure, found by adversarial review: a dying body carrying a regeneration bonus
+  // computes -2 + 6 = +4, and a gate placed after the standstill clause froze that at exactly 0 — a
+  // death clock stopped, which `HANDOFF.md`'s own invariant says must never exist. Zeroing the mend
+  // *first* lets the clause below put the -1 floor back: suppressed means "too spent to mend", never
+  // "too spent to get worse". `fighting` takes the same narrow gate rather than a flat zero at the
+  // top because the flat zero rested on "a fighting actor cannot be dying", which is only enforced
+  // for players — a downed mob stays engaged until the round boundary, and its clock must tick too.
+  if ((options.fighting || options.winded) && gain > 0) gain = 0;
   if (pool === 'hp' && gain === 0 && statusRank(stance.status) < statusRank('sleeping')) return -1;
   return gain;
 }

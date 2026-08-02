@@ -105,6 +105,45 @@ describe('regenPerMinute — the two axes multiply', () => {
  * additive, and they do not compound — fold the bonus in first and a 1.875x sleep multiplier doubles
  * every buff in the game.
  */
+describe('regenPerMinute — winded, the flee lever', () => {
+  it('stops every pool mending, at any posture', () => {
+    // The owner's rule (2026-08-02): no regeneration while fleeing. A fleeing kobold healed on the
+    // run, and the only practical kill window at level 1 was its failed flee roll.
+    for (const pool of ['hp', 'mana', 'move'] as const) {
+      assert.equal(regenPerMinute(pool, stance('standing', 'normal'), { winded: true }), 0);
+      assert.equal(regenPerMinute(pool, stance('prone', 'resting'), { winded: true }), 0);
+    }
+  });
+
+  it('cannot be out-voted by a regeneration bonus', () => {
+    // A sanctuary affect must not quietly re-open the loophole the lever closed.
+    assert.equal(regenPerMinute('hp', stance('standing', 'normal'), { winded: true, bonus: 12 }), 0);
+  });
+
+  it('never pauses a death clock — a winded, dying body still bleeds', () => {
+    // Flee, get caught, drop to dying: being out of breath must not extend the rescue window.
+    assert.equal(regenPerMinute('hp', stance('prone', 'dying'), { winded: true }), -2);
+    assert.equal(regenPerMinute('hp', stance('prone', 'incapacitated'), { winded: true }), -1);
+  });
+
+  it('never pauses it with a rescue bonus in play either — the corner the review caught', () => {
+    // Second wind grants +6, so a dying body computes -2 + 6 = +4 — and a winded gate placed after
+    // the standstill clause froze exactly that at 0: a stopped death clock, the state HANDOFF.md's
+    // invariant forbids. The gate now zeroes the mend *first* and the standstill -1 still bites:
+    // suppressed means "too spent to mend", never "a clock that stopped".
+    assert.equal(regenPerMinute('hp', stance('prone', 'dying'), { winded: true, bonus: 6 }), -1);
+    assert.equal(regenPerMinute('hp', stance('prone', 'incapacitated'), { winded: true, bonus: 3 }), -1);
+  });
+
+  it('holds fighting to the same rule — a downed mob still engaged must keep its clock', () => {
+    // The old flat `if (fighting) return 0` at the top rested on "a fighting actor cannot be dying",
+    // which is only enforced for players — a downed mob stays engaged until the round boundary.
+    assert.equal(regenPerMinute('hp', stance('prone', 'dying'), { fighting: true, bonus: 6 }), -1);
+    assert.equal(regenPerMinute('hp', stance('standing', 'normal'), { fighting: true }), 0);
+    assert.equal(regenPerMinute('move', stance('standing', 'normal'), { fighting: true }), 0);
+  });
+});
+
 describe('regenPerMinute — the flat bonus', () => {
   it('adds to the baseline without being scaled by it', () => {
     const standing = regenPerMinute('hp', stance('standing', 'normal'), { bonus: 6 });

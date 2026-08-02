@@ -27,6 +27,7 @@
  */
 
 import {
+  WINDED_AFTER_FLEE_MS,
   DIRECTIONS,
   escapes,
   fleeCost,
@@ -203,6 +204,17 @@ export function attemptFlee(deps: FleeDeps, actor: Actor): FleeOutcome {
   // of things that are faster than you.
   const cost = isPlayer(actor) ? Math.min(fleeCost(rng), actor.move) : 0;
   actor.move = Math.max(0, actor.move - cost);
+
+  // And the wind goes out of them — the owner's lever (2026-08-02): **no regeneration while fleeing.**
+  // Found live: a wounded kobold healed on the run, so a chase could cross four rooms and end with the
+  // mob back near full health. Set on every flight rather than the first, so a pursuit never out-waits
+  // it; both kinds of actor pay it, because this function is the one flee there is.
+  //
+  // Only a flight that *escaped a fight*, though. Outside combat `flee` always succeeds and costs one
+  // keypress, and winding it would put a sixty-second blackout on what is merely a panicky way to
+  // walk — the price belongs to breaking away from something swinging at you, which is also the only
+  // case the lever was asked for.
+  if (engaged) actor.windedMs = WINDED_AFTER_FLEE_MS;
 
   return { kind: 'fled', dir, from, fromPlace, to: exit.to, cost, wasFighting, changed };
 }

@@ -100,3 +100,19 @@ export const FLEE_COST_MAX = 30;
 export function fleeCost(rng: Rng): number {
   return FLEE_COST_MIN + Math.floor(rng() * (FLEE_COST_MAX - FLEE_COST_MIN + 1));
 }
+
+/**
+ * How long a body that fled is too winded to regenerate. The owner's lever, 2026-08-02.
+ *
+ * The problem it closes was found live: a kobold youth flees at half health and **heals while it
+ * runs**, so at level-1 damage a chase could cross four rooms and end with the mob back near full —
+ * the only practical kill window was the ~20%-per-attempt failed flee. Fleeing now stops the fleer
+ * mending until this window passes, and the window **refreshes on every flight**, so a chase never
+ * out-waits it.
+ *
+ * Sixty seconds against the chase's own cadence: a catch cycle — follow, close, swing until it runs
+ * again — is five to twenty seconds, so the window holds across any real pursuit with room to spare,
+ * while a mob that genuinely escapes starts healing a minute later and is not found half-dead an
+ * hour on. Applies to **whoever flees, player or mob** — one flee, one price, same as `fleeCost`.
+ */
+export const WINDED_AFTER_FLEE_MS = 60_000;

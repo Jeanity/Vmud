@@ -341,6 +341,16 @@ export interface Actor {
    * reconnect can cost you is a fiftieth of a point.
    */
   regenCarry: { hp: number; mana: number; move: number };
+  /**
+   * Milliseconds of being too winded to regenerate. Set by a successful flight, counted down by the
+   * tick like an affect, and read by {@link Simulation.regenerate}.
+   *
+   * The owner's lever (2026-08-02): a fleeing kobold healed on the run, so the only practical kill
+   * window at level 1 was its failed flee roll. On the base {@link Actor} because **one flee is one
+   * price** — `attemptFlee` serves players and mobs through a single code path, and so does this.
+   * Transient, like `regenCarry`: a pursuit does not survive a reconnect, so neither does the wind.
+   */
+  windedMs: number;
 }
 
 /**
@@ -703,6 +713,7 @@ export class Simulation {
       posture: 'standing',
       status: 'normal',
       regenCarry: { hp: 0, mana: 0, move: 0 },
+      windedMs: 0,
     };
     this.actors.set(player.id, player);
     return player;
@@ -1275,9 +1286,14 @@ export class Simulation {
 
     // Every body, not every player. Mobs heal for the same reasons and by the same table — Diku's do —
     // and routing them through a second loop is how the two would come to disagree about how fast a
-    // wound closes. Nothing damages a mob yet, so today this is a no-op for them: a full pool at a
-    // positive rate has nothing to do, which `needsRegen` answers before any arithmetic runs.
+    // wound closes. Since Phase 13 they are damaged in earnest, so this is the pass that closes a
+    // kobold's wounds between fights — and the pass that must *not* close them while it runs from one.
     for (const player of this.actors.values()) {
+      // The wind comes back on the same clock affects expire on, and deliberately outside the
+      // `regenerates` gate below: this is a timer, not healing, and a timer that only ran for bodies
+      // worth healing would freeze whenever that gate's definition moved. (Today it excludes only the
+      // dead, whose wind is moot — the placement is cheap insurance, not a live bug being dodged.)
+      if (player.windedMs > 0) player.windedMs = Math.max(0, player.windedMs - TICK_MS);
       if (!regenerates(player)) continue;
       let moved = false;
 
@@ -1287,7 +1303,12 @@ export class Simulation {
         // The affect total for this pool's location, summed fresh each tick for the same reason the
         // rate is: it is one walk of a list with at most a handful of entries, and caching it would
         // mean an invalidation to forget every time something landed or lapsed.
+        // `fighting` and `winded` are the two suppressors, and the first is a wiring fix as much as a
+        // rule: `regenPerMinute` had authored "fighting means zero" from the start, and this call site
+        // never passed it — every combatant quietly trickled 13 hp a minute through their own fights.
         const rate = regenPerMinute(pool.name, player, {
+          fighting: player.fighting !== undefined,
+          winded: player.windedMs > 0,
           bonus: sumApply(player.affects, REGEN_APPLY[pool.name]),
         });
         // Nothing to do: full and healing, or a rate of zero. Skipping keeps the carry untouched so a
@@ -1605,6 +1626,7 @@ export class Simulation {
       posture: 'standing',
       status: 'normal',
       regenCarry: { hp: 0, mana: 0, move: 0 },
+      windedMs: 0,
     };
     this.actors.set(mob.id, mob);
     return mob;

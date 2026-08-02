@@ -178,14 +178,42 @@ running away is not a claim on the kill.
 re-engaged the same wounded body six times and finished it when its flee roll finally failed
 (`fleeChance` ≈ 80% per attempt).
 
-### What the chase revealed about pace, left for the owner
+### The regen lever — no regeneration while fleeing (owner's pick, 2026-08-02)
 
-A youth regenerates while it runs. With level-1 damage (3–8 a round) against 35 hit points, the
-practical kill window is the failed flee — a chase can cross four rooms and end back near full
-health if the roll keeps succeeding. That is arguably correct MUD cat-and-mouse, and Phase 19's
-`bash` is the designed answer to it; but if the first hour feels too slippery, the levers are the
-youth's regen rate while fleeing, or a short no-regen window after taking damage. Not tuned here:
-that is a feel decision, and it wants playing rather than arithmetic.
+A youth regenerated while it ran, so with level-1 damage against 35 hit points the practical kill
+window was the ~20%-per-attempt failed flee: a chase could cross four rooms and end near full health.
+
+**Escaping a fight now leaves you winded for {@link WINDED_AFTER_FLEE_MS} — sixty seconds in which
+nothing mends.** It refreshes on every flight, so a pursuit can never out-wait it, and it is paid by
+**whoever flees, player or mob**: `attemptFlee` is one code path and so is its price. Sixty seconds
+is chosen against the chase's own cadence — a catch cycle (follow, close, swing until it runs again)
+is five to twenty seconds — so the window holds across any real pursuit while a mob that genuinely
+escapes starts healing a minute later rather than being found half-dead an hour on.
+
+Four rules the implementation earned, three of them from adversarial review:
+
+1. **It suppresses only a *positive* rate, and does so before the standstill clause.** A dying body
+   carrying a rescue bonus computes `-2 + 6 = +4`; a gate placed after that clause froze it at
+   exactly 0 — a stopped death clock, which `HANDOFF.md`'s invariant forbids. Zeroing the mend first
+   lets the `-1` floor bite. Winded means *too spent to mend*, never *too spent to get worse*.
+2. **`fighting` was wired up in the same motion, and takes the same narrow gate.** `regenPerMinute`
+   had authored "fighting means zero" since it was written and the one call site never passed it —
+   every combatant quietly trickled 13 hp a minute through their own fights. Its old flat zero rested
+   on "a fighting actor cannot be dying", which is enforced for players but not for a downed mob that
+   stays engaged until the round boundary, so it now zeroes positive gain rather than everything.
+3. **A flight from nothing is not winded.** Outside combat `flee` always succeeds and costs one
+   keypress; the price belongs to breaking away from something swinging at you.
+4. **The player is told.** *"You flee west! You are winded, and will not recover until you catch your
+   breath."* A cost the player cannot see is indistinguishable from a bug.
+
+**Verified live**: after a flee, hit points sat flat for ~53 seconds and then resumed at the full
+~13/minute. And the lever closed the loop it was picked for — **Freshstart reached level 2**, the
+first time in the game's history, on the fourth chased kill.
+
+Known and accepted: `windedMs` is transient, so a reconnect sheds it while the wound persists. Today
+a disconnect also destroys the pursuit entirely, so the wind is the smaller half of what a relog
+erases — but it becomes a real loophole the day pursuits survive reconnection, which is where PvP
+would take it.
 
 ### A real bug the chase found: experience lost across a reload
 

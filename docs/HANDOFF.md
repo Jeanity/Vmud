@@ -19,7 +19,7 @@ skills from those projects.
 npm install          # once
 npm run dev          # server + client + admin panel together
 npm run typecheck    # tsc across all five packages
-npm test             # 823 tests
+npm test             # 912 tests
 npm run worldgen     # rebuild world JSON from the zMUD source DB
 ```
 
@@ -32,15 +32,16 @@ and restarting is the whole of "installing" a zone.
 
 ## State: green
 
-- **862 tests** (477 server, 312 shared, 73 worldgen), typecheck clean across all five packages.
+- **912 tests** (498 server, 341 shared, 73 worldgen), typecheck clean across all five packages.
 - `data/` is git-ignored and reproducible by `npm run worldgen` — **except `data/world/overrides/`**,
   which is hand-authored content no command can regenerate and is therefore the one thing under
   `data/` that git tracks. See `server/src/overrides.ts`.
 - Four zones loaded, 23 places: **36 IceCrag Castle** (219 rooms, 11 levels) and **168 Kobold
   Settlement** (99 rooms, 6 levels), both Duris-matched and carrying harvested prose, flags and real
   terrain; plus **260 The Stag Forest** and **261 The Stump Bog** (98 + 93 rooms), unmatched but joined
-  by 13 exits each way, which is what cross-zone travel is tested against. Spawn is room 281, IceCrag's
-  approach road.
+  by 13 exits each way, which is what cross-zone travel is tested against. **Spawn moved in Phase 14b**
+  to room 41260, An Overgrown Field, in the Kobold Settlement — IceCrag's population runs level 15–60
+  and a new character could not win a fight anywhere they could walk to. 168 is populated now too.
 
 ### Built and verified
 
@@ -77,7 +78,10 @@ and restarting is the whole of "installing" a zone.
 | Assist | `ACT_PROTECTOR`, room-scoped as the source has it. 34 of IceCrag's 61 templates |
 | Death | A mob dies, is removed, and leaves a corpse where it fell. Players stop at the dying window |
 | Morale | `ACT_WIMPY` below `level * 6` hit points — **absolute, not a fraction**, because hp is rolled per instance. Checked on the mob's own round boundary; a cornered one fights on. 8 of IceCrag's 61 templates, 5 of them placed, and they are the castle's *staff* rather than its guards |
-| Fleeing | One `do_flee` for players and mobs. 78–86% by exits, automatic when not engaged, costs 20–30 movement, a closed door is not a way out. A mob that can path runs **toward its allies**; whatever it fled starts hunting it |
+| Fleeing | One `do_flee` for players and mobs. 78–86% by exits, automatic when not engaged, costs 20–30 movement, a closed door is not a way out. A mob that can path runs **toward its allies**; whatever it fled starts hunting it. **Escaping a fight also leaves you winded for 60 s — nothing mends.** Refreshed on every flight so a pursuit cannot be out-waited, paid by mob and player alike, and not charged for a flight from nothing |
+| Pursuit that closes | A mob that flees leaves you pointing at its **entity id**; arriving where it stands re-engages *that* body — `kill youth` would pick the freshest youth instead. Passes the same watch-set gate a typed kill does, so a mob that flees into darkness is gone. `server/src/pursue.ts` |
+| Progression | **SRD sets the shape, Duris sets the magnitudes** (`DESIGN-progression.md`). 22 hit points at level 1 against the SRD's 9; +1d4 a level below 26, +1 above, rolled once and **stored**. Duris' own step experience table, per level and subtractive. Experience finally buys something |
+| Starting equipment | A kit rolled at creation into `DESIGN-inventory.md` §6's slots — tunic, leggings, boots, cap, gloves, a weapon — each with its own armour band, so two level-1 characters are genuinely different (AC 12–19). Seeded and stored, so reconnecting is not a reroll |
 | Corpses | Decay on a clock (5 min; 30 for a player's), lootable within reach, `loot` refused in combat, and `loot` takes the **nearest unlooted** body |
 | Corpse sprites | A pile of bones, and a **single bone once picked clean** — so "has anyone been here" reads from across the room |
 | Experience | Divided by contribution: damage **dealt**, damage **taken**, and support. Pool harvested from the `.mob` record. The breakdown is printed |

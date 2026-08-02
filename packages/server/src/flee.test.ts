@@ -13,6 +13,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  TICK_MS,
+  WINDED_AFTER_FLEE_MS,
   type RoomFlag,
   boundsOf,
   huntRule,
@@ -196,6 +198,54 @@ describe('breaking contact', () => {
     assert.equal(outcome.kind, 'fled');
     if (outcome.kind === 'fled') assert.equal(outcome.cost, 0);
   });
+
+  it('winds whoever escapes a fight — player or mob — so the chase cannot be out-healed', () => {
+    // The owner's lever (2026-08-02). One flee, one price: this function serves both kinds of actor,
+    // and so does the wind. rng 0 wins every escape roll, so the flight itself cannot fail here.
+    const first = makeFixture();
+    engage(first.scheduler, first.player, first.mob);
+    engage(first.scheduler, first.mob, first.player);
+    assert.equal(attemptFlee(first.deps, first.mob).kind, 'fled');
+    assert.equal(first.mob.windedMs, WINDED_AFTER_FLEE_MS);
+
+    const second = makeFixture();
+    engage(second.scheduler, second.mob, second.player);
+    engage(second.scheduler, second.player, second.mob);
+    assert.equal(attemptFlee(second.deps, second.player).kind, 'fled');
+    assert.equal(second.player.windedMs, WINDED_AFTER_FLEE_MS);
+  });
+
+  it('does not wind a flight from nothing — outside combat, flee is only a panicky walk', () => {
+    // Review's catch: outside combat the command always succeeds and costs one keypress, and winding
+    // it would put a sixty-second blackout on ordinary movement. The price belongs to breaking away
+    // from something swinging at you.
+    const { deps, player } = makeFixture();
+    assert.equal(attemptFlee(deps, player).kind, 'fled');
+    assert.equal(player.windedMs, 0);
+  });
+
+  it('does not wind a failed flight — panic keeps you in the fight, and fighting already stops regen', () => {
+    const { deps, scheduler, player, mob } = makeFixture({}, () => 0.999);
+    engage(scheduler, mob, player);
+    engage(scheduler, player, mob);
+    assert.equal(attemptFlee(deps, player).kind, 'panicked');
+    assert.equal(player.windedMs, 0, 'the wind is the price of the flight, not of the attempt');
+  });
+
+  it('refreshes on every flight, so a pursuit never out-waits it', () => {
+    const { deps, scheduler, sim, player, mob } = makeFixture();
+    engage(scheduler, player, mob);
+    engage(scheduler, mob, player);
+    assert.equal(attemptFlee(deps, mob).kind, 'fled');
+    mob.windedMs = 1_000; // most of the first window has been chased away
+    // The player catches up and re-engages in the room it fled to — the real chase's shape.
+    sim.relocate(player, mob.roomId);
+    engage(scheduler, player, mob);
+    engage(scheduler, mob, player);
+    const again = attemptFlee(deps, mob);
+    assert.equal(again.kind, 'fled');
+    assert.equal(mob.windedMs, WINDED_AFTER_FLEE_MS, 'back to the full window');
+  });
 });
 
 describe('which way it runs', () => {
@@ -238,6 +288,44 @@ describe('which way it runs', () => {
     // No allies anywhere: the search finds nothing and the random pick stands.
     const dir = chooseDirection(deps, mob, ['north', 'east']);
     assert.ok(['north', 'east'].includes(dir));
+  });
+});
+
+describe('the wind, on the clock', () => {
+  /** Runs whole ticks. Movement is a no-op with no intents, so this is regen and timers alone. */
+  const run = (sim: Simulation, ms: number): void => {
+    for (let t = 0; t < ms; t += TICK_MS) sim.tick();
+  };
+
+  it('a winded body does not mend, and mends again once the wind returns', () => {
+    const { sim, mob } = makeFixture();
+    mob.hp = 5;
+    mob.windedMs = 2_000;
+    run(sim, 2_000);
+    assert.equal(mob.hp, 5, 'no healing inside the window');
+    assert.equal(mob.windedMs, 0, 'and the window has been counted down by the same ticks');
+    // 13 hp/minute needs ~4.6 s a point; a minute of calm afterwards is unmistakably healing.
+    run(sim, 60_000);
+    assert.ok(mob.hp > 5, `healed once the wind came back (hp ${mob.hp})`);
+  });
+
+  it('a fighting body does not mend either — the rule vitals authored, finally wired', () => {
+    // `regenPerMinute` said "fighting means zero" from the day it was written, and the one call site
+    // never passed the option: every combatant quietly trickled 13 hp a minute through their own
+    // fights. Found while wiring the winded lever beside it.
+    const { sim, scheduler, player, mob } = makeFixture();
+    engage(scheduler, player, mob, { immediate: true });
+    player.hp = 5;
+    run(sim, 30_000);
+    assert.equal(player.hp, 5, 'no trickle while the fight stands');
+  });
+
+  it('the countdown runs even for a body regeneration skips, so the wind cannot become permanent', () => {
+    const { sim, player } = makeFixture();
+    sim.setStance(player, { status: 'dying' });
+    player.windedMs = 1_000;
+    run(sim, 1_500);
+    assert.equal(player.windedMs, 0);
   });
 });
 

@@ -854,7 +854,7 @@ function levelUpIfEarned(player: Player): void {
     text:
       `&+WYou raise a level!&N You are now level ${player.level}` +
       (result.gained > 1 ? ` (up ${result.gained} from ${before})` : '') +
-      `, with ${result.hitPointsGained} more hit points.`,
+      `, with ${result.hitPointsGained} more hit point${result.hitPointsGained === 1 ? '' : 's'}.`,
   });
   // Persisted at once, for the owner's rule that progress is permanent: a level gained and then lost
   // to a crash is the worst possible bug in a progression system.
@@ -1422,7 +1422,11 @@ function runFlee(actor: Actor): FleeOutcome {
       // Everyone whose pointer this broke — they stopped swinging and their combat indicator must go.
       for (const other of outcome.changed) syncEntityState(other);
       if (self) {
-        send(self.id, { t: 'log', channel: 'combat', text: `You flee ${outcome.dir}!` });
+        // The wind is named or it is a mystery: without this line the player's bars simply stop for a
+        // minute and the game looks broken. Review's finding, and it is right — a cost the player
+        // cannot see is indistinguishable from a bug.
+        const winded = self.windedMs > 0 ? ' You are winded, and will not recover until you catch your breath.' : '';
+        send(self.id, { t: 'log', channel: 'combat', text: `You flee ${outcome.dir}!${winded}` });
         // The whole arrival, exactly as walking through the exit would produce: the departure diff for
         // the room behind, the map and bitset if the Place changed, the new room's description.
         announceArrival(self, outcome.from, outcome.fromPlace, outcome.dir);
