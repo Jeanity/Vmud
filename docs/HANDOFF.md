@@ -23,8 +23,9 @@ npm test             # 714 tests
 npm run worldgen     # rebuild world JSON from the zMUD source DB
 ```
 
-Client on **5273**, game server on **8787**. The server reads **`GAME_PORT`, never `PORT`** — dev
-harnesses set `PORT` for the web server and `concurrently` passes it to every child.
+Client on **5273**, game server on **8787**, admin panel on **5274** (`npm run dev` starts all
+three). The server reads **`GAME_PORT`, never `PORT`** — dev harnesses set `PORT` for the web server
+and `concurrently` passes it to every child.
 
 Which zones load is **data, not code**: `world.config.json` at the repo root. Adding a zone id there
 and restarting is the whole of "installing" a zone.
@@ -79,6 +80,7 @@ and restarting is the whole of "installing" a zone.
 | UI shell | Three columns — log, map, character sheet. Both side panes collapse to a rail and remember it; collapsing one gives the map two thirds |
 | Vitals | Pinned **over the map**, not in the sheet — pools, light, stance, affects and room are on screen whatever the panes are doing |
 | Equipment panel | Paper doll, `DESIGN-inventory.md` §6's eleven slots. Only the main hand can fill today, from the carried light |
+| Admin panel | `@mygame/admin` on 5274, a client of `/admin/api` on the game server. Players section built: live edits through the sim's own seams, offline edits through the store, refusal over pretence, every mutation audited to `data/admin-audit.jsonl`. Global announce works; zones/mobs/items/quests are honest stubs. See `DESIGN-admin-panel.md` |
 
 ### Not built
 
@@ -175,6 +177,7 @@ See `CLAUDE.md` for the full list. The ones that bite hardest:
 | `DESIGN-mobs-and-movement.md` | Mobs, reaction time, aggression, threat, pursuit, loot, quest hooks |
 | `DESIGN-inventory.md` | Slots, item sizes, stacking vs uses, containers, equipment |
 | `DESIGN-visibility-and-light.md` | The visibility model, light as progression, pointer movement |
+| `DESIGN-admin-panel.md` | The admin suite: architecture, auth, the section-by-section plan, and what the built players slice proves |
 | `RESEARCH-map-data.md` | Where the world data comes from, and the traps in it |
 | `PLAN-3d-migration.md` | If the 3D question returns: engine choice, costs, milestones, go/no-go |
 
@@ -690,6 +693,13 @@ Two consequences worth knowing:
 - **Container nesting depth.** Proposed max 2 (inventory → container → items), which kills the
   infinite-storage exploit outright rather than mitigating it. Not agreed.
 
-- **An admin suite** for authoring mobs, items, equipment and quests. Requested, not scoped. It
-  should read and write the same validated data files the game loads — content that can only be
-  edited through a tool is hostage to the tool.
+- **The admin suite is scoped and its first slice is built** — see
+  [DESIGN-admin-panel.md](DESIGN-admin-panel.md), off-roadmap at the owner's request (2026-08-02).
+  The players section works end to end (verified live: pools, the level rig, lights, cross-Place
+  teleport, tell, kick, offline wound edits round-tripped through a real login, delete, announce).
+  Open within it, in order: **messaging to a place or room** (wants the zones section's room
+  browser), then **zones and mobs** — reads and live ops first, authoring as overlay files under
+  `data/world/overrides/` so `npm run worldgen` cannot clobber hand-authored content. Items and
+  quests tabs stay stubs until Phases 15 and 17 exist to give them something to edit. The original
+  principle stands and is §1 of the doc: the server is the only writer, and content that can only
+  be edited through a tool is hostage to the tool.

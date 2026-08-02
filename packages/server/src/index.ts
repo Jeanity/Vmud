@@ -17,6 +17,8 @@
  */
 
 import { createServer } from 'node:http';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { WebSocketServer, type WebSocket } from 'ws';
 
@@ -71,6 +73,7 @@ import { canWalkStraightTo, findPath, type PathFailure } from '@mygame/shared/pa
 import { bitsToBase64, bitsetToSet } from '@mygame/shared/vision.ts';
 
 import { UNSEEN_NAME, actLines } from './act.ts';
+import { AdminApi, serveAdmin, type LiveOps } from './admin.ts';
 import {
   COMMANDS,
   COMMAND_REQUIREMENTS,
@@ -2156,7 +2159,98 @@ function handle(player: Player, message: ClientMessage): void {
   }
 }
 
+/**
+ * The admin API — routing, validation and audit live in `admin.ts`, which is testable; what lives
+ * here is only what genuinely needs this file's helpers. Each operation owes the affected client
+ * its updates, and pays that debt through the same paths the game itself uses: a vitals change is
+ * told the way combat tells it, a teleport is a whole `announceArrival`, a granted light rides the
+ * relit queue exactly as a picked-up torch does (the next tick's `applyRelight` sends the `self`
+ * and the seen delta — nothing here needs to).
+ */
+const ADMIN_TOKEN = process.env.GAME_ADMIN_TOKEN || undefined;
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+
+const adminLive: LiveOps = {
+  online: () => [...sim.allPlayers()],
+  setVitals(player, pools) {
+    if (pools.hp !== undefined) player.hp = pools.hp;
+    if (pools.mana !== undefined) player.mana = pools.mana;
+    if (pools.move !== undefined) player.move = pools.move;
+    // The same consequence order a wound has: status follows the pools, then the owner hears their
+    // own numbers and the room sees the health bar move.
+    sim.refreshStatus(player);
+    send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+    syncEntityState(player);
+  },
+  setLevel(player, level) {
+    // `GAME_DEV_LEVEL`'s own arithmetic, per character — a test rig, not a progression, exactly as
+    // the join-time switch is. It lapses at disconnect for the same reason the switch does: nothing
+    // persists a level yet, and inventing that persistence here is what `ROADMAP.md` §4 forbids.
+    const profile = devProfile(level);
+    player.level = level;
+    player.maxHp = profile.maxHp;
+    player.hp = profile.maxHp;
+    player.combat = profile.combat;
+    player.roundMs = profile.combat.roundMs;
+    sim.refreshStatus(player);
+    send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+    syncEntityState(player);
+  },
+  setLight(player, source) {
+    sim.setCarriedLight(player, source);
+  },
+  clearAffects(player) {
+    sim.restoreAffects(player, []);
+  },
+  teleport(player, room) {
+    const from = player.roomId;
+    const fromPlace = player.place;
+    if (!sim.relocate(player, room)) return false;
+    // The tick's own transition order: arrival first, then engagement broken both ways — leaving
+    // the room ends a fight, and a summons is a way of leaving the room.
+    announceArrival(player, from, fromPlace);
+    for (const actor of clearEngagements(scheduler, sim, player)) syncEntityState(actor);
+    return true;
+  },
+  tell(player, text) {
+    send(player.id, { t: 'log', channel: 'system', text: `[Admin] ${text}` });
+  },
+  kick(player) {
+    // The line lands before the close so the player is told rather than dropped; the close handler
+    // does every piece of the ordinary disconnect bookkeeping.
+    send(player.id, { t: 'log', channel: 'system', text: 'You have been disconnected by an admin.' });
+    sockets.get(player.id)?.close();
+  },
+};
+
+const admin = new AdminApi({
+  world,
+  store,
+  live: adminLive,
+  announce: (text) => {
+    let heard = 0;
+    for (const player of sim.allPlayers()) {
+      send(player.id, { t: 'log', channel: 'system', text: `[Announcement] ${text}` });
+      heard++;
+    }
+    return heard;
+  },
+  token: ADMIN_TOKEN,
+  auditFile: join(REPO_ROOT, 'data', 'admin-audit.jsonl'),
+  facts: { protocol: PROTOCOL_VERSION, tickMs: TICK_MS, roundMs: ROUND_MS, startedAt: Date.now() },
+});
+// Announced at boot like every other switch, so a server quietly running an open admin API is not a
+// thing that can happen unnoticed. Loopback-only is inherited from the bind at the bottom of this file.
+console.log(
+  `[admin] api on http://127.0.0.1:${PORT}/admin/api — ` +
+    (ADMIN_TOKEN ? 'GAME_ADMIN_TOKEN required' : 'GAME_ADMIN_TOKEN not set: open on loopback'),
+);
+
 const http = createServer((req, res) => {
+  if (req.url?.startsWith('/admin/api')) {
+    serveAdmin(admin, req, res);
+    return;
+  }
   if (req.url === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(

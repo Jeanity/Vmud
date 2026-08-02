@@ -1,0 +1,142 @@
+/**
+ * The panel's one way of talking to the game server.
+ *
+ * Every request goes to `/admin/api/...` on this page's own origin — the Vite dev server proxies it
+ * to the game server — and carries the `x-admin-token` header, whose presence is required before its
+ * value matters (see `DESIGN-admin-panel.md` §3). The token itself lives in `localStorage`, entered
+ * through the header field; when the server has no `GAME_ADMIN_TOKEN`, any value passes.
+ */
+
+const TOKEN_KEY = 'mygame-admin-token';
+
+export function storedToken(): string {
+  return localStorage.getItem(TOKEN_KEY) ?? 'dev';
+}
+
+export function rememberToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export interface ApiResult<T> {
+  readonly ok: boolean;
+  readonly status: number;
+  /** The parsed body on success. */
+  readonly body: T | undefined;
+  /** The server's own sentence on failure — written for a person, so show it verbatim. */
+  readonly error: string | undefined;
+}
+
+export async function call<T>(method: string, path: string, body?: unknown): Promise<ApiResult<T>> {
+  try {
+    const response = await fetch(`/admin/api${path}`, {
+      method,
+      headers: {
+        'x-admin-token': storedToken(),
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    const parsed: unknown = await response.json().catch(() => undefined);
+    if (!response.ok) {
+      const error =
+        typeof (parsed as { error?: unknown } | undefined)?.error === 'string'
+          ? (parsed as { error: string }).error
+          : `${response.status} ${response.statusText}`;
+      return { ok: false, status: response.status, body: undefined, error };
+    }
+    return { ok: true, status: response.status, body: parsed as T, error: undefined };
+  } catch {
+    return { ok: false, status: 0, body: undefined, error: 'game server unreachable — is `npm run dev` running?' };
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Response shapes — hand-written mirrors of what `server/src/admin.ts` sends   */
+/* -------------------------------------------------------------------------- */
+
+export interface StatusBody {
+  ok: boolean;
+  startedAt: number;
+  uptimeMs: number;
+  protocol: number;
+  tickMs: number;
+  roundMs: number;
+  playersOnline: number;
+  places: number;
+  spawn: { room: number; name: string };
+  zones: { id: number; name: string; rooms: number; levels: number[]; populated: boolean }[];
+  lights: { id: string; name: string; radius: number; mode: string; durationMs: number | null }[];
+  token: string;
+}
+
+export interface RoomRef {
+  id: number;
+  name: string;
+}
+
+export interface AffectRow {
+  type: string;
+  apply: string;
+  modifier: number;
+  durationMs: number | null;
+  context: string | null;
+}
+
+export interface LiveHalf {
+  slug: string;
+  name: string;
+  id: number;
+  level: number;
+  experience: number;
+  hp: number;
+  maxHp: number;
+  mana: number;
+  maxMana: number;
+  move: number;
+  maxMove: number;
+  posture: string;
+  status: string;
+  fighting: number | null;
+  room: RoomRef | null;
+  place: string;
+  light: { id: string; name: string; radius: number } | null;
+  affects: AffectRow[];
+}
+
+export interface StoredHalf {
+  savedAt: string | null;
+  lastRoom: RoomRef | null;
+  seenPlaces: number;
+  seenTiles: number;
+  takenCount: number;
+  wound: { hp: number; mana: number; move: number } | null;
+  affects: AffectRow[];
+}
+
+export interface PlayerDetail {
+  slug: string;
+  name: string;
+  online: boolean;
+  live?: LiveHalf;
+  record: StoredHalf;
+}
+
+export interface StoredSummary {
+  slug: string;
+  name: string;
+  savedAt: string | undefined;
+  lastRoom: number | undefined;
+  seenTiles: number;
+  takenCount: number;
+  affectCount: number;
+  wound: { hp: number; mana: number; move: number } | undefined;
+}
+
+export interface RosterBody {
+  online: LiveHalf[];
+  stored: StoredSummary[];
+}
+
+export interface RoomsBody {
+  rooms: { id: number; name: string; zone: number; zoneName: string; level: number }[];
+}

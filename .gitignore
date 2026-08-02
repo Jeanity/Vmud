@@ -12,6 +12,9 @@ data/world/
 # Per-character save data (explored maps, and eventually inventories).
 data/players/
 
+# The admin API's audit trail. Runtime history, not content.
+data/admin-audit.jsonl
+
 # Art assets are large and fetched from upstream; keep LICENSE files only.
 assets/**
 !assets/**/LICENSE

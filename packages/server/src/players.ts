@@ -22,7 +22,7 @@
  * respawn on every restart. Nothing here knows what a pickup *is*; see `pickups.ts`.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -188,6 +188,27 @@ interface StoredAffect {
   modifier: number;
   flags: number;
   context?: string;
+}
+
+/**
+ * One character file as the roster sees it — identity plus counts, never the contents.
+ *
+ * What the admin panel's player list is built from. Counts rather than the data itself because the
+ * roster is a table, not an editor: shipping every bitset to draw "12,408 tiles seen" would be most
+ * of the file for none of the use.
+ */
+export interface StoredSummary {
+  /** The filename's identity — what every store operation keys on. */
+  readonly slug: string;
+  readonly name: string;
+  /** When the file was last written, or undefined for a record not yet flushed. */
+  readonly savedAt: string | undefined;
+  readonly lastRoom: RoomId | undefined;
+  readonly seenTiles: number;
+  readonly takenCount: number;
+  readonly affectCount: number;
+  /** The stored deficit, when one is recorded. See {@link PlayerRecord.missing}. */
+  readonly wound: { hp: number; mana: number; move: number } | undefined;
 }
 
 /**
@@ -477,6 +498,150 @@ export class PlayerStore {
 
   flushAll(): void {
     for (const record of this.records.values()) this.flush(record);
+  }
+
+  /**
+   * Every character on disk, summarised. For the admin roster.
+   *
+   * **The cache wins over the file.** A loaded record may be ahead of its debounced write, and a
+   * roster that showed the stale file would have an admin "fix" an edit that already happened. The
+   * file still supplies `savedAt` — the record does not carry one, because the write time is a fact
+   * about the file.
+   *
+   * A file whose stored name does not slugify back to its own filename is skipped with a warning
+   * rather than listed: `load` keys on the *name*, so such a file can never be coherently loaded, and
+   * offering it in a roster would offer edits that land somewhere else. Hand-editing is how one
+   * arises, and the warning says which file to fix.
+   */
+  list(): StoredSummary[] {
+    const out: StoredSummary[] = [];
+    let files: string[];
+    try {
+      files = readdirSync(this.dir).filter((f) => f.endsWith('.json'));
+    } catch {
+      return out;
+    }
+    for (const file of files) {
+      const slug = file.slice(0, -'.json'.length);
+      let stored: StoredRecord;
+      try {
+        stored = JSON.parse(readFileSync(join(this.dir, file), 'utf8')) as StoredRecord;
+      } catch {
+        console.warn(`[players] ${file}: unreadable, skipped from the roster`);
+        continue;
+      }
+      const name = typeof stored.name === 'string' && stored.name.length > 0 ? stored.name : slug;
+      if (slugify(name) !== slug) {
+        console.warn(
+          `[players] ${file}: stored name "${name}" does not match its filename — ` +
+            `fix the file by hand; it cannot be loaded under either identity`,
+        );
+        continue;
+      }
+      const savedAt = typeof stored.savedAt === 'string' ? stored.savedAt : undefined;
+      const cached = this.records.get(slug);
+      if (cached) {
+        out.push({
+          slug,
+          name: cached.name,
+          savedAt,
+          lastRoom: cached.lastRoom,
+          seenTiles: seenTileCount(cached),
+          takenCount: cached.taken.size,
+          affectCount: cached.affects.length,
+          wound: cached.missing ? { ...cached.missing } : undefined,
+        });
+        continue;
+      }
+      // Decoded with the same functions `load` uses, so a malformed field counts as what it would
+      // load as — but deliberately not cached: a roster read must not populate the cache with
+      // records nothing is playing.
+      const record: PlayerRecord = {
+        name,
+        seen: decodeSeen(stored.seen),
+        taken: decodeTaken(stored.taken),
+        affects: decodeAffects(stored, 0),
+        lastRoom: stored.lastRoom,
+        missing: decodeMissing(stored.missing),
+      };
+      out.push({
+        slug,
+        name,
+        savedAt,
+        lastRoom: record.lastRoom,
+        seenTiles: seenTileCount(record),
+        takenCount: record.taken.size,
+        affectCount: record.affects.length,
+        wound: record.missing,
+      });
+    }
+    return out.sort((a, b) => a.slug.localeCompare(b.slug));
+  }
+
+  /**
+   * Sets the stored wound directly — the admin's offline vitals editor.
+   *
+   * {@link setMissing} takes pools and maxima because its caller holds a live character; an offline
+   * record has neither, only the deficit itself, so this is the same fact accepted in the shape the
+   * file already stores it. Sanitised exactly as the loader would: rounded, floored at zero, and
+   * all-zero collapsing to "unhurt".
+   */
+  setWound(record: PlayerRecord, wound: { hp?: number; mana?: number; move?: number } | undefined): void {
+    const clean = (v: number | undefined): number =>
+      typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.round(v)) : 0;
+    const next = wound ? { hp: clean(wound.hp), mana: clean(wound.mana), move: clean(wound.move) } : undefined;
+    const value = next && (next.hp > 0 || next.mana > 0 || next.move > 0) ? next : undefined;
+
+    const current = record.missing;
+    if (current === value) return;
+    if (current && value && current.hp === value.hp && current.mana === value.mana && current.move === value.move) {
+      return;
+    }
+    record.missing = value;
+    this.touch(record);
+  }
+
+  /**
+   * Forgets every ground pickup this character has collected, and says how many.
+   *
+   * The tester's "give me my torches back": pickups are per-character facts (see `pickups.ts`), so
+   * clearing the set makes every room offer its find again — for this character and nobody else.
+   * Safe while online for the same reason: `hasTaken` reads this set at walk time.
+   */
+  clearTaken(record: PlayerRecord): number {
+    const count = record.taken.size;
+    if (count === 0) return 0;
+    record.taken.clear();
+    this.touch(record);
+    return count;
+  }
+
+  /**
+   * Removes a character: the cached record, any pending write, and the file.
+   *
+   * Returns whether a file was actually deleted. The cache is evicted even when no file exists, so
+   * a character created this session and never flushed is gone too — the next `load` of the name
+   * starts blank, which is the whole meaning of deletion here.
+   *
+   * The caller is responsible for refusing this while the character is online: the store cannot see
+   * connections, and deleting under a live session would have the disconnect faithfully write the
+   * whole record straight back.
+   */
+  delete(name: string): boolean {
+    const slug = slugify(name);
+    if (!slug) return false;
+    const pending = this.timers.get(slug);
+    if (pending) {
+      clearTimeout(pending);
+      this.timers.delete(slug);
+    }
+    this.records.delete(slug);
+    try {
+      unlinkSync(join(this.dir, `${slug}.json`));
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 

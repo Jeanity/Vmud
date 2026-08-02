@@ -464,3 +464,91 @@ describe('migrating a pre-v4 save', () => {
     assert.match(warnings[0] ?? '', /discarding 2 pre-v4 explored rooms/);
   });
 });
+
+describe('the admin edits', () => {
+  it('lists what is on disk, and prefers the cache over a stale file', () => {
+    const { store, dir } = makeStore();
+    const record = store.load('Wanderer');
+    store.markSeen(record, GROUND, 288, [0, 5, 287]);
+    store.markTaken(record, 'pickup:6001:0');
+    store.setLastRoom(record, 6001);
+    store.flush(record);
+
+    // A second character written by hand, as a restart would find it.
+    writeFileSync(
+      join(dir, 'stray.json'),
+      JSON.stringify({ name: 'Stray', taken: ['a', 'b'], savedAt: '2026-08-01T00:00:00.000Z' }),
+    );
+
+    const roster = store.list();
+    assert.deepEqual(roster.map((s) => s.slug), ['stray', 'wanderer']);
+    const wanderer = roster[1]!;
+    assert.equal(wanderer.name, 'Wanderer');
+    assert.equal(wanderer.seenTiles, 3);
+    assert.equal(wanderer.takenCount, 1);
+    assert.equal(wanderer.lastRoom, 6001);
+    assert.equal(roster[0]!.takenCount, 2);
+
+    // The cache is ahead of the file: the roster must report the edit, not the write behind it.
+    store.markTaken(record, 'pickup:6001:1');
+    assert.equal(store.list()[1]!.takenCount, 2, 'the unflushed edit is the truth');
+  });
+
+  it('skips a file whose stored name does not match its filename, with a warning', () => {
+    const { store, dir } = makeStore();
+    writeFileSync(join(dir, 'ravi.json'), JSON.stringify({ name: 'Somebody Else', savedAt: 'x' }));
+    const { result: roster, warnings } = quietly(() => store.list());
+    assert.equal(roster.length, 0);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0] ?? '', /does not match its filename/);
+  });
+
+  it('sets the wound directly, sanitised the way the loader would', () => {
+    const { store, dir } = makeStore();
+    const record = store.load('Bruised');
+
+    store.setWound(record, { hp: 4.6, mana: -3, move: Number.NaN });
+    assert.deepEqual(record.missing, { hp: 5, mana: 0, move: 0 });
+    store.flush(record);
+    assert.deepEqual(readSaved(dir, 'Bruised')['missing'], { hp: 5, mana: 0, move: 0 });
+
+    // All-zero is "unhurt", which is stored as nothing at all.
+    store.setWound(record, { hp: 0 });
+    assert.equal(record.missing, undefined);
+    store.flush(record);
+    assert.equal('missing' in readSaved(dir, 'Bruised'), false);
+
+    store.setWound(record, undefined);
+    assert.equal(record.missing, undefined);
+  });
+
+  it('clears the taken set and reports how many went', () => {
+    const { store } = makeStore();
+    const record = store.load('Collector');
+    store.markTaken(record, 'one');
+    store.markTaken(record, 'two');
+    assert.equal(store.clearTaken(record), 2);
+    assert.equal(record.taken.size, 0);
+    assert.equal(store.clearTaken(record), 0, 'clearing nothing is a no-op, not a dirty write');
+  });
+
+  it('deletes the file and the cached record together', () => {
+    const { store, dir } = makeStore();
+    const record = store.load('Doomed');
+    store.markSeen(record, GROUND, 288, [1, 2, 3]);
+    store.flush(record);
+    assert.equal(store.list().length, 1);
+
+    assert.equal(store.delete('Doomed'), true);
+    assert.equal(store.list().length, 0);
+    // The cache went too: a reload starts blank rather than resurrecting the evicted record.
+    assert.equal(seenTileCount(store.load('Doomed')), 0);
+
+    // Deleting a character who was never flushed still evicts the cache, and says no file went.
+    const ghost = store.load('Ghost');
+    store.markSeen(ghost, GROUND, 288, [9]);
+    assert.equal(store.delete('Ghost'), false);
+    assert.equal(seenTileCount(store.load('Ghost')), 0);
+    void dir;
+  });
+});

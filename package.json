@@ -8,9 +8,10 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -n server,client -c cyan,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev": "concurrently -n server,client,admin -c cyan,magenta,yellow \"npm:dev:server\" \"npm:dev:client\" \"npm:dev:admin\"",
     "dev:server": "npm run dev --workspace @mygame/server",
     "dev:client": "npm run dev --workspace @mygame/client",
+    "dev:admin": "npm run dev --workspace @mygame/admin",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
