@@ -31,6 +31,15 @@ import {
   type ZoneId,
 } from '@mygame/shared';
 
+import {
+  applyOverridesToZone,
+  applyRoomOverride,
+  loadRoomOverrides,
+  mergeOverride,
+  type RoomOverride,
+  type RoomOverrides,
+} from './overrides.ts';
+
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 export const WORLD_DIR = join(REPO_ROOT, 'data', 'world');
@@ -268,10 +277,29 @@ export class GameWorld {
   /** How many authored locks were cleared at load. See {@link LOCKS_HOLD}. */
   readonly locksRelaxed: number;
 
-  constructor(zones: readonly Zone[], spawn: SpawnConfig, populate: readonly ZoneId[] = []) {
+  /**
+   * Hand-authored room content, composed over the generated zones at construction.
+   *
+   * Held rather than discarded because the admin panel edits *this*, not the zone files — a write
+   * merges into this map, saves it, and applies the patch to the live room in one motion. See
+   * `overrides.ts` for why authoring cannot live in the generated data.
+   */
+  readonly overrides: RoomOverrides;
+
+  /** How many rooms carry authored content. Reported at boot so a lost overlay is visible. */
+  readonly roomsAuthored: number;
+
+  constructor(
+    zones: readonly Zone[],
+    spawn: SpawnConfig,
+    populate: readonly ZoneId[] = [],
+    overrides: RoomOverrides = new Map(),
+  ) {
     this.populate = populate;
     this.spawn = spawn;
+    this.overrides = overrides;
     let relaxed = 0;
+    let authored = 0;
     for (const zone of zones) {
       if (this.zonesById.has(zone.id)) continue;
       this.zonesById.set(zone.id, zone);
@@ -279,6 +307,9 @@ export class GameWorld {
       // Before the grids are built from it: `buildZoneTilemap` reads `closed`, so a later unlock would
       // leave a cached grid disagreeing with the door it was carved from.
       if (!LOCKS_HOLD) relaxed += relaxLocks(zone);
+      // Also before the grids: an override can change a room's sector, and the tilemap is carved from
+      // sectors. Composing after the fact would leave the map showing the terrain the harvest had.
+      authored += applyOverridesToZone(zone, overrides);
 
       const levels = new Set<number>();
       for (const room of zone.rooms) {
@@ -290,15 +321,17 @@ export class GameWorld {
       for (const level of sorted) this.places.push({ zone: zone.id, level });
     }
     this.locksRelaxed = relaxed;
+    this.roomsAuthored = authored;
   }
 
-  /** Loads every zone named in the config. Throws with the offending path if anything is wrong. */
+  /** Loads every zone named in the config, with the authored overlay composed on top. */
   static load(configPath: string = CONFIG_PATH): GameWorld {
     const config = loadWorldConfig(configPath);
     return new GameWorld(
       config.zones.map((id) => loadZone(id)),
       config.spawn,
       config.populate,
+      loadRoomOverrides(),
     );
   }
 
@@ -332,6 +365,29 @@ export class GameWorld {
 
   locate(roomId: RoomId): LocatedRoom | undefined {
     return this.index.get(roomId);
+  }
+
+  /**
+   * Writes authored content onto a room, live.
+   *
+   * The one entry point for A5's editor, and it does three things that must happen together or not
+   * at all: merge the patch into {@link overrides} so it survives a restart, apply it to the room the
+   * simulation is holding so it takes effect without one, and **drop the cached tilemap when the
+   * terrain changed** — the grid is carved from sectors, so a cached one would keep rendering, and
+   * keep charging movement for, the terrain the harvest had.
+   *
+   * Returns whether the Place needs redrawing, which is the caller's cue to resend `zone` to whoever
+   * is standing on it. The client rebuilds its grid from that message with the same function the
+   * server uses, so one resync fixes both copies. Persisting is the caller's job too — it is I/O, and
+   * this class does none.
+   */
+  authorRoom(roomId: RoomId, patch: RoomOverride, now: string): { room: Room; place: Place; regrid: boolean } | undefined {
+    const located = this.index.get(roomId);
+    if (!located) return undefined;
+    const regrid = patch.sector !== undefined && patch.sector !== located.room.sector;
+    applyRoomOverride(located.room, mergeOverride(this.overrides, roomId, patch, now));
+    if (regrid) this.grids.delete(placeKey(located.place));
+    return { room: located.room, place: located.place, regrid };
   }
 
   /**

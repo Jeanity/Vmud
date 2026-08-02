@@ -176,15 +176,26 @@ export interface RoomExit {
   readonly portal?: boolean;
 }
 
-export type RoomFlag =
-  | 'dark'
-  | 'no_mob'
-  | 'indoors'
-  | 'peaceful'
-  | 'no_magic'
-  | 'no_recall'
-  | 'death_trap'
-  | 'safe';
+/**
+ * Room flags, as a runtime catalogue rather than a bare union.
+ *
+ * Same shape as {@link SECTORS} and for the same reason: an editor has to *offer* the list, and a
+ * loader has to reject anything not on it. A type-only union can do neither — it vanishes at run
+ * time, so a hand-written `"peacful"` in an authored overlay would sail through into a room whose
+ * peace flag is never read again. See `server/src/overrides.ts`.
+ */
+export const ROOM_FLAGS = [
+  'dark',
+  'no_mob',
+  'indoors',
+  'peaceful',
+  'no_magic',
+  'no_recall',
+  'death_trap',
+  'safe',
+] as const;
+
+export type RoomFlag = (typeof ROOM_FLAGS)[number];
 
 export interface Room {
   readonly id: RoomId;

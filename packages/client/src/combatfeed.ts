@@ -16,6 +16,8 @@
  * the owner's chosen trade; the vitals stay pinned to the map either way.
  */
 
+import { paint } from './paint.ts';
+
 /** How many lines are kept. The whole of a long fight, since nothing else carries them now. */
 const MAX_LINES = 150;
 
@@ -30,7 +32,10 @@ export class CombatFeed {
 
   push(text: string): void {
     const line = document.createElement('div');
-    line.textContent = text;
+    // Painted, not assigned: these are the lines that *have* colour. `-=[` in green is your blow and
+    // in red is one landing on you — Duris' own convention, from `fight.c`'s `dam_message` — and set
+    // as text it would read as a literal `&+G` in the middle of every swing.
+    paint(line, text);
     this.lines.append(line);
     while (this.lines.children.length > MAX_LINES) this.lines.firstElementChild?.remove();
     // Follow the newest blow. Unconditional: this is a ticker, and the place to study history is

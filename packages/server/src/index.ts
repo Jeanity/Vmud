@@ -152,6 +152,7 @@ import {
 import { advanceZones, newZoneClock, runReset, type ZoneClock } from './reset.ts';
 import { Simulation, isMob, isPlayer, type Actor, type AffectEvent, type Player } from './sim.ts';
 import { indexTemplates, loadZoneSpawns } from './spawns.ts';
+import { ROOMS_FILE } from './overrides.ts';
 import { GameWorld, placeOf } from './world.ts';
 
 /**
@@ -987,6 +988,24 @@ function announceNotice(event: NoticeEvent): void {
 
 
 /**
+ * Marks a swing as yours or as one landing on you — Duris' own convention, and the reason a fight
+ * scans at a glance instead of having to be read.
+ *
+ * `fight.c`'s `dam_message` brackets the attacker's copy of the line in **green** `-=[ … ]=-` and the
+ * victim's copy in **red**, and nothing at all for the bystanders. Two colours carry the only question
+ * that matters while a fight is running — *is this me hitting, or me being hit* — without a word of
+ * prose spent on it. A player watching two mobs brawl gets plain lines, correctly: neither is theirs.
+ *
+ * Self-inflicted is possible in principle (a spell that rebounds), so the attacker case is tested
+ * first and once. Green wins that tie: it is the blow you chose to throw.
+ */
+function bracket(observer: Player, outcome: AttackOutcome, text: string): string {
+  if (observer.id === outcome.attacker.id) return `&+G-=[&N ${text} &+G]=-&N`;
+  if (observer.id === outcome.target.id) return `&+R-=[&N ${text} &+R]=-&N`;
+  return text;
+}
+
+/**
  * One swing, as the log reads it.
  *
  * **The roll is printed.** `CLAUDE.md` calls for "combat rolls" in the text log and `rules.ts` has carried
@@ -999,15 +1018,25 @@ function announceAttack(outcome: AttackOutcome): void {
   // A helpless target has no armour class worth quoting — the roll is shown because a fight stays
   // auditable, but printing "vs AC 11" beside a blow that could not have missed would be a lie about why
   // it landed.
-  const roll = outcome.helpless
+  const rollText = outcome.helpless
     ? `[d20 ${outcome.natural} — defenceless]`
     : `[d20 ${outcome.natural}${outcome.natural === outcome.total ? '' : ` → ${outcome.total}`} vs AC ${target.combat.armourClass}]`;
-  const verb = outcome.critical ? 'critically hits' : outcome.hit ? 'hits' : 'misses';
+  // Dim, because the roll is the machinery behind the sentence rather than part of it. It stays
+  // readable and stops competing with the blow for the eye.
+  const roll = `&+L${rollText}&N`;
+  // The two rolls with rules attached get the two colours a MUD reserves for them: a critical is
+  // bright yellow and a fumble is the same dim grey as the machinery, because a fumble *is* the
+  // absence of an event. Everything between is uncoloured — if every line shouted, none would.
+  const verb = outcome.critical
+    ? '&+Ycritically hits&N'
+    : outcome.hit
+      ? 'hits'
+      : 'misses';
 
   const line = (who: string, whom: string): string =>
     outcome.hit
       ? `${who} ${verb} ${whom} for ${outcome.damage} damage. ${roll}`
-      : `${who} ${outcome.fumble ? 'fumbles against' : verb} ${whom}. ${roll}`;
+      : `${who} ${outcome.fumble ? '&+Lfumbles against&N' : verb} ${whom}. ${roll}`;
 
   // Per recipient, gated on sight, like every other line about an entity — §4.10's warning about
   // pre-rendered strings is exactly this shape of message.
@@ -1017,12 +1046,20 @@ function announceAttack(outcome: AttackOutcome): void {
     if (!seesAttacker && !seesTarget) continue;
     const who = observer.id === attacker.id ? 'You' : seesAttacker ? capitalise(attacker.name) : 'Something';
     const whom = observer.id === target.id ? 'you' : seesTarget ? target.name : 'something';
-    // "You hits" — the one place the shared sentence needs a different verb form.
+    // "You hits" — the one place the shared sentence needs a different verb form. The pattern reads
+    // through the colour codes the verbs now carry, which is why they are in the alternation.
     const text = observer.id === attacker.id
-      ? line('You', whom).replace(/^You (critically hits|hits|misses|fumbles against)/, (_m, v: string) =>
-          `You ${v.replace(/^hits$/, 'hit').replace(/^critically hits$/, 'critically hit').replace(/^misses$/, 'miss').replace(/^fumbles against$/, 'fumble against')}`)
+      ? line('You', whom).replace(
+          /^You (&\+Ycritically hits&N|hits|misses|&\+Lfumbles against&N)/,
+          (_m, v: string) =>
+            `You ${v
+              .replace(/^hits$/, 'hit')
+              .replace(/^&\+Ycritically hits&N$/, '&+Ycritically hit&N')
+              .replace(/^misses$/, 'miss')
+              .replace(/^&\+Lfumbles against&N$/, '&+Lfumble against&N')}`,
+        )
       : line(who, whom);
-    send(observer.id, { t: 'log', channel: 'combat', text });
+    send(observer.id, { t: 'log', channel: 'combat', text: bracket(observer, outcome, text) });
 
     // The structured form too, so the client can animate rather than parse prose.
     send(observer.id, {
@@ -2539,6 +2576,32 @@ const adminLive: LiveOps = {
     sockets.get(player.id)?.close();
   },
 
+  /**
+   * Shows an authored room edit to whoever is standing in it, without a restart.
+   *
+   * Two scopes, because a room is two things to a client. **Prose, name and flags are description** —
+   * only the people in that room have them on screen, so they get the room re-described and nobody
+   * else is disturbed. **A sector change is terrain**: `buildZoneTilemap` carves the grid from
+   * sectors, and the client builds its own copy from the `zone` message, so everyone on the Place
+   * needs that message again or their collision copy silently disagrees with the server's — they
+   * predict through walls that now exist, or stop at ones that no longer do.
+   *
+   * `zone` for a Place the client already holds is a resync rather than travel, and the protocol's
+   * own rule (see `protocol.ts`) is that the `seen` bitset must be *kept* across it. It is, because
+   * nothing here touches it: fog is tile indices on a grid whose dimensions did not change.
+   */
+  publishRoom(room, place, regrid) {
+    for (const player of sim.allPlayers()) {
+      const here = player.roomId === room.id;
+      const onPlace = placeKey(player.place) === placeKey(place);
+      if (regrid && onPlace) {
+        const zone = world.zone(place.zone);
+        if (zone) send(player.id, { t: 'zone', zone, level: place.level });
+      }
+      if (here) describeRoom(player);
+    }
+  },
+
   repopIn(zone) {
     const clock = zoneClocks.find((candidate) => candidate.spawns.zone === zone);
     if (!clock) return undefined;
@@ -2587,6 +2650,7 @@ const admin = new AdminApi({
   },
   token: ADMIN_TOKEN,
   auditFile: join(REPO_ROOT, 'data', 'admin-audit.jsonl'),
+  overridesFile: ROOMS_FILE,
   facts: { protocol: PROTOCOL_VERSION, tickMs: TICK_MS, roundMs: ROUND_MS, startedAt: Date.now() },
 });
 // Announced at boot like every other switch, so a server quietly running an open admin API is not a

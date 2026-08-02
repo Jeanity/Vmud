@@ -29,20 +29,26 @@ import { dirname } from 'node:path';
 
 import {
   AffectFlag,
+  ROOM_FLAGS,
+  SECTORS,
   UNLIMITED_DURATION,
   newAffect,
   placeKey,
   type Direction,
   type Place,
+  type Room,
+  type RoomFlag,
   type RoomId,
+  type Sector,
   type ZoneId,
 } from '@mygame/shared';
 // A subpath import, as `vision.ts` is in `players.ts`: the catalogue is not in the package barrel.
 import { LIGHT_SOURCES, lightSource, type LightSource } from '@mygame/shared/light.ts';
 
+import { applyRoomOverride, saveRoomOverrides } from './overrides.ts';
 import { seenTileCount, slugify, type PlayerStore, type StoredSummary } from './players.ts';
 import type { Player } from './sim.ts';
-import type { GameWorld } from './world.ts';
+import { loadZone, type GameWorld } from './world.ts';
 
 /** The request as the router sees it: transport details already reduced to facts. */
 export interface AdminRequest {
@@ -85,6 +91,15 @@ export interface LiveOps {
   tell(player: Player, text: string): void;
   /** Closes the socket; the ordinary disconnect path does the bookkeeping. */
   kick(player: Player): void;
+  /**
+   * Publishes an authored room edit: saves the overlay, and re-sends what the change invalidated.
+   *
+   * Two different resyncs, because a room is two things to a client. Prose and flags are *description*
+   * — anyone standing there gets the room re-described, and nobody else needs telling. A sector change
+   * is *terrain*: it re-carves the tilemap, so everyone on the whole Place needs the `zone` message
+   * again or their collision copy disagrees with the server's. `regrid` says which happened.
+   */
+  publishRoom(room: Room, place: Place, regrid: boolean): void;
 
   /* ---- reads ---------------------------------------------------------- */
 
@@ -128,6 +143,14 @@ export interface AdminDeps {
   readonly token: string | undefined;
   /** Where the audit trail is appended, or undefined to keep it off disk (tests). */
   readonly auditFile: string | undefined;
+  /**
+   * Where authored room content is saved, or undefined to edit the live world without persisting.
+   *
+   * Same shape as {@link auditFile} and for the same reason: a unit test must be able to exercise the
+   * editor without writing into the repository's real overlay. Defaults to `overrides.ts`'s own
+   * constant in `index.ts`, so the loader and the writer share one path.
+   */
+  readonly overridesFile: string | undefined;
   /** Boot-time constants the dashboard reports. */
   readonly facts: {
     readonly protocol: number;
@@ -145,6 +168,18 @@ const LEVEL_MAX = 60;
 const TEXT_MAX = 300;
 
 const PATCH_KEYS = new Set(['hp', 'mana', 'move', 'level', 'light', 'clearAffects', 'wound', 'healed']);
+
+/**
+ * What a builder may author on a room. **Geometry is deliberately absent** — see `authorRoom`.
+ *
+ * A closed list rather than a filter, because the failure mode of the open version is silent: a
+ * panel that posts `pos` and gets a 200 back has told its operator the room moved.
+ */
+const ROOM_PATCH_KEYS = new Set(['name', 'description', 'sector', 'flags']);
+
+/** Bounds on authored prose. A room name is a line; a description is a paragraph or three. */
+const ROOM_NAME_MAX = 120;
+const ROOM_PROSE_MAX = 4000;
 
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
@@ -169,8 +204,9 @@ export class AdminApi {
     if (head === 'zones' && slug !== undefined && action === 'rooms' && parts.length === 3 && request.method === 'GET') {
       return this.zoneRooms(slug);
     }
-    if (head === 'rooms' && slug !== undefined && parts.length === 2 && request.method === 'GET') {
-      return this.room(slug);
+    if (head === 'rooms' && slug !== undefined && parts.length === 2) {
+      if (request.method === 'GET') return this.room(slug);
+      if (request.method === 'PATCH') return this.authorRoom(slug, request.body);
     }
     if (head === 'announce' && parts.length === 1 && request.method === 'POST') {
       return this.announce(request.body);
@@ -330,6 +366,9 @@ export class AdminApi {
           // `HANDOFF.md`, in its smallest form.
           exits: Object.entries(room.exits).map(([dir, exit]) => ({ dir, to: exit.to })),
           described: Boolean(room.description),
+          // So the map can mark authored rooms at a glance — which is the only way to find your own
+          // work again in a 219-room zone.
+          authored: this.deps.world.overrides.has(room.id),
           // Live, and the reason the browser is worth having open while testing: it says where the
           // population actually *is* rather than where the reset table meant to put it.
           occupants: this.deps.live.occupantsOf(room.id),
@@ -359,6 +398,9 @@ export class AdminApi {
         // Absent rather than empty for a room the harvest never reached — 5,889 of 46,508 carry
         // prose, so "no description" is the ordinary case and should read as one.
         description: room.description ?? null,
+        // Which of the fields above are hand-authored rather than harvested, so the editor can offer
+        // to revert exactly those and no others. Null for an untouched room.
+        authored: this.deps.world.overrides.get(room.id) ?? null,
         occupants: this.deps.live.occupantsOf(room.id),
         exits: Object.entries(room.exits).map(([dir, exit]) => {
           const destination = this.deps.world.locate(exit.to);
@@ -422,6 +464,152 @@ export class AdminApi {
         },
       },
     };
+  }
+
+  /* ------------------------------------------------------------------------ */
+  /* Writes — authored world content (A5)                                      */
+  /* ------------------------------------------------------------------------ */
+
+  /**
+   * Rewrites a room's authored content: its name, its prose, its terrain, its flags.
+   *
+   * **Four fields, and the omissions are the design.** A room's id, position and exits are geometry —
+   * the join key into every data source we have, and the grid the tilemap is carved from — so they are
+   * refused here rather than quietly ignored, and they belong to A8 with its own decisions in front of
+   * it. Everything accepted is *description*, which is what a builder actually writes.
+   *
+   * `null` is how a field is *unauthored*, and it is not the same as `""`: an empty description is a
+   * room deliberately left blank, whereas null drops the override and lets the harvest show through
+   * again. That distinction is the whole of "revert" and costs one branch.
+   */
+  private authorRoom(slug: string, body: unknown): AdminResponse {
+    const id = Number(slug);
+    if (!Number.isInteger(id)) return { status: 400, body: { error: `"${slug}" is not a room id` } };
+    const located = this.deps.world.locate(id as RoomId);
+    if (!located) return { status: 404, body: { error: `no room ${id} in the loaded world` } };
+
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return { status: 400, body: { error: 'PATCH body must be a JSON object' } };
+    }
+    const patch = body as Record<string, unknown>;
+    const keys = Object.keys(patch);
+    if (keys.length === 0) return { status: 400, body: { error: 'empty patch' } };
+    for (const key of keys) {
+      if (!ROOM_PATCH_KEYS.has(key)) {
+        return {
+          status: 400,
+          body: {
+            error:
+              `"${key}" is not authorable — one of: ${[...ROOM_PATCH_KEYS].join(', ')}. ` +
+              `A room's id, position and exits are geometry, not content.`,
+          },
+        };
+      }
+    }
+
+    // Validated whole before anything is written, so an edit either lands or does not.
+    const next: { name?: string; description?: string; sector?: Sector; flags?: readonly RoomFlag[] } = {};
+    const cleared: string[] = [];
+
+    if (patch.name !== undefined) {
+      if (patch.name === null) cleared.push('name');
+      else if (typeof patch.name !== 'string' || !patch.name.trim()) {
+        return { status: 400, body: { error: 'name must be a non-empty string, or null to unauthor it' } };
+      } else if (patch.name.length > ROOM_NAME_MAX) {
+        return { status: 400, body: { error: `name must be at most ${ROOM_NAME_MAX} characters` } };
+      } else next.name = patch.name.trim();
+    }
+    if (patch.description !== undefined) {
+      if (patch.description === null) cleared.push('description');
+      else if (typeof patch.description !== 'string') {
+        return { status: 400, body: { error: 'description must be a string, or null to unauthor it' } };
+      } else if (patch.description.length > ROOM_PROSE_MAX) {
+        return { status: 400, body: { error: `description must be at most ${ROOM_PROSE_MAX} characters` } };
+      } else next.description = patch.description;
+    }
+    if (patch.sector !== undefined) {
+      if (patch.sector === null) cleared.push('sector');
+      else if (typeof patch.sector !== 'string' || !(SECTORS as readonly string[]).includes(patch.sector)) {
+        return { status: 400, body: { error: `sector must be one of: ${SECTORS.join(', ')}` } };
+      } else next.sector = patch.sector as Sector;
+    }
+    if (patch.flags !== undefined) {
+      if (patch.flags === null) cleared.push('flags');
+      else if (!Array.isArray(patch.flags)) {
+        return { status: 400, body: { error: 'flags must be an array' } };
+      } else {
+        const bad = patch.flags.filter((f) => typeof f !== 'string' || !(ROOM_FLAGS as readonly string[]).includes(f));
+        if (bad.length > 0) {
+          return { status: 400, body: { error: `unknown flags ${JSON.stringify(bad)} — one of: ${ROOM_FLAGS.join(', ')}` } };
+        }
+        next.flags = [...new Set(patch.flags as RoomFlag[])];
+      }
+    }
+
+    // Clearing is a different operation from patching — it removes keys rather than setting them —
+    // so it runs against the stored override before the patch is merged over the top.
+    const restored = cleared.length > 0 ? this.unauthor(id as RoomId, cleared) : true;
+
+    const applied = this.deps.world.authorRoom(id as RoomId, next, new Date().toISOString());
+    if (!applied) return { status: 404, body: { error: `no room ${id} in the loaded world` } };
+    if (this.deps.overridesFile) saveRoomOverrides(this.deps.world.overrides, this.deps.overridesFile);
+    this.deps.live.publishRoom(applied.room, applied.place, applied.regrid || cleared.includes('sector'));
+
+    this.audit('room.author', { room: id, fields: keys, cleared, regrid: applied.regrid });
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        room: { id: applied.room.id, name: applied.room.name, sector: applied.room.sector },
+        regrid: applied.regrid,
+        authored: this.deps.world.overrides.get(id as RoomId) ?? null,
+        // Said plainly rather than swallowed: the override is gone either way, but if the generated
+        // room could not be re-read the *live* room still shows what was authored until a restart.
+        ...(restored ? {} : { note: 'reverted on disk; the running world keeps the old text until restart' }),
+      },
+    };
+  }
+
+  /**
+   * Drops named fields from a room's override and puts the generated values back.
+   *
+   * Reverting has to *reload* rather than remember: the room object in memory was overwritten at boot
+   * and holds no copy of what the harvest said. Re-reading the zone file is the only source of that
+   * truth, and it is a rare operator action against a file already on disk, so the read is free.
+   *
+   * Returns whether the live room was actually restored. False means the zone file could not be read —
+   * the override is still dropped, because the operator asked for that and it is the durable half, but
+   * the caller has to say so rather than report a revert that only half happened.
+   */
+  private unauthor(id: RoomId, fields: readonly string[]): boolean {
+    const { world } = this.deps;
+    const existing = world.overrides.get(id);
+    if (!existing) return true;
+    const kept = { ...existing };
+    for (const field of fields) delete (kept as Record<string, unknown>)[field];
+    if (Object.keys(kept).filter((k) => k !== 'at').length === 0) world.overrides.delete(id);
+    else world.overrides.set(id, kept);
+
+    const located = world.locate(id);
+    if (!located) return false;
+    let original;
+    try {
+      original = loadZone(located.room.zone).rooms.find((r) => r.id === id);
+    } catch {
+      return false;
+    }
+    if (!original) return false;
+    // Every authorable field back to the harvest, then `authorRoom` puts whatever override survived
+    // back on top. Wholesale rather than per-field: one code path regardless of what was dropped.
+    applyRoomOverride(located.room, {
+      name: original.name,
+      description: original.description ?? '',
+      sector: original.sector,
+      flags: original.flags ?? [],
+    });
+    const surviving = world.overrides.get(id);
+    if (surviving) applyRoomOverride(located.room, surviving);
+    return true;
   }
 
   /* ------------------------------------------------------------------------ */

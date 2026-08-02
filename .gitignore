@@ -7,7 +7,11 @@ dist/
 # Third-party world data and everything derived from it. Never commit; reproducible
 # via `npm run worldgen`. See docs/RESEARCH-map-data.md.
 data/zones-source/
-data/world/
+data/world/*
+# **Except the overrides.** They are the one thing under `data/` that no command can regenerate —
+# hand-authored content — and a git-ignored directory is exactly where that gets lost to a fresh
+# clone. See `server/src/overrides.ts`.
+!data/world/overrides/
 
 # Per-character save data (explored maps, and eventually inventories).
 data/players/

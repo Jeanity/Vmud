@@ -77,7 +77,7 @@ interface Rig {
   scopes: AnnounceScope[];
 }
 
-function makeRig(options: { token?: string; auditFile?: string } = {}): Rig {
+function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string } = {}): Rig {
   const dir = mkdtempSync(join(tmpdir(), 'mygame-admin-'));
   const store = new PlayerStore({ dir });
   const world = new GameWorld([testZone()], { zone: 600, room: null });
@@ -121,6 +121,7 @@ function makeRig(options: { token?: string; auditFile?: string } = {}): Rig {
     // shapes the reply, not that the simulation can count bodies.
     repopIn: (zone) => (zone === 600 ? 90_000 : undefined),
     occupantsOf: () => ({ players: ['Ravi'], mobs: ['a sentry'], corpses: [] }),
+    publishRoom: (room, _place, regrid) => void calls.push(`publishRoom ${room.id} regrid=${regrid}`),
   };
 
   const deps: AdminDeps = {
@@ -136,6 +137,8 @@ function makeRig(options: { token?: string; auditFile?: string } = {}): Rig {
     },
     token: options.token,
     auditFile: options.auditFile,
+    // Undefined unless a test asks: authoring must never write into the repository's real overlay.
+    overridesFile: options.overridesFile,
     facts: { protocol: 9, tickMs: 100, roundMs: 3000, startedAt: Date.now() },
   };
   return { api: new AdminApi(deps), store, dir, players, calls, heard, scopes };
