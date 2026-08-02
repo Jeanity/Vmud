@@ -64,6 +64,7 @@ import { LIGHT_SOURCES, roomLightTiles } from '@mygame/shared/light.ts';
 
 import type { LogPanel } from './log.ts';
 import type { Net } from './net.ts';
+import { TargetMenu, type TargetVerb } from './targetmenu.ts';
 
 /**
  * Terrain artwork: Liberated Pixel Cup tiles by Sharm and HughSpectrum.
@@ -264,7 +265,16 @@ const MOVEMENT_KEYS: readonly string[] = ['W', 'A', 'S', 'D', 'UP', 'LEFT', 'DOW
  * cannot reach Phaser at all. That is the quiet win in the three-column layout — a whole class of
  * click-through bug stopped being possible instead of being guarded against.
  */
-const UI_PANELS: readonly string[] = ['status', 'hint'];
+const UI_PANELS: readonly string[] = ['status', 'hint', 'target-menu'];
+
+/**
+ * How close a click has to land to count as clicking a body, in world units.
+ *
+ * A tile and a half. Generous on purpose: the sprites are 64px tall but only occupy the lower part of
+ * their frame, and asking a player to hit a 20-pixel collision box on a moving target is asking them
+ * to miss. Overlapping candidates are broken by distance, so generosity costs nothing but reach.
+ */
+const CLICK_REACH = TILE_SIZE * 1.5;
 
 /**
  * The zoom ladder, closest first. `'fit'` frames the whole Place and is a property of the map rather
@@ -548,6 +558,8 @@ interface Entity {
 export class WorldScene extends Phaser.Scene {
   private readonly net: Net;
   private readonly log: LogPanel;
+  /** Click a body, get its verbs. Constructed lazily in `create`, once the DOM is certain to exist. */
+  private targetMenu!: TargetMenu;
 
   private grid: TileGrid | undefined;
   private selfId: EntityId | undefined;
@@ -865,6 +877,10 @@ export class WorldScene extends Phaser.Scene {
     // Right-drag pans the camera, so the browser's own menu must not open on top of it — a context
     // menu appearing mid-gesture both hides the map and swallows the release that would end the pan.
     this.input.mouse?.disableContextMenu();
+
+    // Here rather than in the constructor: a `Scene` is built before the page is necessarily ready,
+    // and this reaches into the DOM for its element.
+    this.targetMenu = new TargetMenu();
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.onPointerDown(pointer));
     // Releasing ends the *drag*, not the walk — see `endDrag`. Both events are bound because a
@@ -1239,6 +1255,57 @@ export class WorldScene extends Phaser.Scene {
    * has *seen*, and a client that computed its own path could simply ignore that and walk through
    * the dark. This client holds a copy of that bitset to paint with, never to decide with.
    */
+  /**
+   * The body nearest a world point, within {@link CLICK_REACH}, or nothing.
+   *
+   * Yourself is excluded: you are always under the pointer at the centre of the screen, and a menu
+   * offering to attack yourself is a menu that is in the way. Nearest wins, so two bodies standing
+   * a tile apart both stay clickable — which is exactly the case the menu exists for.
+   */
+  private entityAt(worldX: number, worldY: number): Entity | undefined {
+    let best: Entity | undefined;
+    let bestDistance = CLICK_REACH;
+    for (const [id, entity] of this.entities) {
+      if (id === this.selfId) continue;
+      const distance = Math.hypot(entity.x - worldX, entity.y - worldY);
+      if (distance > bestDistance) continue;
+      best = entity;
+      bestDistance = distance;
+    }
+    return best;
+  }
+
+  /**
+   * Offers what can be done to one body.
+   *
+   * Every verb sends an intent naming the entity's **id**, which is the whole point: a keyword cannot
+   * say which of three identically-named guards you meant, and since they move, neither can position.
+   * The server resolves the id through the same visible-set gate a typed word passes, so this is a
+   * more precise way to ask and not a more powerful one.
+   *
+   * The rows are what exists today. `Loot` is offered on a corpse — recognised by its sprite, because
+   * there is no item *type* on the wire until Phase 15 brings one — and `Attack` on anything with a
+   * body that is not already dead. Later mechanics add rows here: `bash` with Phase 19's skills is
+   * already recorded against that phase.
+   */
+  private openTargetMenu(pointer: Phaser.Input.Pointer, entity: Entity): void {
+    const view = entity.view;
+    const verbs: TargetVerb[] = [
+      { label: 'Look at', run: () => this.net.send({ t: 'look', target: view.id }) },
+    ];
+    const corpse = view.kind === 'item' && view.sprite.startsWith('corpse');
+    if (corpse) {
+      verbs.push({ label: 'Loot', run: () => this.net.send({ t: 'loot', target: view.id }) });
+    } else if (view.kind !== 'item') {
+      verbs.push({
+        label: 'Attack',
+        danger: true,
+        run: () => this.net.send({ t: 'attack', target: view.id }),
+      });
+    }
+    this.targetMenu.show(pointer.x, pointer.y, view.name, verbs);
+  }
+
   private onPointerDown(pointer: Phaser.Input.Pointer): void {
     if (!this.grid) return;
 
@@ -1262,6 +1329,20 @@ export class WorldScene extends Phaser.Scene {
     // World, not screen: the camera scrolls with the character and the wheel zooms it, so the same
     // pixel means a different tile from one frame to the next.
     const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+
+    // **Did they click a body?** V2. A press on something in the room is a request to act on *that*
+    // one, so it opens the menu instead of walking — and it must not also start a drag, or letting go
+    // would fling the character at whatever was underneath.
+    //
+    // Any open menu closes first, whatever was clicked: a stale menu still naming the guard you were
+    // looking at two rooms ago is worse than no menu.
+    this.targetMenu.close();
+    const clicked = this.entityAt(world.x, world.y);
+    if (clicked) {
+      this.openTargetMenu(pointer, clicked);
+      return;
+    }
+
     // The press is a plain click first and the start of a possible drag second. Order matters: a
     // click that turns out to be a drag must behave, at this instant, exactly as it always has.
     this.beginDrag(pointer);

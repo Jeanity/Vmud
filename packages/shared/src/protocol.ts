@@ -14,7 +14,22 @@ import type { Posture, Status } from './position.ts';
 import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
 
 /**
- * Bumped to 10: the operator has a voice.
+ * Bumped to 11: you can point at what you mean.
+ *
+ * `loot` joins `look` and `attack` as an intent that may name an **entity id** rather than a keyword,
+ * which is what a click on a body sends. The three are one idea: *this* one, not whichever one the
+ * parser would have picked.
+ *
+ * **The reason it is a protocol change rather than client sugar** is that a keyword cannot express
+ * it. `kill patrol` in a room holding three members of the Court Patrol is ambiguous by construction,
+ * and `2.patrol` only helps if the player can see the ordering the server used. An id is the one
+ * thing that says which body without either side guessing — and the server still resolves it through
+ * the same visibility gate a keyword passes, so it names a body you can see or nothing at all.
+ *
+ * `look` and `attack` have carried `target` since before there was anything to do with it; this is
+ * where all three get read.
+ *
+ * Was 10: the operator has a voice.
  *
  * `LogChannel` gained **`announce`** — a line an *administrator* is saying: world-wide, to a Place, to
  * a room, or to one character. One channel rather than four, because the fact a reader needs is "a
@@ -56,7 +71,7 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * Was 6: doors have live state — the `door` message, and `open`/`close` losing their required `dir`.
  * Was 5: carried light sources — `SelfView` gained `light`.
  */
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
 
 /**
  * One timed effect on your own character, as the HUD reads it.
@@ -250,6 +265,11 @@ export type ClientMessage =
   | { readonly t: 'open'; readonly dir?: Direction }
   | { readonly t: 'close'; readonly dir?: Direction }
   | { readonly t: 'look'; readonly target?: EntityId }
+  /**
+   * Go through a corpse. Omitting `target` means the nearest one still worth searching, which is what
+   * the typed `loot` resolves to; naming one is what a click on a particular body sends.
+   */
+  | { readonly t: 'loot'; readonly target?: EntityId }
   | { readonly t: 'say'; readonly text: string }
   /**
    * A line the player typed, verbatim and unparsed.

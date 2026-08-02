@@ -85,6 +85,7 @@ import {
   parseTargetRef,
   spendCommand,
   splitCommand,
+  type Command,
   type CommandBudget,
 } from './commands.ts';
 import { legacyRoomReveal } from './legacy-fog.ts';
@@ -128,6 +129,7 @@ import {
   corpseName,
   makeCorpse,
   withinReach,
+  type Corpse,
   type Graveyard,
 } from './corpses.ts';
 import { attemptFlee, type FleeOutcome } from './flee.ts';
@@ -1812,7 +1814,17 @@ function lookAt(player: Player, argument: string): void {
   }
   const target = resolveTarget(player, argument);
   if (!target) return;
+  describeEntity(player, target);
+}
 
+/**
+ * What one body looks like to another — the tail of `look <keyword>`, and what a click on it runs.
+ *
+ * Split out so the typed path and the pointed-at path cannot come to describe the same thing two
+ * different ways. The caller has already resolved *which* entity, by whichever route; from here they
+ * are the same request.
+ */
+function describeEntity(player: Player, target: EntityView): void {
   // Looking at something is the lightest interaction there is and it still turns you: a room where
   // everyone is examining each other and nobody has moved their head reads as a room of statues.
   if (target.id !== player.id) faceToward(player, target.x, target.y);
@@ -1832,6 +1844,17 @@ function lookAt(player: Player, argument: string): void {
     channel: 'room',
     text: `${capitalise(target.name)}${level} is standing here${condition}.`,
   });
+}
+
+/**
+ * An entity id, resolved the way a typed keyword is: **through this character's own visible set**.
+ *
+ * The client may send any number it likes, so this is the gate that makes a click no more powerful
+ * than a word. `visibleEntities` is the single authority both presence and prose already resolve
+ * through, so pointing at something you cannot see finds nothing, exactly as naming it would.
+ */
+function targetById(player: Player, id: EntityId): EntityView | undefined {
+  return visibleEntities(player).find((entity) => entity.id === id);
 }
 
 /** The exits of the current room, with what is in the way of each. */
@@ -2098,6 +2121,36 @@ function refusalFor(player: Player, need: Requirement): string {
   }
 }
 
+/**
+ * The pre-dispatch gauntlet: may this character do this thing at all? Says why if not.
+ *
+ * **This is Phase 2's seam, extracted into a function so that a second entry point can reach it.**
+ * The rule the comments have always stated is that these checks are read in exactly *one place* —
+ * scattered ones get forgotten and players find the one you forgot — and that property is what a
+ * clicked verb would otherwise break. A menu that ran `kill` past the gate would let you open a fight
+ * while asleep, and one that re-implemented the gate would be the second copy the seam exists to
+ * prevent. So it moved from *a location* to *a name*, and both callers pass through it.
+ *
+ * Two independent axes, in the source's own order:
+ *
+ * - **In combat** — `DESIGN-engagement.md` §6's `CMD_N`, a third axis rather than a posture
+ *   consequence. Named in the refusal, because §4 leaves steering working while refusing the exits,
+ *   so "you cannot do that" has to say which of the two it is or the game reads as broken.
+ * - **Position** — a minimum on posture and on status, from `COMMAND_REQUIREMENTS`.
+ */
+function permits(player: Player, command: Command): boolean {
+  const need = COMMAND_REQUIREMENTS[command];
+  if (need.inCombat === false && player.fighting !== undefined) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Not while you are fighting!' });
+    return false;
+  }
+  if (!meets(player, need)) {
+    send(player.id, { t: 'log', channel: 'error', text: refusalFor(player, need) });
+    return false;
+  }
+  return true;
+}
+
 function runCommand(player: Player, line: string): void {
   const budget = budgets.get(player.id);
   if (budget && !spendCommand(budget, Date.now())) {
@@ -2116,37 +2169,7 @@ function runCommand(player: Player, line: string): void {
     return;
   }
 
-  // ---- the position gate ----
-  //
-  // The second thing to live at this seam, and the reason the seam was named in Phase 2. Every
-  // command declares a minimum on both axes and this is the only place that is read, so a new command
-  // cannot forget to check and an existing one cannot be gated twice with two different answers.
-  const need = COMMAND_REQUIREMENTS[command];
-
-  // ---- the in-combat gate ----
-  //
-  // The third thing at this seam, and a **third independent axis** rather than a posture consequence —
-  // `DESIGN-engagement.md` §6. It goes here and not into individual handlers for the reason the seam
-  // exists: scattered checks get forgotten somewhere, and players find the one you forgot.
-  if (need.inCombat === false && player.fighting !== undefined) {
-    send(player.id, {
-      t: 'log',
-      channel: 'error',
-      // Named, because "you cannot do that" is what makes a player think the game is broken. §4: the
-      // exits are refused while steering still works, so the answer has to say which of the two it is.
-      text: 'Not while you are fighting!',
-    });
-    return;
-  }
-
-  if (!meets(player, need)) {
-    send(player.id, {
-      t: 'log',
-      channel: 'error',
-      text: refusalFor(player, need),
-    });
-    return;
-  }
+  if (!permits(player, command)) return;
 
   const dir = directionOf(command);
   if (dir) {
@@ -2182,107 +2205,142 @@ function runCommand(player: Player, line: string): void {
       send(player.id, { t: 'path', points: [] });
       return;
 
-    case 'loot': {
-      const inRoom = corpsesIn(graveyard, player.roomId);
-      const here = inRoom.filter((c) => withinReach(c, player.x, player.y));
-      if (here.length === 0) {
-        // **Two different refusals, and saying the right one matters.** A corpse lies where its owner
-        // fell, so in a nine-tile room it is routinely across the floor from you — and "there is nothing
-        // here to loot" while one is plainly visible reads as the game being broken rather than as a
-        // reason to take three steps. Reaching a body is the graphical half of corpse retrieval; the
-        // message has to say which of the two problems you have.
-        send(player.id, {
-          t: 'log',
-          channel: 'error',
-          text: inRoom.length > 0
-            ? `You are not close enough to ${corpseName(inRoom[0]!)}. Step over to it.`
-            : 'There is nothing here to loot.',
-        });
-        return;
-      }
-      // Matched on the dead thing's own name, so `loot sentry` works on "the corpse of a sentry" without
-      // the player having to type the whole phrase. Same whole-word rule target resolution uses.
-      const wanted = rest.trim().toLowerCase();
-      const matching = wanted
-        ? here.filter((c) => keywordsFromName(c.of).some((k) => k === wanted) || c.of.toLowerCase().includes(wanted))
-        : here;
-      // **Nearest unlooted first** — the owner's rule, and it applies to `loot sentry` as much as to a
-      // bare `loot`: three dead guards on one floor are three bodies with the same name, and searching
-      // the same one repeatedly while another lies at your feet is the bug this closes.
-      const corpse = nearestLootable(matching, player.x, player.y);
-      const refusal = lootRefusal(corpse, player);
-      if (!corpse || refusal) {
-        const why = refusal === 'someone-elses'
-          ? 'That is not yours to take.'
-          : refusal === 'not-here'
-            ? 'That is not here.'
-            : `You see no corpse of ${rest || 'anything'} here.`;
-        send(player.id, { t: 'log', channel: 'error', text: why });
-        return;
-      }
-      // You kneel to the body you are going through, not the one you were last looking at.
-      faceToward(player, corpse.x, corpse.y);
-
-      if (!lootCorpse(corpse)) {
-        send(player.id, {
-          t: 'log',
-          channel: 'system',
-          text: `${capitalise(corpseName(corpse))} has already been picked clean.`,
-        });
-        return;
-      }
-      // **Nothing comes out yet**, and saying so is better than silence: items are Phase 15, so a corpse
-      // has nothing in it to transfer. What the loot *does* do is change how it looks — a picked-clean
-      // corpse is drawn as a single bone rather than a pile, so anyone can see at a glance that somebody
-      // has been through it.
-      send(player.id, {
-        t: 'log',
-        channel: 'system',
-        text: `You search ${corpseName(corpse)} and find nothing worth taking. (Items arrive in Phase 15.)`,
-      });
-      actToRoom(player, 'room', (who) => `${who} searches ${corpseName(corpse)}.`);
-      // The sprite changes with the flag, so everyone watching is re-sent the view.
-      for (const observer of sim.playersIn(corpse.roomId)) {
-        if (!watching.get(observer.id)?.has(corpse.id)) continue;
-        send(observer.id, { t: 'entityUpdate', entity: corpseViewOf(corpse) });
-      }
-      return;
-    }
+    case 'loot': return lootByKeyword(player, rest);
     case 'kill': {
-      // Resolves the target and then refuses, rather than refusing first. Saying "you see no orc
-      // here" before "combat is not implemented" is the more useful of the two answers, and it makes
-      // target resolution real and exercised rather than something written for a later phase.
+      // Resolves the target and then refuses, rather than refusing first — "you see no orc here" is
+      // the more useful of the two answers, and it keeps target resolution exercised.
       if (!rest) {
         send(player.id, { t: 'log', channel: 'error', text: 'Kill what?' });
         return;
       }
       const view = resolveTarget(player, rest);
       if (!view) return;
-      const target = sim.get(view.id);
-      if (!target) return;
-      if (target.id === player.id) {
-        send(player.id, { t: 'log', channel: 'error', text: 'You cannot attack yourself.' });
-        return;
-      }
-      if (player.fighting === target.id) {
-        send(player.id, { t: 'log', channel: 'error', text: `You are already fighting ${target.name}.` });
-        return;
-      }
-      // §2: retargeting is stop-then-set, never set-again. `engage` refuses an actor that is already
-      // fighting, so switching opponents has to go through `disengage` first — one code path, so a switch
-      // cannot leave a stale pointer. Phase 12's threat table will use this same pair.
-      if (player.fighting !== undefined) {
-        for (const actor of [player]) if (disengage(scheduler, actor)) syncEntityState(actor);
-      }
-      if (!engage(scheduler, player, target, { immediate: true })) {
-        send(player.id, { t: 'log', channel: 'error', text: `You cannot attack ${target.name}.` });
-        return;
-      }
-      send(player.id, { t: 'log', channel: 'combat', text: `You attack ${target.name}!` });
-      actToRoom(player, 'combat', (who) => `${who} attacks ${target.name}!`);
-      syncEntityState(player);
-      return;
+      return startFight(player, view.id);
     }
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* The acts, once something has been picked out                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Open a fight with a particular body — the tail of `kill <keyword>`, and what a click on one runs.
+ *
+ * Takes an **id** rather than a keyword because that is the fact both routes end up holding: the
+ * typed path resolves a word into one, the pointed-at path is handed one. Everything from here — the
+ * self-attack refusal, the stop-then-set switch, the prose — is the same request however it arrived.
+ */
+function startFight(player: Player, id: EntityId): void {
+  const target = sim.get(id);
+  if (!target) return;
+  if (target.id === player.id) {
+    send(player.id, { t: 'log', channel: 'error', text: 'You cannot attack yourself.' });
+    return;
+  }
+  if (player.fighting === target.id) {
+    send(player.id, { t: 'log', channel: 'error', text: `You are already fighting ${target.name}.` });
+    return;
+  }
+  // §2: retargeting is stop-then-set, never set-again. `engage` refuses an actor that is already
+  // fighting, so switching opponents has to go through `disengage` first — one code path, so a switch
+  // cannot leave a stale pointer.
+  if (player.fighting !== undefined) {
+    if (disengage(scheduler, player)) syncEntityState(player);
+  }
+  if (!engage(scheduler, player, target, { immediate: true })) {
+    send(player.id, { t: 'log', channel: 'error', text: `You cannot attack ${target.name}.` });
+    return;
+  }
+  send(player.id, { t: 'log', channel: 'combat', text: `You attack ${target.name}!` });
+  actToRoom(player, 'combat', (who) => `${who} attacks ${target.name}!`);
+  syncEntityState(player);
+}
+
+/**
+ * `loot` and `loot <keyword>`: work out which body, then go through it.
+ *
+ * The resolution half. Which corpse a word means is a game rule — nearest unlooted first, matched on
+ * the dead thing's own name — and it stays here, while {@link searchCorpse} is the act itself.
+ */
+function lootByKeyword(player: Player, rest: string): void {
+  const inRoom = corpsesIn(graveyard, player.roomId);
+  const here = inRoom.filter((c) => withinReach(c, player.x, player.y));
+  if (here.length === 0) {
+    // **Two different refusals, and saying the right one matters.** A corpse lies where its owner
+    // fell, so in a nine-tile room it is routinely across the floor from you — and "there is nothing
+    // here to loot" while one is plainly visible reads as the game being broken rather than as a
+    // reason to take three steps.
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text: inRoom.length > 0
+        ? `You are not close enough to ${corpseName(inRoom[0]!)}. Step over to it.`
+        : 'There is nothing here to loot.',
+    });
+    return;
+  }
+  // Matched on the dead thing's own name, so `loot sentry` works on "the corpse of a sentry" without
+  // the player having to type the whole phrase. Same whole-word rule target resolution uses.
+  const wanted = rest.trim().toLowerCase();
+  const matching = wanted
+    ? here.filter((c) => keywordsFromName(c.of).some((k) => k === wanted) || c.of.toLowerCase().includes(wanted))
+    : here;
+  // **Nearest unlooted first** — the owner's rule, and it applies to `loot sentry` as much as to a
+  // bare `loot`: three dead guards on one floor are three bodies with the same name.
+  const corpse = nearestLootable(matching, player.x, player.y);
+  if (!corpse) {
+    send(player.id, { t: 'log', channel: 'error', text: `You see no corpse of ${rest || 'anything'} here.` });
+    return;
+  }
+  searchCorpse(player, corpse);
+}
+
+/**
+ * Going through one particular body — the act, shared by the typed word and the click.
+ *
+ * Re-runs `lootRefusal` even when the caller resolved the corpse itself, because the two routes can
+ * arrive holding different amounts of certainty: a keyword was filtered to what is in reach, a click
+ * was not, and this is the one place that knows which refusals exist.
+ */
+function searchCorpse(player: Player, corpse: Corpse): void {
+  const refusal = lootRefusal(corpse, player);
+  if (refusal) {
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text: refusal === 'someone-elses'
+        ? 'That is not yours to take.'
+        : refusal === 'not-here'
+          ? `You are not close enough to ${corpseName(corpse)}. Step over to it.`
+          : 'That is not here.',
+    });
+    return;
+  }
+  // You kneel to the body you are going through, not the one you were last looking at.
+  faceToward(player, corpse.x, corpse.y);
+
+  if (!lootCorpse(corpse)) {
+    send(player.id, {
+      t: 'log',
+      channel: 'system',
+      text: `${capitalise(corpseName(corpse))} has already been picked clean.`,
+    });
+    return;
+  }
+  // **Nothing comes out yet**, and saying so is better than silence: items are Phase 15, so a corpse
+  // has nothing in it to transfer. What the loot *does* do is change how it looks — a picked-clean
+  // corpse is drawn as a single bone rather than a pile.
+  send(player.id, {
+    t: 'log',
+    channel: 'system',
+    text: `You search ${corpseName(corpse)} and find nothing worth taking. (Items arrive in Phase 15.)`,
+  });
+  actToRoom(player, 'room', (who) => `${who} searches ${corpseName(corpse)}.`);
+  // The sprite changes with the flag, so everyone watching is re-sent the view.
+  for (const observer of sim.playersIn(corpse.roomId)) {
+    if (!watching.get(observer.id)?.has(corpse.id)) continue;
+    send(observer.id, { t: 'entityUpdate', entity: corpseViewOf(corpse) });
   }
 }
 
@@ -2311,9 +2369,46 @@ function handle(player: Player, message: ClientMessage): void {
       stepRoom(player, message.dir);
       break;
 
+    // **The three pointed-at intents** — V2. A click names an entity id where a typed line names a
+    // keyword, and everything after the naming is shared: the same gate, the same visibility rule,
+    // the same act. What the id buys is the thing a keyword cannot say — *that* patrol member, not
+    // whichever of the three the parser would have picked.
     case 'look':
-      describeRoom(player);
+      if (message.target === undefined) {
+        describeRoom(player);
+        break;
+      }
+      if (!permits(player, 'look')) break;
+      {
+        const view = targetById(player, message.target);
+        if (view) describeEntity(player, view);
+      }
       break;
+
+    case 'attack': {
+      if (!permits(player, 'kill')) break;
+      // Through the visible set, so a click can name only what a word could have named.
+      const view = targetById(player, message.target);
+      if (view) startFight(player, view.id);
+      break;
+    }
+
+    case 'loot': {
+      if (!permits(player, 'loot')) break;
+      if (message.target === undefined) {
+        lootByKeyword(player, '');
+        break;
+      }
+      // A corpse is not in `visibleEntities` as an actor — it is its own store — so this resolves
+      // against the graveyard and lets `searchCorpse` apply the reach and ownership refusals.
+      const corpse = corpsesIn(graveyard, player.roomId).find((c) => c.id === message.target);
+      if (!corpse) {
+        send(player.id, { t: 'log', channel: 'error', text: 'That is not here.' });
+        break;
+      }
+      searchCorpse(player, corpse);
+      break;
+    }
 
     case 'say':
       saySomething(player, message.text);
@@ -2345,10 +2440,6 @@ function handle(player: Player, message: ClientMessage): void {
     // movement intents do. A keybind or a UI button sends this; the command line sends the other.
     case 'flee':
       runFlee(player);
-      break;
-
-    case 'attack':
-      send(player.id, { t: 'log', channel: 'system', text: 'Use `kill <target>` to start a fight.' });
       break;
 
     default: {

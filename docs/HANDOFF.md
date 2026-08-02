@@ -65,6 +65,7 @@ and restarting is the whole of "installing" a zone.
 | Combat | Engagement is a **pointer**, not a distance — blows land wherever you stand in the room. Per-actor round clocks. `kill <target>` starts it |
 | Leaving a fight | **You cannot walk out**, on all four movement paths: the typed direction, the `move` intent a keybind sends, the `moveTo` a click sends, and steering (gated in `Simulation.tick`, the only place that sees a step about to cross). Moving *inside* the room stays free. `flee` is the way out |
 | Station-keeping | An engaged mob closes to one tile and **follows you around the room** at a hunter's pace — the fight moves with you. Knocked-down bodies stay down (`canMove` is the gate, so Phase 19's bash needs no code). No range check anywhere: this walks a body toward a fight it is already in. Threat drives it for free, so a tank holds the thing beside them. `server/src/station.ts` |
+| Target menu | Click a body: a menu names it and offers Look at / Attack / Loot. Verbs send an **entity id** (protocol 11) — the thing a keyword cannot say, since three patrol members share a name and now move. Resolved server-side through the same visible-set gate a typed word passes. `client/src/targetmenu.ts` |
 | Facing | **You face what you are dealing with**, not the way you are walking: the door you open, the corpse you loot, the person you `look` at, and in a fight your opponent — *both* parties, so retreating walks you backwards with your eyes on it. Movement is the fallback. **Server-authoritative**: the client's own `facingOf` is deleted, and `syncTurn` tells a character about their own turn |
 | Combat log | The d20, the total and the target's AC on every swing, rendered per recipient — second person for the participants, third for onlookers |
 | Mercy | **Players only.** A downed character stops being a target; a mob fights to the death. A body that cannot defend itself is never missed |
@@ -206,7 +207,7 @@ writing down because it is not obvious and it has caught bugs no test could.
 
 **Write a throwaway WebSocket client.** `node --experimental-strip-types packages/server/src/index.ts`
 with `GAME_PORT=8787`, then a script that opens `ws://127.0.0.1:8787`, sends
-`{t:'hello',protocol:10,name:'Prober'}` and drives the game with `{t:'command',text:'kill sentry'}` and
+`{t:'hello',protocol:11,name:'Prober'}` and drives the game with `{t:'command',text:'kill sentry'}` and
 `{t:'steer',dx,dy}`. Read `log`, `self`, `room`, `entityEnter/Update/Moved/Leave`, `attackResolved` and
 `died` back off the socket. These live in a scratch directory and are deliberately disposable.
 
@@ -251,10 +252,10 @@ left, violence on the right) and **Phase 14, mercy and fear**.
 dedicated `announce` channel that took **protocol to 10**. `system` is the machine's voice; an
 operator's is a person's, and a client that cannot tell them apart can style neither.
 
-**Round 2 is under way.** Its mechanic slot went to **Phase 14c, the fight moves with you** — pulled
-ahead of 14b at the owner's word, because it and V2 are companions — and it is **done**: an engaged
-mob now closes to a tile and follows you around the room. What remains in the round is **V2 (click a
-body, get its verbs)** and **A3 (zones, read-only)**; **Phase 14b** moves to round 3.
+**Round 2 is nearly closed.** Its mechanic slot went to **Phase 14c, the fight moves with you** —
+pulled ahead of 14b at the owner's word, because it and V2 are companions — and both it and **V2
+(click a body, get its verbs)** are done. What remains in the round is **A3, zones read-only**;
+**Phase 14b** moves to round 3.
 
 **What death costs, and progression generally, are Phase 14b** — promoted from ROADMAP §4's parking
 lot onto the schedule (round 2). Its storage half already arrived early (see progression above);

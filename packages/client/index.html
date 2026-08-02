@@ -202,6 +202,52 @@
         #status .light.urgent { animation: none; }
       }
 
+      /* The target menu: click a body, get its verbs (Track V, V2).
+         Pinned to the pointer inside the stage, so it appears on the thing you clicked. DOM rather
+         than drawn in Phaser for the same reason the log is: text, buttons and focus are the
+         browser's job, and it survives anything going wrong inside the canvas. It takes pointer
+         events — unlike the vitals — which is why it is in `UI_PANELS`: a click on a verb must not
+         also be a click on the ground underneath it. */
+      #target-menu {
+        position: absolute;
+        z-index: 5;
+        min-width: 132px;
+        padding: 4px;
+        background: var(--panel);
+        border: 1px solid var(--edge);
+        border-radius: 3px;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.55);
+        font-size: 12px;
+      }
+      #target-menu[hidden] { display: none; }
+      /* The name of the thing you clicked, and the whole point of the menu: in a room of three
+         identically-named guards this is the only thing on screen that says *which one*. */
+      #target-menu .who {
+        display: block;
+        padding: 3px 8px 5px;
+        color: #e8dcc0;
+        border-bottom: 1px solid var(--edge);
+        margin-bottom: 3px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 220px;
+      }
+      #target-menu button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: 4px 8px;
+        background: none;
+        border: 0;
+        border-radius: 2px;
+        color: var(--ink);
+        font: inherit;
+        cursor: pointer;
+      }
+      #target-menu button:hover { background: rgba(157, 176, 138, 0.14); }
+      #target-menu button.danger { color: #e0a86a; }
+
       /* The combat feed: the fight's own lines, where the owner put them — the character pane,
          below the display controls (Track V, V1). A capped mirror of the log's combat channel, in
          the channel's own amber, so a fight is readable without the log pane at all; the log stays
@@ -568,6 +614,9 @@
           <div class="zone" id="hud-zone">—</div>
           <div class="where" id="hud-where">—</div>
         </div>
+
+        <!-- Click a body and its verbs appear here, at the pointer. Empty and hidden otherwise. -->
+        <div id="target-menu" hidden></div>
 
         <!-- Collapsed by default, and it remembers either choice. -->
         <div id="hint">

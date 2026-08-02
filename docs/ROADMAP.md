@@ -85,7 +85,7 @@ a new idea still answers the three questions; its second question now also picks
 | Round | V | M | A |
 | --- | --- | --- | --- |
 | 1 ✅ | V1 — the combat feed ✅ | Phase 14 — mercy and fear ✅ | A2 — messaging to a room or place ✅ |
-| **2 — current** | V2 — click a body, get its verbs | Phase 14c — the fight moves with you ✅ | A3 — zones, read-only |
+| **2 — current** | V2 — click a body, get its verbs ✅ | Phase 14c — the fight moves with you ✅ | A3 — zones, read-only (next) |
 | 3 | V3 — speech in the world | Phase 14b — a character worth keeping | A4 — zones and mobs, live ops |
 | 4 | V4 — the world as a graph of Places | Phase 15 — inventory and worn equipment | A5 — authoring overlays |
 
@@ -1093,13 +1093,27 @@ One per round (§2b). Each entry is small on purpose — a V item that grows a m
   no longer carries combat lines at all, so the reading rule is spatial — prose and speech on the
   left, violence on the right. `combatfeed.ts`; the scene routes the channel.
   **Seen when:** a fight streams down the right pane, and the log stays prose. ✅
-- **V2 — Click a body, get its verbs.** Owner-requested: click a mob or a corpse and a small menu
-  offers what you can do to it — `look`, `kill`, `loot` — issuing the same typed commands the
-  prompt would, with the target already resolved. The point is target *identity*: in a room of
-  same-named patrol members, "which one am I about to hit" currently has no answer on screen. The
-  menu grows a row per mechanic as later phases land (bash arrives with Phase 19's skills, and is
-  recorded there); the menu itself stays presentation.
-  **Seen when:** you click the mob you mean and act on that one, never the wrong twin.
+- **V2 — Click a body, get its verbs** ✅ **done 2026-08-02, owner-requested.** Click a mob or a
+  corpse and a small menu names it and offers what you can do to it — Look at, Attack, Loot. The
+  point is target *identity*: in a room of same-named patrol members "which one am I about to hit"
+  had no answer on screen, and since Phase 14c they **move**, so "the one on the left" stops being
+  true a second after you say it. `client/src/targetmenu.ts`.
+  **Seen when:** you click the mob you mean and act on that one, never the wrong twin ✅ — clicked
+  one of the Court Patrol, the menu named it, and Attack opened the fight with that body.
+
+  **It needed the protocol (11), and that is the honest part.** A keyword *cannot* express "this
+  one": `kill patrol` is ambiguous by construction and `2.patrol` only helps if the player can see
+  the ordering the server used. So a click sends an **entity id** — `look` and `attack` had carried
+  an optional `target` since before there was anything to do with it, and `loot` joins them. The
+  server resolves the id through the same visible-set gate a typed word passes, so pointing is a
+  *more precise* way to ask and not a more powerful one.
+
+  **Phase 2's dispatcher seam moved from a location to a name.** The rule has always been that the
+  position and in-combat gates are read in exactly one place; a clicked verb would have broken that
+  either by skipping the gate (opening a fight while asleep) or by copying it. `permits()` is that
+  block extracted, and both entry points now pass through it. `kill` and `loot` were split the same
+  way — resolution from act — so the typed word and the click cannot come to mean two different
+  things.
 - **V3 — Speech in the world.** `say` exists only as a log line; nothing in the world shows who
   spoke. A short-lived speech bubble over the speaker — rendered per recipient exactly as the log
   line is, so an unseen speaker's bubble is not drawn (the `act()` gate already answers who may
