@@ -84,8 +84,8 @@ a new idea still answers the three questions; its second question now also picks
 
 | Round | V | M | A |
 | --- | --- | --- | --- |
-| 1 | V1 — the combat feed ✅ | Phase 14 — mercy and fear ✅ | A2 — messaging to a room or place (next) |
-| 2 | V2 — click a body, get its verbs | Phase 14b — a character worth keeping | A3 — zones, read-only |
+| 1 ✅ | V1 — the combat feed ✅ | Phase 14 — mercy and fear ✅ | A2 — messaging to a room or place ✅ |
+| **2 — next** | V2 — click a body, get its verbs | Phase 14b — a character worth keeping | A3 — zones, read-only |
 | 3 | V3 — speech in the world | Phase 14c — the fight moves with you | A4 — zones and mobs, live ops |
 | 4 | V4 — the world as a graph of Places | Phase 15 — inventory and worn equipment | A5 — authoring overlays |
 
@@ -1091,8 +1091,12 @@ order.
 - **A1 — Players, messaging's first line, the shell** ✅ **done 2026-08-02.** The player editor end
   to end (live edits through the sim's seams, offline through the store, refusal over pretence),
   global announcements, per-player tells, the audit trail, honest stubs for everything else.
-- **A2 — Messaging to a room or a place.** The remaining targets, plus the dedicated `announce`
-  `LogChannel` — a protocol bump taken deliberately, and the seam V1's banner renders.
+- **A2 — Messaging to a room or a place** ✅ **done 2026-08-02.** The remaining targets — world, a
+  Place, a room — as one endpoint with an optional target, since only the set of listeners differs.
+  Plus the dedicated **`announce` `LogChannel`, protocol 10**: `system` is the machine's voice and an
+  operator's is a person's, and a client that cannot tell them apart can style neither. **Seen when:**
+  a line aimed at one room reaches the character standing in it and nobody else ✅ — verified with two
+  probes on different levels, and an empty room answering *"nobody was there to hear it"*.
 - **A3 — Zones, read-only.** Zone list, room browser with sector/flags/prose, door states, repop
   clocks. The room browser is what A2's targeting and every later authoring job navigate with.
 - **A4 — Zones and mobs, live ops.** Force a repop, work a door; live mob instances by zone, slay,

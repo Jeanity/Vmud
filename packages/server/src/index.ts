@@ -2391,7 +2391,10 @@ const adminLive: LiveOps = {
     return true;
   },
   tell(player, text) {
-    send(player.id, { t: 'log', channel: 'system', text: `[Admin] ${text}` });
+    // `announce`, not `system`: protocol 10 separates the machine's voice from a person's, and a line
+    // typed by an operator is a person's whichever scope it was aimed at. The prefix stays because the
+    // channel says *who* is speaking and the prefix says *how widely* — this one is for you alone.
+    send(player.id, { t: 'log', channel: 'announce', text: `[Admin] ${text}` });
   },
   kick(player) {
     // The line lands before the close so the player is told rather than dropped; the close handler
@@ -2405,10 +2408,25 @@ const admin = new AdminApi({
   world,
   store,
   live: adminLive,
-  announce: (text) => {
+  /**
+   * The operator speaking, to as many people as the scope names.
+   *
+   * The three scopes differ only in which set of players they walk, so they share everything else —
+   * the channel, the counting, and the prefix that says how widely it went. A room-scoped line is
+   * deliberately **not** gated on who can see whom: this is a voice from outside the world, so a
+   * character standing in the dark hears it like everyone else.
+   */
+  announce: (text, scope) => {
+    const listeners =
+      scope.kind === 'room'
+        ? sim.playersIn(scope.room)
+        : scope.kind === 'place'
+          ? [...sim.allPlayers()].filter((player) => samePlace(player.place, scope.place))
+          : [...sim.allPlayers()];
+    const prefix = scope.kind === 'world' ? '[Announcement]' : '[Here]';
     let heard = 0;
-    for (const player of sim.allPlayers()) {
-      send(player.id, { t: 'log', channel: 'system', text: `[Announcement] ${text}` });
+    for (const player of listeners) {
+      send(player.id, { t: 'log', channel: 'announce', text: `${prefix} ${text}` });
       heard++;
     }
     return heard;

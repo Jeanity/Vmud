@@ -236,6 +236,16 @@
       .ch-say    { color: #8fc3e8; }
       .ch-system { color: #8b8172; font-style: italic; }
       .ch-error  { color: #d08a7d; }
+      /* An operator talking, as against `system`'s machine voice — protocol 10's whole point. Given
+         the loudest treatment in the panel because it is the only line in the game written by a
+         person in real time: if the server is coming down in five minutes, missing it costs you a
+         corpse run. A left rule rather than a background so it stays legible over any of the above. */
+      .ch-announce {
+        color: #e6d9a8;
+        border-left: 2px solid #c9a25c;
+        padding-left: 7px;
+        margin: 3px 0;
+      }
       /* Your own typed line, echoed into the scrollback so the log reads as a conversation rather
          than as a feed you happen to be shouting at. Dim, because it is the one line you already
          know the contents of. */

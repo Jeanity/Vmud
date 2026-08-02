@@ -32,7 +32,9 @@ import {
   UNLIMITED_DURATION,
   newAffect,
   placeKey,
+  type Place,
   type RoomId,
+  type ZoneId,
 } from '@mygame/shared';
 // A subpath import, as `vision.ts` is in `players.ts`: the catalogue is not in the package barrel.
 import { LIGHT_SOURCES, lightSource, type LightSource } from '@mygame/shared/light.ts';
@@ -84,12 +86,25 @@ export interface LiveOps {
   kick(player: Player): void;
 }
 
+/** Who an operator's line is aimed at. See {@link AdminDeps.announce}. */
+export type AnnounceScope =
+  | { readonly kind: 'world' }
+  /** Everyone standing on one {@link Place} — a zone at a level. */
+  | { readonly kind: 'place'; readonly place: Place }
+  | { readonly kind: 'room'; readonly room: RoomId };
+
 export interface AdminDeps {
   readonly world: GameWorld;
   readonly store: PlayerStore;
   readonly live: LiveOps;
-  /** One line to everyone connected. Returns how many heard it. */
-  readonly announce: (text: string) => number;
+  /**
+   * One line to whoever the scope names. Returns how many heard it.
+   *
+   * A scope rather than three functions because the three differ only in which set of players they
+   * walk — and the count coming back is what makes an operator's *"did anyone get that"* answerable,
+   * which matters far more for a room of one than for the world.
+   */
+  readonly announce: (text: string, scope: AnnounceScope) => number;
   /** `GAME_ADMIN_TOKEN`; undefined means any header value passes (the header itself is still required). */
   readonly token: string | undefined;
   /** Where the audit trail is appended, or undefined to keep it off disk (tests). */
@@ -500,12 +515,48 @@ export class AdminApi {
     return { status: 200, body: { ok: true } };
   }
 
+  /**
+   * An operator speaking: world-wide by default, or narrowed with `room` or `place`.
+   *
+   * One endpoint with an optional target rather than three, because the audit line, the validation and
+   * the "how many heard it" answer are identical for all three and only the set of listeners differs.
+   * Naming both at once is refused rather than resolved by precedence — an operator who typed both
+   * meant one of them, and guessing which sends a line to the wrong people.
+   */
   private announce(body: unknown): AdminResponse {
-    const text = cleanLine((body as { text?: unknown } | null)?.text);
+    const raw = (body ?? {}) as { text?: unknown; room?: unknown; place?: unknown };
+    const text = cleanLine(raw.text);
     if (!text) return { status: 400, body: { error: `body must be {"text": "..."} (max ${TEXT_MAX} chars)` } };
-    const heard = this.deps.announce(text);
-    this.audit('announce', { text, heard });
-    return { status: 200, body: { ok: true, heard } };
+    if (raw.room !== undefined && raw.place !== undefined) {
+      return { status: 400, body: { error: 'name a room or a place, not both' } };
+    }
+
+    let scope: AnnounceScope = { kind: 'world' };
+    let where = 'the world';
+
+    if (raw.room !== undefined) {
+      if (typeof raw.room !== 'number' || !Number.isInteger(raw.room)) {
+        return { status: 400, body: { error: 'room must be a room id' } };
+      }
+      const located = this.deps.world.locate(raw.room as RoomId);
+      if (!located) return { status: 400, body: { error: `no room ${raw.room} in the loaded world` } };
+      scope = { kind: 'room', room: raw.room as RoomId };
+      where = `room ${raw.room} (${located.room.name})`;
+    } else if (raw.place !== undefined) {
+      // `zone:level`, the same string `placeKey` produces — so the panel can hand back exactly what
+      // `/status` gave it and the two cannot drift apart on a separator.
+      const place = parsePlace(raw.place);
+      if (!place) return { status: 400, body: { error: 'place must be "<zone>:<level>", as /status reports it' } };
+      if (!this.deps.world.grid(place)) {
+        return { status: 400, body: { error: `no place ${placeKey(place)} in the loaded world` } };
+      }
+      scope = { kind: 'place', place };
+      where = `place ${placeKey(place)}`;
+    }
+
+    const heard = this.deps.announce(text, scope);
+    this.audit('announce', { text, scope: scope.kind, where, heard });
+    return { status: 200, body: { ok: true, heard, where } };
   }
 
   /* ------------------------------------------------------------------------ */
@@ -565,6 +616,19 @@ export class AdminApi {
       console.error(`[admin] could not write audit line:`, (err as Error).message);
     }
   }
+}
+
+/**
+ * `"36:0"` back into a {@link Place}, or nothing.
+ *
+ * The inverse of `placeKey`, and deliberately strict: a level is a signed integer (there are basements),
+ * a zone is not, and anything else is a typo rather than a place worth guessing at.
+ */
+function parsePlace(value: unknown): Place | undefined {
+  if (typeof value !== 'string') return undefined;
+  const match = /^(\d+):(-?\d+)$/.exec(value.trim());
+  if (!match) return undefined;
+  return { zone: Number(match[1]) as ZoneId, level: Number(match[2]) };
 }
 
 /** One line of operator speech: trimmed, collapsed to single spaces, bounded. Undefined when unusable. */

@@ -91,15 +91,23 @@ follows.
 | --- | --- | --- |
 | **Dashboard** | with players slice | `/health` grown up: uptime, zones and places loaded, populated zones, players online, tick and round lengths, protocol version |
 | **Players** | **built first** | §6 below |
-| **Messaging** | next slice | global announcement, line to a place, line to a room, line to a player. The player-targeted half ships early inside the player editor, where it naturally lives |
+| **Messaging** | **built (A2)** | global announcement, line to a place, line to a room, line to a player. One endpoint with an optional target rather than three, because the validation, the audit line and the "how many heard it" answer are identical and only the set of listeners differs. The player-targeted half lives in the player editor, where you can already see who you are talking to |
 | **Zones** | after messaging | read first: zone list, room browser with flags/sector/prose, door states, repop clocks. Live ops second: force a repop, work a door. Authoring last, as §1 overlays: room prose, flags, sector |
 | **Mobs** | with zones | live: instances by zone, slay, spawn from template. Authoring: template overrides (name, level, combat numbers, aggro) as §1 overlays over the harvested spawn files |
 | **Items** | stub until Phase 15 | there is no item system. The light catalogue (`shared/src/light.ts`) is the one item-shaped thing in the game and is code, not data; the tab lists it read-only and says why |
 | **Quests** | stub until Phase 17 | nothing exists to edit. The tab names the phase |
 
-Messaging notes for its slice: announcements ride the existing `log` message on the `system`
-channel, prefixed so a reader can tell an operator's voice from the machine's. If styling wants a
-dedicated `announce` `LogChannel`, that is a protocol bump to take deliberately, not in passing.
+**The `announce` channel was taken, and it was a protocol bump (10).** A1 shipped announcements on
+`system` with a prefix and this file said a dedicated channel would be a change to make on purpose
+rather than in passing; A2 made it. The reason: `system` is the *machine's* voice — your torch
+guttering, your rest paying out — and a client that cannot tell that apart from a human being
+talking to it can neither style, filter nor alert on either. Every operator line now uses it,
+including a tell, because the channel answers *who is speaking* while the prefix
+(`[Announcement]` / `[Here]` / `[Admin]`) answers *how widely*.
+
+**A room-scoped line is deliberately not gated on sight.** It is a voice from outside the world, so
+a character standing in the dark hears it like everyone else — unlike `say`, which `act.ts` renders
+per recipient. The two are different kinds of speech and only one of them is in the fiction.
 
 ## 6. The player editor (built now)
 

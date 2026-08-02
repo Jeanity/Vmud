@@ -15,7 +15,7 @@ import { describe, it } from 'node:test';
 
 import { boundsOf, type Room, type Zone } from '@mygame/shared';
 
-import { AdminApi, type AdminDeps, type AdminRequest, type LiveOps } from './admin.ts';
+import { AdminApi, type AdminDeps, type AdminRequest, type AnnounceScope, type LiveOps } from './admin.ts';
 import { PlayerStore, slugify } from './players.ts';
 import type { Player } from './sim.ts';
 import { GameWorld } from './world.ts';
@@ -74,6 +74,7 @@ interface Rig {
   players: Player[];
   calls: string[];
   heard: string[];
+  scopes: AnnounceScope[];
 }
 
 function makeRig(options: { token?: string; auditFile?: string } = {}): Rig {
@@ -83,6 +84,7 @@ function makeRig(options: { token?: string; auditFile?: string } = {}): Rig {
   const players: Player[] = [];
   const calls: string[] = [];
   const heard: string[] = [];
+  const scopes: AnnounceScope[] = [];
 
   const live: LiveOps = {
     online: () => players,
@@ -121,15 +123,18 @@ function makeRig(options: { token?: string; auditFile?: string } = {}): Rig {
     world,
     store,
     live,
-    announce: (text) => {
+    // Records the scope as well as the line: what these tests are checking is that the router
+    // *resolved and validated* the target, not that the server walks the right set of players.
+    announce: (text, scope) => {
       heard.push(text);
+      scopes.push(scope);
       return players.length;
     },
     token: options.token,
     auditFile: options.auditFile,
     facts: { protocol: 9, tickMs: 100, roundMs: 3000, startedAt: Date.now() },
   };
-  return { api: new AdminApi(deps), store, dir, players, calls, heard };
+  return { api: new AdminApi(deps), store, dir, players, calls, heard, scopes };
 }
 
 function req(method: string, path: string, body?: unknown): AdminRequest {
@@ -398,13 +403,47 @@ describe('the verbs', () => {
   });
 
   it('announces to everyone and rejects a paste-sized line', () => {
-    const { api, players, heard } = makeRig();
+    const { api, players, heard, scopes } = makeRig();
     players.push(fakePlayer('Ravi'));
 
     const response = quietly(() => api.route(req('POST', '/announce', { text: 'The server restarts in five minutes.' })));
-    assert.deepEqual(response.body, { ok: true, heard: 1 });
+    assert.deepEqual(response.body, { ok: true, heard: 1, where: 'the world' });
     assert.deepEqual(heard, ['The server restarts in five minutes.']);
+    assert.deepEqual(scopes, [{ kind: 'world' }], 'no target named means the world');
     assert.equal(api.route(req('POST', '/announce', { text: 'x'.repeat(400) })).status, 400);
+  });
+
+  it('narrows to a room, and names it back so the operator can see where it went', () => {
+    const { api, players, scopes } = makeRig();
+    players.push(fakePlayer('Ravi'));
+    const response = quietly(() => api.route(req('POST', '/announce', { text: 'Mind the gap.', room: 6002 })));
+    assert.equal(response.status, 200);
+    assert.deepEqual(scopes, [{ kind: 'room', room: 6002 }]);
+    assert.match((response.body as { where: string }).where, /A Fallen Log/);
+  });
+
+  it('narrows to a place, parsed from the same string /status reports', () => {
+    const { api, scopes } = makeRig();
+    const response = quietly(() => api.route(req('POST', '/announce', { text: 'Snow is falling.', place: '600:0' })));
+    assert.equal(response.status, 200);
+    assert.deepEqual(scopes, [{ kind: 'place', place: { zone: 600, level: 0 } }]);
+  });
+
+  it('refuses a target the world does not have, rather than shouting into nowhere', () => {
+    const { api, scopes } = makeRig();
+    assert.equal(api.route(req('POST', '/announce', { text: 'hello', room: 99999 })).status, 400);
+    assert.equal(api.route(req('POST', '/announce', { text: 'hello', place: '600:9' })).status, 400);
+    assert.equal(api.route(req('POST', '/announce', { text: 'hello', place: 'the archives' })).status, 400);
+    assert.deepEqual(scopes, [], 'nothing was said');
+  });
+
+  it('refuses both targets at once rather than picking one', () => {
+    // An operator who named a room *and* a place meant one of them, and guessing which sends the
+    // line to the wrong people — which is the one failure an announcement cannot take back.
+    const { api } = makeRig();
+    const response = api.route(req('POST', '/announce', { text: 'hello', room: 6001, place: '600:0' }));
+    assert.equal(response.status, 400);
+    assert.match((response.body as { error: string }).error, /not both/);
   });
 
   it('leaves an audit line for every mutation', () => {

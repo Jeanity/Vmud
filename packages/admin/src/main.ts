@@ -27,12 +27,12 @@ const SECTIONS: Section[] = [
   dashboardSection,
   playersSection,
   messagingSection,
-  stubSection('zones', 'Zones', 'next slice', [
+  stubSection('zones', 'Zones', 'A3', [
     'Reading first: the zone list, a room browser with sector, flags and prose, door states and repop clocks.',
     'Live operations second: force a repop, work a door.',
     'Authoring last, as overlay files that survive `npm run worldgen` — the base data is regenerated, so hand edits to it are lost by design. See DESIGN-admin-panel.md §1.',
   ]),
-  stubSection('mobs', 'Mobs', 'next slice', [
+  stubSection('mobs', 'Mobs', 'A4', [
     'Live: instances by zone, slay, spawn from a harvested template.',
     'Authoring: template overrides (name, level, combat numbers, aggression) as overlay files over data/world/spawns/.',
   ]),

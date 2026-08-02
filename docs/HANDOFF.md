@@ -19,7 +19,7 @@ skills from those projects.
 npm install          # once
 npm run dev          # server + client + admin panel together
 npm run typecheck    # tsc across all five packages
-npm test             # 790 tests
+npm test             # 797 tests
 npm run worldgen     # rebuild world JSON from the zMUD source DB
 ```
 
@@ -32,7 +32,7 @@ and restarting is the whole of "installing" a zone.
 
 ## State: green
 
-- **790 tests** (417 server, 300 shared, 73 worldgen), typecheck clean across all five packages.
+- **797 tests** (424 server, 300 shared, 73 worldgen), typecheck clean across all five packages.
 - `data/` is git-ignored and reproducible. `npm run worldgen` regenerates it.
 - Four zones loaded, 23 places: **36 IceCrag Castle** (219 rooms, 11 levels) and **168 Kobold
   Settlement** (99 rooms, 6 levels), both Duris-matched and carrying harvested prose, flags and real
@@ -85,6 +85,7 @@ and restarting is the whole of "installing" a zone.
 | Equipment panel | Paper doll, `DESIGN-inventory.md` §6's eleven slots. Only the main hand can fill today, from the carried light |
 | Admin panel | `@mygame/admin` on 5274, a client of `/admin/api` on the game server. Players section built: live edits through the sim's own seams, offline edits through the store, refusal over pretence, every mutation audited to `data/admin-audit.jsonl`. **Edits are permanent** — level/experience persist and beat the `GAME_DEV_LEVEL` rig, teleports stick because login returns to `lastRoom`, and every live op flushes the file at once. Global announce works; zones/mobs/items/quests are honest stubs. See `DESIGN-admin-panel.md` |
 | Combat feed | The `combat` channel's only destination: a capped, self-scrolling section of the character pane below the display slider. A split, not a mirror — the log no longer carries combat lines. `client/src/combatfeed.ts`; the scene routes the channel |
+| Operator messaging | World, a Place, or one room — one endpoint with an optional target, reporting how many heard it. On the **`announce`** channel (protocol 10), a person's voice styled apart from the machine's. A room line is **not** sight-gated: it comes from outside the world |
 
 ### Not built
 
@@ -203,7 +204,7 @@ writing down because it is not obvious and it has caught bugs no test could.
 
 **Write a throwaway WebSocket client.** `node --experimental-strip-types packages/server/src/index.ts`
 with `GAME_PORT=8787`, then a script that opens `ws://127.0.0.1:8787`, sends
-`{t:'hello',protocol:9,name:'Prober'}` and drives the game with `{t:'command',text:'kill sentry'}` and
+`{t:'hello',protocol:10,name:'Prober'}` and drives the game with `{t:'command',text:'kill sentry'}` and
 `{t:'steer',dx,dy}`. Read `log`, `self`, `room`, `entityEnter/Update/Moved/Leave`, `attackResolved` and
 `died` back off the socket. These live in a scratch directory and are deliberately disposable.
 
@@ -244,10 +245,12 @@ of 7, Track V is 1 of 5.** Round 1 is complete: **V1 the combat feed** (the `com
 renders *only* in its own section of the character pane — the owner's split: prose and speech on the
 left, violence on the right) and **Phase 14, mercy and fear**.
 
-**Next is A2, messaging to a room or place**, which closes round 1 and takes the `announce`
-channel's protocol bump — a decision `DESIGN-admin-panel.md` §5 says to take deliberately rather
-than in passing, and the seam V3 later renders in the world. Then round 2 opens with **V2, click a
-body to get its verbs**.
+**Round 1 is closed** — A2 landed with it: messaging to the world, a Place or a room, and the
+dedicated `announce` channel that took **protocol to 10**. `system` is the machine's voice; an
+operator's is a person's, and a client that cannot tell them apart can style neither.
+
+**Round 2 is next: V2 (click a body, get its verbs), Phase 14b (a character worth keeping), A3
+(zones, read-only).**
 
 **What death costs, and progression generally, are Phase 14b** — promoted from ROADMAP §4's parking
 lot onto the schedule (round 2). Its storage half already arrived early (see progression above);

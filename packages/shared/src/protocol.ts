@@ -14,7 +14,22 @@ import type { Posture, Status } from './position.ts';
 import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
 
 /**
- * Bumped to 9: affects.
+ * Bumped to 10: the operator has a voice.
+ *
+ * `LogChannel` gained **`announce`** — a line an *administrator* is saying: world-wide, to a Place, to
+ * a room, or to one character. One channel rather than four, because the fact a reader needs is "a
+ * person is speaking to me through the game", not which scope they chose — the scope is already
+ * legible from the prefix and from who else received it.
+ *
+ * **Taken deliberately, which is the whole reason it is a version bump rather than a quiet reuse.**
+ * `DESIGN-admin-panel.md` §5 shipped announcements on `system` with a prefix and said in as many words
+ * that a dedicated channel would be a protocol change to make on purpose. The reason to make it:
+ * `system` is the *machine's* voice — your torch guttering, your rest paying out — and a client that
+ * cannot tell that apart from a human being talking to it can neither style, filter nor alert on
+ * either. A client meeting a channel it does not know must render it as ordinary text rather than
+ * dropping the line; being told something in an unfamiliar colour beats not being told.
+ *
+ * Was 9: affects.
  *
  * `SelfView` gained `affects` — the timed effects on your own character, one row per cause, already
  * filtered to what you are allowed to be shown. **`SelfView.light` is unchanged and still carries the
@@ -41,7 +56,7 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * Was 6: doors have live state — the `door` message, and `open`/`close` losing their required `dir`.
  * Was 5: carried light sources — `SelfView` gained `light`.
  */
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 
 /**
  * One timed effect on your own character, as the HUD reads it.
@@ -253,8 +268,14 @@ export type ClientMessage =
 /* Server → client                                                             */
 /* -------------------------------------------------------------------------- */
 
-/** A line for the text log — the MUD half of the hybrid presentation. */
-export type LogChannel = 'room' | 'combat' | 'say' | 'system' | 'error';
+/**
+ * A line for the text log — the MUD half of the hybrid presentation.
+ *
+ * `system` is the machine talking (your torch is guttering); **`announce` is a person talking** — an
+ * operator, through the admin panel, to the world, a Place, a room or you alone. Keeping them apart is
+ * what lets a client style one and alert on the other, and it is the whole of protocol 10.
+ */
+export type LogChannel = 'room' | 'combat' | 'say' | 'system' | 'error' | 'announce';
 
 /**
  * How one swing resolved, beyond whether it landed.
