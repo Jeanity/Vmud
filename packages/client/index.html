@@ -202,6 +202,25 @@
         #status .light.urgent { animation: none; }
       }
 
+      /* The combat feed: the fight's own lines, where the owner put them — the character pane,
+         below the display controls (Track V, V1). A capped mirror of the log's combat channel, in
+         the channel's own amber, so a fight is readable without the log pane at all; the log stays
+         the complete record. Its own bounded scroll rather than growing the pane: `#sheet-body`
+         already scrolls as a whole, and a fight long enough to fill this should not push the
+         brightness slider off screen. */
+      #combat-lines {
+        max-height: 300px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        font-size: 12px;
+        line-height: 1.4;
+        color: #e0a86a;
+      }
+      /* Honest when idle, like the inventory drawer. */
+      #combat-lines:empty::after { content: 'No blows yet.'; color: var(--dim); font-style: italic; }
+
       /* ------------------------------------------------------------------ log */
 
       #log-lines {
@@ -692,6 +711,14 @@
               <input id="brightness" type="range" min="15" max="85" step="1" aria-label="Map brightness" />
               <output id="brightness-value">—</output>
             </div>
+          </div>
+
+          <!-- The fight's own lines, below the display controls — the owner's placement, and the
+               combat channel's only destination: the scene routes it away from the log, so prose
+               and speech read on the left and violence reads here. See combatfeed.ts. -->
+          <div class="sheet-section" id="combat-feed">
+            <h2>Combat</h2>
+            <div id="combat-lines"></div>
           </div>
         </div>
       </aside>

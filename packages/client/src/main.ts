@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 
+import { CombatFeed } from './combatfeed.ts';
 import { LogPanel } from './log.ts';
 import { Net } from './net.ts';
 import { WorldScene } from './scene.ts';
@@ -67,6 +68,15 @@ net.onStateChange = (state) => {
 };
 
 const scene = new WorldScene(net, log);
+
+// The combat channel's one destination — the scene routes it away from the log, so this is a
+// split, not a mirror: prose and speech on the left, violence on the right (the owner's rule).
+// A second listener rather than a branch inside the scene's own — Net.on fans out, and the feed
+// is DOM that owes the renderer nothing.
+const combatFeed = new CombatFeed();
+net.on('log', (message) => {
+  if (message.channel === 'combat') combatFeed.push(message.text);
+});
 
 // The line goes to the server unparsed: which command an abbreviation means, and which orc `2.orc`
 // is, are both game rules, and the second needs room contents gated on what this character can see.

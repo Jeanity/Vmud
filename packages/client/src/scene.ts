@@ -1218,7 +1218,12 @@ export class WorldScene extends Phaser.Scene {
     // The reason is deliberately unused: the server sends the sentence, this only flashes the spot.
     this.net.on('pathFailed', () => this.reportPathFailure());
 
-    this.net.on('log', (message) => this.log.write(message.channel, message.text));
+    // Combat lines are deliberately absent: they belong to the combat feed in the character pane
+    // (`combatfeed.ts`, wired in `main.ts`), and the owner's rule is a split rather than a mirror —
+    // prose and speech on the left, violence on the right. Everything else lands here unchanged.
+    this.net.on('log', (message) => {
+      if (message.channel !== 'combat') this.log.write(message.channel, message.text);
+    });
     this.net.on('rejected', (message) => this.log.write('error', `Rejected: ${message.reason}`));
   }
 
