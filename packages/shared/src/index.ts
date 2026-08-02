@@ -9,6 +9,7 @@ export * from './experience.ts';
 export * from './pursuit.ts';
 export * from './threat.ts';
 export * from './morale.ts';
+export * from './colour.ts';
 export * from './spawn.ts';
 export * from './protocol.ts';
 export * from './tilemap.ts';

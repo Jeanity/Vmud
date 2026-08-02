@@ -6,7 +6,36 @@
  * inside the game canvas, which is exactly when you most want to read it.
  */
 
-import type { LogChannel } from '@mygame/shared';
+import { hasColour, parseColour, type LogChannel } from '@mygame/shared';
+
+/**
+ * Writes one line, honouring the MUD's own `&+R` colour codes.
+ *
+ * **Spans, never HTML.** Everything through here is untrusted by construction — half of it is other
+ * players' `say` — so the text is only ever set with `textContent` on a node this function made.
+ * `parseColour` is a splitter, not a markup generator, and that is the property that makes an
+ * injection impossible rather than merely unlikely.
+ *
+ * A line with no codes takes the plain path and stays one text node, which is nearly all of them —
+ * combat rolls, exits, system lines. The colour is in the world's prose.
+ */
+function paint(line: HTMLElement, text: string): void {
+  if (!hasColour(text)) {
+    line.textContent = text;
+    return;
+  }
+  line.replaceChildren();
+  for (const span of parseColour(text)) {
+    if (span.colour === undefined) {
+      line.append(document.createTextNode(span.text));
+      continue;
+    }
+    const node = document.createElement('span');
+    node.style.color = span.colour;
+    node.textContent = span.text;
+    line.append(node);
+  }
+}
 
 const MAX_LINES = 500;
 
@@ -216,11 +245,11 @@ export class LogPanel {
     // still points at, and updating a detached node would silently lose the repeat.
     if (this.lastLine?.isConnected && this.lastKey === key) {
       this.lastCount++;
-      this.lastLine.textContent = `${text} (x${this.lastCount})`;
+      paint(this.lastLine, `${text} (x${this.lastCount})`);
     } else {
       const line = document.createElement('p');
       line.className = `ch-${channel}`;
-      line.textContent = text;
+      paint(line, text);
       this.lines.append(line);
       this.lastLine = line;
       this.lastKey = key;

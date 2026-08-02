@@ -166,9 +166,19 @@ export function parseWld(text: string, file: string): DurisRoom[] {
  * line. Left alone they wrap twice — once by the author and once by the browser — which reads as
  * ragged nonsense at any panel width. Paragraph breaks are kept; line breaks inside a paragraph are
  * not, because they were a typesetting decision for a terminal we are not using.
+ *
+ * **Colour is kept, which it did not used to be.** Stripping was right while nothing could render a
+ * code — the alternative was `&+R` printed literally in the middle of a sentence — and it is wrong
+ * now that `shared/src/colour.ts` exists. The scale is the argument: **4,588,357 codes across the
+ * 447 `.wld` files**, 4,199 in IceCrag alone, every one of them authored by the original builders.
+ * Keeping them is the cheapest thing that will ever make this world look like the world it came from.
+ *
+ * **The join key still strips, and must.** {@link normaliseName} calls `stripColour` itself, for the
+ * separate and still-correct reason that a name carrying codes will not match one without them. The
+ * two were always the same function and never the same decision.
  */
 function cleanDescription(raw: string): string {
-  return stripColour(raw)
+  return raw
     .split(/\n\s*\n/)
     .map((para) => para.split('\n').map((l) => l.trim()).join(' ').trim())
     .filter((para) => para.length > 0)
