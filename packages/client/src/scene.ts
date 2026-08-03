@@ -200,13 +200,23 @@ const TRAVEL_KEYS: readonly (readonly [key: string, dir: Direction, needsShift: 
 const LPC_FRAME = 64;
 
 /**
- * The LPC walk cycle: **column 0 is standing, columns 1–8 are the steps.** Every sheet in the pack —
- * bodies and garments alike — is 9 columns by 4 rows at this size, which is what lets one texture
- * serve both a standing character and a walking one.
+ * The LPC walk cycle: **columns 0 through 7**, with column 0 the neutral both-feet-down pose that
+ * also serves as standing.
  *
  * Phase 15a, owner-reported: *"it looks like the players are ice skating."* They were — every layer
  * was staged from `idle.png` (2 columns) and drawn at column 0 for ever, so a body slid across the
  * floor in a fixed pose. The sheets were re-staged from `walk.png` and the column now advances.
+ *
+ * **Eight and not nine, which the pack will not tell you.** The `walk.png` sheets are mostly 9
+ * columns wide, so a nine-frame cycle looks right — and it is wrong. Measuring the alpha of every
+ * frame of all fourteen staged sheets: **seven have a completely empty column 8**, and one (the
+ * sleeveless shirt) is physically 8 columns. Column 8 is padding to a common width in half the set,
+ * not a frame. Cycling through it made the boots and the cap *vanish* for one frame every eight
+ * steps, exposing a bare head and bare feet — owner-reported as "it flashes a box every few steps".
+ *
+ * So the honest cycle is what every sheet actually has, and column 0 doubles as the rest pose. That
+ * costs nothing: in LPC frame 0 is the contact pose with both feet down, which is what standing
+ * still should look like anyway.
  */
 const WALK_COLUMNS = 8;
 const WALK_STANDING_COLUMN = 0;
@@ -224,6 +234,18 @@ const WALK_STANDING_COLUMN = 0;
  * natural cadence without being told what that cadence is.
  */
 const WALK_PIXELS_PER_FRAME = 18;
+
+/**
+ * How far a body must move in one frame to count as walking rather than settling.
+ *
+ * Owner-reported: a character who stopped stayed frozen mid-stride. The cause was treating "stopped"
+ * as *exactly* zero movement — but a sprite easing toward the server's position approaches it
+ * asymptotically and never arrives, so it always has some residue and never qualified as stopped.
+ *
+ * At `PLAYER_SPEED` a real step is about 2.5 px per frame, so this sits an order of magnitude below
+ * a stride and an order above the residue: it cannot mistake one for the other in either direction.
+ */
+const WALK_MOVING_EPSILON = 0.25;
 
 const LPC_SHEETS: readonly string[] = [
   'body-human-male',
@@ -2709,13 +2731,19 @@ export class WorldScene extends Phaser.Scene {
       // alike — so the cycle is driven by the ground the sprite actually covered this frame rather
       // than by what it was asked to do. A character being dragged back by a correction still walks.
       const stepped = Math.hypot(entity.x - beforeX, entity.y - beforeY);
-      // A snap is a teleport, not a stride: past `SNAP_DISTANCE` the sprite was relocated rather than
-      // moved, and counting it would spin the legs for a jump the character never took.
-      if (stepped > 0.01 && stepped < SNAP_DISTANCE) {
+      // **Two states, one threshold, and no gap between them.** The first version advanced above 0.01
+      // and settled at exactly 0, which left everything in between doing neither — and *everything*
+      // lands in between, because easing toward the server's position is asymptotic and never reaches
+      // it. A stopped character kept a sub-pixel residue for ever and stood frozen mid-stride with one
+      // foot in the air. Anything that is not a real step now settles.
+      //
+      // A snap is a teleport rather than a stride, so it settles too: past `SNAP_DISTANCE` the sprite
+      // was relocated, and counting it would spin the legs for a journey nobody walked.
+      const walking = stepped >= WALK_MOVING_EPSILON && stepped < SNAP_DISTANCE;
+      if (walking) {
         entity.walked += stepped;
         this.faceEntity(entity, entity.view.facing);
-      } else if (stepped === 0 && entity.walked !== 0) {
-        // Stopped. Park on the standing frame rather than freezing mid-stride with one foot raised.
+      } else if (entity.walked !== 0) {
         entity.walked = 0;
         this.faceEntity(entity, entity.view.facing);
       }
@@ -3175,12 +3203,13 @@ function tileCentre(tile: number): number {
 /**
  * Where in the walk cycle a body currently is.
  *
- * `1 +` because column 0 is the standing pose and must not appear mid-stride — the cycle proper is
- * columns 1 through 8, and folding the stand into it would drop a still frame into every eighth step.
+ * The cycle runs 0 through 7 and *includes* the rest pose, because column 0 is a genuine frame of an
+ * LPC walk — the moment both feet are down — rather than a separate idle. See {@link WALK_COLUMNS}
+ * for why the ninth column is not in it.
  */
 function walkColumn(entity: Entity): number {
   if (entity.walked === 0) return WALK_STANDING_COLUMN;
-  return 1 + (Math.floor(entity.walked / WALK_PIXELS_PER_FRAME) % WALK_COLUMNS);
+  return Math.floor(entity.walked / WALK_PIXELS_PER_FRAME) % WALK_COLUMNS;
 }
 
 function layerFrame(texture: Phaser.Textures.Texture, facing: Direction, column = WALK_STANDING_COLUMN): number {
