@@ -55,7 +55,9 @@ import {
   carry,
   describePurse,
   describeStack,
+  CURRENCIES,
   isMoney,
+  purseIsEmpty,
   vnumOf,
   type Purse,
   type ItemTemplate,
@@ -1421,11 +1423,38 @@ function resolveDeath(death: Death): void {
 
   // **Experience, divided by contribution rather than handed to whoever landed the last blow.** This is
   // the choice that makes tanking and healing viable with no role system — see `experience.ts`.
-  const pool = isMob(actor) ? (mobTemplates.get(actor.vnum)?.experience ?? 0) : 0;
-  for (const award of divideExperience(pool, death.contributions)) {
+  const template = isMob(actor) ? mobTemplates.get(actor.vnum) : undefined;
+  const pool = template?.experience ?? 0;
+  // **Coin is awarded on death, not looted.** Owner's call (2026-08-03): *"maybe we can just have the
+  // coins awarded when a mob is killed… then we can skip the looting currency altogether."* Right for
+  // the same reason experience works this way — coin is a number rather than a thing, and walking to a
+  // body to collect a number is ceremony with no decision in it. Duris keeps a mob's purse on the same
+  // line of the same file as its experience, which says it thought so too.
+  const purse = template?.coins ?? {};
+  const shares = divideExperience(pool, death.contributions);
+  for (const award of shares) {
     const earner = sim.player(award.actor);
     if (!earner) continue;
     earner.experience += award.experience;
+
+    // Split the same way the experience was, so whatever made tanking pay makes it pay in coin too. A
+    // zero pool leaves nothing to be proportional to, so those fall back to equal shares rather than
+    // dividing by zero. Floored per earner: a rounding loss of a copper beats minting one.
+    const fraction = pool > 0 ? award.experience / pool : 1 / Math.max(1, shares.length);
+    const gained: Purse = {};
+    for (const kind of CURRENCIES) {
+      const whole = purse[kind] ?? 0;
+      const cut = Math.floor(whole * fraction);
+      if (cut > 0) (gained as Record<string, number>)[kind] = cut;
+    }
+    if (!purseIsEmpty(gained)) {
+      earner.purse = addCoins(earner.purse, gained);
+      send(earner.id, {
+        t: 'log',
+        channel: 'system',
+        text: `You receive &+Y${describePurse(gained)}&N.`,
+      });
+    }
     const { dealt, taken, supported } = award.contribution;
     // The breakdown is printed because the *rule* is the interesting part: a player who tanked and dealt
     // nothing should be able to see that this is why they were paid.
@@ -3890,3 +3919,4 @@ http.on('error', (err) => {
 http.listen(PORT, '127.0.0.1', () => {
   console.log(`[server] listening on http://127.0.0.1:${PORT} (ws on the same port)`);
 });
+

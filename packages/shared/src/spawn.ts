@@ -89,6 +89,19 @@ export interface MobTemplate {
    */
   readonly experience: number;
   /**
+   * What killing it is worth in coin, in all four currencies. Phase 15c.
+   *
+   * **Awarded on death rather than looted** — owner's call (2026-08-03): *"maybe we can just have the
+   * coins awarded when a mob is killed… then we can skip the looting currency altogether."* It is the
+   * right simplification for the same reason experience works that way: coin is not a *thing*, it is a
+   * number, and making a player walk to a body to collect a number is ceremony without a decision in
+   * it. Duris keeps it on the mob record for exactly this reason — right beside the experience, on the
+   * same line of the same file.
+   *
+   * Absent for the many mobs the file gives nothing.
+   */
+  readonly coins?: Readonly<Partial<Record<'copper' | 'silver' | 'gold' | 'platinum', number>>>;
+  /**
    * The hit points below which this breaks off and runs — `ACT_WIMPY`, resolved to a number.
    *
    * **0 is a mob that never runs**, which is most of them. Stored as an absolute rather than as a

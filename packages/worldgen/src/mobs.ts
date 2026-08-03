@@ -319,12 +319,23 @@ export function parseMobFile(path: string): MobHarvest {
       continue;
     }
 
-    // `<coins> <experience>`. Coins are four dot-separated denominations and wait for Phase 17's money;
-    // experience has a reader as of Phase 13, so it is taken and they are not. Measured on IceCrag: 1,036
-    // for a level 15 servant up to 243,000 for Malice, which is a real curve rather than a derivation we
-    // would otherwise have had to invent.
+    // `<coins> <experience>`, where coins are four dot-separated denominations.
+    //
+    // **Both are taken since 15c.** Experience has had a reader since Phase 13; the coins waited, and
+    // the wait is over — the owner's call (2026-08-03) is that killing a thing *awards* its money
+    // rather than leaving it to be looted, which makes this line the whole of the economy's input.
+    //
+    // The order is `copper.silver.gold.platinum`, read off `db.c` rather than guessed:
+    // `sscanf(buf, " %ld.%ld.%ld.%ld %ld", &tmp1..&tmp4, &tmp)` then assigns `GET_PLATINUM = tmp4`
+    // down to `GET_COPPER = tmp1`. Getting it backwards turns a twenty-platinum dragon into twenty
+    // coppers, which is a plausible-looking number and the exact class of mistake `CLAUDE.md` warns
+    // about.
+    //
+    // Experience measured on IceCrag: 1,036 for a level 15 servant up to 243,000 for Malice, which is a
+    // real curve rather than a derivation we would otherwise have had to invent.
     const purse = lines[3]?.split(/\s+/) ?? [];
     const experience = Number(purse[1]);
+    const coins = parseCoins(purse[0]);
 
     if (keywords.length === 0 || name.length === 0) {
       skipped.push({ vnum, name, why: 'no keywords or no name' });
@@ -343,6 +354,9 @@ export function parseMobFile(path: string): MobHarvest {
       pursuit: readPursuit(act),
       wimpyAt: readWimpyAt(act, level),
       experience: Number.isFinite(experience) && experience > 0 ? experience : 0,
+      // Omitted for the many mobs carrying nothing, so a template only asserts a purse when the file
+      // gave it one.
+      ...(Object.keys(coins).length > 0 ? { coins } : {}),
       combat: readCombatStats({
         level,
         armour: Number.isFinite(armour) ? armour : 0,
@@ -360,6 +374,27 @@ export function parseMobFile(path: string): MobHarvest {
 
 /** Diku's direction order in a `.zon` `D` command: `D0=N, D1=E, D2=S, D3=W, D4=U, D5=D`. */
 const ZON_DIRECTIONS = ['north', 'east', 'south', 'west', 'up', 'down'] as const;
+
+/**
+ * A mob's purse, from the `copper.silver.gold.platinum` field of its record.
+ *
+ * The order is `db.c`'s: `sscanf(buf, " %ld.%ld.%ld.%ld %ld", &tmp1, &tmp2, &tmp3, &tmp4, &tmp)` and
+ * then `GET_PLATINUM(mob) = tmp4` down to `GET_COPPER(mob) = tmp1`. Reading it the other way round
+ * turns IceCrag's twenty-platinum drowned zombie into twenty coppers, which is a plausible-looking
+ * number and exactly the failure `CLAUDE.md` gotcha 1 describes.
+ *
+ * Zeroes are dropped so a purse of pure platinum does not record three empty currencies.
+ */
+function parseCoins(field: string | undefined): Record<string, number> {
+  const kinds = ['copper', 'silver', 'gold', 'platinum'] as const;
+  const parts = (field ?? '').split('.').map(Number);
+  const out: Record<string, number> = {};
+  kinds.forEach((kind, i) => {
+    const n = parts[i];
+    if (Number.isFinite(n) && (n ?? 0) > 0) out[kind] = Math.floor(n!);
+  });
+  return out;
+}
 
 /** The letters, mapped to what they mean. Unknown letters are dropped and counted. */
 const RESET_KINDS: Readonly<Record<string, ResetKind>> = {
