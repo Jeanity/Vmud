@@ -160,6 +160,22 @@ export function rollStarterKit(rng: Rng): Equipped {
   return kit;
 }
 
+/**
+ * The kit reduced to **slot → item id**, which is all the wire needs.
+ *
+ * Names, armour values and damage dice are the *character sheet's* business and stay off the entity
+ * feed: a stranger's tunic has to be drawn, not appraised, and shipping its armour class would tell
+ * every onlooker exactly how hard the wearer is to hit. See `EntityView.wearing`.
+ */
+export function wornIds(equipped: Equipped): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const slot of EQUIP_SLOTS) {
+    const item = equipped[slot];
+    if (item) out[slot] = item.id;
+  }
+  return out;
+}
+
 /** Every point of armour class the worn kit is worth. */
 export function armourClassFrom(equipped: Equipped): number {
   let total = 0;

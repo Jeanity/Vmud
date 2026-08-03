@@ -55,6 +55,7 @@ import {
   type SelfView,
   type TilePoint,
   armourClassFrom,
+  wornIds,
   experienceToNext,
   rollStarterKit,
   weaponFrom,
@@ -1556,6 +1557,12 @@ export class Simulation {
       // the client's combat indicator. `DESIGN-engagement.md` §2: the wire form *is* the outbound pointer,
       // so nothing about the protocol had to change when combat finally arrived.
       ...(actor.fighting === undefined ? {} : { fighting: actor.fighting }),
+      // What they are wearing, so the body on screen is the one the character sheet describes.
+      // Players only — a mob's appearance is its template's `sprite`, and dressing mobs from an
+      // equipment list is Phase 16's, when they have gear worth taking off them.
+      ...(isPlayer(actor) && Object.keys(actor.equipped).length > 0
+        ? { wearing: wornIds(actor.equipped) }
+        : {}),
     };
   }
 

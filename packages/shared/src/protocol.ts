@@ -133,6 +133,21 @@ export interface EntityView {
   readonly name: string;
   /** Sprite key resolved against the client's asset atlas. */
   readonly sprite: string;
+  /**
+   * What this character is wearing, as **slot → item id**. Phase 15a.
+   *
+   * On the wire for *every* character rather than only yourself, which is the whole point: the
+   * roadmap's completion test for this phase is that worn gear is visible on the body, and a stranger
+   * in chainmail has to read as a stranger in chainmail before you decide whether to fight them.
+   *
+   * **Ids, not sheet names.** Which LPC layer a leather tunic draws as — and that the art is LPC at
+   * all — stays the client's business, exactly as {@link sprite} already is. The server says what is
+   * worn; the client owns how that looks. Sending sheet keys would put the art direction on the wire
+   * and make a re-skin a protocol change.
+   *
+   * Absent for anything with no body to dress, which today is every ground item and every mob.
+   */
+  readonly wearing?: Readonly<Record<string, string>>;
   /** Position within the room cell, in tiles. Sub-tile precision for smooth movement. */
   readonly x: number;
   readonly y: number;

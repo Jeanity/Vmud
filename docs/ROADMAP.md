@@ -1025,6 +1025,17 @@ see a step *about to leave* — the threshold counts as outside, so you stop in 
   `DESIGN-inventory.md` is the spec.
 - **Seen when.** **Worn gear is visible on the character**, layered LPC over the body — the art
   requirement `CLAUDE.md` names explicitly. You pick something up, wear it, and see it.
+  ✅ **the "see it" half is done (15a)**: the rolled starter kit is drawn on the body, and two
+  characters with different rolls look different. The "pick something up" half is 15b.
+- **Sliced, because the spec is multi-session.** **15a — worn gear is visible** ✅ (the visual jump,
+  and it needed no new mechanics: 14b's kit already existed). **15b** — a real ground-object store
+  per the note below, `get`/`drop`/`wear`/`remove`, inventory capacity and item sizes, corpses
+  spilling on decay. **15c** — stacking, uses, containers at depth 2, gold.
+- **Weapons are not drawn, and it is an art gap rather than an oversight.** The LPC pack ships weapon
+  sprites as *attack animations only* — Swing, Thrust and Shoot sheets — with no idle-hold frame,
+  while characters are drawn from the walk rows. A visible dagger therefore needs either an attack
+  animation (a swing is a log line today, not a motion) or custom art. **Phase 16's**, with the gear
+  that makes a weapon worth showing.
 - **Why here.** This is the largest single visual jump in the whole roadmap, and Phase 13's corpses
   need something to hold.
 

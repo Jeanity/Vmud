@@ -199,13 +199,86 @@ const TRAVEL_KEYS: readonly (readonly [key: string, dir: Direction, needsShift: 
  */
 const LPC_FRAME = 64;
 
+/**
+ * The LPC walk cycle: **column 0 is standing, columns 1–8 are the steps.** Every sheet in the pack —
+ * bodies and garments alike — is 9 columns by 4 rows at this size, which is what lets one texture
+ * serve both a standing character and a walking one.
+ *
+ * Phase 15a, owner-reported: *"it looks like the players are ice skating."* They were — every layer
+ * was staged from `idle.png` (2 columns) and drawn at column 0 for ever, so a body slid across the
+ * floor in a fixed pose. The sheets were re-staged from `walk.png` and the column now advances.
+ */
+const WALK_COLUMNS = 8;
+const WALK_STANDING_COLUMN = 0;
+
+/**
+ * How far a character travels per step frame, in pixels.
+ *
+ * **Distance, not wall time**, and this is the whole difference between a walk and a moonwalk: tie the
+ * cycle to a timer and the feet run at their own rate while the body moves at another, which reads as
+ * sliding just as badly as no animation at all. Driving it from distance makes the contact frames land
+ * wherever the character actually is, at any speed, including while being eased toward a server
+ * correction.
+ *
+ * `PLAYER_SPEED` is 150 px/s, so 18 px gives about 8 frames a second at a walk — near the cycle's
+ * natural cadence without being told what that cadence is.
+ */
+const WALK_PIXELS_PER_FRAME = 18;
+
 const LPC_SHEETS: readonly string[] = [
   'body-human-male',
   'torso-longsleeve-forest',
   'legs-slacks-green',
   'torso-chainmail',
   'legs-greaves-silver',
+  // Phase 15a: the starter kit, one sheet per item the roll can produce. Staged from the LPC pack's
+  // own `idle.png` for each garment and colourway — see `ITEM_LAYER` for which is which.
+  'torso-tunic-leather',
+  'torso-jerkin-padded',
+  'torso-vest-quilted',
+  'legs-leggings-leather',
+  'legs-breeches-wool',
+  'feet-shoes-worn',
+  'feet-boots-travel',
+  'head-cap-leather',
+  'head-hood-cloth',
 ];
+
+/**
+ * Which LPC sheet each wearable item draws as. Phase 15a.
+ *
+ * **This table is the art direction, and it lives here on purpose.** The server sends *what* is worn
+ * as item ids; that a leather tunic is a brown long-sleeve shirt from the LPC pack — and that the art
+ * is LPC at all — is the client's business, the same boundary `Actor.sprite` has always had. Putting
+ * sheet names on the wire would make a re-skin a protocol change.
+ *
+ * An item with no entry simply does not draw. That is the honest default for a slot the pack has no
+ * art for: LPC ships exactly one hand garment (Gauntlets) and nothing resembling frayed wraps, so
+ * hands are unlayered rather than drawn as something they are not.
+ */
+const ITEM_LAYER: Readonly<Record<string, string>> = {
+  leather_tunic: 'torso-tunic-leather',
+  padded_jerkin: 'torso-jerkin-padded',
+  quilted_vest: 'torso-vest-quilted',
+  leather_leggings: 'legs-leggings-leather',
+  rough_breeches: 'legs-breeches-wool',
+  worn_shoes: 'feet-shoes-worn',
+  travel_boots: 'feet-boots-travel',
+  leather_cap: 'head-cap-leather',
+  cloth_hood: 'head-hood-cloth',
+};
+
+/**
+ * Painter's order for the body. Feet before legs before torso before head, because that is the order
+ * a person dresses and the order the overlaps have to resolve: a boot cuff sits under a trouser leg,
+ * a trouser waist under a shirt hem, a hood over everything.
+ *
+ * `mainHand` is deliberately absent. The pack's weapon art is **attack animations only** — Swing,
+ * Thrust and Shoot sheets — with no idle-hold frame, and our characters are drawn from the walk/idle
+ * rows. Drawing a dagger would need either an attack animation the combat system does not have (a
+ * swing is a log line today, not a motion) or custom art. Recorded rather than bodged: see Phase 16.
+ */
+const LAYER_ORDER: readonly string[] = ['feet', 'legs', 'chest', 'head'];
 
 const SPRITE_LAYERS: Readonly<Record<string, readonly string[]>> = {
   /** Every player. Phase 15 derives this list from what they are wearing instead of naming it here. */
@@ -552,6 +625,14 @@ interface Entity {
   /** Rendered position. For the local player this is the prediction. */
   x: number;
   y: number;
+  /**
+   * Ground covered since this body appeared, in pixels — the walk cycle's clock.
+   *
+   * Accumulated rather than derived from speed because the two sources of motion (local prediction
+   * and easing toward the server) produce different per-frame deltas, and the cycle has to follow
+   * whichever is actually moving the sprite. A body that has not moved keeps its total and stands.
+   */
+  walked: number;
   /** Latest authoritative position. */
   serverX: number;
   serverY: number;
@@ -2296,7 +2377,7 @@ export class WorldScene extends Phaser.Scene {
     // container, so everything downstream — movement, the visibility gate, the label — is unchanged.
     const layers: Phaser.GameObjects.Image[] = isItem
       ? [this.add.image(0, 0, this.itemTexture(view.sprite))]
-      : this.characterLayers(view.sprite, view.facing);
+      : this.characterLayers(view.sprite, view.facing, view.wearing);
 
     // A pip only where it adds something. The LPC sprite already *shows* its facing — that is what the
     // four sheet rows are — so the pip's old job is done by the art, and it survives on the local player
@@ -2353,6 +2434,7 @@ export class WorldScene extends Phaser.Scene {
       idle,
       x: view.x,
       y: view.y,
+      walked: 0,
       serverX: view.x,
       serverY: view.y,
     };
@@ -2420,7 +2502,7 @@ export class WorldScene extends Phaser.Scene {
    */
   private faceEntity(entity: Entity, facing: Direction): void {
     for (const layer of entity.layers) {
-      layer.setFrame(layerFrame(layer.texture, facing));
+      layer.setFrame(layerFrame(layer.texture, facing, walkColumn(entity)));
     }
   }
 
@@ -2458,11 +2540,36 @@ export class WorldScene extends Phaser.Scene {
       fraction < HEALTH_LOW_BELOW ? HEALTH_LOW : fraction < HEALTH_HURT_BELOW ? HEALTH_HURT : HEALTH_FULL;
   }
 
-  private characterLayers(sprite: string, facing: Direction): Phaser.GameObjects.Image[] {
-    const stack = SPRITE_LAYERS[sprite] ?? SPRITE_LAYERS['human'] ?? [];
+  /**
+   * The stack of sheets one body is drawn from.
+   *
+   * **A dressed character is drawn from what they are wearing**, which is Phase 15a and the roadmap's
+   * completion test for this phase — the hardcoded outfit that used to live in `SPRITE_LAYERS` was a
+   * placeholder with a comment saying exactly this would replace it.
+   *
+   * `SPRITE_LAYERS` survives for everything with no equipment list: mobs, whose look is their
+   * template's own, and any character the server has not dressed. So the fallback is not dead code,
+   * it is the answer for bodies that wear nothing.
+   */
+  private characterLayers(sprite: string, facing: Direction, wearing?: Readonly<Record<string, string>>): Phaser.GameObjects.Image[] {
+    const dressed = wearing && Object.keys(wearing).length > 0;
+    const base = SPRITE_LAYERS[sprite] ?? SPRITE_LAYERS['human'] ?? [];
     if (!SPRITE_LAYERS[sprite]) {
       this.log.write('error', `No artwork for "${sprite}"; drawing it as a plain human.`);
     }
+
+    // The body always comes first and is never worn — it is what the clothes go on. Taking only the
+    // first entry of the base stack rather than all of it is what drops the placeholder outfit.
+    const stack = dressed
+      ? [
+          base[0] ?? 'body-human-male',
+          ...LAYER_ORDER.flatMap((slot) => {
+            const sheet = wearing[slot] === undefined ? undefined : ITEM_LAYER[wearing[slot]];
+            return sheet ? [sheet] : [];
+          }),
+        ]
+      : base;
+
     return stack.map((sheet) => {
       const image = this.add.image(0, LPC_FOOT_OFFSET, sheet);
       image.setFrame(layerFrame(image.texture, facing));
@@ -2555,6 +2662,10 @@ export class WorldScene extends Phaser.Scene {
     const followRate = ease(EASE_FOLLOW, seconds);
 
     for (const [id, entity] of this.entities) {
+      // Where this body started the frame, so the walk cycle can be advanced by what it actually
+      // covered. Taken before any of the three things below move it.
+      const beforeX = entity.x;
+      const beforeY = entity.y;
       if (id === this.selfId) {
         // Predict locally, then reconcile against the last authoritative position.
         if (predicting) {
@@ -2593,6 +2704,20 @@ export class WorldScene extends Phaser.Scene {
         // Remote entities are interpolated toward wherever the server last put them.
         entity.x += (entity.serverX - entity.x) * followRate;
         entity.y += (entity.serverY - entity.y) * followRate;
+      }
+      // **Measured after every source of motion has had its say** — prediction, snapping and easing
+      // alike — so the cycle is driven by the ground the sprite actually covered this frame rather
+      // than by what it was asked to do. A character being dragged back by a correction still walks.
+      const stepped = Math.hypot(entity.x - beforeX, entity.y - beforeY);
+      // A snap is a teleport, not a stride: past `SNAP_DISTANCE` the sprite was relocated rather than
+      // moved, and counting it would spin the legs for a jump the character never took.
+      if (stepped > 0.01 && stepped < SNAP_DISTANCE) {
+        entity.walked += stepped;
+        this.faceEntity(entity, entity.view.facing);
+      } else if (stepped === 0 && entity.walked !== 0) {
+        // Stopped. Park on the standing frame rather than freezing mid-stride with one foot raised.
+        entity.walked = 0;
+        this.faceEntity(entity, entity.view.facing);
       }
       entity.container.setPosition(Math.round(entity.x), Math.round(entity.y));
     }
@@ -3037,16 +3162,31 @@ function tileCentre(tile: number): number {
 }
 
 /**
- * The frame index for a facing, on whatever sheet this layer uses.
+ * The frame index for a facing and a point in the walk cycle, on whatever sheet this layer uses.
  *
- * Frames run left to right then down, so row R column 0 is `R * columns` — and the columns are read from
- * the texture rather than assumed, because the body sheets are two frames wide where the clothing sheets
- * are one. Hardcoding a stride would silently draw the west-facing body under the north-facing shirt.
+ * Frames run left to right then down, so row R column C is `R * columns + C` — and the columns are read
+ * from the texture rather than assumed, because sheets in the pack are not all the same width.
+ * Hardcoding a stride would silently draw the west-facing body under the north-facing shirt.
+ *
+ * The column is **clamped to what this texture actually has**, so a layer still staged from a 2-column
+ * `idle.png` degrades to standing rather than indexing off the end of its sheet into another row's
+ * frames — which is the failure that would look like a character whose hat faces backwards.
  */
-function layerFrame(texture: Phaser.Textures.Texture, facing: Direction): number {
+/**
+ * Where in the walk cycle a body currently is.
+ *
+ * `1 +` because column 0 is the standing pose and must not appear mid-stride — the cycle proper is
+ * columns 1 through 8, and folding the stand into it would drop a still frame into every eighth step.
+ */
+function walkColumn(entity: Entity): number {
+  if (entity.walked === 0) return WALK_STANDING_COLUMN;
+  return 1 + (Math.floor(entity.walked / WALK_PIXELS_PER_FRAME) % WALK_COLUMNS);
+}
+
+function layerFrame(texture: Phaser.Textures.Texture, facing: Direction, column = WALK_STANDING_COLUMN): number {
   const source = texture.getSourceImage();
   const columns = Math.max(1, Math.floor(source.width / LPC_FRAME));
-  return LPC_ROW[facing] * columns;
+  return LPC_ROW[facing] * columns + Math.min(column, columns - 1);
 }
 
 // `facingOf` used to live here — the client's own copy of "which way am I looking", derived from the
