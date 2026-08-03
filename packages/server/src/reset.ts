@@ -41,6 +41,7 @@ import {
   type ItemTemplate,
   type MobTemplate,
   type Rng,
+  type RoomId,
   type ZoneSpawns,
 } from '@mygame/shared';
 
@@ -67,6 +68,14 @@ export interface ResetOutcome {
   readonly doors: number;
   /** Pieces of kit put on or into the mobs that were loaded. Phase 15c. */
   readonly kitted: number;
+  /**
+   * Objects an `O` command wants on a floor — **intentions, not placements**.
+   *
+   * Returned rather than placed, because the ground store lives in `index.ts` and this file has no
+   * reference to it. The same split `spawned` already makes: the executor decides *whether*, and the
+   * caller decides where in the room it lands.
+   */
+  readonly objects: readonly { readonly template: ItemTemplate; readonly room: RoomId }[];
 }
 
 /**
@@ -99,12 +108,22 @@ export function runReset(
   clock: ZoneClock,
   templates: ReadonlyMap<number, MobTemplate>,
   items: ReadonlyMap<number, ItemTemplate>,
+  /**
+   * How many of an object vnum exist **anywhere** — floors, bags, containers, corpses, mobs.
+   *
+   * Injected because this file has no business knowing where an object can hide, and because the
+   * answer spans stores it cannot reach. Without it an `O` command has no limit it can honour and the
+   * world silts up one sword per repop.
+   */
+  census: (vnum: number) => number,
   rng: Rng,
   force = false,
 ): ResetOutcome {
   const spawned: Mob[] = [];
   let atLimit = 0;
   let kitted = 0;
+  const objects: { template: ItemTemplate; room: RoomId }[] = [];
+  const placedThisPass = new Map<number, number>();
   let doors = 0;
 
   // The explicit chain state §4.9 asks for. `lastSucceeded` gates a command whose `ifPrevious` is set;
@@ -156,12 +175,37 @@ export function runReset(
       continue;
     }
 
+    // ---- `O`: put an object in a room ----
+    //
+    // **The limit is the whole difficulty, and it is why this waited.** `arg2` is a *world-wide* cap on
+    // how many of a vnum exist, exactly as a mob's is — so honouring it means counting every instance
+    // on every floor, in every bag, inside every container and on every mob. Without that count each
+    // repop would add another sword to the same table for ever, and a zone left running overnight
+    // would be ankle-deep. `census` is that count, supplied by the caller because this file has no
+    // business knowing where objects can hide.
+    if (command.kind === 'object') {
+      if (command.room === undefined) continue;
+      const template = items.get(command.what);
+      if (!template) continue;
+      // Counted fresh each time, plus whatever this pass has already placed — two `O` rows for the
+      // same vnum at a limit of one must not both fire.
+      const already = census(command.what) + (placedThisPass.get(command.what) ?? 0);
+      if (already >= Math.max(1, command.limit)) {
+        atLimit++;
+        lastSucceeded = false;
+        continue;
+      }
+      objects.push({ template, room: command.room });
+      placedThisPass.set(command.what, (placedThisPass.get(command.what) ?? 0) + 1);
+      lastSucceeded = true;
+      continue;
+    }
+
     if (!isExecutable(command)) {
-      // Parsed and carried, with no executor yet. `O` and `P` wait on an object-instance census: both
-      // carry a world-wide limit, and honouring it means counting how many of a vnum exist on floors,
-      // in bags and inside containers. Without that count every repop would add another and the world
-      // would silt up. They must not clear the cursor: an unexecuted `P` between two `M`s is not a
-      // failure of either.
+      // Parsed and carried, with no executor yet. `P` — put an object inside another object — still
+      // waits, and on a harder problem than `O`'s: it needs the *instance* just placed rather than the
+      // type, so the executor has to hand back identities rather than intentions. It must not clear
+      // the cursor: an unexecuted `P` between two `M`s is not a failure of either.
       continue;
     }
 
@@ -213,7 +257,7 @@ export function runReset(
 
   clock.age = 0;
   clock.lifespan = rollLifespan(clock.spawns, rng);
-  return { zone: clock.spawns.zone, spawned, atLimit, doors, kitted };
+  return { zone: clock.spawns.zone, spawned, atLimit, doors, kitted, objects };
 }
 
 /**
@@ -231,6 +275,7 @@ export function advanceZones(
   clocks: Iterable<ZoneClock>,
   templates: ReadonlyMap<number, MobTemplate>,
   items: ReadonlyMap<number, ItemTemplate>,
+  census: (vnum: number) => number,
   rng: Rng,
   elapsedMs: number,
 ): ResetOutcome[] {
@@ -242,7 +287,7 @@ export function advanceZones(
       clock.age++;
     }
     if (clock.age < clock.lifespan) continue;
-    out.push(runReset(sim, clock, templates, items, rng));
+    out.push(runReset(sim, clock, templates, items, census, rng));
   }
   return out;
 }

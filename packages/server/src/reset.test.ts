@@ -50,6 +50,9 @@ function testZone(): Zone {
  */
 const NO_ITEMS: ReadonlyMap<number, ItemTemplate> = new Map();
 
+/** Nothing exists anywhere — the census a world with no objects in it answers. */
+const NO_OBJECTS = () => 0;
+
 const GUARD: MobTemplate = {
   vnum: 700_01,
   keywords: ['guard'],
@@ -121,13 +124,13 @@ describe('reset only loads', () => {
     // Three commands for a vnum limited to two. The third has nowhere to go, first pass or hundredth.
     const clock = newZoneClock(spawnsFor([mob(), mob(), mob()]), stream);
 
-    const first = runReset(sim, clock, templates, NO_ITEMS, stream, true);
+    const first = runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, stream, true);
     assert.equal(first.spawned.length, 2);
     assert.equal(first.atLimit, 1);
     assert.equal(sim.countOf(GUARD.vnum), 2);
 
     for (let i = 0; i < 20; i++) {
-      const again = runReset(sim, clock, templates, NO_ITEMS, stream);
+      const again = runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, stream);
       assert.deepEqual(again.spawned, [], `pass ${i + 2} spawned something`);
       assert.equal(again.atLimit, 3);
     }
@@ -140,7 +143,7 @@ describe('reset only loads', () => {
     const { sim, templates } = makeSim();
     const stream = rng();
     const clock = newZoneClock(spawnsFor([mob({ limit: 1 })]), stream);
-    runReset(sim, clock, templates, NO_ITEMS, stream, true);
+    runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, stream, true);
 
     const guard = [...sim.allActors()].find(isMob);
     assert.ok(guard);
@@ -150,7 +153,7 @@ describe('reset only loads', () => {
     sim.relocate(guard, 7001);
     assert.equal(sim.countOf(GUARD.vnum), 1, 'still alive, wherever it is');
 
-    const after = runReset(sim, clock, templates, NO_ITEMS, stream);
+    const after = runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, stream);
     assert.deepEqual(after.spawned, [], 'the limit is still met, so no replacement');
     assert.equal(sim.actorsIn(7000).filter(isMob).length, 0, 'and the guard room stays empty');
   });
@@ -161,14 +164,14 @@ describe('reset only loads', () => {
     const { sim, templates } = makeSim();
     const stream = rng();
     const clock = newZoneClock(spawnsFor([mob({ limit: 1 })]), stream);
-    runReset(sim, clock, templates, NO_ITEMS, stream, true);
+    runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, stream, true);
 
     const guard = [...sim.allActors()].find(isMob);
     assert.ok(guard);
     sim.remove(guard.id);
     assert.equal(sim.countOf(GUARD.vnum), 0);
 
-    const after = runReset(sim, clock, templates, NO_ITEMS, stream);
+    const after = runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, stream);
     assert.equal(after.spawned.length, 1, 'the slot is free, so it is filled');
   });
 
@@ -179,7 +182,7 @@ describe('reset only loads', () => {
       spawnsFor([mob({ limit: 1 }), mob({ what: COOK.vnum, limit: 3, room: 7001 })]),
       stream,
     );
-    runReset(sim, clock, templates, NO_ITEMS, stream, true);
+    runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, stream, true);
     assert.equal(sim.countOf(GUARD.vnum), 1);
     assert.equal(sim.countOf(COOK.vnum), 1, 'one command, one instance — the limit is a ceiling not a quota');
   });
@@ -190,7 +193,7 @@ describe('reset only loads', () => {
     const { sim, templates } = makeSim();
     const stream = rng();
     const clock = newZoneClock(spawnsFor([mob({ what: 999_999 }), mob()]), stream);
-    const outcome = runReset(sim, clock, templates, NO_ITEMS, stream, true);
+    const outcome = runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, stream, true);
     assert.equal(outcome.spawned.length, 1, 'the known one still loads');
   });
 
@@ -198,7 +201,7 @@ describe('reset only loads', () => {
     const { sim, templates } = makeSim();
     const stream = rng();
     const clock = newZoneClock(spawnsFor([mob({ room: 4242 })]), stream);
-    assert.deepEqual(runReset(sim, clock, templates, NO_ITEMS, stream, true).spawned, []);
+    assert.deepEqual(runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, stream, true).spawned, []);
   });
 });
 
@@ -213,7 +216,7 @@ describe('the percentage gate', () => {
     const stream = rng();
     const clock = newZoneClock(spawnsFor([mob({ percent: 99, limit: 5 })]), stream);
     for (let i = 0; i < 50; i++) {
-      assert.deepEqual(runReset(sim, clock, templates, NO_ITEMS, stream).spawned, [], `pass ${i} fired`);
+      assert.deepEqual(runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, stream).spawned, [], `pass ${i} fired`);
     }
     assert.equal(sim.countOf(GUARD.vnum), 0);
   });
@@ -223,7 +226,7 @@ describe('the percentage gate', () => {
     const { sim, templates } = makeSim();
     const stream = rng();
     const clock = newZoneClock(spawnsFor([mob({ percent: 100, limit: 1 })]), stream);
-    assert.equal(runReset(sim, clock, templates, NO_ITEMS, stream, true).spawned.length, 1);
+    assert.equal(runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, stream, true).spawned.length, 1);
   });
 });
 
@@ -237,7 +240,7 @@ describe('the chain cursor', () => {
       spawnsFor([mob({ limit: 1 }), mob({ limit: 1 }), mob({ what: COOK.vnum, ifPrevious: true })]),
       stream,
     );
-    const outcome = runReset(sim, clock, templates, NO_ITEMS, stream, true);
+    const outcome = runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, stream, true);
     assert.equal(sim.countOf(GUARD.vnum), 1, 'the second guard hit the limit');
     assert.equal(sim.countOf(COOK.vnum), 0, 'so the cook chained to it did not load');
     assert.equal(outcome.spawned.length, 1);
@@ -250,7 +253,7 @@ describe('the chain cursor', () => {
       spawnsFor([mob({ limit: 1 }), mob({ what: COOK.vnum, ifPrevious: true })]),
       stream,
     );
-    runReset(sim, clock, templates, NO_ITEMS, stream, true);
+    runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, stream, true);
     assert.equal(sim.countOf(COOK.vnum), 1);
   });
 
@@ -268,7 +271,7 @@ describe('the chain cursor', () => {
       ]),
       stream,
     );
-    runReset(sim, clock, templates, NO_ITEMS, stream, true);
+    runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, stream, true);
     assert.equal(sim.countOf(COOK.vnum), 1, 'the cook still loaded past the unimplemented equip');
   });
 });
@@ -296,7 +299,7 @@ describe('the clock', () => {
     const clock = newZoneClock(spawnsFor([], { lifespanMin: 10, lifespanMax: 40 }), stream);
     const seen = new Set<number>([clock.lifespan]);
     for (let i = 0; i < 40; i++) {
-      runReset(sim, clock, templates, NO_ITEMS, stream);
+      runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, stream);
       assert.equal(clock.age, 0, 'a reset restarts the clock');
       seen.add(clock.lifespan);
     }
@@ -311,11 +314,11 @@ describe('the clock', () => {
     const clock = newZoneClock(spawnsFor([mob({ limit: 4 })], { lifespanMin: 3, lifespanMax: 3 }), stream);
 
     // One zone tick short of due: nothing fires, but the age has moved.
-    let fired = advanceZones(sim, [clock], templates, NO_ITEMS, stream, ZONE_TICK_MS * 2);
+    let fired = advanceZones(sim, [clock], templates, NO_ITEMS, NO_OBJECTS, stream, ZONE_TICK_MS * 2);
     assert.deepEqual(fired, []);
     assert.equal(clock.age, 2);
 
-    fired = advanceZones(sim, [clock], templates, NO_ITEMS, stream, ZONE_TICK_MS);
+    fired = advanceZones(sim, [clock], templates, NO_ITEMS, NO_OBJECTS, stream, ZONE_TICK_MS);
     assert.equal(fired.length, 1, 'due at three ticks');
     assert.equal(clock.age, 0);
   });
@@ -327,7 +330,7 @@ describe('the clock', () => {
     // 100 ms at a time, which is the real simulation tick.
     let fired: unknown[] = [];
     for (let i = 0; i < ZONE_TICK_MS / 100; i++) {
-      fired = advanceZones(sim, [clock], templates, NO_ITEMS, stream, 100);
+      fired = advanceZones(sim, [clock], templates, NO_ITEMS, NO_OBJECTS, stream, 100);
       if (fired.length > 0) break;
     }
     assert.equal(fired.length, 1, 'a zone tick assembled out of 750 simulation ticks');
@@ -437,7 +440,7 @@ describe('a mob gets its kit', () => {
     const { sim, templates } = makeSim();
     const stream = rng();
     const clock = newZoneClock(spawnsFor([mob({ limit: 1 }), ...resets]), stream);
-    const outcome = runReset(sim, clock, templates, ITEMS, stream, true);
+    const outcome = runReset(sim, clock, templates, ITEMS, NO_OBJECTS, stream, true);
     const guard = [...sim.allActors()].find(isMob);
     return { outcome, guard };
   }
@@ -493,7 +496,7 @@ describe('a mob gets its kit', () => {
     const { sim, templates } = makeSim();
     const stream = rng();
     const clock = newZoneClock(spawnsFor([equip(SWORD.vnum, 16)]), stream);
-    const outcome = runReset(sim, clock, templates, ITEMS, stream, true);
+    const outcome = runReset(sim, clock, templates, ITEMS, NO_OBJECTS, stream, true);
     assert.equal(outcome.kitted, 0);
   });
 
@@ -502,8 +505,82 @@ describe('a mob gets its kit', () => {
     const { sim, templates } = makeSim();
     const stream = rng();
     const clock = newZoneClock(spawnsFor([mob({ limit: 1 }), equip(SWORD.vnum, 16)]), stream);
-    const outcome = runReset(sim, clock, templates, NO_ITEMS, stream, true);
+    const outcome = runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, stream, true);
     assert.equal(outcome.kitted, 0);
     assert.equal(outcome.spawned.length, 1, 'and the mob still loads');
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `O` — objects on floors, and the limit that stops the world silting up.
+ *
+ * This is the command that waited longest, and not because it was hard to write: its `arg2` is a
+ * *world-wide* cap on how many of a vnum exist, so it could not ship until something could count them.
+ */
+describe('objects the reset puts in rooms', () => {
+  const LAMP: ItemTemplate = {
+    vnum: 92_000, keywords: ['lamp'], name: 'a brass lamp', roomLine: 'A lamp sits here.',
+    type: 1, ac: 0, size: 1, cost: 20, stackLimit: 1,
+  };
+  const ITEMS_O: ReadonlyMap<number, ItemTemplate> = new Map([[LAMP.vnum, LAMP]]);
+  const object = (over: Partial<ResetCommand> = {}): ResetCommand =>
+    ({ kind: 'object', ifPrevious: false, what: LAMP.vnum, limit: 1, room: 7000, percent: 100, ...over });
+
+  function run(resets: readonly ResetCommand[], census: (vnum: number) => number = () => 0) {
+    const { sim, templates } = makeSim();
+    const stream = rng();
+    const clock = newZoneClock(spawnsFor(resets), stream);
+    return runReset(sim, clock, templates, ITEMS_O, census, stream, true);
+  }
+
+  it('asks for the object to be placed, rather than placing it', () => {
+    // The executor decides *whether*; the caller decides where in the room. Same split `spawned` makes,
+    // and it is what keeps the ground store out of this file.
+    const outcome = run([object()]);
+    assert.equal(outcome.objects.length, 1);
+    assert.equal(outcome.objects[0]?.template.vnum, LAMP.vnum);
+    assert.equal(outcome.objects[0]?.room, 7000);
+  });
+
+  it('refuses once the world already holds its limit', () => {
+    // **The reason this command waited.** Without the census every repop adds another lamp to the same
+    // table, and a zone left running overnight is ankle-deep.
+    const outcome = run([object({ limit: 1 })], () => 1);
+    assert.deepEqual(outcome.objects, []);
+    assert.equal(outcome.atLimit, 1);
+  });
+
+  it('counts what it has already placed in the same pass', () => {
+    // Two rows for one vnum at a limit of one. The census cannot see the first placement — it has not
+    // happened yet — so the pass has to remember it itself.
+    const outcome = run([object({ limit: 1 }), object({ limit: 1 })]);
+    assert.equal(outcome.objects.length, 1, 'the second row is refused by the first');
+  });
+
+  it('fills up to the limit and no further', () => {
+    const outcome = run([object({ limit: 3 }), object({ limit: 3 }), object({ limit: 3 }), object({ limit: 3 })]);
+    assert.equal(outcome.objects.length, 3);
+    assert.equal(outcome.atLimit, 1);
+  });
+
+  it('counts instances that are not on a floor', () => {
+    // A lamp in somebody's bag still counts. That is what makes the limit *world-wide* rather than
+    // per-room, and it is why the census walks bags, containers, corpses and mobs as well as the ground.
+    assert.deepEqual(run([object({ limit: 2 })], () => 2).objects, []);
+  });
+
+  it('skips an object the catalogue does not have', () => {
+    const outcome = run([object({ what: 999_999 }), object()]);
+    assert.equal(outcome.objects.length, 1, 'the known one still lands');
+  });
+
+  it('does not break the chain for the commands below it', () => {
+    // A successful `O` sets the cursor; a refused one clears it, the same as a refused `M`. What must
+    // not happen is an `O` silently poisoning an unrelated mob spawn beneath it.
+    const outcome = run([object(), mob({ limit: 1 })]);
+    assert.equal(outcome.objects.length, 1);
+    assert.equal(outcome.spawned.length, 1);
   });
 });

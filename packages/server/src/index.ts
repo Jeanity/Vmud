@@ -55,6 +55,9 @@ import {
   carry,
   describeContainer,
   describePurse,
+  instantiate,
+  roomCentre,
+  tileCentre,
   describeStack,
   CURRENCIES,
   apportion,
@@ -432,11 +435,12 @@ const progressRng = makeRng(WORLD_SEED ^ 0x14b0de);
 for (const spawns of loadedSpawns) {
   const clock = newZoneClock(spawns, spawnRng);
   zoneClocks.push(clock);
-  const outcome = runReset(sim, clock, mobTemplates, itemCatalogue, spawnRng, true);
+  const outcome = runReset(sim, clock, mobTemplates, itemCatalogue, countInstances, spawnRng, true);
+  const dropped = placeResetObjects(outcome);
   console.log(
     `[pop] zone ${String(spawns.zone).padStart(4)} "${world.zone(spawns.zone)?.name ?? '?'}" — ` +
       `${String(outcome.spawned.length).padStart(4)} mobs from ${spawns.templates.length} templates, ` +
-      `${outcome.doors} doors set, ${outcome.kitted} pieces of kit; next reset in ${clock.lifespan} ticks ` +
+      `${outcome.doors} doors set, ${outcome.kitted} pieces of kit, ${dropped} objects; next reset in ${clock.lifespan} ticks ` +
       `(${Math.round((clock.lifespan * ZONE_TICK_MS) / 60_000)} min)`,
   );
 }
@@ -2873,6 +2877,76 @@ function syncCorpseView(corpse: Corpse): void {
 /* -------------------------------------------------------------------------- */
 
 /**
+ * How many of an object vnum exist **anywhere in the world**.
+ *
+ * The thing that unblocked `O`. Its limit is world-wide, exactly as a mob's is, and honouring it means
+ * looking in every place an object can be — which is the whole reason this lives here rather than in
+ * `reset.ts`: no other file can see all of them.
+ *
+ * Six hiding places, and leaving any one out means the world grows by one per repop for ever:
+ *
+ * 1. On a floor (`ground`)
+ * 2. In a corpse
+ * 3. In a player's bag — counting `count`, because a stack of five arrows is five
+ * 4. Inside a container in a player's bag — §4's contents are still instances
+ * 5. Worn by a player
+ * 6. Carried or worn by a mob
+ *
+ * Walked fresh on each call rather than kept as a running tally. A tally would be faster and would
+ * drift: every take, drop, death, decay, spill and disconnect would have to remember to adjust it, and
+ * the one that forgot would be invisible until a zone quietly stopped repopping. Resets happen once a
+ * zone every seventy minutes or so, against a world of a few thousand objects — this is not a hot path.
+ */
+function countInstances(vnum: number): number {
+  const id = `obj:${vnum}`;
+  let seen = 0;
+
+  for (const entry of ground.values()) if (entry.item.id === id) seen++;
+  for (const corpse of graveyard.values()) for (const item of corpse.contents) if (item.id === id) seen++;
+
+  for (const player of sim.allPlayers()) {
+    for (const stack of player.inventory.stacks) {
+      if (stack.item.id === id) seen += stack.count;
+      for (const inside of stack.held?.contents ?? []) if (inside.item.id === id) seen += inside.count;
+    }
+    for (const worn of Object.values(player.equipped)) if (worn?.id === id) seen++;
+  }
+
+  for (const actor of sim.allActors()) {
+    if (!isMob(actor)) continue;
+    for (const item of actor.carrying) if (item.id === id) seen++;
+    for (const worn of Object.values(actor.equipped)) if (worn?.id === id) seen++;
+  }
+  return seen;
+}
+
+/**
+ * Puts the objects a reset asked for onto their floors.
+ *
+ * Placed at the room's centre rather than scattered: an `O` command says *"this belongs in this room"*
+ * and nothing in the file says where, so inventing a position would be inventing content. A dropped
+ * thing lands where you dropped it because that is a fact; a reset object has no such fact behind it.
+ */
+function placeResetObjects(outcome: { readonly objects: readonly { readonly template: ItemTemplate; readonly room: RoomId }[] }): number {
+  let placed = 0;
+  for (const { template, room } of outcome.objects) {
+    const located = world.locate(room);
+    const origin = located && world.grid(located.place)?.roomOrigins.get(room);
+    if (!located || !origin) continue;
+    const centre = roomCentre(origin);
+    dropItem(ground, instantiate(template), {
+      roomId: room,
+      place: located.place,
+      x: tileCentre(centre.tx),
+      y: tileCentre(centre.ty),
+    });
+    placed++;
+  }
+  if (placed > 0) syncEntitiesIn(outcome.objects[0]!.room);
+  return placed;
+}
+
+/**
  * The catalogue entry an instance came from, or nothing for the authored starter kit.
  *
  * The bridge between the two halves of §8's type/instance split. An `Item` carries what a *bag* needs —
@@ -3098,28 +3172,41 @@ function putInContainer(player: Player, rest: string): void {
 
   // Out of the bag first, then in — and the *order* matters for the index, because removing a stack
   // above the container shifts it down one.
-  const removed = removeAt(player.inventory, itemIndex);
-  if (!removed) return;
-  player.inventory = removed.inventory;
-  const shifted = itemIndex < bagIndex ? bagIndex - 1 : bagIndex;
+  // **One pass over the array, because a removal does not always shift the indices.** The first
+  // version removed the item and then adjusted the container's index by one — which is right only when
+  // the source stack *emptied*. `removeAt` splices at count 1 and merely decrements above it, so
+  // putting one of five eggs away shifted nothing and the adjusted index pointed at the neighbour.
+  // Found live: it made the guard's walk key a container and duplicated a suit of mail into it.
+  const stacks = [...player.inventory.stacks];
+  const source = stacks[itemIndex]!;
+  const emptied = source.count <= 1;
+  if (emptied) stacks.splice(itemIndex, 1);
+  else stacks[itemIndex] = { ...source, count: source.count - 1 };
+  const containerAt = emptied && itemIndex < bagIndex ? bagIndex - 1 : bagIndex;
 
   // Merged into a matching stack inside, so a quiver does not fill with singleton arrows.
-  const incoming = stackOf(removed.item);
+  const incoming = stackOf(item);
   const contents = [...held.contents];
   const at = contents.findIndex((s) => mergeable(s, incoming));
   if (at >= 0) {
-    const { merged, leftover } = mergeStacks(contents[at]!, incoming, limitOf(removed.item));
+    const { merged, leftover } = mergeStacks(contents[at]!, incoming, limitOf(item));
     contents[at] = merged;
     if (leftover) contents.push(leftover);
   } else {
     contents.push(incoming);
   }
-  setHeld(player, shifted, { rule: held.rule, contents });
+
+  const container = stacks[containerAt];
+  // Belt and braces after the bug above: if the index does not still name the container we resolved,
+  // do nothing rather than turning some innocent item into a sack.
+  if (!container || container.item.id !== player.inventory.stacks[bagIndex]!.item.id) return;
+  stacks[containerAt] = { ...container, held: { rule: held.rule, contents } };
+  player.inventory = { stacks, capacity: player.inventory.capacity };
 
   send(player.id, {
     t: 'log',
     channel: 'system',
-    text: `You put ${removed.item.name} in ${player.inventory.stacks[shifted]!.item.name}.`,
+    text: `You put ${item.name} in ${container.item.name}.`,
   });
   send(player.id, { t: 'self', view: sim.selfViewOf(player) });
   rememberProgress(player);
@@ -4028,11 +4115,12 @@ setInterval(() => {
   // Zone repop. Almost every tick this does nothing — a zone comes due once every seventy minutes or so —
   // so the loop is a fraction added to a counter and a comparison, and the work only happens when one
   // fires. See `reset.ts` for why the fraction is carried rather than rounded.
-  for (const outcome of advanceZones(sim, zoneClocks, mobTemplates, itemCatalogue, spawnRng, TICK_MS)) {
-    if (outcome.spawned.length === 0 && outcome.doors === 0) continue;
+  for (const outcome of advanceZones(sim, zoneClocks, mobTemplates, itemCatalogue, countInstances, spawnRng, TICK_MS)) {
+    const droppedNow = placeResetObjects(outcome);
+    if (outcome.spawned.length === 0 && outcome.doors === 0 && droppedNow === 0) continue;
     console.log(
       `[pop] zone ${outcome.zone} repopped: +${outcome.spawned.length} mobs, ` +
-        `${outcome.doors} doors reset, ${outcome.atLimit} already at limit`,
+        `${outcome.doors} doors reset, +${droppedNow} objects, ${outcome.atLimit} already at limit`,
     );
     // Anyone standing where something appeared has to be told. Presence is per-observer and gated on
     // light, so `syncEntitiesIn` is the right call rather than a broadcast — a mob that repopped in a dark
