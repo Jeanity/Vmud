@@ -1556,6 +1556,9 @@ function runFlee(actor: Actor): FleeOutcome {
   // "Someone flees west!" — observed live before this line existed. Snapshotting who could see it while
   // it was still standing here is the fix, and it is the same ordering hazard Phases 9 and 10 each hit
   // once: the observation has to be made while the fact is still true, not when the message is written.
+  // The room it is fleeing *from*, captured for the same reason `sawIt` is: by the time the outcome is
+  // worded the body has already gone, and the exit that was taken belongs to the room it left.
+  const from = actor.roomId;
   const left = [...sim.playersIn(actor.roomId)];
   const sawIt = new Set(left.filter((observer) => canSee(observer, actor)).map((observer) => observer.id));
   const outcome = attemptFlee({ world, sim, scheduler, rng: combatRng }, actor);
@@ -1595,7 +1598,18 @@ function runFlee(actor: Actor): FleeOutcome {
       break;
 
     case 'fled': {
-      toRoom((who) => `${capitalise(who)} flees ${outcome.dir}!`);
+      // **A portal is named, because otherwise the line is a lie of omission.** Owner's report
+      // (2026-08-03): a mob fled east out of a room whose only visible opening was north, and the
+      // message said "flees east" — so it read as the game moving something through a wall. 6.1% of
+      // the world's exits are portals: links the layout pass could not reconcile with the map's own
+      // coordinates, real in the room graph and carved into no tiles. The direction is kept as well
+      // as the portal, so the line still says which way to follow.
+      const through = world.locate(from)?.room.exits[outcome.dir]?.portal;
+      toRoom((who) =>
+        through
+          ? `${capitalise(who)} flees through a portal to the ${outcome.dir}!`
+          : `${capitalise(who)} flees ${outcome.dir}!`,
+      );
       // Everyone whose pointer this broke — they stopped swinging and their combat indicator must go.
       for (const other of outcome.changed) syncEntityState(other);
       if (self) {
@@ -1846,7 +1860,7 @@ function stepRoom(player: Player, dir: Direction): void {
   const fromPlace = player.place;
   const hadPath = sim.hasPath(player);
 
-  if (!sim.relocate(player, exit.to)) {
+  if (!sim.relocate(player, exit.to, dir)) {
     // The exit is real, it simply leaves the zones this server was told to load. Naming the zone is
     // the useful half of the message: it says exactly what to add to world.config.json.
     const zoneId = world.zoneOf(exit.to);

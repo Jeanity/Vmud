@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  arrivalTile,
   CONNECTOR_WIDTH,
   PLAYER_SPEED,
   ROOM_GAP,
@@ -512,5 +513,55 @@ describe('normaliseIntent', () => {
       const intent = normaliseIntent(dx as number, dy as number);
       assert.deepEqual(intent, { x: 0, y: 0 }, `normaliseIntent(${String(dx)}, ${String(dy)})`);
     }
+  });
+});
+
+describe('where you land when you enter a room', () => {
+  // Owner's report (2026-08-03): every arrival used the room centre, so bodies stacked on one tile and
+  // whoever was underneath could not be clicked — "they can hide behind someone else".
+  const origin = { tx: 0, ty: 0 };
+
+  it('puts you at the wall you came through, not in the middle', () => {
+    // Walk north and you arrive at the *southern* edge, having just stepped through it.
+    assert.equal(arrivalTile(origin, 'north', 0).ty, ROOM_TILES - 2);
+    assert.equal(arrivalTile(origin, 'south', 0).ty, 1);
+    assert.equal(arrivalTile(origin, 'east', 0).tx, 1);
+    assert.equal(arrivalTile(origin, 'west', 0).tx, ROOM_TILES - 2);
+  });
+
+  it('keeps the centre when nothing was walked through', () => {
+    // A teleport, a respawn, a portal, a staircase: there is no wall, so the centre is the honest answer.
+    assert.deepEqual(arrivalTile(origin, undefined, 7), roomCentre(origin));
+  });
+
+  it('spreads two bodies arriving the same way onto different tiles', () => {
+    // The whole point. Derived from the caller's id rather than rolled, because `CLAUDE.md` rule 3
+    // forbids unseeded randomness in simulation and no `Rng` reaches `relocate`.
+    const a = arrivalTile(origin, 'north', 3);
+    const b = arrivalTile(origin, 'north', 4);
+    assert.notDeepEqual(a, b);
+    assert.equal(a.ty, b.ty, 'both still at the wall they came through');
+  });
+
+  it('never lands on the room’s boundary tiles', () => {
+    // One tile in from the wall on every axis, so the collision box starts clear of it.
+    for (const dir of ['north', 'east', 'south', 'west'] as const) {
+      for (let id = 0; id < 40; id++) {
+        const at = arrivalTile(origin, dir, id);
+        assert.ok(at.tx >= 1 && at.tx <= ROOM_TILES - 2, `${dir}/${id} tx ${at.tx}`);
+        assert.ok(at.ty >= 1 && at.ty <= ROOM_TILES - 2, `${dir}/${id} ty ${at.ty}`);
+      }
+    }
+  });
+
+  it('is stable for a negative spread, because ids are not promised to be positive', () => {
+    const at = arrivalTile(origin, 'north', -5);
+    assert.ok(at.tx >= 1 && at.tx <= ROOM_TILES - 2);
+  });
+
+  it('offsets from the room’s own origin, not from zero', () => {
+    const far = arrivalTile({ tx: 90, ty: 45 }, 'south', 0);
+    assert.equal(far.ty, 46, 'one tile in from that room’s northern edge');
+    assert.ok(far.tx >= 91);
   });
 });

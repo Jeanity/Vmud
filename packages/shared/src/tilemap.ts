@@ -555,3 +555,51 @@ export function normaliseIntent(dx: number, dy: number): { x: number; y: number 
   if (!Number.isFinite(length) || length < 0.01) return { x: 0, y: 0 };
   return { x: dx / length, y: dy / length };
 }
+
+/**
+ * Where a body lands when it enters a room **travelling in a direction**.
+ *
+ * Owner's report (2026-08-03): *"they shouldn't just flee to the center of a room, as that means they
+ * can hide behind someone else who might be standing there."* Every arrival used {@link roomCentre} —
+ * flee, walking a room, teleporting, respawning — so every body that changed room stacked on one tile
+ * and the one underneath was unclickable.
+ *
+ * You arrive at the **far side from the way you were going**: walk north and you come in at the
+ * southern edge, having just stepped through that wall. That is the position the fiction already
+ * implies, and it fixes three things at once — bodies stop stacking, a doorway reads as a doorway
+ * instead of a teleport to the middle of the floor, and the walk across the room afterwards is the
+ * player's own rather than a jump.
+ *
+ * ## The lateral offset is derived, not rolled
+ *
+ * Two things arriving from the same direction still need to not occupy the same tile, and `CLAUDE.md`
+ * rule 3 forbids `Math.random()` in simulation code. `spread` is therefore any stable number the caller
+ * already has — an entity id — folded across the room's width. Deterministic, so a restart reproduces
+ * the world, and no `Rng` has to be threaded through every caller of `relocate` to place a body.
+ *
+ * `undefined` for `from` means there is no direction to speak of — a teleport, a respawn, a portal —
+ * and those keep the centre, which is the honest answer when nothing was walked through.
+ */
+export function arrivalTile(
+  origin: { tx: number; ty: number },
+  from: 'north' | 'east' | 'south' | 'west' | undefined,
+  spread = 0,
+): { tx: number; ty: number } {
+  const centre = roomCentre(origin);
+  if (!from) return centre;
+
+  // One tile in from the wall, so a body never lands *on* the boundary the collision box has to clear.
+  const near = 1;
+  const far = ROOM_TILES - 2;
+  // Across the room's width, skipping the two edge tiles for the same reason.
+  const lateral = origin.tx + 1 + (((spread % (ROOM_TILES - 2)) + (ROOM_TILES - 2)) % (ROOM_TILES - 2));
+  const lateralY = origin.ty + 1 + (((spread % (ROOM_TILES - 2)) + (ROOM_TILES - 2)) % (ROOM_TILES - 2));
+
+  switch (from) {
+    // Heading north means arriving at the southern edge — you came through that wall.
+    case 'north': return { tx: lateral, ty: origin.ty + far };
+    case 'south': return { tx: lateral, ty: origin.ty + near };
+    case 'east': return { tx: origin.tx + near, ty: lateralY };
+    case 'west': return { tx: origin.tx + far, ty: lateralY };
+  }
+}

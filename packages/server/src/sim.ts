@@ -68,6 +68,7 @@ import {
   parseDice,
   rollDice,
   roomAtTile,
+  arrivalTile,
   roomCentre,
   samePlace,
   statusFor,
@@ -572,6 +573,16 @@ export interface TickResult {
    * for the same information.
    */
   readonly vitalsChanged: readonly Actor[];
+}
+
+/**
+ * The four directions an arrival edge can mean.
+ *
+ * `up` and `down` are dropped rather than mapped: a staircase has no wall you come through, so the
+ * honest landing for one is the room's centre — the same answer a teleport and a portal get.
+ */
+function lateralHeading(dir: Direction | undefined): 'north' | 'east' | 'south' | 'west' | undefined {
+  return dir === 'north' || dir === 'east' || dir === 'south' || dir === 'west' ? dir : undefined;
 }
 
 export class Simulation {
@@ -1518,18 +1529,24 @@ export class Simulation {
    * grid". Returns the Place they arrived in, or undefined if the room belongs to a zone this
    * server has not loaded.
    */
-  relocate(actor: Actor, roomId: RoomId): Place | undefined {
+  relocate(actor: Actor, roomId: RoomId, heading?: Direction): Place | undefined {
     const target = this.world.locate(roomId);
     if (!target) return undefined;
     const origin = this.world.grid(target.place)?.roomOrigins.get(roomId);
     if (!origin) return undefined;
 
-    const centre = roomCentre(origin);
+    // **You arrive at the wall you came through, not in the middle of the floor.** Owner's report
+    // (2026-08-03): landing on the centre meant every body that changed room stacked on one tile, and
+    // whoever was underneath could not be clicked. `heading` is the direction *travelled*, so walking
+    // north puts you at the southern edge. Omitted — a teleport, a respawn, a portal — keeps the
+    // centre, which is honest when nothing was walked through. The lateral spread is the actor's id
+    // rather than a roll, so no `Rng` has to reach this and a restart still reproduces the world.
+    const arrival = arrivalTile(origin, lateralHeading(heading), actor.id);
     actor.place = target.place;
     actor.roomId = roomId;
     // Centre of the tile, not its corner, so the collision box starts clear of walls.
-    actor.x = tileCentre(centre.tx);
-    actor.y = tileCentre(centre.ty);
+    actor.x = tileCentre(arrival.tx);
+    actor.y = tileCentre(arrival.ty);
 
     // Everything above is true of any body. Everything below is a *client's* view of one, and a mob has
     // none — so the narrowing is here, at the one place that needs it, rather than in a second copy of

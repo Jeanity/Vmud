@@ -192,7 +192,8 @@ export function attemptFlee(deps: FleeDeps, actor: Actor): FleeOutcome {
   if (!exit) return { kind: 'cornered' };
   const wasFighting = actor.fighting === undefined ? undefined : sim.get(actor.fighting);
 
-  if (!sim.relocate(actor, exit.to)) return { kind: 'cornered' };
+  // The direction travelled, so the body arrives at the wall it came through rather than the centre.
+  if (!sim.relocate(actor, exit.to, dir)) return { kind: 'cornered' };
 
   // §5: everyone swinging at you stops, found by scanning. This is `StopAllAttackers` and it is the
   // whole point of the exit existing — a flight that left the pointers in place would have the fight
