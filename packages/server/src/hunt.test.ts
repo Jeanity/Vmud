@@ -240,16 +240,40 @@ describe('rooms a hunter will not enter', () => {
     );
   });
 
-  it('does not follow you through a portal', () => {
-    // Settled in Phase 6 and restated in §2.5: pursuit stops at the edge of a Place. A portal is one by
-    // definition, and a staircase is one too — which is why this is enforced on the exit rather than by
-    // comparing zone ids afterwards.
+  it('follows you through a portal that stays on this Place', () => {
+    // **Changed in 15c, and the measurement is the argument.** Phase 6 refused `exit.portal` outright on
+    // the reasoning that a portal *is* a Place change by definition. Of the 7,261 portals in the shipped
+    // world most are not: they are same-level links the layout pass could not reconcile with the map's
+    // coordinates, and 4,996 same-level exits are simply not axis-aligned with their destination.
+    //
+    // So the flag conflated "leads somewhere else entirely" with "the map cannot draw this", and
+    // refusing on it meant a player could shake any pursuer by stepping through an ordinary door.
+    // Harmless while portals were invisible; a discoverable exploit the moment 15c drew them.
     const zone = corridor();
     const rooms = zone.rooms.map((room) =>
-      room.id === 9003 ? { ...room, exits: { ...room.exits, east: { to: 9004, portal: true } } } : room,
+      room.id === 9002 ? { ...room, exits: { ...room.exits, east: { to: 9003, portal: true } } } : room,
     );
     const world = new GameWorld([{ ...zone, rooms }], { zone: 900, room: 9000 });
-    assert.equal(firstStepToward(world, hunter(), 9000, 9004), undefined);
+    assert.ok(firstStepToward(world, hunter(), 9000, 9003), 'a portal on this Place is an ordinary door');
+  });
+
+  it('still refuses a portal that leaves the Place', () => {
+    // The half that was always doing the real work. A crossing is caught by comparing the destination's
+    // zone and level, portal flag or not — which is why dropping the flag check lost nothing.
+    const near: Room[] = [
+      { id: 9300, zone: 930, name: 'Home', sector: 'inside', pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 9400, portal: true } } },
+    ];
+    const far: Room[] = [
+      { id: 9400, zone: 940, name: 'Elsewhere', sector: 'inside', pos: { x: 0, y: 0, z: 0 }, exits: {} },
+    ];
+    const world = new GameWorld(
+      [
+        { id: 930, name: 'Near', rooms: near, bounds: boundsOf(near), entryRoom: 9300 },
+        { id: 940, name: 'Far', rooms: far, bounds: boundsOf(far), entryRoom: 9400 },
+      ],
+      { zone: 930, room: 9300 },
+    );
+    assert.equal(firstStepToward(world, hunter(), 9300, 9400), undefined);
   });
 
   it('will not leave its own zone when leashed', () => {

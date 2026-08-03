@@ -172,9 +172,19 @@ fleeing character trailing a growing pack is a chain of independent assist rolls
 It should be possible to be genuinely, memorably overwhelmed by it.
 
 **Settled (Phase 6): pursuit stops at the edge of a `Place`.** A mob follows freely through the room
-graph of the zone-and-level it is in, and never through a portal or a level change. See
+graph of the zone-and-level it is in, and never up a staircase or across a zone boundary. See
 [DESIGN-engagement.md](DESIGN-engagement.md) §7 — note that a staircase is a `Place` change too, so
 this is not "chases you anywhere inside the zone".
+
+**Amended (15c): a *portal* is no longer a reason on its own.** Phase 6 also refused any exit flagged
+`portal`, reading the flag as "leads to another `Place`". Measured: of the **7,261 portals** in the
+shipped world the great majority are not — they are same-level links the layout pass could not
+reconcile with the map's coordinates, and **4,996 same-level exits are simply not axis-aligned** with
+their destination's grid position. So the flag conflated *"leads somewhere else entirely"* with *"the
+map cannot draw this"*, and refusing on it meant a player could shake any pursuer by stepping through
+an ordinary door. That was invisible and harmless until 15c drew portals on the wall; the moment they
+became clickable it was a discoverable exploit. The rule is now the `Place` comparison alone, which
+was already doing the real work — a portal that genuinely crosses a `Place` is still refused by it.
 
 ### 2.6 Engagement is sticky — decided, and load-bearing
 

@@ -104,8 +104,12 @@ export function huntMayEnter(world: GameWorld, rule: PursuitRule, roomId: RoomId
  * once.
  *
  * **Refuses to cross a Place**, settled in Phase 6 and restated in §2.5: a mob follows you through the room
- * graph of the zone-and-level it is in and never through a portal or a staircase. Enforced on the *exit*
- * rather than by comparing Places afterwards, so a one-way portal cannot be entered and then puzzled over.
+ * graph of the zone-and-level it is in, and never up a staircase or through a link to another zone.
+ *
+ * It no longer refuses a *portal* as such — 15c measured that most portals are same-level links the layout
+ * pass could not draw rather than genuine Place changes, so the flag was refusing ordinary doors and
+ * handing players an escape route that could not be explained. The Place comparison catches every real
+ * crossing, portal or not.
  */
 export function firstStepToward(
   world: GameWorld,
@@ -157,9 +161,17 @@ export function firstStepWhere(
     for (const [dir, exit] of Object.entries(here.room.exits)) {
       const next = exit.to;
       if (seen.has(next)) continue;
-      // A portal is a Place change by definition, and a level change is one too even without the flag —
-      // both are refused here rather than by a test after the fact.
-      if (exit.portal) continue;
+      // **The Place is the leash, and it is the only thing tested.** Phase 6 also refused `exit.portal`
+      // here, on the reasoning that a portal *is* a Place change by definition. Measured in 15c, that
+      // turned out to be false for the great majority: of 7,261 portals in the shipped world, most are
+      // same-level links where the layout pass could not reconcile the `.wld` exit graph with the map's
+      // own coordinates — 4,996 same-level exits are simply not axis-aligned with their destination.
+      //
+      // So the flag conflated *"leads somewhere else entirely"* with *"the map cannot draw this"*, and
+      // refusing on it gave players a free escape that looked arbitrary: run into the one exit your
+      // pursuer will not follow. Harmless while portals were invisible; a discoverable exploit the
+      // moment 15c drew them. A real Place change is still refused — the line below catches it, and
+      // always did, which is why removing the flag check loses nothing.
       const there = world.locate(next);
       if (!there || there.place.zone !== place.zone || there.place.level !== place.level) continue;
       if (!huntMayEnter(world, rule, next, home)) continue;
