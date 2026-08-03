@@ -226,7 +226,7 @@ export function lootCorpse(corpse: Corpse, bag: Inventory): LootResult {
   let inventory = bag;
   for (const item of corpse.contents) {
     const result = carry(inventory, item);
-    if ('items' in result) {
+    if ('stacks' in result) {
       inventory = result;
       taken.push(item);
     } else {

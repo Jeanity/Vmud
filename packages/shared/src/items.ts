@@ -234,6 +234,12 @@ export function instantiate(template: ItemTemplate): Item {
     ac: template.ac,
     size: template.size,
     ...(template.damage ? { damage: template.damage } : {}),
+    // **Copied down, or nothing in the harvested world stacks.** The catalogue has carried
+    // `stackLimit` and `uses` since the harvest landed and nothing read them; this is the line that
+    // connects them to the bag. Only carried when they mean something — a `stackLimit` of 1 is the
+    // default and writing it on every sword in a save file says nothing.
+    ...(template.stackLimit > 1 ? { stackLimit: template.stackLimit } : {}),
+    ...(template.uses === undefined ? {} : { uses: template.uses }),
   };
 }
 

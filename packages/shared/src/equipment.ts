@@ -75,6 +75,20 @@ export interface Item {
    * wielded gear costs nothing — §6 — so this is only ever charged against what is in the bag.
    */
   readonly size: number;
+  /**
+   * How many of this share one slot, and how many charges one of them carries. §3, and both are
+   * **copied from the catalogue entry rather than looked up** — the same treatment `ac`, `size` and
+   * `damage` already get.
+   *
+   * That denormalisation is deliberate. The alternative is threading a `(item) => limit` lookup
+   * through `carry`, `slotsUsed`, `fits` and every caller of them, so that a bag could not answer
+   * "does this fit" without being handed the catalogue. An item that knows its own bulk should know
+   * its own stacking too.
+   *
+   * Absent means "does not stack" and "no charges", which is what a sword is.
+   */
+  readonly stackLimit?: number;
+  readonly uses?: number;
 }
 
 /** A character's worn gear. Absent slots are empty — most of them, for a starting character. */
@@ -241,6 +255,12 @@ export function readItem(raw: unknown, slot?: EquipSlot): Item | undefined {
     // Absent on a kit written before Phase 15b gave items a bulk. One slot is the right guess for
     // a starter garment and keeps a pre-15b character's bag arithmetic from going NaN.
     size: typeof item.size === 'number' && item.size > 0 ? item.size : 1,
+    // **Read back, or a saved stack silently unstacks.** Caught by a test: without these, twenty
+    // arrows written to disk return as twenty items that each want their own slot, and a bag that
+    // fitted yesterday refuses to load today. Absent means "does not stack" and "no charges", which
+    // is every item written before 15c and every sword written since.
+    ...(typeof item.stackLimit === 'number' && item.stackLimit > 1 ? { stackLimit: item.stackLimit } : {}),
+    ...(typeof item.uses === 'number' && item.uses > 0 ? { uses: item.uses } : {}),
     ...(damage && typeof damage.count === 'number' && typeof damage.sides === 'number'
       ? { damage: { count: damage.count, sides: damage.sides, bonus: damage.bonus ?? 0 } }
       : {}),

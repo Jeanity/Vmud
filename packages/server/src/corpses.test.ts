@@ -12,6 +12,7 @@ import { describe, it } from 'node:test';
 import {
   boundsOf,
   emptyInventory,
+  stackOf,
   makeRng,
   noPursuit,
   passiveRule,
@@ -143,7 +144,7 @@ describe('the looted sprite', () => {
     const f = fixture();
     assert.ok(f.mob);
     const corpse = makeCorpse(f.yard, f.mob, false, [thing('anvil', 19), thing('pin', 1)]);
-    const result = lootCorpse(corpse, { items: [thing('ballast', 19)], capacity: 20 });
+    const result = lootCorpse(corpse, { stacks: [stackOf(thing('ballast', 19))], capacity: 20 });
     assert.deepEqual(result.taken.map((i) => i.id), ['pin']);
     assert.deepEqual(result.left.map((i) => i.id), ['anvil']);
     assert.equal(corpseSprite(corpse), 'corpse', 'still worth searching');
@@ -164,7 +165,7 @@ describe('emptying a body', () => {
     assert.ok(f.mob);
     const corpse = makeCorpse(f.yard, f.mob, false, [thing('tunic', 3), thing('dagger', 1)]);
     const result = lootCorpse(corpse, emptyInventory());
-    assert.deepEqual(result.inventory.items.map((i) => i.id), ['tunic', 'dagger']);
+    assert.deepEqual(result.inventory.stacks.map((s) => s.item.id), ['tunic', 'dagger']);
     assert.equal(corpse.contents.length, 0);
   });
 
@@ -174,7 +175,7 @@ describe('emptying a body', () => {
     const f = fixture();
     assert.ok(f.mob);
     const corpse = makeCorpse(f.yard, f.mob, false, [thing('breastplate', 10), thing('ring', 1)]);
-    const result = lootCorpse(corpse, { items: [thing('ballast', 15)], capacity: 20 });
+    const result = lootCorpse(corpse, { stacks: [stackOf(thing('ballast', 15))], capacity: 20 });
     assert.deepEqual(result.taken.map((i) => i.id), ['ring']);
   });
 
@@ -184,7 +185,7 @@ describe('emptying a body', () => {
     const bag = emptyInventory();
     const corpse = makeCorpse(f.yard, f.mob, false, [thing('rope', 2)]);
     lootCorpse(corpse, bag);
-    assert.equal(bag.items.length, 0);
+    assert.equal(bag.stacks.length, 0);
   });
 });
 

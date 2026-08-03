@@ -620,7 +620,7 @@ export class PlayerStore {
       // that is a fact about the character even though it holds nothing. A character who has never
       // picked anything up writes no key at all.
       ...(record.inventory &&
-      (record.inventory.items.length > 0 || record.inventory.capacity !== STARTING_CAPACITY)
+      (record.inventory.stacks.length > 0 || record.inventory.capacity !== STARTING_CAPACITY)
         ? { inventory: record.inventory }
         : {}),
       savedAt: new Date().toISOString(),

@@ -52,7 +52,11 @@ import {
   weaponFrom,
   STARTING_HIT_POINTS,
   carry,
+  describeStack,
   emptyInventory,
+  limitOf,
+  loose,
+  stackSlots,
   matchInventory,
   removeAt,
   slotsFree,
@@ -1302,7 +1306,8 @@ function reapPlayer(player: Player): void {
   // Before the body moves. A player's corpse decays on its own longer clock — see `corpses.ts`.
   // The bag goes with it and the bag is emptied here, so the two halves cannot both hold the same
   // dagger — a duplication bug that would be invisible until somebody noticed the world getting richer.
-  const carried = player.inventory.items;
+  // Flattened: a stack of five arrows is five arrows on the body, not one entry.
+  const carried = loose(player.inventory);
   const corpse = makeCorpse(graveyard, player, true, carried);
   player.inventory = emptyInventory(player.inventory.capacity);
 
@@ -2865,7 +2870,7 @@ function pickUp(player: Player, id: EntityId): void {
     return;
   }
   const result = carry(player.inventory, entry.item);
-  if (!('items' in result)) {
+  if (!('stacks' in result)) {
     send(player.id, {
       t: 'log',
       channel: 'error',
@@ -2949,7 +2954,7 @@ function wearFromBag(player: Player, rest: string): void {
     send(player.id, { t: 'log', channel: 'error', text: `You are not carrying ${rest}.` });
     return;
   }
-  const item = player.inventory.items[index]!;
+  const item = player.inventory.stacks[index]!.item;
   // **Not everything can be worn**, and since 15c most things cannot: keys, coins, food and trash are
   // the bulk of the harvested catalogue and none of them go anywhere on a body. Refusing by name is the
   // only honest answer — the alternative is inventing a slot, and any resting value picked would make
@@ -2967,7 +2972,7 @@ function wearFromBag(player: Player, rest: string): void {
 
   if (displaced) {
     const stowed = carry(bag, displaced);
-    if (!('items' in stowed)) {
+    if (!('stacks' in stowed)) {
       send(player.id, {
         t: 'log',
         channel: 'error',
@@ -3010,7 +3015,7 @@ function removeWorn(player: Player, rest: string): void {
   const wornSlot = entry[0] as EquipSlot;
   const found = entry[1] as Item;
   const stowed = carry(player.inventory, found);
-  if (!('items' in stowed)) {
+  if (!('stacks' in stowed)) {
     // Refused rather than dropped on the floor. A character who typed `remove` and found their armour
     // lying in a corridor would be right to call that a bug.
     send(player.id, {
@@ -3044,14 +3049,18 @@ function listInventory(player: Player): void {
     channel: 'system',
     text: `&+cYou are carrying&N (${used} of ${player.inventory.capacity} slots):`,
   });
-  if (player.inventory.items.length === 0) {
+  if (player.inventory.stacks.length === 0) {
     send(player.id, { t: 'log', channel: 'system', text: '  nothing' });
   }
-  for (const item of player.inventory.items) {
+  for (const stack of player.inventory.stacks) {
+    // `describeStack` owns the count and the charges — "(x3)" and "[3/5]" — because how a stack reads
+    // is a rule (§3: charges show only once touched) rather than a formatting choice, and a second
+    // copy of it here would drift from the one the container listing will need.
+    const slots = stackSlots(stack, limitOf(stack.item));
     send(player.id, {
       t: 'log',
       channel: 'system',
-      text: `  ${item.name} (${item.size} slot${item.size === 1 ? '' : 's'})`,
+      text: `  ${describeStack(stack, stack.item.uses)} (${slots} slot${slots === 1 ? '' : 's'})`,
     });
   }
 
