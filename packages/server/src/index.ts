@@ -177,7 +177,7 @@ import {
 } from './perception.ts';
 import { advanceZones, newZoneClock, runReset, type ZoneClock } from './reset.ts';
 import { Simulation, isMob, isPlayer, type Actor, type AffectEvent, type Player } from './sim.ts';
-import { indexTemplates, loadZoneSpawns } from './spawns.ts';
+import { indexTemplates, loadItemCatalogue, loadZoneSpawns } from './spawns.ts';
 import { ROOMS_FILE } from './overrides.ts';
 import { GameWorld, placeOf } from './world.ts';
 
@@ -237,6 +237,20 @@ for (const zoneId of world.populate) {
   else console.warn(`[pop] zone ${zoneId} is listed to populate but has no population file`);
 }
 const mobTemplates = indexTemplates(loadedSpawns);
+
+/**
+ * Every item type in the world, by vnum. Phase 15c — see `spawns.ts`.
+ *
+ * World-wide rather than per zone, because a `G` command in IceCrag may name an object defined in a
+ * file belonging to somewhere else entirely: `real_object` in the source is a global lookup and there
+ * is no per-zone answer to "what is object 91000".
+ */
+const itemCatalogue = loadItemCatalogue();
+console.log(
+  itemCatalogue.size > 0
+    ? `[items] ${itemCatalogue.size} item types loaded`
+    : '[items] no catalogue; mobs will carry nothing. Run `npm run worldgen`.',
+);
 
 /**
  * What each mob has worked out, by mob id. See `perception.ts`.
@@ -398,11 +412,11 @@ const progressRng = makeRng(WORLD_SEED ^ 0x14b0de);
 for (const spawns of loadedSpawns) {
   const clock = newZoneClock(spawns, spawnRng);
   zoneClocks.push(clock);
-  const outcome = runReset(sim, clock, mobTemplates, spawnRng, true);
+  const outcome = runReset(sim, clock, mobTemplates, itemCatalogue, spawnRng, true);
   console.log(
     `[pop] zone ${String(spawns.zone).padStart(4)} "${world.zone(spawns.zone)?.name ?? '?'}" — ` +
       `${String(outcome.spawned.length).padStart(4)} mobs from ${spawns.templates.length} templates, ` +
-      `${outcome.doors} doors set; next reset in ${clock.lifespan} ticks ` +
+      `${outcome.doors} doors set, ${outcome.kitted} pieces of kit; next reset in ${clock.lifespan} ticks ` +
       `(${Math.round((clock.lifespan * ZONE_TICK_MS) / 60_000)} min)`,
   );
 }
@@ -1426,7 +1440,13 @@ function resolveDeath(death: Death): void {
     send(earner.id, { t: 'self', view: sim.selfViewOf(earner) });
   }
 
-  const corpse = makeCorpse(graveyard, actor, isPlayer(actor));
+  // **A mob's corpse holds everything it had — carried *and* worn.** Phase 15c, and note the deliberate
+  // asymmetry with `reapPlayer`, which puts only the bag in and leaves the gear on the body: a player's
+  // worn kit is theirs and losing it to one mistake is the thing the owner named as the worst feeling in
+  // a game, while a mob's worn kit **is** the loot. Killing a guard for the sword it was holding is the
+  // oldest reward loop there is, and a guard that kept its sword would make the fight pointless.
+  const spoils = isMob(actor) ? [...actor.carrying, ...Object.values(actor.equipped).filter((i) => i !== undefined)] : [];
+  const corpse = makeCorpse(graveyard, actor, isPlayer(actor), spoils);
   const room = actor.roomId;
   sim.remove(actor.id);
   // Every mob forgets it, and nothing keeps chasing it.
@@ -3686,7 +3706,7 @@ setInterval(() => {
   // Zone repop. Almost every tick this does nothing — a zone comes due once every seventy minutes or so —
   // so the loop is a fraction added to a counter and a comparison, and the work only happens when one
   // fires. See `reset.ts` for why the fraction is carried rather than rounded.
-  for (const outcome of advanceZones(sim, zoneClocks, mobTemplates, spawnRng, TICK_MS)) {
+  for (const outcome of advanceZones(sim, zoneClocks, mobTemplates, itemCatalogue, spawnRng, TICK_MS)) {
     if (outcome.spawned.length === 0 && outcome.doors === 0) continue;
     console.log(
       `[pop] zone ${outcome.zone} repopped: +${outcome.spawned.length} mobs, ` +

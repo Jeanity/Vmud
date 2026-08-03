@@ -14,7 +14,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { MobTemplate, ZoneId, ZoneSpawns } from '@mygame/shared';
+import type { ItemTemplate, MobTemplate, ZoneId, ZoneSpawns } from '@mygame/shared';
 
 import { WORLD_DIR } from './world.ts';
 
@@ -65,6 +65,51 @@ export function indexTemplates(spawns: Iterable<ZoneSpawns>): Map<number, MobTem
   const out = new Map<number, MobTemplate>();
   for (const zone of spawns) {
     for (const template of zone.templates) out.set(template.vnum, template);
+  }
+  return out;
+}
+
+/* -------------------------------------------------------------------------- */
+/* The item catalogue                                                          */
+/* -------------------------------------------------------------------------- */
+
+/** Where `npm run worldgen` writes the item catalogue. One file for the whole world — see 15c. */
+export const ITEMS_FILE = join(WORLD_DIR, 'items.json');
+
+/**
+ * Every item type in the world, by vnum.
+ *
+ * **One flat map, loaded once at boot**, for the same reason {@link indexTemplates} is flat: a `G`
+ * command in IceCrag can name an object whose definition lives in a file belonging to somewhere else
+ * entirely, because `real_object` in the source is a world-wide lookup. There is no per-zone answer to
+ * "what is object 91000".
+ *
+ * A missing file is **empty rather than fatal**, exactly as an absent population file is. The catalogue
+ * is derived from `data/zones-source/`, which is git-ignored and may simply not be there — and a world
+ * whose mobs carry nothing is the world we shipped through 15b. A *malformed* one throws, because that
+ * means the pipeline is broken.
+ */
+export function loadItemCatalogue(file = ITEMS_FILE): Map<number, ItemTemplate> {
+  const out = new Map<number, ItemTemplate>();
+  if (!existsSync(file)) return out;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (cause) {
+    throw new Error(`${file} is not valid JSON. Re-run \`npm run worldgen\`.`, { cause });
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`${file} is malformed: expected an array of item templates.`);
+  }
+  for (const entry of parsed) {
+    const template = entry as Partial<ItemTemplate>;
+    // Shape-checked on the three fields everything downstream assumes. A row missing one of them would
+    // otherwise surface as an item with no name lying on a floor somewhere.
+    if (typeof template.vnum !== 'number' || typeof template.name !== 'string' || typeof template.size !== 'number') {
+      continue;
+    }
+    out.set(template.vnum, template as ItemTemplate);
   }
   return out;
 }

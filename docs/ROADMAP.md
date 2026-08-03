@@ -1035,8 +1035,11 @@ see a step *about to leave* — the threshold counts as outside, so you stop in 
   corpses holding contents and spilling on decay. **15c** — stacking, uses, containers at depth 2,
   gold, and **the thing 15b could not do: item content.** Every item in the world is still the rolled
   starter kit, because nothing has been harvested from Duris' `.obj` files — so mob corpses hold
-  nothing and the Items panel has nothing to edit. That harvest is 15c's first task and it unblocks
-  both. Also 15c's: `wield` as a verb distinct from `wear`, which earns its keep once two-handed
+  nothing and the Items panel has nothing to edit. ✅ **done** — 16,421 items catalogued and mob
+  corpses drop what their owner was wearing; the harvest also uncovered that every `G` and `E` command
+  in the world was being deleted by a mis-mapped `arg3`. Remaining in 15c: stacking, uses, containers,
+  gold, and executors for `O` and `P` (which need an object-instance census before they can honour
+  their limits). Also 15c's: `wield` as a verb distinct from `wear`, which earns its keep once two-handed
   weapons exist, and persisting the ground across a restart, which needs a world-state file that
   survives `npm run worldgen` rebuilding the rooms underneath it.
 - **Weapons are not drawn, and it is an art gap rather than an oversight.** The LPC pack ships weapon

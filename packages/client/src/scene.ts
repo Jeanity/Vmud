@@ -36,6 +36,7 @@ import {
   type TileGrid,
   type TilePoint,
   type Zone,
+  stripColour,
 } from '@mygame/shared';
 
 /**
@@ -66,6 +67,7 @@ import { LIGHT_SOURCES, roomLightTiles } from '@mygame/shared/light.ts';
 
 import type { LogPanel } from './log.ts';
 import type { Net } from './net.ts';
+import { paint } from './paint.ts';
 import { TargetMenu, type TargetVerb } from './targetmenu.ts';
 
 /**
@@ -1165,7 +1167,15 @@ export class WorldScene extends Phaser.Scene {
       const label = cell.querySelector('.item');
       // The armour value is shown because it is the whole reason the kit is rolled: without it two
       // characters in identical-looking leather have no way to know which of them got lucky.
-      if (label) label.textContent = item ? (item.ac ? `${item.name} (+${item.ac})` : item.name) : 'empty';
+      //
+      // **Painted, not assigned.** Found live the moment 15c's harvested items arrived: an item's name
+      // is *authored text* and carries the MUD's own colour codes — `&+ma steel long sword` — so
+      // `textContent` printed the codes verbatim in every slot. The starter kit's names have none,
+      // which is exactly why this survived 15a and 15b. Same rule V6 set for the log: anything a
+      // builder wrote goes through `parseColour`.
+      if (label instanceof HTMLElement) {
+        paint(label, item ? (item.ac ? `${item.name} (+${item.ac})` : item.name) : 'empty');
+      }
       cell.classList.toggle('empty', item === undefined);
       cell.classList.toggle('lit', item?.lit === true);
     }
@@ -1440,7 +1450,7 @@ export class WorldScene extends Phaser.Scene {
         run: () => this.net.send({ t: 'attack', target: view.id }),
       });
     }
-    this.targetMenu.show(pointer.x, pointer.y, view.name, verbs);
+    this.targetMenu.show(pointer.x, pointer.y, stripColour(view.name), verbs);
   }
 
   private onPointerDown(pointer: Phaser.Input.Pointer): void {
@@ -2441,7 +2451,10 @@ export class WorldScene extends Phaser.Scene {
       -HEALTH_BAR_WIDTH / 2, HEALTH_BAR_Y, HEALTH_BAR_WIDTH, HEALTH_BAR_HEIGHT, HEALTH_FULL,
     ).setOrigin(0, 0.5);
     const label = this.add
-      .text(0, isItem ? 11 : 14, view.name, {
+      // **Stripped, not painted.** A Phaser text object renders one colour and cannot hold spans, so
+      // the codes a harvested name carries have to come out or they print as `&+ma steel long sword`
+      // over the thing's head. The DOM surfaces — the log, the character sheet — paint instead.
+      .text(0, isItem ? 11 : 14, stripColour(view.name), {
         fontFamily: 'Consolas, monospace',
         fontSize: isItem ? '10px' : '11px',
         color: isItem ? '#e6c07a' : isSelf ? '#ffe9a8' : '#cfd8c0',

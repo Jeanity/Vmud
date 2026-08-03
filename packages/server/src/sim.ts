@@ -63,6 +63,7 @@ import {
   emptyInventory,
   type Equipped,
   type Inventory,
+  type Item,
   normaliseIntent,
   parseDice,
   rollDice,
@@ -469,6 +470,22 @@ export interface Mob extends Actor {
    * `reset.ts`.
    */
   readonly vnum: number;
+  /**
+   * What it is wearing and wielding, from the zone file's `E` commands. Phase 15c.
+   *
+   * **Mutable, unlike everything above it**, because the reset table fills it *after* the mob is
+   * spawned: `E` attaches to the last mobile loaded, so the body has to exist before its kit can be
+   * put on it. `combat` is refolded once the whole kit is on rather than per piece.
+   */
+  equipped: Equipped;
+  /**
+   * What it is carrying but not wearing — the zone file's `G` commands.
+   *
+   * A plain list rather than an `Inventory`, and that is deliberate: capacity is a *player's* problem.
+   * A mob's kit is authored rather than accumulated, so a bag that could refuse it would only ever mean
+   * a builder's row silently doing nothing.
+   */
+  carrying: Item[];
 }
 
 export interface Transition {
@@ -1628,6 +1645,10 @@ export class Simulation {
       pursuing: undefined,
       combat: template.combat,
       roundMs: template.combat.roundMs,
+      // Bare. Its kit arrives from the zone file's `E` and `G` commands *after* this returns — they
+      // attach to the last mobile loaded, so the body must exist first. See `reset.ts`.
+      equipped: {},
+      carrying: [],
       lightRadius: DEFAULT_LIGHT_RADIUS,
       affects: [],
       light: undefined,

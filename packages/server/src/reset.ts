@@ -33,7 +33,16 @@
  *    not break the chain — so one piece of a mob's kit failing does not suppress the sword below it.
  */
 
-import { ZONE_TICK_MS, isExecutable, type MobTemplate, type Rng, type ZoneSpawns } from '@mygame/shared';
+import {
+  ZONE_TICK_MS,
+  instantiate,
+  isExecutable,
+  slotForWearPosition,
+  type ItemTemplate,
+  type MobTemplate,
+  type Rng,
+  type ZoneSpawns,
+} from '@mygame/shared';
 
 import type { Mob, Simulation } from './sim.ts';
 
@@ -56,6 +65,8 @@ export interface ResetOutcome {
   readonly atLimit: number;
   /** Doors put back to their authored state. */
   readonly doors: number;
+  /** Pieces of kit put on or into the mobs that were loaded. Phase 15c. */
+  readonly kitted: number;
 }
 
 /**
@@ -87,27 +98,70 @@ export function runReset(
   sim: Simulation,
   clock: ZoneClock,
   templates: ReadonlyMap<number, MobTemplate>,
+  items: ReadonlyMap<number, ItemTemplate>,
   rng: Rng,
   force = false,
 ): ResetOutcome {
   const spawned: Mob[] = [];
   let atLimit = 0;
+  let kitted = 0;
   let doors = 0;
 
   // The explicit chain state §4.9 asks for. `lastSucceeded` gates a command whose `ifPrevious` is set;
-  // `lastMobLoaded` is the separate cursor that lets a mob's kit keep loading after one piece of it fails
+  // `lastMob` is the separate cursor that lets a mob's kit keep loading after one piece of it fails
   // its roll — which is why they are two variables and not one.
   let lastSucceeded = true;
-  let lastMobLoaded = false;
+  let lastMob: Mob | undefined;
 
   for (const command of clock.spawns.resets) {
     const chained = command.ifPrevious;
     const attachesToMob = command.kind === 'give' || command.kind === 'equip' || command.kind === 'mount';
-    if (chained && !lastSucceeded && !(attachesToMob && lastMobLoaded)) continue;
+    if (chained && !lastSucceeded && !(attachesToMob && lastMob)) continue;
+
+    // ---- `G` and `E`: the last mobile loaded gets its kit ----
+    //
+    // **Phase 15c, and the cursor discipline written in Phase 8 is what makes them work.** Both attach
+    // to `lastMob`, never to a room, which is why they carry no room at all — see `ResetCommand`. A
+    // piece failing does *not* clear the cursor: a mob whose sword did not load still gets its boots.
+    //
+    // **A mob's kit is loot, not armour, and that is a deliberate line.** `combat` is *not* refolded
+    // from what goes on: the harvested combat profile was tuned against player capability in 14b, and
+    // zone 36 alone has 247 `E` commands — several pieces per mob, which at the catalogue's median +2
+    // would quietly add ten armour class to every equipped guard in IceCrag. That is precisely the kind
+    // of change that looks plausible and invalidates a balance pass invisibly. Making a mob's gear
+    // count needs a rebalance, not a line here.
+    if (command.kind === 'give' || command.kind === 'equip') {
+      if (!lastMob) continue;
+      const template = items.get(command.what);
+      if (!template) continue;
+      const item = instantiate(template);
+      if (command.kind === 'give') {
+        lastMob.carrying.push(item);
+        kitted++;
+        continue;
+      }
+      // **The slot comes from the command, not from the item.** `E`'s third argument is where the
+      // builder put it, and that is a different fact from where it *may* go: a ring on the left hand is
+      // `WEAR_FINGER_L`, and no wear flag distinguishes left from right.
+      const slot = command.wearPosition === undefined ? undefined : slotForWearPosition(command.wearPosition);
+      if (!slot) {
+        // A position we do not model — a belt, a wrist, an ioun stone. It still exists and is still
+        // worth taking off the body, so it goes in the mob's hands rather than being thrown away.
+        lastMob.carrying.push(item);
+        kitted++;
+        continue;
+      }
+      lastMob.equipped[slot] = item;
+      kitted++;
+      continue;
+    }
 
     if (!isExecutable(command)) {
-      // Parsed and carried, with no executor yet — the object commands wait for items in Phase 15. They
-      // must not clear the cursor: an unimplemented `E` between two `M`s is not a failure of either.
+      // Parsed and carried, with no executor yet. `O` and `P` wait on an object-instance census: both
+      // carry a world-wide limit, and honouring it means counting how many of a vnum exist on floors,
+      // in bags and inside containers. Without that count every repop would add another and the world
+      // would silt up. They must not clear the cursor: an unexecuted `P` between two `M`s is not a
+      // failure of either.
       continue;
     }
 
@@ -121,7 +175,7 @@ export function runReset(
     const template = templates.get(command.what);
     if (!template) {
       lastSucceeded = false;
-      lastMobLoaded = false;
+      lastMob = undefined;
       continue;
     }
 
@@ -130,18 +184,18 @@ export function runReset(
     if (!room && !force) {
       atLimit++;
       lastSucceeded = false;
-      lastMobLoaded = false;
+      lastMob = undefined;
       continue;
     }
     if (force && !(command.percent > Math.floor(rng() * 100))) {
       lastSucceeded = false;
-      lastMobLoaded = false;
+      lastMob = undefined;
       continue;
     }
     if (force && sim.countOf(command.what) >= command.limit) {
       atLimit++;
       lastSucceeded = false;
-      lastMobLoaded = false;
+      lastMob = undefined;
       continue;
     }
 
@@ -149,17 +203,17 @@ export function runReset(
     const mob = command.room === undefined ? undefined : sim.spawnMob(template, command.room, rng);
     if (!mob) {
       lastSucceeded = false;
-      lastMobLoaded = false;
+      lastMob = undefined;
       continue;
     }
     spawned.push(mob);
     lastSucceeded = true;
-    lastMobLoaded = true;
+    lastMob = mob;
   }
 
   clock.age = 0;
   clock.lifespan = rollLifespan(clock.spawns, rng);
-  return { zone: clock.spawns.zone, spawned, atLimit, doors };
+  return { zone: clock.spawns.zone, spawned, atLimit, doors, kitted };
 }
 
 /**
@@ -176,6 +230,7 @@ export function advanceZones(
   sim: Simulation,
   clocks: Iterable<ZoneClock>,
   templates: ReadonlyMap<number, MobTemplate>,
+  items: ReadonlyMap<number, ItemTemplate>,
   rng: Rng,
   elapsedMs: number,
 ): ResetOutcome[] {
@@ -187,7 +242,7 @@ export function advanceZones(
       clock.age++;
     }
     if (clock.age < clock.lifespan) continue;
-    out.push(runReset(sim, clock, templates, rng));
+    out.push(runReset(sim, clock, templates, items, rng));
   }
   return out;
 }
