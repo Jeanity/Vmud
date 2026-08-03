@@ -826,9 +826,11 @@ LPC lacks is drawn to match rather than borrowed from another style.
 across the floor. The refusal distinguishes the two cases, because "there is nothing here to loot" while
 a corpse is plainly visible reads as the game being broken rather than as a reason to take three steps.
 
-**Nothing comes out of a corpse yet, and it says so.** Items are Phase 15. What looting does today is
-flip the flag and change the sprite, which is the whole of what can honestly happen — and when items
-arrive the transfer goes in beside the flag.
+**Things come out of a corpse since 15b.** `lootCorpse` moves what fits into the bag and leaves the
+rest, and `looted` was redefined from *searched* to **empty** — so a body still holding the one thing
+you could not carry stays drawn as a pile rather than hiding it behind a picked-clean sprite. What
+still comes out of nothing is a *mob's* corpse: no object data has been harvested, so the only things
+on any floor are things a player put there. See 15c.
 
 #### Phase 14 — Mercy and fear ✅ **done**
 
@@ -1028,9 +1030,15 @@ see a step *about to leave* — the threshold counts as outside, so you stop in 
   ✅ **the "see it" half is done (15a)**: the rolled starter kit is drawn on the body, and two
   characters with different rolls look different. The "pick something up" half is 15b.
 - **Sliced, because the spec is multi-session.** **15a — worn gear is visible** ✅ (the visual jump,
-  and it needed no new mechanics: 14b's kit already existed). **15b** — a real ground-object store
-  per the note below, `get`/`drop`/`wear`/`remove`, inventory capacity and item sizes, corpses
-  spilling on decay. **15c** — stacking, uses, containers at depth 2, gold.
+  and it needed no new mechanics: 14b's kit already existed). **15b** ✅ — a real ground-object store
+  per the note below, `get`/`drop`/`wear`/`remove`/`inventory`, inventory capacity and item sizes,
+  corpses holding contents and spilling on decay. **15c** — stacking, uses, containers at depth 2,
+  gold, and **the thing 15b could not do: item content.** Every item in the world is still the rolled
+  starter kit, because nothing has been harvested from Duris' `.obj` files — so mob corpses hold
+  nothing and the Items panel has nothing to edit. That harvest is 15c's first task and it unblocks
+  both. Also 15c's: `wield` as a verb distinct from `wear`, which earns its keep once two-handed
+  weapons exist, and persisting the ground across a restart, which needs a world-state file that
+  survives `npm run worldgen` rebuilding the rooms underneath it.
 - **Weapons are not drawn, and it is an art gap rather than an oversight.** The LPC pack ships weapon
   sprites as *attack animations only* — Swing, Thrust and Shoot sheets — with no idle-hold frame,
   while characters are drawn from the walk rows. A visible dagger therefore needs either an attack

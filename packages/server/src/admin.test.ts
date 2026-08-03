@@ -17,6 +17,7 @@ import { boundsOf, type Room, type Zone } from '@mygame/shared';
 
 import { AdminApi, type AdminDeps, type AdminRequest, type AnnounceScope, type LiveOps } from './admin.ts';
 import { PlayerStore, slugify } from './players.ts';
+import type { WorldSettings } from './settings.ts';
 import type { Player } from './sim.ts';
 import { GameWorld } from './world.ts';
 
@@ -85,6 +86,7 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
   const calls: string[] = [];
   const heard: string[] = [];
   const scopes: AnnounceScope[] = [];
+  let worldSettings: WorldSettings = { pvp: false };
 
   const live: LiveOps = {
     online: () => players,
@@ -122,6 +124,13 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     repopIn: (zone) => (zone === 600 ? 90_000 : undefined),
     occupantsOf: () => ({ players: ['Ravi'], mobs: ['a sentry'], corpses: [] }),
     publishRoom: (room, _place, regrid) => void calls.push(`publishRoom ${room.id} regrid=${regrid}`),
+    // Held in the rig rather than written to disk: what these tests check is that the router reads,
+    // validates and announces, not that a JSON file round-trips.
+    settings: () => worldSettings,
+    setSettings: (next) => {
+      worldSettings = next;
+      calls.push(`setSettings pvp=${next.pvp}`);
+    },
   };
 
   const deps: AdminDeps = {
@@ -451,6 +460,44 @@ describe('the verbs', () => {
     const response = api.route(req('POST', '/announce', { text: 'hello', room: 6001, place: '600:0' }));
     assert.equal(response.status, 400);
     assert.match((response.body as { error: string }).error, /not both/);
+  });
+
+  it('reports the world switches, off by default', () => {
+    const { api } = makeRig();
+    assert.deepEqual(api.route(req('GET', '/settings')).body, { settings: { pvp: false } });
+  });
+
+  it('throws the PvP switch and tells the whole world it happened', () => {
+    // Announcing is the requirement, not a courtesy: this switch decides whether the person next to
+    // you can kill you, and finding out by dying is not acceptable.
+    const { api, players, heard, scopes } = makeRig();
+    players.push(fakePlayer('Ravi'));
+
+    const response = quietly(() => api.route(req('PATCH', '/settings', { pvp: true })));
+    assert.equal(response.status, 200);
+    assert.deepEqual((response.body as { settings: unknown }).settings, { pvp: true });
+    assert.equal((response.body as { changed: boolean }).changed, true);
+    assert.equal(heard.length, 1);
+    assert.match(heard[0]!, /now ON/);
+    assert.deepEqual(scopes, [{ kind: 'world' }], 'a rule change is never scoped');
+  });
+
+  it('says nothing when the switch is already where you set it', () => {
+    // Re-saving a panel that is already correct must not spam a world that is already correct.
+    const { api, heard } = makeRig();
+    const response = quietly(() => api.route(req('PATCH', '/settings', { pvp: false })));
+    assert.equal((response.body as { changed: boolean }).changed, false);
+    assert.deepEqual(heard, []);
+  });
+
+  it('refuses anything that is not a boolean rather than guessing', () => {
+    // The safe reading of a malformed dangerous flag is to refuse it. `"true"` and `1` both look like
+    // consent and neither is.
+    const { api, calls } = makeRig();
+    for (const pvp of ['true', 1, null, undefined]) {
+      assert.equal(api.route(req('PATCH', '/settings', { pvp })).status, 400);
+    }
+    assert.deepEqual(calls.filter((c) => c.startsWith('setSettings')), []);
   });
 
   it('leaves an audit line for every mutation', () => {

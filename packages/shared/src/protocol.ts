@@ -15,7 +15,24 @@ import type { Posture, Status } from './position.ts';
 import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
 
 /**
- * Bumped to 11: you can point at what you mean.
+ * Bumped to 12: things you can pick up.
+ *
+ * One new client message — **`get`** — and no change to any server message at all, which is the
+ * interesting part. An object lying on the floor reaches a client as the `EntityView` it always
+ * would: `kind: 'item'`, a sprite, a position. Phase 13's corpse had already proved that shape, so
+ * the renderer needed no new concept and neither did the wire.
+ *
+ * `get` is its own message rather than a case of `loot` because the two name **different stores**. A
+ * corpse id and a ground id come from separate spaces (see `corpses.ts` and `ground.ts`), and one
+ * message would have to guess which a given id belonged to — a guess that is wrong exactly when two
+ * things are lying near each other, which is precisely after a fight.
+ *
+ * **`SelfView` deliberately did not gain the bag.** The inventory is read through the `inventory`
+ * command, which prints it; a field on every `self` message that no client rendered would be a
+ * payload nothing consumes, and this codebase has been bitten by tested-and-never-called mechanisms
+ * before. It goes on the wire when there is a panel to draw it — 15c.
+ *
+ * Was 11: you can point at what you mean.
  *
  * `loot` joins `look` and `attack` as an intent that may name an **entity id** rather than a keyword,
  * which is what a click on a body sends. The three are one idea: *this* one, not whichever one the
@@ -72,7 +89,7 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * Was 6: doors have live state — the `door` message, and `open`/`close` losing their required `dir`.
  * Was 5: carried light sources — `SelfView` gained `light`.
  */
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 
 /**
  * One timed effect on your own character, as the HUD reads it.
@@ -294,6 +311,15 @@ export type ClientMessage =
    * the typed `loot` resolves to; naming one is what a click on a particular body sends.
    */
   | { readonly t: 'loot'; readonly target?: EntityId }
+  /**
+   * Pick something up off the floor. Omitting `target` means the nearest thing within reach, which is
+   * what a bare typed `get` resolves to; naming one is what a click on a particular object sends.
+   *
+   * Separate from `loot` rather than folded into it, because they name different stores — a corpse and
+   * the ground are two id spaces — and a single message would have to guess which one an id belonged
+   * to. Two messages, two lookups, no ambiguity.
+   */
+  | { readonly t: 'get'; readonly target?: EntityId }
   | { readonly t: 'say'; readonly text: string }
   /**
    * A line the player typed, verbatim and unparsed.

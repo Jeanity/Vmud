@@ -9,7 +9,18 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { boundsOf, makeRng, noPursuit, passiveRule, readCombatStats, type MobTemplate, type Room, type Zone } from '@mygame/shared';
+import {
+  boundsOf,
+  emptyInventory,
+  makeRng,
+  noPursuit,
+  passiveRule,
+  readCombatStats,
+  type Item,
+  type MobTemplate,
+  type Room,
+  type Zone,
+} from '@mygame/shared';
 
 import {
   nearestLootable,
@@ -30,6 +41,11 @@ import {
 } from './corpses.ts';
 import { Simulation } from './sim.ts';
 import { GameWorld } from './world.ts';
+
+/** Something a corpse can hold. The slot is irrelevant here; only the bulk is. */
+function thing(id: string, size: number): Item {
+  return { id, name: id, slot: 'chest', ac: 0, size };
+}
 
 function graveZone(): Zone {
   const rooms: Room[] = [
@@ -102,31 +118,73 @@ describe('what a death leaves', () => {
 });
 
 describe('the looted sprite', () => {
-  it('is a pile of bones until somebody goes through it, then a single bone', () => {
+  it('is a pile of bones while it holds something, then a single bone', () => {
     // The owner's rule: a picked-clean corpse must look picked clean, so "has anyone been here" is
     // answerable from across the room.
     const f = fixture();
     assert.ok(f.mob);
-    const corpse = makeCorpse(f.yard, f.mob, false);
+    const corpse = makeCorpse(f.yard, f.mob, false, [thing('rope', 2)]);
     assert.equal(corpseSprite(corpse), 'corpse');
-    assert.equal(lootCorpse(corpse), true);
+    lootCorpse(corpse, emptyInventory());
     assert.equal(corpseSprite(corpse), 'corpse_looted');
   });
 
-  it('reports nothing changed on a second search', () => {
+  it('is a single bone from the moment it falls when it held nothing', () => {
+    // Phase 15b: emptiness is the flag, so a mob that drops nothing says so without being walked over
+    // to. Before this, every corpse looked worth searching until somebody had searched it.
     const f = fixture();
     assert.ok(f.mob);
-    const corpse = makeCorpse(f.yard, f.mob, false);
-    lootCorpse(corpse);
-    assert.equal(lootCorpse(corpse), false, 'so the caller can say "already picked clean"');
+    assert.equal(corpseSprite(makeCorpse(f.yard, f.mob, false)), 'corpse_looted');
+  });
+
+  it('stays a pile while one thing is still in it', () => {
+    // The case the flag used to get wrong: a bag that could take two of three leaves the third behind,
+    // and drawing that body as picked clean hides it.
+    const f = fixture();
+    assert.ok(f.mob);
+    const corpse = makeCorpse(f.yard, f.mob, false, [thing('anvil', 19), thing('pin', 1)]);
+    const result = lootCorpse(corpse, { items: [thing('ballast', 19)], capacity: 20 });
+    assert.deepEqual(result.taken.map((i) => i.id), ['pin']);
+    assert.deepEqual(result.left.map((i) => i.id), ['anvil']);
+    assert.equal(corpseSprite(corpse), 'corpse', 'still worth searching');
   });
 
   it('carries the new sprite on the view', () => {
     const f = fixture();
     assert.ok(f.mob);
-    const corpse = makeCorpse(f.yard, f.mob, false);
-    lootCorpse(corpse);
+    const corpse = makeCorpse(f.yard, f.mob, false, [thing('rope', 2)]);
+    lootCorpse(corpse, emptyInventory());
     assert.equal(corpseViewOf(corpse).sprite, 'corpse_looted');
+  });
+});
+
+describe('emptying a body', () => {
+  it('moves what fits into the bag and leaves the rest in the corpse', () => {
+    const f = fixture();
+    assert.ok(f.mob);
+    const corpse = makeCorpse(f.yard, f.mob, false, [thing('tunic', 3), thing('dagger', 1)]);
+    const result = lootCorpse(corpse, emptyInventory());
+    assert.deepEqual(result.inventory.items.map((i) => i.id), ['tunic', 'dagger']);
+    assert.equal(corpse.contents.length, 0);
+  });
+
+  it('takes a smaller thing sitting behind one that would not fit', () => {
+    // Each item is asked separately, so what you get does not depend on the order somebody died
+    // holding things.
+    const f = fixture();
+    assert.ok(f.mob);
+    const corpse = makeCorpse(f.yard, f.mob, false, [thing('breastplate', 10), thing('ring', 1)]);
+    const result = lootCorpse(corpse, { items: [thing('ballast', 15)], capacity: 20 });
+    assert.deepEqual(result.taken.map((i) => i.id), ['ring']);
+  });
+
+  it('leaves the caller\'s bag untouched — it returns a new one', () => {
+    const f = fixture();
+    assert.ok(f.mob);
+    const bag = emptyInventory();
+    const corpse = makeCorpse(f.yard, f.mob, false, [thing('rope', 2)]);
+    lootCorpse(corpse, bag);
+    assert.equal(bag.items.length, 0);
   });
 });
 
@@ -137,14 +195,32 @@ describe('who may loot what', () => {
     assert.equal(lootRefusal(makeCorpse(f.yard, f.mob, false), f.player), undefined);
   });
 
-  it('keeps a player\'s corpse theirs', () => {
-    // The least surprising rule, and it makes retrieval a race against decay rather than against other
-    // players. Full player looting is a PvP decision that belongs with consent in Phase 21.
+  it('keeps a player\'s corpse theirs while PvP is off', () => {
+    // Owner's rule (2026-08-03): *"we should not be able to loot other players' corpses as this is not
+    // a pkill game."* Off is the default, so this is what the argument-less call answers.
     const f = fixture();
     const corpse = makeCorpse(f.yard, f.player, true);
     const other = f.sim.spawn('Stranger', makeRng(1));
     assert.equal(lootRefusal(corpse, other), 'someone-elses');
     assert.equal(lootRefusal(corpse, f.player), undefined, 'but their own is fine');
+  });
+
+  it('opens player corpses to everyone once PvP is switched on', () => {
+    // The pkill-evening case: the operator throws the switch and the same body becomes fair game,
+    // without any state on the corpse itself changing — so a corpse that fell before the switch is
+    // governed by the switch as it stands now, which is the only rule anybody could reason about.
+    const f = fixture();
+    const corpse = makeCorpse(f.yard, f.player, true);
+    const other = f.sim.spawn('Stranger', makeRng(1));
+    assert.equal(lootRefusal(corpse, other, true), undefined);
+  });
+
+  it('never let the switch reach a mob\'s corpse either way', () => {
+    const f = fixture();
+    assert.ok(f.mob);
+    const corpse = makeCorpse(f.yard, f.mob, false);
+    assert.equal(lootRefusal(corpse, f.player, false), undefined);
+    assert.equal(lootRefusal(corpse, f.player, true), undefined);
   });
 
   it('refuses one in another room', () => {
@@ -237,7 +313,8 @@ describe('which body a loot means', () => {
     const corpses = scatter();
     const first = nearestLootable(corpses, 0, 0);
     assert.ok(first);
-    lootCorpse(first);
+    first.contents = [thing('rope', 2)];
+    lootCorpse(first, emptyInventory());
     assert.equal(nearestLootable(corpses, 0, 0)?.id, -901, 'the far unlooted one, not the near empty one');
   });
 

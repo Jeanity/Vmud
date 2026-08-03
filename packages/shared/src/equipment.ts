@@ -59,6 +59,14 @@ export interface Item {
   readonly ac: number;
   /** What it hits for, on a weapon. Absent on everything worn rather than wielded. */
   readonly damage?: Dice;
+  /**
+   * Slots this costs in a bag. Phase 15b, and `DESIGN-inventory.md` §2 is the spec.
+   *
+   * **A bulk model wearing a slot model's clothes**, deliberately: a breastplate costing ten of your
+   * twenty makes armour a real logistical decision without asking anybody to add up pounds. Worn and
+   * wielded gear costs nothing — §6 — so this is only ever charged against what is in the bag.
+   */
+  readonly size: number;
 }
 
 /** A character's worn gear. Absent slots are empty — most of them, for a starting character. */
@@ -77,6 +85,8 @@ interface StarterEntry {
   readonly acMin: number;
   readonly acMax: number;
   readonly damage?: Dice;
+  /** Slots in a bag. Light kit, so 1–3 of a starting 20 — see `DESIGN-inventory.md` §2. */
+  readonly size: number;
 }
 
 /**
@@ -100,31 +110,31 @@ interface StarterEntry {
  */
 const STARTER_KIT: Readonly<Partial<Record<EquipSlot, readonly StarterEntry[]>>> = {
   mainHand: [
-    { id: 'dagger', name: 'a notched iron dagger', acMin: 0, acMax: 1, damage: { count: 2, sides: 4, bonus: 0 } },
-    { id: 'shortsword', name: 'a short sword with a worn grip', acMin: 0, acMax: 0, damage: { count: 2, sides: 5, bonus: 0 } },
-    { id: 'club', name: 'a knotted wooden club', acMin: 0, acMax: 0, damage: { count: 2, sides: 6, bonus: 0 } },
-    { id: 'handaxe', name: 'a chipped hand axe', acMin: 0, acMax: 0, damage: { count: 2, sides: 4, bonus: 2 } },
+    { id: 'dagger', name: 'a notched iron dagger', acMin: 0, acMax: 1, size: 1, damage: { count: 2, sides: 4, bonus: 0 } },
+    { id: 'shortsword', name: 'a short sword with a worn grip', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 5, bonus: 0 } },
+    { id: 'club', name: 'a knotted wooden club', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 6, bonus: 0 } },
+    { id: 'handaxe', name: 'a chipped hand axe', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 2 } },
   ],
   chest: [
-    { id: 'leather_tunic', name: 'a leather tunic', acMin: 1, acMax: 3 },
-    { id: 'padded_jerkin', name: 'a padded jerkin', acMin: 1, acMax: 3 },
-    { id: 'quilted_vest', name: 'a quilted vest, much mended', acMin: 1, acMax: 2 },
+    { id: 'leather_tunic', name: 'a leather tunic', acMin: 1, acMax: 3, size: 3 },
+    { id: 'padded_jerkin', name: 'a padded jerkin', acMin: 1, acMax: 3, size: 3 },
+    { id: 'quilted_vest', name: 'a quilted vest, much mended', acMin: 1, acMax: 2, size: 2 },
   ],
   legs: [
-    { id: 'leather_leggings', name: 'a pair of leather leggings', acMin: 0, acMax: 2 },
-    { id: 'rough_breeches', name: 'rough woollen breeches', acMin: 0, acMax: 1 },
+    { id: 'leather_leggings', name: 'a pair of leather leggings', acMin: 0, acMax: 2, size: 2 },
+    { id: 'rough_breeches', name: 'rough woollen breeches', acMin: 0, acMax: 1, size: 2 },
   ],
   feet: [
-    { id: 'worn_shoes', name: 'a pair of worn-out leather shoes', acMin: 0, acMax: 1 },
-    { id: 'travel_boots', name: 'scuffed travelling boots', acMin: 0, acMax: 2 },
+    { id: 'worn_shoes', name: 'a pair of worn-out leather shoes', acMin: 0, acMax: 1, size: 1 },
+    { id: 'travel_boots', name: 'scuffed travelling boots', acMin: 0, acMax: 2, size: 2 },
   ],
   head: [
-    { id: 'leather_cap', name: 'a plain leather cap', acMin: 0, acMax: 1 },
-    { id: 'cloth_hood', name: 'a patched cloth hood', acMin: 0, acMax: 1 },
+    { id: 'leather_cap', name: 'a plain leather cap', acMin: 0, acMax: 1, size: 1 },
+    { id: 'cloth_hood', name: 'a patched cloth hood', acMin: 0, acMax: 1, size: 1 },
   ],
   hands: [
-    { id: 'hand_wraps', name: 'a set of frayed hand wraps', acMin: 0, acMax: 1 },
-    { id: 'work_gloves', name: 'a pair of stiff work gloves', acMin: 0, acMax: 1 },
+    { id: 'hand_wraps', name: 'a set of frayed hand wraps', acMin: 0, acMax: 1, size: 1 },
+    { id: 'work_gloves', name: 'a pair of stiff work gloves', acMin: 0, acMax: 1, size: 1 },
   ],
 };
 
@@ -154,6 +164,7 @@ export function rollStarterKit(rng: Rng): Equipped {
       name: pick.name,
       slot,
       ac: between(rng, pick.acMin, pick.acMax),
+      size: pick.size,
       ...(pick.damage ? { damage: pick.damage } : {}),
     };
   }
@@ -194,25 +205,44 @@ export function weaponFrom(equipped: Equipped, fallback: Dice): Dice {
   return equipped.mainHand?.damage ?? fallback;
 }
 
+const SLOT_SET = new Set<string>(EQUIP_SLOTS);
+
+/**
+ * Rebuilds one item from whatever was on disk, or `undefined` if it is not a well-formed one.
+ *
+ * `slot` is supplied by {@link readEquipped}, which knows it from the key it is reading; a **carried**
+ * item has no such key, so it carries its own `slot` field and this validates it against
+ * {@link EQUIP_SLOTS}. That check is not ceremony — these files are hand-editable, and an item whose
+ * slot is `"belt"` would sit in a bag being un-wearable for reasons nothing could explain.
+ */
+export function readItem(raw: unknown, slot?: EquipSlot): Item | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const item = raw as Record<string, unknown>;
+  if (typeof item.id !== 'string' || typeof item.name !== 'string' || typeof item.ac !== 'number') return undefined;
+  const where = slot ?? (typeof item.slot === 'string' && SLOT_SET.has(item.slot) ? (item.slot as EquipSlot) : undefined);
+  if (!where) return undefined;
+  const damage = item.damage as Dice | undefined;
+  return {
+    id: item.id,
+    name: item.name,
+    slot: where,
+    ac: item.ac,
+    // Absent on a kit written before Phase 15b gave items a bulk. One slot is the right guess for
+    // a starter garment and keeps a pre-15b character's bag arithmetic from going NaN.
+    size: typeof item.size === 'number' && item.size > 0 ? item.size : 1,
+    ...(damage && typeof damage.count === 'number' && typeof damage.sides === 'number'
+      ? { damage: { count: damage.count, sides: damage.sides, bonus: damage.bonus ?? 0 } }
+      : {}),
+  };
+}
+
 /** Rebuilds a kit from whatever was on disk, dropping anything that is not a well-formed item. */
 export function readEquipped(raw: unknown): Equipped {
   if (typeof raw !== 'object' || raw === null) return {};
   const out: Equipped = {};
   for (const slot of EQUIP_SLOTS) {
-    const value = (raw as Record<string, unknown>)[slot];
-    if (typeof value !== 'object' || value === null) continue;
-    const item = value as Record<string, unknown>;
-    if (typeof item.id !== 'string' || typeof item.name !== 'string' || typeof item.ac !== 'number') continue;
-    const damage = item.damage as Dice | undefined;
-    out[slot] = {
-      id: item.id,
-      name: item.name,
-      slot,
-      ac: item.ac,
-      ...(damage && typeof damage.count === 'number' && typeof damage.sides === 'number'
-        ? { damage: { count: damage.count, sides: damage.sides, bonus: damage.bonus ?? 0 } }
-        : {}),
-    };
+    const item = readItem((raw as Record<string, unknown>)[slot], slot);
+    if (item) out[slot] = item;
   }
   return out;
 }

@@ -1411,10 +1411,17 @@ export class WorldScene extends Phaser.Scene {
    * The server resolves the id through the same visible-set gate a typed word passes, so this is a
    * more precise way to ask and not a more powerful one.
    *
-   * The rows are what exists today. `Loot` is offered on a corpse — recognised by its sprite, because
-   * there is no item *type* on the wire until Phase 15 brings one — and `Attack` on anything with a
-   * body that is not already dead. Later mechanics add rows here: `bash` with Phase 19's skills is
-   * already recorded against that phase.
+   * The rows are what exists today. Three cases, all keyed off the **sprite** rather than a type on
+   * the wire, because `kind: 'item'` covers both a body and a dropped object and the server keeps them
+   * in two different stores:
+   *
+   * - a corpse (`corpse`, `corpse_looted`) offers `Loot`, which searches it;
+   * - anything else drawn as an item offers `Get`, which picks it up;
+   * - anything with a body offers `Attack`.
+   *
+   * The split matters because the two verbs send different messages — `loot` resolves against the
+   * graveyard and `get` against the ground store — and an id belongs to exactly one of them. Later
+   * mechanics add rows here: `bash` with Phase 19's skills is already recorded against that phase.
    */
   private openTargetMenu(pointer: Phaser.Input.Pointer, entity: Entity): void {
     const view = entity.view;
@@ -1424,7 +1431,9 @@ export class WorldScene extends Phaser.Scene {
     const corpse = view.kind === 'item' && view.sprite.startsWith('corpse');
     if (corpse) {
       verbs.push({ label: 'Loot', run: () => this.net.send({ t: 'loot', target: view.id }) });
-    } else if (view.kind !== 'item') {
+    } else if (view.kind === 'item') {
+      verbs.push({ label: 'Get', run: () => this.net.send({ t: 'get', target: view.id }) });
+    } else {
       verbs.push({
         label: 'Attack',
         danger: true,
@@ -3080,6 +3089,13 @@ export class WorldScene extends Phaser.Scene {
     // across a room without walking over to look, which is what makes a corridor of corpses tell a story.
     this.drawCorpseTexture(`${ITEM_TEXTURE_PREFIX}corpse`, false);
     this.drawCorpseTexture(`${ITEM_TEXTURE_PREFIX}corpse_looted`, true);
+
+    // Dropped objects, Phase 15b. Two shapes rather than one per item, keyed by slot on the server:
+    // a weapon reads as a weapon at a glance and everything else as a bundle. Generated like the rest
+    // because the LPC pack has no ground-object art at this size, and `itemTexture` resolves by key
+    // with a fallback, so real art replaces these without touching anything else.
+    this.drawItemTexture(`${ITEM_TEXTURE_PREFIX}item_weapon`, 0xc8cbd0, 0x8a8f96);
+    this.drawItemTexture(`${ITEM_TEXTURE_PREFIX}item_bundle`, 0xb08a5c, 0x7d6240);
   }
 
   /**

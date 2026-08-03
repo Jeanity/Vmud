@@ -76,6 +76,20 @@ export const COMMANDS = [
   // expect — and `loo` is the shortest thing that reaches this. Placing it above `look` would silently
   // rebind the most-used command in the game.
   'loot',
+  // Phase 15b. All five appended, and every one of them lands on the abbreviation a Diku player
+  // already has in their fingers — which is worth checking rather than assuming, because it falls out
+  // of what is *above* them here:
+  //   `g`   → get        (nothing above starts with g)
+  //   `d`   → down, `dr` → drop      (down is above, and `d` is down in every Diku)
+  //   `w`   → west, `wea` → wear     (west and who are above)
+  //   `r`   → rest, `rem` → remove   (rest is above)
+  //   `i`   → inventory  (nothing above starts with i)
+  // Moving any of these above the commands they sit under would rebind a movement key.
+  'get',
+  'drop',
+  'wear',
+  'remove',
+  'inventory',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -180,9 +194,34 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // Interface rather than action, so it sits at the floor with `help` and `who`. Reading what is
   // wrong with you is exactly what you want to be able to do while it is killing you.
   affects: { status: 'dead', posture: 'prone' },
-  // Rifling a corpse needs hands and a fight you are not in the middle of. `CMD_N` by analogy with the
-  // source's `get`, which is refused in combat for the obvious reason.
-  loot: { status: 'resting', posture: 'sitting', inCombat: false },
+  // `loot` is `get` applied to a body — the source has no separate command for it, you type
+  // `get all from corpse` — so it takes `get`'s row exactly: `CMD_Y(CMD_GET, STAT_RESTING +
+  // POS_SITTING, ...)`. **Allowed in combat**, which corrects what this row said in Phase 14: the
+  // comment claimed the source refused `get` mid-fight, and `CMD_Y` means the opposite. Snatching
+  // something off the floor while swinging is a real MUD tactic and the source permits it.
+  loot: { status: 'resting', posture: 'sitting' },
+
+  // Phase 15b, transcribed from `interp.c` rather than chosen — and the pattern is worth reading,
+  // because four of the five are `CMD_Y` and the odd one out is the interesting one:
+  //
+  //   CMD_Y(CMD_GET,       STAT_RESTING + POS_SITTING)
+  //   CMD_Y(CMD_DROP,      STAT_RESTING + POS_PRONE)
+  //   CMD_N(CMD_WEAR,      STAT_RESTING + POS_SITTING)   ← the only refusal
+  //   CMD_Y(CMD_REMOVE,    STAT_RESTING + POS_SITTING)
+  //   CMD_Y(CMD_INVENTORY, STAT_RESTING + POS_PRONE)
+  //
+  // **You may take armour off mid-fight but not put it on.** That is not an inconsistency: shedding a
+  // thing is one motion and donning it is several, and the asymmetry is what stops a fight being
+  // paused to re-kit. Followed rather than argued with.
+  get: { status: 'resting', posture: 'sitting' },
+  // Prone, and allowed in combat: dropping what you are carrying is the classic thing a cornered
+  // character does, and refusing it from the floor would take that away exactly when it matters.
+  drop: { status: 'resting', posture: 'prone' },
+  wear: { status: 'resting', posture: 'sitting', inCombat: false },
+  remove: { status: 'resting', posture: 'sitting' },
+  // Interface rather than action, and prone like `affects`: reading what you are carrying while it is
+  // killing you is precisely when you want to.
+  inventory: { status: 'resting', posture: 'prone' },
 };
 
 /* -------------------------------------------------------------------------- */

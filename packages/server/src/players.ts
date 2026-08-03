@@ -29,7 +29,11 @@ import { fileURLToPath } from 'node:url';
 import {
   AffectFlag,
   APPLY_LOCATIONS,
+  STARTING_CAPACITY,
+  emptyInventory,
   readEquipped,
+  readInventory,
+  readItem,
   UNLIMITED_DURATION,
   affectKind,
   hasFlag,
@@ -38,6 +42,7 @@ import {
   type Affect,
   type AffectType,
   type Equipped,
+  type Inventory,
   type ApplyLocation,
   type Place,
   type RoomId,
@@ -135,6 +140,14 @@ export interface PlayerRecord {
    * answer, since there is nothing to put back.
    */
   equipped: Equipped | undefined;
+  /**
+   * What this character is carrying. Phase 15b.
+   *
+   * Persisted for a blunter reason than the kit's: **a bag that empties on logout is worse than no
+   * bag**, because a player would learn not to carry anything. Absent on a record from before the
+   * phase, which restores as an empty bag — the only honest answer, since nothing was carried.
+   */
+  inventory: Inventory | undefined;
 }
 
 /**
@@ -169,6 +182,8 @@ interface StoredRecord {
   maxHp?: number;
   /** Worn kit. Absent before Phase 14b. */
   equipped?: unknown;
+  /** Carried items and bag capacity. Absent before Phase 15b. */
+  inventory?: unknown;
   /** Base64 bitset per {@link placeKey}. */
   seen?: Record<string, string>;
   /** Ground pickup keys this character has collected. Absent in any save written before v5. */
@@ -306,6 +321,7 @@ export class PlayerStore {
       missing: undefined,
       progress: undefined,
       equipped: undefined,
+      inventory: undefined,
     };
     if (slug) {
       try {
@@ -319,6 +335,7 @@ export class PlayerStore {
           missing: decodeMissing(stored.missing),
           progress: decodeProgress(stored.level, stored.experience, stored.maxHp),
         equipped: readEquipped(stored.equipped),
+        inventory: stored.inventory === undefined ? undefined : readInventory(stored.inventory, readItem),
         };
         // A save written by the previous version has room ids and no bitsets. Refusing to load it
         // would lock a character out of their own account over a data format; this converts what it
@@ -455,6 +472,20 @@ export class PlayerStore {
   }
 
   /**
+   * Records what a character is carrying. See {@link PlayerRecord.inventory}.
+   *
+   * Round-tripped through `readInventory` rather than stored by reference, for the reason
+   * {@link setEquipped} does it: the record must not alias live simulation state, or a later mutation
+   * of the bag would edit what is about to be written without ever marking it dirty.
+   */
+  setInventory(record: PlayerRecord, inventory: Inventory): void {
+    const next = JSON.stringify(inventory);
+    if (JSON.stringify(record.inventory ?? emptyInventory()) === next) return;
+    record.inventory = readInventory(JSON.parse(next), readItem);
+    this.touch(record);
+  }
+
+  /**
    * Records how far below full each pool is.
    *
    * Takes current and max and stores the *difference*, so the caller cannot accidentally persist the
@@ -585,6 +616,13 @@ export class PlayerStore {
       // Absent on a character wearing nothing, which no live character is — but a hand-edited save
       // might be, and an empty object on disk says less than no key at all.
       ...(record.equipped && Object.keys(record.equipped).length > 0 ? { equipped: record.equipped } : {}),
+      // Written whenever the bag is non-default, which includes an *empty* bag with a raised capacity —
+      // that is a fact about the character even though it holds nothing. A character who has never
+      // picked anything up writes no key at all.
+      ...(record.inventory &&
+      (record.inventory.items.length > 0 || record.inventory.capacity !== STARTING_CAPACITY)
+        ? { inventory: record.inventory }
+        : {}),
       savedAt: new Date().toISOString(),
     };
     try {
@@ -664,6 +702,7 @@ export class PlayerStore {
         missing: decodeMissing(stored.missing),
         progress: decodeProgress(stored.level, stored.experience, stored.maxHp),
         equipped: readEquipped(stored.equipped),
+        inventory: stored.inventory === undefined ? undefined : readInventory(stored.inventory, readItem),
       };
       out.push({
         slug,

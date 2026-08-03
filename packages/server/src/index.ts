@@ -51,6 +51,13 @@ import {
 
   weaponFrom,
   STARTING_HIT_POINTS,
+  carry,
+  emptyInventory,
+  matchInventory,
+  removeAt,
+  slotsFree,
+  slotsUsed,
+  type Item,
   meets,
   summariseAffects,
   parseDirection,
@@ -139,6 +146,16 @@ import {
   type Corpse,
   type Graveyard,
 } from './corpses.ts';
+import {
+  dropItem,
+  groundViewOf,
+  itemsIn,
+  nearestMatching,
+  takeItem,
+  withinPickupReach,
+  type Ground,
+} from './ground.ts';
+import { loadSettings, saveSettings, type WorldSettings } from './settings.ts';
 import { attemptFlee, type FleeOutcome } from './flee.ts';
 import { markPursuers, pursuitTarget } from './pursue.ts';
 import {
@@ -332,6 +349,25 @@ const ledger: LedgerBook = new Map();
 const graveyard: Graveyard = new Map();
 
 /**
+ * Everything *else* lying on the floor: dropped, spilled from a corpse, or put down. See `ground.ts`.
+ *
+ * **Not persisted, and that is a known limit rather than an oversight.** A restart clears the floor,
+ * so a character's own gear is safe (it is in their file) and only what somebody chose to put down is
+ * lost. Persisting it needs a world-state file that also has to survive `npm run worldgen` rebuilding
+ * the rooms underneath it — a real design question, and 15c's, not something to answer by accident
+ * here. The `inventory` command is where a player's things actually live.
+ */
+const ground: Ground = new Map();
+
+/**
+ * The operator's switches, read once at boot. See `settings.ts`.
+ *
+ * `let` rather than `const` because the panel throws them at run time; the write goes to disk in the
+ * same breath, so a restart cannot silently revert one.
+ */
+let settings: WorldSettings = loadSettings();
+
+/**
  * The stream every die roll in a fight comes from.
  *
  * Seeded and separate from the spawn stream, so a fight is reproducible from its seed and so combat
@@ -519,6 +555,13 @@ function visibleEntities(observer: Player): EntityView[] {
   // so a corpse is fed the same question a standing mob is.
   for (const corpse of corpsesIn(graveyard, observer.roomId)) {
     if (observer.visible.has(tileIndexAt(grid, corpse.x, corpse.y))) out.push(corpseViewOf(corpse));
+  }
+
+  // Dropped things, through the same gate for the same reason. A dagger on the floor of an unlit room
+  // is not visible because you happen to know somebody dropped one — and this is what makes a dark
+  // room a real place to lose something in.
+  for (const entry of itemsIn(ground, observer.roomId)) {
+    if (observer.visible.has(tileIndexAt(grid, entry.x, entry.y))) out.push(groundViewOf(entry));
   }
   return out;
 }
@@ -752,6 +795,9 @@ function rememberProgress(player: Player): void {
   if (!record) return;
   store.setProgress(record, player.level, player.experience, player.maxHp);
   store.setEquipped(record, player.equipped);
+  // The bag too, since 15b. Same fact of the same kind: what a character has is theirs, and losing it
+  // to a disconnect would teach players not to carry anything.
+  store.setInventory(record, player.inventory);
 }
 
 /**
@@ -774,6 +820,9 @@ function restoreProgress(player: Player, record: PlayerRecord): void {
   // reroll. `combat` is rebuilt from it below rather than stored, because armour class is a
   // derivation and storing derivations is how the two drift.
   if (record.equipped && Object.keys(record.equipped).length > 0) player.equipped = record.equipped;
+  // And the bag. Restored unconditionally when present, *including an empty one*, because an empty bag
+  // with a raised capacity is still a fact about the character — see `PlayerStore.save`.
+  if (record.inventory) player.inventory = record.inventory;
 
   const progress = record.progress;
   if (progress) {
@@ -788,13 +837,7 @@ function restoreProgress(player: Player, record: PlayerRecord): void {
     player.hp = player.maxHp;
   }
 
-  const base = playerCombatStats(player.level);
-  player.combat = {
-    ...base,
-    armourClass: base.armourClass + armourClassFrom(player.equipped),
-    damage: weaponFrom(player.equipped, base.damage),
-  };
-  player.roundMs = base.roundMs;
+  refitCombat(player);
 }
 
 /**
@@ -840,13 +883,7 @@ function levelUpIfEarned(player: Player): void {
 
   // Attack bonus and round length move with the level; armour and weapon come from the kit, which
   // levelling does not change. One rebuild, so nothing can read a stale half.
-  const base = playerCombatStats(player.level);
-  player.combat = {
-    ...base,
-    armourClass: base.armourClass + armourClassFrom(player.equipped),
-    damage: weaponFrom(player.equipped, player.combat.damage),
-  };
-  player.roundMs = base.roundMs;
+  refitCombat(player);
   sim.refreshStatus(player);
 
   send(player.id, {
@@ -1223,9 +1260,20 @@ function announceAttack(outcome: AttackOutcome): void {
  * 3. **The respawn is a full arrival**, the same one a teleport runs: fog, room, entities. Restoring
  *    hit points without it would leave a live character standing in a room the client thinks is empty.
  *
- * `DESIGN-progression.md` §6. Equipment stays on the body rather than in the corpse, and that is a
- * scope line rather than a mercy: Phase 15 is what makes a dropped thing recoverable, and a corpse you
- * cannot loot is a character permanently disarmed.
+ * `DESIGN-progression.md` §6.
+ *
+ * ## What death costs, now that a corpse can hold things
+ *
+ * **Your bag goes into the corpse. What you are wearing stays on you.** 14b deferred this with *"a
+ * corpse you cannot loot is a character permanently disarmed"*; 15b makes the corpse lootable, so the
+ * question is live and this is the middle it lands on.
+ *
+ * Taking everything is the conventional MUD answer and it is the wrong one here — the owner's stated
+ * horror is *"there is nothing worse than playing a game of months and losing everything due to one
+ * mistake"*, and a naked corpse run through the zone that just killed you is exactly that mistake
+ * compounding. Taking *nothing* makes death a teleport with an experience bill. The split costs you
+ * the thing you chose to be carrying, leaves you able to fight your way back to it, and makes the
+ * thirty-minute player-corpse clock in `corpses.ts` a deadline that means something.
  */
 function reapPlayer(player: Player): void {
   const diedIn = player.roomId;
@@ -1237,20 +1285,18 @@ function reapPlayer(player: Player): void {
   }
 
   // Before the body moves. A player's corpse decays on its own longer clock — see `corpses.ts`.
-  const corpse = makeCorpse(graveyard, player, true);
+  // The bag goes with it and the bag is emptied here, so the two halves cannot both hold the same
+  // dagger — a duplication bug that would be invisible until somebody noticed the world getting richer.
+  const carried = player.inventory.items;
+  const corpse = makeCorpse(graveyard, player, true, carried);
+  player.inventory = emptyInventory(player.inventory.capacity);
 
   const cost = applyDeathCost({ level: player.level, experience: player.experience, maxHp: player.maxHp });
   player.level = cost.level;
   player.experience = cost.experience;
   // Levelling down leaves the profile stale — attack bonus and round length are read off the level.
   // Armour and weapon come from the kit, which dying does not touch.
-  const base = playerCombatStats(player.level);
-  player.combat = {
-    ...base,
-    armourClass: base.armourClass + armourClassFrom(player.equipped),
-    damage: weaponFrom(player.equipped, base.damage),
-  };
-  player.roundMs = base.roundMs;
+  refitCombat(player);
 
   // Whole again, and standing. `setStance` rather than assignment: both axes are on the wire, and a
   // character revived into a posture the client does not know about cannot be moved.
@@ -1293,6 +1339,20 @@ function reapPlayer(player: Player): void {
           (cost.levelsLost > 0 ? ` and ${cost.levelsLost} level${cost.levelsLost === 1 ? '' : 's'}` : '') +
           `. Your corpse lies where you fell — ${corpse.of}'s remains, in ${describeRoomName(diedIn)}.`,
   });
+  // **Said only when there was something to lose**, and said plainly, because it is the half of the
+  // cost a player can still do something about. The clock is named for the same reason: thirty minutes
+  // is a deadline, and a deadline you are not told is just a thing that happened.
+  if (carried.length > 0) {
+    send(player.id, {
+      t: 'log',
+      channel: 'system',
+      text:
+        `&+YYou were carrying ${carried.length} thing${carried.length === 1 ? '' : 's'}, and ${
+          carried.length === 1 ? 'it is' : 'they are'
+        } in your corpse.&N ` +
+        `Your gear is still on you. The body lasts about thirty minutes.`,
+    });
+  }
   persistAdminEdit(player);
 }
 
@@ -2497,6 +2557,11 @@ function runCommand(player: Player, line: string): void {
       return;
 
     case 'loot': return lootByKeyword(player, rest);
+    case 'get': return getFromGround(player, rest);
+    case 'drop': return dropFromBag(player, rest);
+    case 'wear': return wearFromBag(player, rest);
+    case 'remove': return removeWorn(player, rest);
+    case 'inventory': return listInventory(player);
     case 'kill': {
       // Resolves the target and then refuses, rather than refusing first — "you see no orc here" is
       // the more useful of the two answers, and it keeps target resolution exercised.
@@ -2527,6 +2592,18 @@ function startFight(player: Player, id: EntityId): void {
   if (!target) return;
   if (target.id === player.id) {
     send(player.id, { t: 'log', channel: 'error', text: 'You cannot attack yourself.' });
+    return;
+  }
+  // **The PvP gate, and it closes a hole rather than adding a rule.** Nothing refused this before: the
+  // check above was the only one, so any player could open a fight on any other and the game shipped
+  // as a pkill game by omission. Owner's rule (2026-08-03) — off by default, thrown from the panel for
+  // the evenings it should be on. See `settings.ts`.
+  if (!settings.pvp && isPlayer(target)) {
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text: `You cannot attack ${target.name}. Player killing is switched off.`,
+    });
     return;
   }
   if (player.fighting === target.id) {
@@ -2598,13 +2675,16 @@ function lootByKeyword(player: Player, rest: string): void {
  * was not, and this is the one place that knows which refusals exist.
  */
 function searchCorpse(player: Player, corpse: Corpse): void {
-  const refusal = lootRefusal(corpse, player);
+  const refusal = lootRefusal(corpse, player, settings.pvp);
   if (refusal) {
     send(player.id, {
       t: 'log',
       channel: 'error',
       text: refusal === 'someone-elses'
-        ? 'That is not yours to take.'
+        ? // Names the rule rather than only the refusal. "That is not yours" alone reads like a bug
+          // to somebody standing over a body they can plainly see, and the switch is an operator
+          // decision a player is entitled to know the state of.
+          'That is not yours to take — player corpses are protected while PvP is off.'
         : refusal === 'not-here'
           ? `You are not close enough to ${corpseName(corpse)}. Step over to it.`
           : 'That is not here.',
@@ -2614,27 +2694,329 @@ function searchCorpse(player: Player, corpse: Corpse): void {
   // You kneel to the body you are going through, not the one you were last looking at.
   faceToward(player, corpse.x, corpse.y);
 
-  if (!lootCorpse(corpse)) {
+  if (corpse.contents.length === 0) {
     send(player.id, {
       t: 'log',
       channel: 'system',
-      text: `${capitalise(corpseName(corpse))} has already been picked clean.`,
+      text: corpse.looted
+        ? `${capitalise(corpseName(corpse))} has already been picked clean.`
+        : `You search ${corpseName(corpse)} and find nothing worth taking.`,
     });
+    // A body that held nothing is marked emptied all the same, so the sprite tells the truth to the
+    // next person along and nobody walks over to check twice.
+    if (!corpse.looted) {
+      corpse.looted = true;
+      syncCorpseView(corpse);
+    }
     return;
   }
-  // **Nothing comes out yet**, and saying so is better than silence: items are Phase 15, so a corpse
-  // has nothing in it to transfer. What the loot *does* do is change how it looks — a picked-clean
-  // corpse is drawn as a single bone rather than a pile.
-  send(player.id, {
-    t: 'log',
-    channel: 'system',
-    text: `You search ${corpseName(corpse)} and find nothing worth taking. (Items arrive in Phase 15.)`,
-  });
+
+  const result = lootCorpse(corpse, player.inventory);
+  player.inventory = result.inventory;
+
+  for (const item of result.taken) {
+    send(player.id, { t: 'log', channel: 'system', text: `You get ${item.name} from ${corpseName(corpse)}.` });
+  }
+  if (result.left.length > 0) {
+    // **Named, not counted.** "3 items would not fit" leaves a player guessing which; naming them is
+    // what lets somebody decide what to drop to make room.
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text:
+        `You cannot carry ${result.left.map((item) => item.name).join(', ')} — ` +
+        `${slotsFree(player.inventory)} slot${slotsFree(player.inventory) === 1 ? '' : 's'} free.`,
+    });
+  }
   actToRoom(player, 'room', (who) => `${who} searches ${corpseName(corpse)}.`);
-  // The sprite changes with the flag, so everyone watching is re-sent the view.
+  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+  rememberProgress(player);
+  syncCorpseView(corpse);
+}
+
+/** Re-sends a corpse to everyone watching it — its sprite changes with whether it still holds anything. */
+function syncCorpseView(corpse: Corpse): void {
   for (const observer of sim.playersIn(corpse.roomId)) {
     if (!watching.get(observer.id)?.has(corpse.id)) continue;
     send(observer.id, { t: 'entityUpdate', entity: corpseViewOf(corpse) });
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Carrying things — Phase 15b                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Rebuilds the fighting profile from the level and the worn kit.
+ *
+ * **One function because there are now six callers** — creation, login, levelling, dying, wearing and
+ * removing — and every one of them has to do the identical three lines. They had drifted once already:
+ * `levelUpIfEarned` passed `player.combat.damage` as the fallback where the others pass `base.damage`,
+ * which is the same value only while nothing has ever changed weapons. Since 15b something can.
+ */
+function refitCombat(player: Player): void {
+  const base = playerCombatStats(player.level);
+  player.combat = {
+    ...base,
+    armourClass: base.armourClass + armourClassFrom(player.equipped),
+    damage: weaponFrom(player.equipped, base.damage),
+  };
+  player.roundMs = base.roundMs;
+}
+
+/**
+ * Everything that has to happen after a character's kit or bag changes.
+ *
+ * Four things, and leaving any one out is a bug somebody has to reproduce: the fighting profile is
+ * derived from the kit, the HUD reads the character sheet, **other players see what you are wearing**
+ * (15a put `wearing` on the entity view), and the record has to learn about it before the next crash.
+ */
+function afterKitChange(player: Player): void {
+  refitCombat(player);
+  sim.refreshStatus(player);
+  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+  syncEntityState(player);
+  rememberProgress(player);
+}
+
+/**
+ * `get` and `get <keyword>`: pick something up off the floor.
+ *
+ * Resolution is `ground.ts`'s rule — nearest match within reach — and it is deliberately the same
+ * shape `loot` uses, because they are the same act against two different containers. The two refusals
+ * are kept apart for the reason `loot`'s are: *"there is nothing here"* while a dagger is plainly
+ * visible across the room reads as the game being broken rather than as a reason to take three steps.
+ */
+function getFromGround(player: Player, rest: string): void {
+  const inRoom = itemsIn(ground, player.roomId);
+  const here = inRoom.filter((entry) => withinPickupReach(entry, player.x, player.y));
+  if (here.length === 0) {
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text: inRoom.length > 0
+        ? `You are not close enough to ${inRoom[0]!.item.name}. Step over to it.`
+        : 'There is nothing here to pick up.',
+    });
+    return;
+  }
+  const found = nearestMatching(here, rest, player.x, player.y);
+  if (!found) {
+    send(player.id, { t: 'log', channel: 'error', text: `You see no ${rest} here.` });
+    return;
+  }
+  pickUp(player, found.id);
+}
+
+/**
+ * Taking one particular thing off the floor — the act, shared by the typed word and the click.
+ *
+ * Takes an **id** and re-reads the store, rather than taking the entry the caller resolved. That is
+ * not defensiveness: two players can reach for the same dagger in the same tick, and the one whose
+ * message arrives second must be told it has gone rather than be handed a second copy of it.
+ */
+function pickUp(player: Player, id: EntityId): void {
+  const entry = ground.get(id);
+  if (!entry || entry.roomId !== player.roomId) {
+    send(player.id, { t: 'log', channel: 'error', text: 'It is not there any more.' });
+    return;
+  }
+  if (!withinPickupReach(entry, player.x, player.y)) {
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text: `You are not close enough to ${entry.item.name}. Step over to it.`,
+    });
+    return;
+  }
+  const result = carry(player.inventory, entry.item);
+  if (!('items' in result)) {
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text:
+        `${capitalise(entry.item.name)} needs ${result.needed} slot${result.needed === 1 ? '' : 's'} ` +
+        `and you have ${result.free}.`,
+    });
+    return;
+  }
+  // **Removed only once the bag has accepted it.** The other order loses the item entirely to a full
+  // bag, and an item that leaves the world is the one inventory bug you cannot apologise your way out
+  // of.
+  takeItem(ground, entry.id);
+  player.inventory = result;
+
+  faceToward(player, entry.x, entry.y);
+  send(player.id, { t: 'log', channel: 'system', text: `You pick up ${entry.item.name}.` });
+  actToRoom(player, 'room', (who) => `${who} picks up ${entry.item.name}.`);
+  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+  rememberProgress(player);
+  // It has left the floor, so everyone who could see it is told — including the taker, whose client
+  // would otherwise keep drawing a dagger they are now carrying.
+  for (const observer of sim.playersIn(entry.roomId)) {
+    if (!watching.get(observer.id)?.has(entry.id)) continue;
+    send(observer.id, { t: 'entityLeave', id: entry.id });
+    watching.get(observer.id)?.delete(entry.id);
+  }
+}
+
+/** `drop <keyword>`: put something down where you stand. */
+function dropFromBag(player: Player, rest: string): void {
+  if (!rest.trim()) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Drop what?' });
+    return;
+  }
+  const index = matchInventory(player.inventory, rest);
+  if (index === -1) {
+    send(player.id, { t: 'log', channel: 'error', text: `You are not carrying ${rest}.` });
+    return;
+  }
+  const removed = removeAt(player.inventory, index);
+  if (!removed) return;
+  player.inventory = removed.inventory;
+  // At the character's feet, not the room's centre — the same rule a corpse follows, and what makes
+  // *where* you dropped something a fact worth remembering.
+  const entry = dropItem(ground, removed.item, {
+    roomId: player.roomId,
+    place: player.place,
+    x: player.x,
+    y: player.y,
+  });
+
+  send(player.id, { t: 'log', channel: 'system', text: `You drop ${removed.item.name}.` });
+  actToRoom(player, 'room', (who) => `${who} drops ${removed.item.name}.`);
+  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+  rememberProgress(player);
+  // Now on the floor, so whoever can see that tile is told about it.
+  syncEntitiesIn(entry.roomId);
+}
+
+/**
+ * `wear <keyword>`: put something on, swapping out whatever was in that slot.
+ *
+ * **Anything with a slot may be worn, weapons included.** Duris splits `wield` from `wear` and refuses
+ * each the other's items; we have one verb, because the split earns its keep only when a character has
+ * enough gear for the distinction to save typing, and refusing `wear dagger` today would be a rule with
+ * no benefit attached. `wield` as an alias is 15c's, with the two-handed weapons that make it mean
+ * something.
+ *
+ * The swap is what makes this safe: what comes off goes into the bag, so a character cannot end a
+ * `wear` with less than they started. If the bag has no room for the old piece the whole thing is
+ * refused, which is the only outcome that does not silently drop something on the floor.
+ */
+function wearFromBag(player: Player, rest: string): void {
+  if (!rest.trim()) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Wear what?' });
+    return;
+  }
+  const index = matchInventory(player.inventory, rest);
+  if (index === -1) {
+    send(player.id, { t: 'log', channel: 'error', text: `You are not carrying ${rest}.` });
+    return;
+  }
+  const item = player.inventory.items[index]!;
+  const displaced = player.equipped[item.slot];
+
+  const removed = removeAt(player.inventory, index);
+  if (!removed) return;
+  let bag = removed.inventory;
+
+  if (displaced) {
+    const stowed = carry(bag, displaced);
+    if (!('items' in stowed)) {
+      send(player.id, {
+        t: 'log',
+        channel: 'error',
+        text: `You would have nowhere to put ${displaced.name}. Make room first.`,
+      });
+      return;
+    }
+    bag = stowed;
+  }
+
+  player.inventory = bag;
+  player.equipped = { ...player.equipped, [item.slot]: item };
+
+  send(player.id, { t: 'log', channel: 'system', text: `You wear ${item.name}.` });
+  if (displaced) {
+    send(player.id, { t: 'log', channel: 'system', text: `You stop using ${displaced.name}.` });
+  }
+  actToRoom(player, 'room', (who) => `${who} wears ${item.name}.`);
+  afterKitChange(player);
+}
+
+/** `remove <keyword>`: take something off and put it in the bag. Refused if it will not fit. */
+function removeWorn(player: Player, rest: string): void {
+  const wanted = rest.trim().toLowerCase();
+  if (!wanted) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Remove what?' });
+    return;
+  }
+  const found = Object.values(player.equipped).find(
+    (item): item is Item =>
+      item !== undefined &&
+      (item.id === wanted || item.name.toLowerCase().split(/[^a-z0-9]+/).includes(wanted)),
+  );
+  if (!found) {
+    send(player.id, { t: 'log', channel: 'error', text: `You are not wearing ${rest}.` });
+    return;
+  }
+  const stowed = carry(player.inventory, found);
+  if (!('items' in stowed)) {
+    // Refused rather than dropped on the floor. A character who typed `remove` and found their armour
+    // lying in a corridor would be right to call that a bug.
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text: `You have nowhere to put ${found.name} — ${stowed.free} slot${stowed.free === 1 ? '' : 's'} free.`,
+    });
+    return;
+  }
+  player.inventory = stowed;
+  const next = { ...player.equipped };
+  delete next[found.slot];
+  player.equipped = next;
+
+  send(player.id, { t: 'log', channel: 'system', text: `You stop using ${found.name}.` });
+  actToRoom(player, 'room', (who) => `${who} removes ${found.name}.`);
+  afterKitChange(player);
+}
+
+/**
+ * `inventory`: what you are carrying, and what you are wearing.
+ *
+ * Both lists, because they are one question a player asks. Diku prints them from two commands
+ * (`inventory` and `equipment`) and every player types both in sequence; there is no reason to make
+ * them.
+ */
+function listInventory(player: Player): void {
+  const used = slotsUsed(player.inventory);
+  send(player.id, {
+    t: 'log',
+    channel: 'system',
+    text: `&+cYou are carrying&N (${used} of ${player.inventory.capacity} slots):`,
+  });
+  if (player.inventory.items.length === 0) {
+    send(player.id, { t: 'log', channel: 'system', text: '  nothing' });
+  }
+  for (const item of player.inventory.items) {
+    send(player.id, {
+      t: 'log',
+      channel: 'system',
+      text: `  ${item.name} (${item.size} slot${item.size === 1 ? '' : 's'})`,
+    });
+  }
+
+  send(player.id, { t: 'log', channel: 'system', text: '&+cYou are wearing:&N' });
+  const worn = Object.entries(player.equipped).filter(([, item]) => item !== undefined);
+  if (worn.length === 0) {
+    send(player.id, { t: 'log', channel: 'system', text: '  nothing' });
+  }
+  for (const [slot, item] of worn) {
+    // The armour value is shown here and nowhere else, which is the rule `wornIds` states: your own
+    // sheet may appraise your gear, a stranger's entity view may not.
+    const bonus = item!.ac > 0 ? ` &+g[+${item!.ac} AC]&N` : '';
+    send(player.id, { t: 'log', channel: 'system', text: `  <${slot}> ${item!.name}${bonus}` });
   }
 }
 
@@ -2701,6 +3083,18 @@ function handle(player: Player, message: ClientMessage): void {
         break;
       }
       searchCorpse(player, corpse);
+      break;
+    }
+
+    case 'get': {
+      if (!permits(player, 'get')) break;
+      if (message.target === undefined) {
+        getFromGround(player, '');
+        break;
+      }
+      // Straight to `pickUp`, which re-reads the store and applies the reach test itself — a click has
+      // not been filtered to what is in reach the way a keyword has.
+      pickUp(player, message.target);
       break;
     }
 
@@ -2875,6 +3269,18 @@ const adminLive: LiveOps = {
     // Ungated on sight, deliberately, and this is the one place in the project where that is right:
     // an operator is looking at the world from outside it, not standing in the room with a torch.
     return { players, mobs, corpses: corpsesIn(graveyard, room).map((corpse) => corpseName(corpse)) };
+  },
+
+  settings() {
+    return settings;
+  },
+
+  setSettings(next) {
+    settings = next;
+    // Written in the same breath it is applied, so the two cannot get out of step. See `settings.ts`
+    // for why a switch that reverts on restart is the failure mode worth designing against.
+    saveSettings(settings);
+    console.log(`[settings] pvp=${settings.pvp}`);
   },
 };
 
@@ -3204,6 +3610,21 @@ setInterval(() => {
   // in — so it is a walk over a handful of entries rather than a scan of anything.
   for (const event of advanceCorpses(graveyard, TICK_MS)) {
     if (event.kind === 'gone') {
+      // **The corpse spills before it goes.** The roadmap's own rule: a body that took its contents
+      // with it would destroy a reward because a player was slow rather than because of anything they
+      // did, and *"I came back and it was gone"* is a worse feeling than *"somebody else got there
+      // first"*. Each thing lands where the corpse lay, so the pile is still findable.
+      const spilled = event.corpse.contents;
+      for (const item of spilled) {
+        dropItem(ground, item, {
+          roomId: event.corpse.roomId,
+          place: event.corpse.place,
+          x: event.corpse.x,
+          y: event.corpse.y,
+        });
+      }
+      event.corpse.contents = [];
+
       // Whoever could see it has to be told, or it sits on their screen for ever.
       for (const observer of sim.playersIn(event.corpse.roomId)) {
         if (!watching.get(observer.id)?.has(event.corpse.id)) continue;
@@ -3212,9 +3633,14 @@ setInterval(() => {
         send(observer.id, {
           t: 'log',
           channel: 'room',
-          text: `${capitalise(corpseName(event.corpse))} crumbles to dust.`,
+          text:
+            `${capitalise(corpseName(event.corpse))} crumbles to dust` +
+            (spilled.length > 0 ? ', and what it held spills onto the ground.' : '.'),
         });
       }
+      // After the `entityLeave`s, so the spilled items arrive as new entities rather than being
+      // swept up by the same diff that removes the corpse.
+      if (spilled.length > 0) syncEntitiesIn(event.corpse.roomId);
       continue;
     }
     for (const observer of sim.playersIn(event.corpse.roomId)) {

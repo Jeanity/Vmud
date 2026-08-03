@@ -19,7 +19,16 @@
  * no new case.
  */
 
-import { TILE_SIZE, type EntityId, type EntityView, type Place, type RoomId } from '@mygame/shared';
+import {
+  TILE_SIZE,
+  carry,
+  type EntityId,
+  type EntityView,
+  type Inventory,
+  type Item,
+  type Place,
+  type RoomId,
+} from '@mygame/shared';
 
 import type { Actor } from './sim.ts';
 
@@ -56,11 +65,21 @@ export interface Corpse {
   readonly x: number;
   readonly y: number;
   /**
-   * Whether anything has taken from it.
+   * What is in it. Phase 15b, and the thing Phase 13 built the corpse to eventually hold.
+   *
+   * Mutable, because looting takes from it a piece at a time and a full bag leaves the rest behind.
+   */
+  contents: Item[];
+  /**
+   * Whether it has been emptied.
    *
    * **Drives the sprite**, which is the point: a picked-clean corpse is drawn as a single bone rather
    * than a pile, so "has anyone been here" is answerable from across the room without walking over and
    * looking. That is the owner's rule and it is a good one — it makes a corridor of corpses readable.
+   *
+   * Since 15b this means *empty* rather than *searched*. The difference shows up exactly where it
+   * matters: a body holding three things that you could only carry two of stays drawn as a pile, so the
+   * one thing still in it is not hidden behind a sprite that says "nothing here".
    */
   looted: boolean;
   /** Milliseconds left before it goes. */
@@ -94,8 +113,12 @@ export function resetCorpseIds(): void {
  * Takes the position off the body rather than the room's centre, so a corpse lies where it fell. That is
  * worth the two lines: a fight that ranged across a room leaves its dead spread across it, and walking
  * back to a specific corpse is a Phase 13 mechanic rather than a formality.
+ *
+ * `contents` is what the dead were carrying. A body with nothing in it is `looted` from the moment it
+ * falls, so a mob that drops nothing is drawn as a picked-clean corpse immediately — which is true, and
+ * saves a player the walk over to find out.
  */
-export function makeCorpse(yard: Graveyard, actor: Actor, wasPlayer: boolean): Corpse {
+export function makeCorpse(yard: Graveyard, actor: Actor, wasPlayer: boolean, contents: readonly Item[] = []): Corpse {
   const corpse: Corpse = {
     id: nextCorpseId--,
     of: actor.name,
@@ -104,7 +127,8 @@ export function makeCorpse(yard: Graveyard, actor: Actor, wasPlayer: boolean): C
     place: actor.place,
     x: actor.x,
     y: actor.y,
-    looted: false,
+    contents: [...contents],
+    looted: contents.length === 0,
     remainingMs: wasPlayer ? PLAYER_CORPSE_DECAY_MS : CORPSE_DECAY_MS,
     warned: false,
   };
@@ -156,30 +180,64 @@ export type LootRefusal = 'gone' | 'not-here' | 'someone-elses';
 /**
  * Whether this character may take from this corpse.
  *
- * **A player's corpse is theirs**, which is the least surprising rule and the one that makes corpse
- * retrieval a race against decay rather than against other players. Full player looting is a PvP
- * decision that belongs with consent (Phase 21), and defaulting to "anyone may" would quietly settle it.
+ * **A player's corpse is theirs unless PvP is switched on** — owner's rule (2026-08-03): *"we should
+ * not be able to loot other players' corpses as this is not a pkill game"*, with an operator switch
+ * for the evenings when it is. See `settings.ts` for why the switch is a file.
+ *
+ * The flag is passed in rather than read here, because this file is pure and the switch is I/O. That
+ * also means the refusal and the attack gate cannot drift apart: both take the same boolean from the
+ * one place that loads it.
  */
-export function lootRefusal(corpse: Corpse | undefined, looter: Actor): LootRefusal | undefined {
+export function lootRefusal(corpse: Corpse | undefined, looter: Actor, pvp = false): LootRefusal | undefined {
   if (!corpse) return 'gone';
   if (corpse.roomId !== looter.roomId) return 'not-here';
-  if (corpse.wasPlayer && corpse.of !== looter.name) return 'someone-elses';
+  if (!pvp && corpse.wasPlayer && corpse.of !== looter.name) return 'someone-elses';
   return undefined;
 }
 
+/** What a search of a body actually moved. */
+export interface LootResult {
+  /** What went into the bag, in the order it came out. */
+  readonly taken: readonly Item[];
+  /** What would not fit and is still lying in the corpse. */
+  readonly left: readonly Item[];
+  readonly inventory: Inventory;
+}
+
 /**
- * Empties a corpse, and says whether that changed anything.
+ * Empties a corpse into a bag, as far as the bag allows. **Mutates the corpse**; returns the new bag.
  *
- * Returns `false` for a corpse already picked over, so the caller can say *"there is nothing left"*
- * rather than re-announcing a loot that took nothing. **Contents are Phase 15's** — there is nothing in
- * the world to be carried yet — so today this flips the flag and changes the sprite, which is the whole
- * of what can honestly happen. When items arrive the transfer goes here and the flag stays exactly as it
- * is.
+ * Phase 15b, replacing the flag-flip Phase 13 shipped when there was nothing in the world to transfer.
+ *
+ * ## It takes what fits and leaves the rest, rather than refusing
+ *
+ * The alternative — refuse the whole search because one thing would not fit — is the behaviour that
+ * makes a player empty their bag on the floor to loot a body and then discover they cannot pick their
+ * own kit back up. Duris' `get all` is per-item for the same reason. Each item is offered to the bag in
+ * turn and the ones that do not fit stay where they are, so a corpse is a place you can come back to.
+ *
+ * **A larger item can be skipped and a smaller one behind it still taken**, because each is asked
+ * separately. That is not an accident of the loop: stopping at the first refusal would make what you
+ * got depend on the order somebody died holding things.
  */
-export function lootCorpse(corpse: Corpse): boolean {
-  if (corpse.looted) return false;
-  corpse.looted = true;
-  return true;
+export function lootCorpse(corpse: Corpse, bag: Inventory): LootResult {
+  const taken: Item[] = [];
+  const left: Item[] = [];
+  let inventory = bag;
+  for (const item of corpse.contents) {
+    const result = carry(inventory, item);
+    if ('items' in result) {
+      inventory = result;
+      taken.push(item);
+    } else {
+      left.push(item);
+    }
+  }
+  corpse.contents = left;
+  // Emptiness is the flag, so a body still holding the one thing you could not carry stays drawn as a
+  // pile. See {@link Corpse.looted}.
+  corpse.looted = left.length === 0;
+  return { taken, left, inventory };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -197,6 +255,12 @@ export interface CorpseEvent {
  * The warning is a latch on the corpse rather than a comparison the caller repeats, the same shape the
  * carried light's warning uses — a countdown that announces itself every tick is a nag, and one that
  * announces itself never is a corpse that vanishes without explanation while you are walking back to it.
+ *
+ * **A `gone` event still carries its `contents`**, and the caller must spill them onto the floor. The
+ * roadmap is explicit about why: a corpse that took its loot with it destroys a reward because a player
+ * was slow rather than because anything they did, and *"I came back and it was gone"* is a different and
+ * worse feeling from *"somebody else got there first"*. The spill is not done here because this file has
+ * no ground store and should not grow one — see `ground.ts`.
  */
 export function advanceCorpses(yard: Graveyard, elapsedMs: number): CorpseEvent[] {
   const events: CorpseEvent[] = [];

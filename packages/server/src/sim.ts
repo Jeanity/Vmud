@@ -60,7 +60,9 @@ import {
   rollStarterKit,
   weaponFrom,
   STARTING_HIT_POINTS,
+  emptyInventory,
   type Equipped,
+  type Inventory,
   normaliseIntent,
   parseDice,
   rollDice,
@@ -412,10 +414,17 @@ export interface Player extends Actor {
    * function does. `combat.armourClass` and `combat.damage` are folded from it at creation and at
    * login, so nothing in the fight loop has to know equipment exists.
    *
-   * Acquiring, dropping and swapping any of it is Phase 15. Today the only kit is the one you
-   * started with.
+   * Acquiring, dropping and swapping any of it arrived in Phase 15b; the roll is still where a
+   * character's first kit comes from.
    */
   equipped: Equipped;
+  /**
+   * What this character is carrying but not wearing. Phase 15b — `inventory.ts` is the maths.
+   *
+   * Separate from `equipped` because **worn gear costs no capacity** (`DESIGN-inventory.md` §6): what
+   * you have on is not luggage. A character in thirty slots of plate carries an empty bag.
+   */
+  inventory: Inventory;
 }
 
 /**
@@ -678,6 +687,9 @@ export class Simulation {
       wasFighting: undefined,
       pursuing: undefined,
       equipped,
+      // Empty, and it stays that way until they pick something up. A starting bag with something in
+      // it would be a second kit nobody rolled.
+      inventory: emptyInventory(),
       combat: {
         ...base,
         armourClass: base.armourClass + armourClassFrom(equipped),

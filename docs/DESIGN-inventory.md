@@ -147,6 +147,54 @@ That implies the distinction the rest of this document assumes: an **item type**
 — name, size, stack limit, uses) versus an **item instance** (this particular sword, with its own
 remaining uses and eventual enchantments).
 
+**As built (15b):** `PlayerRecord.inventory` and `.equipped` persist; gold does not exist yet. The
+type/instance split is **not** built — an `Item` today is a flat record copied wherever it goes, which
+is honest while nothing has per-instance state to lose. It becomes wrong the moment 15c's charges land,
+and that is the seam to cut.
+
+**The floor does not persist.** `server/src/ground.ts` is in memory, so a restart clears every dropped
+object. A character's own things are safe — they are in their save file — and only what somebody chose
+to put down is lost. Persisting it is not a matter of writing another JSON file: the ground is keyed by
+room and position, and `npm run worldgen` can rebuild the rooms underneath it, so a saved floor needs an
+answer for objects whose room moved, changed terrain, or stopped existing. Same class of problem
+`data/world/overrides/` solves for prose, and it wants the same kind of deliberate answer.
+
+---
+
+## 8b. What death does to your bag
+
+**Added 15b**, because 14b deferred it and 15b is what made the question answerable: a corpse can now
+hold things and be looted, so *"equipment stays on the body"* stopped being a scope line and became a
+choice.
+
+**Your inventory goes into the corpse. Your worn equipment stays on you.**
+
+The two clean answers are both worse. *Everything drops* is the conventional MUD rule, and it collides
+head-on with the owner's stated constraint — *"there is nothing worse than playing a game of months and
+losing everything due to one mistake"* — because a naked corpse run back through the zone that just
+killed you is that one mistake compounding into several. *Nothing drops* makes death a teleport with an
+experience bill attached, and then the thirty-minute player-corpse clock in `corpses.ts` is decoration.
+
+The split costs you exactly what you chose to be carrying, leaves you able to fight your way back to
+it, and makes that clock a deadline. It also gives the bag a real risk profile without giving it a
+catastrophic one, which is what makes *what to carry* a decision rather than a formality.
+
+## 8c. Whose corpse you may open
+
+**A player's corpse is theirs, unless an operator has switched player killing on.** Owner's rule
+(2026-08-03): *"we should not be able to loot other players' corpses as this is not a pkill game… but
+having it so I can turn it off or on would be a nice feature."*
+
+One flag covers **both** attacking another player and looting their corpse, deliberately: they are the
+same question asked at two moments, and a world where you may kill someone but not take what they
+dropped is a rule nobody can hold in their head. It lives in `server/src/settings.ts` as a file rather
+than a constant, because the point is that it is thrown for an evening and thrown back — and a switch
+that silently reverts on restart is one that gets somebody killed by a rule nobody meant to be in force.
+
+Note what this **replaced**: nothing refused player-versus-player combat at all before it. `startFight`
+checked only that you were not attacking yourself, so the game shipped as a PvP game by omission. Off
+is therefore a correction rather than a preference.
+
 ---
 
 ## 9. Future work: an admin suite

@@ -48,6 +48,7 @@ import { LIGHT_SOURCES, lightSource, type LightSource } from '@mygame/shared/lig
 import { draftDescription, listModels, ollamaReachable } from './ollama.ts';
 import { saveRoomOverrides } from './overrides.ts';
 import { seenTileCount, slugify, type PlayerStore, type StoredSummary } from './players.ts';
+import type { WorldSettings } from './settings.ts';
 import type { Player } from './sim.ts';
 import type { GameWorld } from './world.ts';
 
@@ -119,6 +120,18 @@ export interface LiveOps {
     readonly mobs: readonly string[];
     readonly corpses: readonly string[];
   };
+
+  /** The operator switches as they currently stand. See `settings.ts`. */
+  settings(): WorldSettings;
+
+  /**
+   * Throws a switch: applies it live and writes it to disk in the same breath.
+   *
+   * One call rather than a set-then-save pair, because the two must not be separable — a switch
+   * applied and not saved reverts silently on the next restart, which is the failure mode that gets
+   * somebody killed by a rule nobody meant to be in force.
+   */
+  setSettings(next: WorldSettings): void;
 }
 
 /** Who an operator's line is aimed at. See {@link AdminDeps.announce}. */
@@ -277,6 +290,10 @@ export class AdminApi {
     }
     if (head === 'announce' && parts.length === 1 && request.method === 'POST') {
       return this.announce(request.body);
+    }
+    if (head === 'settings' && parts.length === 1) {
+      if (request.method === 'GET') return { status: 200, body: { settings: this.deps.live.settings() } };
+      if (request.method === 'PATCH') return this.patchSettings(request.body);
     }
     if (head === 'players' && parts.length === 1 && request.method === 'GET') return this.roster();
     if (head === 'players' && slug !== undefined && parts.length === 2) {
@@ -1216,6 +1233,36 @@ export class AdminApi {
     const heard = this.deps.announce(text, scope);
     this.audit('announce', { text, scope: scope.kind, where, heard });
     return { status: 200, body: { ok: true, heard, where } };
+  }
+
+  /**
+   * Throws an operator switch. Today that is PvP and nothing else.
+   *
+   * **The change is announced to the world**, and that is a rule rather than a courtesy: this switch
+   * decides whether the person next to you can kill you, and finding out by dying is not acceptable.
+   * The announcement goes out only when the value actually *changes*, so re-saving the panel does not
+   * spam a world that is already correct.
+   */
+  private patchSettings(body: unknown): AdminResponse {
+    const raw = (body ?? {}) as { pvp?: unknown };
+    if (typeof raw.pvp !== 'boolean') {
+      return { status: 400, body: { error: 'body must be {"pvp": true} or {"pvp": false}' } };
+    }
+    const before = this.deps.live.settings();
+    if (before.pvp === raw.pvp) {
+      return { status: 200, body: { ok: true, settings: before, changed: false } };
+    }
+
+    const next: WorldSettings = { ...before, pvp: raw.pvp };
+    this.deps.live.setSettings(next);
+    const heard = this.deps.announce(
+      next.pvp
+        ? 'Player killing is now ON. Other players can attack you and loot your corpse.'
+        : 'Player killing is now OFF. Players can no longer attack each other.',
+      { kind: 'world' },
+    );
+    this.audit('settings', { pvp: next.pvp, heard });
+    return { status: 200, body: { ok: true, settings: next, changed: true, heard } };
   }
 
   /* ------------------------------------------------------------------------ */

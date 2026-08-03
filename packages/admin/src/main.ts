@@ -11,6 +11,7 @@ import { el, render } from './dom.ts';
 import { dashboardSection } from './sections/dashboard.ts';
 import { messagingSection } from './sections/messaging.ts';
 import { playersSection } from './sections/players.ts';
+import { worldSection } from './sections/world.ts';
 import { zonesSection } from './sections/zones.ts';
 import { stubSection } from './sections/stubs.ts';
 
@@ -28,14 +29,16 @@ const SECTIONS: Section[] = [
   dashboardSection,
   playersSection,
   messagingSection,
+  worldSection,
   zonesSection,
   stubSection('mobs', 'Mobs', 'A4', [
     'Live: instances by zone, slay, spawn from a harvested template.',
     'Authoring: template overrides (name, level, combat numbers, aggression) as overlay files over data/world/spawns/.',
   ]),
-  stubSection('items', 'Items', 'Phase 15', [
-    'There is no item system yet — items, inventory and equipment are Phase 15.',
-    'The light catalogue is the one item-shaped thing in the game today, and it is code rather than data; the dashboard lists it read-only.',
+  stubSection('items', 'Items', 'Phase 15c', [
+    'Items exist since 15b — a character has a bag, things can be dropped, picked up, worn and taken off, and a corpse holds what its owner was carrying.',
+    'What is missing is anything to author: every item in the world today comes from the rolled starter kit in shared/src/equipment.ts, which is code rather than data. An editor needs item data first, and that arrives with 15c’s harvest.',
+    'The light catalogue is the other item-shaped thing in the game, and it is code too; the dashboard lists it read-only.',
   ]),
   stubSection('quests', 'Quests', 'Phase 17', [
     'Nothing exists to edit — quests are Phase 17. This tab exists so the panel’s shape is the plan’s shape.',

@@ -48,13 +48,13 @@ describe('what the kit is worth', () => {
   it('adds armour class the SRD way — higher is harder to hit', () => {
     // Duris' own scale runs the other way (Malice wears -122), which is what `armourToAc` converts.
     // Authored gear needs no conversion, and routing it through one is a sign error waiting to happen.
-    assert.equal(armourClassFrom({ chest: { id: 'a', name: 'a', slot: 'chest', ac: 3 } }), 3);
+    assert.equal(armourClassFrom({ chest: { id: 'a', name: 'a', slot: 'chest', ac: 3, size: 1 } }), 3);
     assert.equal(armourClassFrom({}), 0);
   });
 
   it('swings the main hand, and falls back rather than leaving a character unable to fight', () => {
     const axe = { count: 1, sides: 5, bonus: 1 };
-    assert.deepEqual(weaponFrom({ mainHand: { id: 'a', name: 'a', slot: 'mainHand', ac: 0, damage: axe } }, DEFAULT_WEAPON), axe);
+    assert.deepEqual(weaponFrom({ mainHand: { id: 'a', name: 'a', slot: 'mainHand', ac: 0, size: 1, damage: axe } }, DEFAULT_WEAPON), axe);
     assert.deepEqual(weaponFrom({}, DEFAULT_WEAPON), DEFAULT_WEAPON);
   });
 });

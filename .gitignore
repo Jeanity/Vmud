@@ -12,8 +12,13 @@ data/world/*
 # hand-authored content — and a git-ignored directory is exactly where that gets lost to a fresh
 # clone. See `server/src/overrides.ts`.
 !data/world/overrides/
+# **But not the operator switches.** `settings.json` sits in the overrides directory because nothing
+# regenerates it either, but it is *deployment state* rather than content: whether player killing is on
+# is a decision one operator made on one server for one evening, and committing it would push that
+# decision to every clone. The default is in `settings.ts` and a missing file reads as it.
+data/world/overrides/settings.json
 
-# Per-character save data (explored maps, and eventually inventories).
+# Per-character save data (explored maps, inventories, worn kit).
 data/players/
 
 # The admin API's audit trail. Runtime history, not content.

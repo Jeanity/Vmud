@@ -92,9 +92,10 @@ follows.
 | **Dashboard** | with players slice | `/health` grown up: uptime, zones and places loaded, populated zones, players online, tick and round lengths, protocol version |
 | **Players** | **built first** | §6 below |
 | **Messaging** | **built (A2)** | global announcement, line to a place, line to a room, line to a player. One endpoint with an optional target rather than three, because the validation, the audit line and the "how many heard it" answer are identical and only the set of listeners differs. The player-targeted half lives in the player editor, where you can already see who you are talking to |
+| **World rules** | **built (15b)** | §9 below — the switches that change how the world behaves for everyone. One today: player killing |
 | **Zones** | **built (A3), read-only** | read first: zone list, room browser with flags/sector/prose, door states, repop clocks. Live ops second: force a repop, work a door. Authoring last, as §1 overlays: room prose, flags, sector |
 | **Mobs** | with zones | live: instances by zone, slay, spawn from template. Authoring: template overrides (name, level, combat numbers, aggro) as §1 overlays over the harvested spawn files |
-| **Items** | stub until Phase 15 | there is no item system. The light catalogue (`shared/src/light.ts`) is the one item-shaped thing in the game and is code, not data; the tab lists it read-only and says why |
+| **Items** | stub until Phase 15c | Phase 15b gave the game bags, ground objects and worn gear — but **no item data**. Every item is the rolled starter kit in `shared/src/equipment.ts`, which is code rather than data, so there is still nothing here to edit. 15c's harvest from Duris' `.obj` files is what unblocks it |
 | **Quests** | stub until Phase 17 | nothing exists to edit. The tab names the phase |
 
 **The `announce` channel was taken, and it was a protocol bump (10).** A1 shipped announcements on
@@ -222,3 +223,61 @@ turn on `by`, the model name already recorded in the overlay when a draft is sav
 **The panel is deliberately not filtered.** An author must be able to read their own zone back;
 `AdminApi.promptNeighbours` filters what the *model* sees and nothing else. A test pins that
 distinction, because "helpfully" widening the fix would hide an author's work from them.
+
+---
+
+## 9. World rules — switches that change the game for everyone
+
+Added with Phase 15b, on the owner's rule (2026-08-03): *"I am not a fan of pkill at all but I
+understand some people are, so having it so I can turn it off or on would be a nice feature. I could
+have pkill days where I save all the players' information in backup and turn on pkill and let them go
+at it, and after the event I restore the player files to what they were before so they lose nothing."*
+
+One switch today — **player killing** — and the section exists so the second one has somewhere to go.
+
+### It is a file, not a constant
+
+`data/world/overrides/settings.json`, beside the authored room overlays and for the same reason: it is
+under `data/` and **no command can regenerate it**. A constant would need a rebuild to change, and the
+entire point is that this is thrown for an evening and thrown back.
+
+Writing it is not optional. An operator who turns PvP *off* and then restarts must not find it quietly
+on again — that failure is silent, and its cost is a player being killed by a rule nobody meant to be
+in force. `LiveOps.setSettings` therefore applies and saves in one call rather than exposing a
+set-then-save pair somebody can half-use.
+
+Reading is deliberately strict: **only a real `true` turns it on.** The file is hand-editable, and
+`"yes"`, `"true"` and `1` all look like consent without being it. The safe reading of a malformed
+dangerous flag is off.
+
+### One flag covers attacking *and* looting
+
+They are the same question asked at two moments, and splitting them produces a world where you may kill
+someone but not take what they dropped — a rule nobody can hold in their head. Duris gates both off its
+own PvP state for the same reason.
+
+**Off is the default, and that is a fix rather than a preference.** Nothing refused player-versus-player
+combat before this switch existed: `startFight` checked only that you were not attacking yourself. The
+game shipped as a pkill game by omission, and the default makes the stated intent true of the code.
+
+### The panel arms it in two gestures, and the world is told
+
+The checkbox **stages** a value; a second button, which is disabled until the box disagrees with the
+server and which relabels itself to name what it is about to do, commits it. This decides whether the
+person standing next to you can kill you, and a switch of that weight should not be thrown by a stray
+click.
+
+The server **announces the change world-wide** on the `announce` channel and reports how many heard it.
+That count is the useful half: it tells an operator whether the people currently online actually got
+the warning. Finding out that PvP is on by dying to it is not acceptable. Re-saving a setting that is
+already correct announces nothing, so a panel that is already right cannot spam a world that is already
+right.
+
+### There is no backup button, on purpose
+
+The owner's event workflow is to copy `data/players/` aside, throw the switch, and copy it back
+afterwards. A "backup" button would take a snapshot at a moment the panel chose rather than one the
+operator chose, and restoring is a **stop-the-server** operation anyway: character records are held in
+memory while someone is online and written out afterwards, so a file replaced under a running server is
+overwritten by what the server still holds. The panel says both of those things instead of automating
+half of one.

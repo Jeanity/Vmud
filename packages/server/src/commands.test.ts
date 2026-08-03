@@ -28,6 +28,9 @@ describe('lookupCommand — abbreviation by table order', () => {
       ['u', 'up'], ['d', 'down'],
       ['l', 'look'], ['k', 'kill'], ['h', 'help'],
       ['o', 'open'], ['c', 'close'],
+      // 15b. Both of these are free letters — nothing above them starts with `g` or `i` — so they
+      // land on the abbreviation Diku has always given them.
+      ['g', 'get'], ['i', 'inventory'],
     ];
     for (const [typed, command] of expected) {
       assert.equal(lookupCommand(typed), command, `"${typed}" should be ${command}`);
@@ -51,6 +54,21 @@ describe('lookupCommand — abbreviation by table order', () => {
     // decides it, so the fix was placing `stand` above `stop` rather than special-casing anything.
     assert.equal(lookupCommand('st'), 'stand');
     assert.equal(lookupCommand('sto'), 'stop');
+  });
+
+  it('leaves movement alone when the item commands are added', () => {
+    // The check that matters about 15b's five: each sits *below* a command it shares a prefix with, so
+    // the short forms a player's fingers already know are untouched. Getting this wrong would rebind a
+    // movement key — `d` walking you down is not something to rediscover mid-fight.
+    assert.equal(lookupCommand('d'), 'down', 'not drop');
+    assert.equal(lookupCommand('dr'), 'drop');
+    assert.equal(lookupCommand('w'), 'west', 'not wear');
+    assert.equal(lookupCommand('we'), 'west', 'still west');
+    assert.equal(lookupCommand('wea'), 'wear');
+    assert.equal(lookupCommand('r'), 'rest', 'not remove');
+    assert.equal(lookupCommand('re'), 'rest');
+    assert.equal(lookupCommand('rem'), 'remove');
+    assert.equal(lookupCommand('inv'), 'inventory');
   });
 
   it('prefers an exact match over a prefix of something above it', () => {
@@ -183,6 +201,24 @@ describe('what combat forbids', () => {
     // source's judgement is that a global out-of-world scan is not a thing you do in a fight.
     assert.equal(COMMAND_REQUIREMENTS.who.status, 'dead');
     assert.equal(forbidden('who'), true);
+  });
+
+  it('lets you take armour off mid-fight but not put it on', () => {
+    // 15b's sharpest row, and transcribed rather than chosen: `interp.c` registers `CMD_N(CMD_WEAR)`
+    // and `CMD_Y(CMD_REMOVE)`. Not an inconsistency — shedding a thing is one motion and donning it is
+    // several — and it is what stops a fight being paused to re-kit.
+    assert.equal(forbidden('wear'), true);
+    assert.equal(forbidden('remove'), false);
+  });
+
+  it('lets you grab, drop and check your bag while swinging', () => {
+    // All three are `CMD_Y`. Dropping in particular is the classic thing a cornered character does,
+    // and it is allowed from the floor: `CMD_Y(CMD_DROP, STAT_RESTING + POS_PRONE)`.
+    for (const command of ['get', 'drop', 'inventory', 'loot'] as const) {
+      assert.equal(forbidden(command), false, command);
+    }
+    assert.equal(COMMAND_REQUIREMENTS.drop.posture, 'prone');
+    assert.equal(COMMAND_REQUIREMENTS.inventory.posture, 'prone');
   });
 });
 

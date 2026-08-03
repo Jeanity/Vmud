@@ -75,6 +75,9 @@
       h2 { margin: 0 0 4px; font-size: 16px; }
       h3 { margin: 18px 0 6px; font-size: 13px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; }
       p.note { color: var(--dim); margin: 4px 0 14px; max-width: 72ch; }
+      /* A rule that is currently in force and is dangerous — PvP being on. Loud on purpose: an
+         operator glancing at this page must be able to tell at a distance. */
+      p.note.warn { color: var(--bad); }
       .columns { display: grid; grid-template-columns: minmax(320px, 5fr) minmax(380px, 7fr); gap: 16px; align-items: start; }
       /* The zone browser narrows left to right: which zones, which rooms, which room. Each column
          scrolls on its own, because a zone runs to 219 rooms and the detail must stay in view. */
