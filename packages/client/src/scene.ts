@@ -1450,6 +1450,14 @@ export class WorldScene extends Phaser.Scene {
     if (corpse) {
       verbs.push({ label: 'Loot', run: () => this.net.send({ t: 'loot', target: view.id }) });
     } else if (view.kind === 'item') {
+      // **Above `Get`, because reading a sack is what you do before deciding to carry it.** The row
+      // exists only for things the server flagged as containers — 419 of the catalogue's 16,421 — so a
+      // dropped dagger's menu is unchanged. Owner's point about the floor generally: *"not everyone
+      // reads every description"*, and a verb reachable only by typing `look in` is one most players
+      // never find.
+      if (view.container) {
+        verbs.push({ label: 'Look inside', run: () => this.net.send({ t: 'look', target: view.id, inside: true }) });
+      }
       verbs.push({ label: 'Get', run: () => this.net.send({ t: 'get', target: view.id }) });
     } else {
       verbs.push({

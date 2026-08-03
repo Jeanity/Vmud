@@ -602,7 +602,9 @@ function visibleEntities(observer: Player): EntityView[] {
   // is not visible because you happen to know somebody dropped one — and this is what makes a dark
   // room a real place to lose something in.
   for (const entry of itemsIn(ground, observer.roomId)) {
-    if (observer.visible.has(tileIndexAt(grid, entry.x, entry.y))) out.push(groundViewOf(entry, templateOf(entry.item)?.type));
+    if (!observer.visible.has(tileIndexAt(grid, entry.x, entry.y))) continue;
+    const template = templateOf(entry.item);
+    out.push(groundViewOf(entry, template?.type, template?.container !== undefined));
   }
   return out;
 }
@@ -3187,6 +3189,39 @@ function lookInside(player: Player, argument: string): boolean {
   return true;
 }
 
+/**
+ * Looking into one particular container on the floor — what the *Look inside* menu row sends.
+ *
+ * Takes an **id** and re-reads the store, the same discipline {@link pickUp} follows and for the same
+ * reason: the sack you clicked may have been picked up in the meantime, and being told it has gone is
+ * the honest answer rather than being shown what used to be in it.
+ *
+ * The reach gate is `get`'s, not `look`'s. You can look *at* something across the room; you cannot see
+ * into it from there, and the refusal says which so the player knows to walk over.
+ */
+function lookInsideEntity(player: Player, id: EntityId): void {
+  const entry = ground.get(id);
+  if (!entry || entry.roomId !== player.roomId) {
+    send(player.id, { t: 'log', channel: 'error', text: 'It is not there any more.' });
+    return;
+  }
+  if (!withinPickupReach(entry, player.x, player.y)) {
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text: `You are not close enough to ${entry.item.name}. Step over to it.`,
+    });
+    return;
+  }
+  const rule = entry.held?.rule ?? templateOf(entry.item)?.container;
+  if (!rule) {
+    send(player.id, { t: 'log', channel: 'error', text: `${capitalise(entry.item.name)} is not a container.` });
+    return;
+  }
+  faceToward(player, entry.x, entry.y);
+  describeContents(player, entry.item, { rule, contents: entry.held?.contents ?? [] }, 'Lying here');
+}
+
 /** The listing itself, shared by the carried and the lying-here cases so they cannot drift apart. */
 function describeContents(player: Player, item: Item, held: Held, where: string): void {
   send(player.id, {
@@ -3601,6 +3636,13 @@ function handle(player: Player, message: ClientMessage): void {
         break;
       }
       if (!permits(player, 'look')) break;
+      // `inside` is the *Look inside* row on a container's menu. It goes to its own resolver rather
+      // than through `targetById`, because what it needs is the ground **entry** — the view carries a
+      // flag saying the thing holds items, not what it holds.
+      if (message.inside) {
+        lookInsideEntity(player, message.target);
+        break;
+      }
       {
         const view = targetById(player, message.target);
         if (view) describeEntity(player, view);

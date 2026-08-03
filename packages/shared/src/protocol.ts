@@ -15,7 +15,28 @@ import type { Posture, Status } from './position.ts';
 import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
 
 /**
- * Bumped to 12: things you can pick up.
+ * Bumped to 13: you can see that a thing is a container.
+ *
+ * `EntityView` gained **`container`**, a flag on an object lying on the floor, and `look` gained
+ * **`inside`**. Together they are one idea: a click on a sack offers *Look inside* and a click on a
+ * rock does not.
+ *
+ * **The flag is on the wire because the client cannot derive it.** Whether an item is a container is a
+ * fact of the catalogue — 419 of 16,421 entries — and the catalogue is server-side by design (rule 5:
+ * content is separable from engine). The alternatives were both worse: offering the row on every
+ * object and letting the server refuse most of them puts a wrong menu row in front of the player as
+ * the common case, and shipping the catalogue to the client to answer one boolean is a far larger
+ * change than a boolean.
+ *
+ * `look` takes a mode rather than gaining a second message, because *look at* and *look inside* are one
+ * verb with two readings and both already resolve through the same visibility gate. `inside` without a
+ * `target` is the typed `look in <keyword>` path, which the server parses itself.
+ *
+ * **Why a version bump for an additive optional field.** An old client would ignore both and simply not
+ * offer the row, so nothing would break — and that is exactly the failure this project has been bitten
+ * by before: a capability that silently is not there. The bump makes the reload explicit.
+ *
+ * Was 12: things you can pick up.
  *
  * One new client message — **`get`** — and no change to any server message at all, which is the
  * interesting part. An object lying on the floor reaches a client as the `EntityView` it always
@@ -89,7 +110,7 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * Was 6: doors have live state — the `door` message, and `open`/`close` losing their required `dir`.
  * Was 5: carried light sources — `SelfView` gained `light`.
  */
-export const PROTOCOL_VERSION = 12;
+export const PROTOCOL_VERSION = 13;
 
 /**
  * One timed effect on your own character, as the HUD reads it.
@@ -165,6 +186,18 @@ export interface EntityView {
    * Absent for anything with no body to dress, which today is every ground item and every mob.
    */
   readonly wearing?: Readonly<Record<string, string>>;
+  /**
+   * This object on the floor is a **container** — something `look inside` has an answer for. Phase 15c.
+   *
+   * On the wire because the client cannot work it out: which of the catalogue's 16,421 items hold
+   * things is content, and content stays server-side (`CLAUDE.md` rule 5). Present only when true and
+   * only on ground objects, so it costs nothing on the bodies and the rocks.
+   *
+   * It says *is a container*, deliberately not *what is in it*. A sack you have not looked in should
+   * not have already told you, and sending contents to every client in the room would be handing out
+   * the answer to the verb.
+   */
+  readonly container?: true;
   /** Position within the room cell, in tiles. Sub-tile precision for smooth movement. */
   readonly x: number;
   readonly y: number;
@@ -305,7 +338,15 @@ export type ClientMessage =
    */
   | { readonly t: 'open'; readonly dir?: Direction }
   | { readonly t: 'close'; readonly dir?: Direction }
-  | { readonly t: 'look'; readonly target?: EntityId }
+  /**
+   * Look at something, or — with `inside` — into it.
+   *
+   * One message rather than two, because they are one verb with two readings and both resolve through
+   * the same visibility gate. `inside` with a `target` is a click on a container's *Look inside* row;
+   * without one it is nothing the client sends, since the typed `look in <keyword>` arrives as
+   * `command` text and the server parses it.
+   */
+  | { readonly t: 'look'; readonly target?: EntityId; readonly inside?: boolean }
   /**
    * Go through a corpse. Omitting `target` means the nearest one still worth searching, which is what
    * the typed `loot` resolves to; naming one is what a click on a particular body sends.

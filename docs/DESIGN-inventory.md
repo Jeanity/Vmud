@@ -88,6 +88,14 @@ is the one `inventory` just told you about.
 want to read *alone*. Bare `look <container>` answers the same way, because "what is in it" is the only
 interesting thing to say about one.
 
+**It is on the click menu too, and that is the point rather than a garnish.** A container on the floor
+offers *Look inside* above *Get* — reading a sack is what you do before deciding to carry it — and the
+row exists only for containers, so a dropped dagger's menu is unchanged. The owner's rule for the floor
+generally applies here: *"not everyone reads every description"*, and a verb reachable only by typing
+`look in` is one most players never find. `EntityView.container` is what makes it possible; it says
+**is a container** and deliberately not *what is in it*, because sending contents to everyone in the
+room would hand out the answer to the verb before anybody looked.
+
 **A container on the floor is still full.** The ground store carries `held` through a drop and back up
 through a pickup; without that, putting a quiver of twenty arrows down destroyed the arrows and left the
 quiver — the same silent loss §8 records for the save reader, one store over. What is inside a floor

@@ -117,7 +117,7 @@ export function itemsIn(ground: Ground, roomId: RoomId): GroundItem[] {
  * `kind: 'item'` puts it down the same path corpses already take — one image, no facing, no health
  * bar — so nothing in the renderer needed a new concept for objects on the floor.
  */
-export function groundViewOf(entry: GroundItem, durisType?: number): EntityView {
+export function groundViewOf(entry: GroundItem, durisType?: number, isContainer = false): EntityView {
   return {
     id: entry.id,
     kind: 'item',
@@ -130,6 +130,10 @@ export function groundViewOf(entry: GroundItem, durisType?: number): EntityView 
     level: 0,
     posture: 'prone',
     status: 'dead',
+    // Injected like the type, and for the same reason: the catalogue is not this file's business. A
+    // container that already holds something is one whatever the caller believes, which is what keeps
+    // a sack still standing after its catalogue entry is edited out from under it.
+    ...(isContainer || entry.held ? { container: true as const } : {}),
   };
 }
 

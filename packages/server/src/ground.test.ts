@@ -148,6 +148,31 @@ describe('a container put down is still full', () => {
     assert.deepEqual(takeItem(ground, dropped.id)?.held, held, 'and it comes back up with it');
   });
 
+  it('tells the client a floor object is a container, but not what is in it', () => {
+    // The flag is what puts a `Look inside` row on the menu — the client cannot derive it, because
+    // which of 16,421 catalogue entries hold things is content and content stays server-side. It says
+    // *is a container* and nothing more: sending contents to everyone in the room would hand out the
+    // answer to the verb before anybody looked.
+    const ground: Ground = new Map();
+    resetGroundIds();
+    const held = { rule: { capacity: 5, accepts: 'missile' } as const, contents: [{ item: arrow, count: 3 }] };
+    const sack = groundViewOf(dropItem(ground, item('sack', 'a small sack'), at(0, 0), held), undefined, true);
+    assert.equal(sack.container, true);
+    assert.equal(JSON.stringify(sack).includes('arrow'), false, 'and not a word about the arrows');
+
+    assert.equal(groundViewOf(dropItem(ground, item('rock'), at(0, 0)), undefined, false).container, undefined);
+  });
+
+  it('trusts what a container already holds over what the catalogue says today', () => {
+    // A sack with things in it is a sack, even if its catalogue entry is edited out from under it —
+    // otherwise a builder's change would strand the contents behind a menu row that stopped existing.
+    const ground: Ground = new Map();
+    resetGroundIds();
+    const held = { rule: { capacity: 5, accepts: 'any' } as const, contents: [{ item: arrow, count: 1 }] };
+    const view = groundViewOf(dropItem(ground, item('sack'), at(0, 0), held), undefined, false);
+    assert.equal(view.container, true);
+  });
+
   it('does not write an empty container onto every dropped dagger', () => {
     const ground: Ground = new Map();
     resetGroundIds();
