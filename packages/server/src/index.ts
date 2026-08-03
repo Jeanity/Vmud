@@ -57,6 +57,7 @@ import {
   removeAt,
   slotsFree,
   slotsUsed,
+  type EquipSlot,
   type Item,
   meets,
   summariseAffects,
@@ -2915,7 +2916,16 @@ function wearFromBag(player: Player, rest: string): void {
     return;
   }
   const item = player.inventory.items[index]!;
-  const displaced = player.equipped[item.slot];
+  // **Not everything can be worn**, and since 15c most things cannot: keys, coins, food and trash are
+  // the bulk of the harvested catalogue and none of them go anywhere on a body. Refusing by name is the
+  // only honest answer — the alternative is inventing a slot, and any resting value picked would make
+  // every key in the world wearable somewhere.
+  const slot = item.slot;
+  if (!slot) {
+    send(player.id, { t: 'log', channel: 'error', text: `You cannot wear ${item.name}.` });
+    return;
+  }
+  const displaced = player.equipped[slot];
 
   const removed = removeAt(player.inventory, index);
   if (!removed) return;
@@ -2935,7 +2945,7 @@ function wearFromBag(player: Player, rest: string): void {
   }
 
   player.inventory = bag;
-  player.equipped = { ...player.equipped, [item.slot]: item };
+  player.equipped = { ...player.equipped, [slot]: item };
 
   send(player.id, { t: 'log', channel: 'system', text: `You wear ${item.name}.` });
   if (displaced) {
@@ -2952,15 +2962,19 @@ function removeWorn(player: Player, rest: string): void {
     send(player.id, { t: 'log', channel: 'error', text: 'Remove what?' });
     return;
   }
-  const found = Object.values(player.equipped).find(
-    (item): item is Item =>
+  // Searched by **entry**, so the slot comes from the key rather than from the item. What is in a slot
+  // is worn in that slot whatever the item's own `slot` says — and since 15c an item's may be absent.
+  const entry = Object.entries(player.equipped).find(
+    ([, item]) =>
       item !== undefined &&
       (item.id === wanted || item.name.toLowerCase().split(/[^a-z0-9]+/).includes(wanted)),
   );
-  if (!found) {
+  if (!entry) {
     send(player.id, { t: 'log', channel: 'error', text: `You are not wearing ${rest}.` });
     return;
   }
+  const wornSlot = entry[0] as EquipSlot;
+  const found = entry[1] as Item;
   const stowed = carry(player.inventory, found);
   if (!('items' in stowed)) {
     // Refused rather than dropped on the floor. A character who typed `remove` and found their armour
@@ -2974,7 +2988,7 @@ function removeWorn(player: Player, rest: string): void {
   }
   player.inventory = stowed;
   const next = { ...player.equipped };
-  delete next[found.slot];
+  delete next[wornSlot];
   player.equipped = next;
 
   send(player.id, { t: 'log', channel: 'system', text: `You stop using ${found.name}.` });

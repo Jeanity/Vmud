@@ -12,6 +12,7 @@ export * from './morale.ts';
 export * from './colour.ts';
 export * from './progression.ts';
 export * from './equipment.ts';
+export * from './items.ts';
 export * from './inventory.ts';
 export * from './spawn.ts';
 export * from './protocol.ts';

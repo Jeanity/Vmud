@@ -35,6 +35,15 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
+import {
+  DURIS_ITEM,
+  armourBonusFrom,
+  sizeFrom,
+  slotForWearPosition,
+  type ContainerAccepts,
+  type ItemTemplate,
+} from '@mygame/shared';
+
 /** One object as the file states it, before any interpretation. */
 export interface RawObject {
   readonly vnum: number;
@@ -165,4 +174,135 @@ export function loadObjects(dir: string): Map<number, RawObject> {
     for (const object of parseObjectFile(join(dir, file))) byVnum.set(object.vnum, object);
   }
   return byVnum;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Raw object → catalogue entry                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `ITEM_WEAR_*` bits, in the order a wear slot is picked. Mirrors `WEAR_BITS` in `shared/src/items.ts`
+ * and is deliberately a **separate list**: this one is the file's vocabulary and that one is the game's,
+ * and collapsing them would put the harvest's assumptions inside the rules module.
+ */
+const WEAR_BIT_ORDER: readonly (readonly [number, ReturnType<typeof slotForWearPosition>])[] = [
+  [1 << 13, slotForWearPosition(16)], // ITEM_WIELD → mainHand
+  [1 << 3, slotForWearPosition(5)], // BODY → chest
+  [1 << 4, slotForWearPosition(6)], // HEAD
+  [1 << 5, slotForWearPosition(7)], // LEGS
+  [1 << 6, slotForWearPosition(8)], // FEET
+  [1 << 7, slotForWearPosition(9)], // HANDS
+  [1 << 9, slotForWearPosition(11)], // SHIELD → offHand
+  [1 << 2, slotForWearPosition(3)], // NECK
+  [1 << 22, slotForWearPosition(27)], // BACK
+  [1 << 1, slotForWearPosition(1)], // FINGER → ring1
+  [1 << 14, slotForWearPosition(18)], // ITEM_HOLD → offHand, last
+];
+
+/** How many of a thing share one slot, by type. `DESIGN-inventory.md` §3. */
+function stackLimitFor(type: number): number {
+  // Arrows are the doc's own worked example, at 20 to a slot. Coins and small consumables stack too;
+  // a sword does not, because two swords are two swords.
+  if (type === DURIS_ITEM.missile) return 20;
+  if (type === DURIS_ITEM.potion || type === DURIS_ITEM.scroll || type === DURIS_ITEM.food) return 5;
+  return 1;
+}
+
+/**
+ * Charges in one item, or nothing for something use does not consume.
+ *
+ * Diku keeps a wand's maximum charges in `value[1]` and its remaining ones in `value[2]`. The
+ * **maximum** is the template's business; how many are left is the instance's, which is exactly the
+ * type/instance split §8 asks for and the reason this returns one number rather than two.
+ */
+function usesFor(type: number, values: readonly number[]): number | undefined {
+  if (type === DURIS_ITEM.wand || type === DURIS_ITEM.staff) return Math.max(1, values[1] ?? 1);
+  if (type === DURIS_ITEM.scroll || type === DURIS_ITEM.potion) return 1;
+  return undefined;
+}
+
+/** What a container takes. A quiver holds missiles; a scabbard holds weapons; a sack holds anything. */
+function containerRule(type: number, values: readonly number[]): { capacity: number; accepts: ContainerAccepts } | undefined {
+  const accepts: ContainerAccepts | undefined =
+    type === DURIS_ITEM.quiver ? 'missile'
+    : type === DURIS_ITEM.scabbard ? 'weapon'
+    : type === DURIS_ITEM.container || type === DURIS_ITEM.storage ? 'any'
+    : undefined;
+  if (!accepts) return undefined;
+  // Duris' capacity is in its own weight units, so it goes through the same conversion an item's bulk
+  // does — otherwise a 200-capacity quiver and a 200-weight anvil would be on different scales while
+  // looking like the same number. Floored at one so a mis-authored container is small, not useless.
+  return { capacity: Math.max(1, Math.round(values[0] ?? 0) / 5), accepts };
+}
+
+/**
+ * Turns one parsed object into a catalogue entry, or nothing if it is not something we can hold.
+ *
+ * Two refusals, and both are the source's own judgement rather than ours:
+ *
+ * - **`ITEM_TAKE` must be set.** `read_object` guarantees take and hold travel together, and an object
+ *   without it is scenery — a wall of force, a ship, a switch — that a player was never meant to pick
+ *   up. Dropping them here is what keeps 20,079 records from turning into 20,079 things on the floor.
+ * - **A corpse type is refused outright.** `ITEM_CORPSE` is marked "internal use only, do NOT assign
+ *   this type" in `defines.h`, and we have a corpse of our own.
+ */
+export function toTemplate(raw: RawObject): ItemTemplate | undefined {
+  const ITEM_TAKE = 1 << 0;
+  const ITEM_CORPSE = 24;
+  if (raw.type === ITEM_CORPSE) return undefined;
+  if ((raw.wearFlags & ITEM_TAKE) === 0) return undefined;
+
+  let slot: ReturnType<typeof slotForWearPosition>;
+  for (const [bit, candidate] of WEAR_BIT_ORDER) {
+    if (candidate && (raw.wearFlags & bit) !== 0) {
+      slot = candidate;
+      break;
+    }
+  }
+
+  // Armour value lives in `value[0]`, and `read_object` itself demotes an armour with none to
+  // `ITEM_WORN` — so reading it off the type rather than off the value would credit clothing with
+  // protection it does not have.
+  const ac = raw.type === DURIS_ITEM.armor || raw.type === DURIS_ITEM.shield
+    ? armourBonusFrom(raw.values[0] ?? 0)
+    : 0;
+
+  // `dice(value[1], value[2])` — `fight.c`'s own expression, verbatim. Taken unscaled, unlike armour:
+  // 14b proved our combat scale *against* these numbers, so a 2d6 sword is what it already expects.
+  const isWeapon = raw.type === DURIS_ITEM.weapon;
+  const count = raw.values[1] ?? 0;
+  const sides = raw.values[2] ?? 0;
+  const damage = isWeapon && count > 0 && sides > 0 ? { count, sides, bonus: 0 } : undefined;
+
+  const container = containerRule(raw.type, raw.values);
+  const uses = usesFor(raw.type, raw.values);
+
+  return {
+    vnum: raw.vnum,
+    keywords: raw.keywords,
+    name: raw.name,
+    roomLine: raw.roomLine,
+    type: raw.type,
+    ...(slot ? { slot } : {}),
+    ac,
+    ...(damage ? { damage } : {}),
+    size: sizeFrom(raw.weight),
+    cost: Math.max(0, raw.cost),
+    stackLimit: stackLimitFor(raw.type),
+    ...(uses === undefined ? {} : { uses }),
+    ...(container ? { container } : {}),
+    // `value[0]` on a money pile is the number of coins. It is the one type whose worth is its
+    // quantity rather than its price.
+    ...(raw.type === DURIS_ITEM.money ? { coins: Math.max(0, raw.values[0] ?? 0) } : {}),
+  };
+}
+
+/** The whole catalogue, as the game will read it. */
+export function buildCatalogue(dir: string): ItemTemplate[] {
+  const out: ItemTemplate[] = [];
+  for (const raw of loadObjects(dir).values()) {
+    const template = toTemplate(raw);
+    if (template) out.push(template);
+  }
+  return out.sort((a, b) => a.vnum - b.vnum);
 }

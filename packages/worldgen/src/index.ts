@@ -15,7 +15,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { RoomId, Zone, ZoneSpawns } from '@mygame/shared';
+import type { ItemTemplate, RoomId, Zone, ZoneSpawns } from '@mygame/shared';
 
 import { diffuseSectors, type DiffusionResult } from './diffuse.ts';
 import { harvest, harvestCompatible, loadDurisRooms, type HarvestResult } from './duris.ts';
@@ -25,7 +25,23 @@ import {
   newSpawnStats,
   type SpawnBuildStats,
 } from './mobs.ts';
+import { buildCatalogue } from './objects.ts';
 import { loadWorld, type WorldgenStats } from './zmud.ts';
+
+/** What the catalogue turned out to be, for the build report. */
+function reportCatalogue(catalogue: readonly ItemTemplate[]): void {
+  const wearable = catalogue.filter((t) => t.slot).length;
+  const weapons = catalogue.filter((t) => t.damage).length;
+  const containers = catalogue.filter((t) => t.container).length;
+  console.log('\n  items');
+  console.log(
+    '    %s catalogued — %s wearable, %s weapons, %s containers',
+    String(catalogue.length).padStart(6),
+    wearable,
+    weapons,
+    containers,
+  );
+}
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const DEFAULT_DB = join(REPO_ROOT, 'data', 'zones-source', 'TorilMud.dbm');
@@ -365,6 +381,25 @@ function main(): void {
     for (const zone of spawns) {
       writeFileSync(join(args.out, 'spawns', `${zone.zone}.json`), JSON.stringify(zone));
     }
+  }
+
+  // **The item catalogue: one file for the whole world**, not one per zone.
+  //
+  // Rooms and mobs are partitioned by zone because interest management is room-scoped and a zone's
+  // inhabitants only ever matter where that zone is loaded. Objects are not: a `G` command in IceCrag
+  // can name an object defined in a file belonging to somewhere else entirely, because `real_object`
+  // is a world-wide lookup. Splitting the catalogue by zone would mean resolving a vnum by searching
+  // every file, which is the join the single file already answers.
+  const objectDir = join(args.wld, '..', 'obj');
+  let catalogue: ItemTemplate[] = [];
+  try {
+    catalogue = buildCatalogue(objectDir);
+    writeFileSync(join(args.out, 'items.json'), JSON.stringify(catalogue));
+    reportCatalogue(catalogue);
+  } catch (err) {
+    // Same posture as the rest of the Duris readers: the source tree is git-ignored and may not be
+    // there. A world with no items is a poorer world, not a failed build.
+    console.log('\nno item catalogue: %s', (err as Error).message);
   }
 
   // A light index so the server can list and lazily load zones without reading the whole world.

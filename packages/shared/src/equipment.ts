@@ -49,7 +49,15 @@ export interface Item {
   /** Stable id, so a stored kit survives a rename of the display name. */
   readonly id: string;
   readonly name: string;
-  readonly slot: EquipSlot;
+  /**
+   * Where it may be worn, or **absent for something that can only be carried**.
+   *
+   * Optional since 15c, and the harvest is why: of the 20,079 objects in the catalogue, keys, trash,
+   * food, coins and treasure are the majority and none of them go anywhere on a body. Before this they
+   * would have needed a slot invented for them, and any resting value picked — `back`, say — would have
+   * made every key in the world wearable on your back.
+   */
+  readonly slot?: EquipSlot;
   /**
    * Added to armour class. Higher is harder to hit — the SRD's direction, not Duris'.
    *
@@ -219,13 +227,16 @@ export function readItem(raw: unknown, slot?: EquipSlot): Item | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined;
   const item = raw as Record<string, unknown>;
   if (typeof item.id !== 'string' || typeof item.name !== 'string' || typeof item.ac !== 'number') return undefined;
-  const where = slot ?? (typeof item.slot === 'string' && SLOT_SET.has(item.slot) ? (item.slot as EquipSlot) : undefined);
-  if (!where) return undefined;
+  // A missing slot is a carry-only item, not a malformed one. An *unrecognised* slot is still refused:
+  // these files are hand-editable and `"belt"` would sit in a bag being unwearable for reasons nothing
+  // could explain, which is worse than being plainly unwearable.
+  const where = slot ?? (typeof item.slot === 'string' ? (item.slot as EquipSlot) : undefined);
+  if (where !== undefined && !SLOT_SET.has(where)) return undefined;
   const damage = item.damage as Dice | undefined;
   return {
     id: item.id,
     name: item.name,
-    slot: where,
+    ...(where === undefined ? {} : { slot: where }),
     ac: item.ac,
     // Absent on a kit written before Phase 15b gave items a bulk. One slot is the right guess for
     // a starter garment and keeps a pre-15b character's bag arithmetic from going NaN.
