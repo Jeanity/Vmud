@@ -1668,7 +1668,9 @@ export class Simulation {
    * front door, so without this line the castle re-seals itself 75 seconds after boot.
    */
   resetDoor(command: ResetCommand): boolean {
-    if (!command.direction || !command.doorState) return false;
+    // A `D` row carries all three or it is not a door row. `room` became optional in 15c because most
+    // letters have no room at all; asking for it here rather than asserting keeps that honest.
+    if (!command.direction || !command.doorState || command.room === undefined) return false;
     const doorway = this.world.doorway(command.room, command.direction as Direction);
     if (!doorway) return false;
 

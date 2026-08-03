@@ -145,7 +145,8 @@ export function runReset(
       continue;
     }
 
-    const mob = sim.spawnMob(template, command.room, rng);
+    // An `M` always names a room; the field is optional because `G`, `E` and `P` do not.
+    const mob = command.room === undefined ? undefined : sim.spawnMob(template, command.room, rng);
     if (!mob) {
       lastSucceeded = false;
       lastMobLoaded = false;

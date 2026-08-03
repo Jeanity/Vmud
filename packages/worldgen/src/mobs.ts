@@ -386,11 +386,27 @@ export interface RawReset {
   readonly ifPrevious: boolean;
   readonly what: number;
   readonly limit: number;
-  readonly durisRoom: number;
+  /**
+   * `arg3`, **only when that argument really is a room** — `M`, `O`, `F`, `R`. Absent otherwise.
+   *
+   * See `ResetCommand`'s note for what it is on the other letters and what assuming otherwise cost.
+   */
+  readonly durisRoom?: number;
+  /** `E` only: `arg3` as Duris' raw wear position. */
+  readonly wearPosition?: number;
+  /** `P` only: `arg3` as the container's object vnum. */
+  readonly container?: number;
   readonly percent: number;
   readonly direction?: string;
   readonly doorState?: 'open' | 'closed' | 'locked';
 }
+
+/**
+ * Which letters take a room in `arg3`. Read off `renum_zone` in `db.c` rather than assumed.
+ *
+ * `D` is deliberately absent: its room is `arg1`, which is why it has a branch of its own.
+ */
+const KINDS_WITH_ROOM: ReadonlySet<ResetKind> = new Set<ResetKind>(['mob', 'object', 'follower', 'mount']);
 
 /**
  * Parses one `.zon` file: the header band and the reset commands.
@@ -459,12 +475,16 @@ export function parseZoneFile(path: string): RawZoneFile | undefined {
       continue;
     }
 
+    // **`arg3` means something different per letter**, and reading it as a room for all of them is
+    // what silently deleted every `G` and `E` in the world before 15c. See `ResetCommand`.
     commands.push({
       kind,
       ifPrevious: ifFlag === 1,
       what: arg1 ?? 0,
       limit: arg2 ?? 0,
-      durisRoom: arg3 ?? 0,
+      ...(KINDS_WITH_ROOM.has(kind) ? { durisRoom: arg3 ?? 0 } : {}),
+      ...(kind === 'equip' ? { wearPosition: arg3 ?? -1 } : {}),
+      ...(kind === 'put' ? { container: arg3 ?? 0 } : {}),
       percent: arg4 ?? 100,
     });
   }
@@ -567,10 +587,15 @@ export function buildZoneSpawns(
   const resets: ResetCommand[] = [];
   for (const command of parsedZone.commands) {
     stats.commands++;
-    const room = rooms.get(command.durisRoom);
-    if (room === undefined) {
-      stats.commandsDropped++;
-      continue;
+    // **Only the letters that have a room are asked for one.** `give`, `equip` and `put` attach to the
+    // last mobile loaded or to another object, so requiring a room of them dropped every one of them.
+    let room: RoomId | undefined;
+    if (command.durisRoom !== undefined) {
+      room = rooms.get(command.durisRoom);
+      if (room === undefined) {
+        stats.commandsDropped++;
+        continue;
+      }
     }
     // A mob command for a template we did not keep would be a spawn with nothing to spawn.
     if ((command.kind === 'mob' || command.kind === 'follower' || command.kind === 'mount') && !known.has(command.what)) {
@@ -583,7 +608,9 @@ export function buildZoneSpawns(
       ifPrevious: command.ifPrevious,
       what: command.what,
       limit: command.limit,
-      room,
+      ...(room === undefined ? {} : { room }),
+      ...(command.wearPosition === undefined ? {} : { wearPosition: command.wearPosition }),
+      ...(command.container === undefined ? {} : { container: command.container }),
       percent: command.percent,
       ...(command.direction === undefined ? {} : { direction: command.direction }),
       ...(command.doorState === undefined ? {} : { doorState: command.doorState }),

@@ -106,11 +106,26 @@ export interface MobTemplate {
 /**
  * One reset command, with rooms already translated to **our** ids by worldgen.
  *
- * Only `M` (load a mobile) and `D` (set a door) have executors — those are the two mechanics that exist.
- * The object commands are parsed and kept all the same, and that is not idle completeness: `G`, `E` and
- * `P` attach to *the last mobile loaded*, so an executor that had never been told they were there would
- * lose the cursor position and mis-attach the first item Phase 15 turns on. Keeping them means Phase 15
- * adds a branch rather than re-reading the file.
+ * ## `arg3` is not a room, and assuming it was cost the whole loot table
+ *
+ * Every command line is `<letter> <if> <arg1> <arg2> <arg3> <arg4>`, and until 15c this type modelled
+ * `arg3` as **the room** for every kind. `renum_zone` in `db.c` says otherwise, per letter:
+ *
+ * | | `arg1` | `arg3` |
+ * | --- | --- | --- |
+ * | `M` `F` `R` | mobile | room |
+ * | `O` | object | room |
+ * | `D` | *room* (`arg1`!) | door state |
+ * | `G` | object | **nothing** |
+ * | `E` | object | **wear position** |
+ * | `P` | object | **the container's object vnum** |
+ *
+ * The harvest looked `arg3` up in the room map and dropped the command when it missed, so across the
+ * shipped world **all 10,409 `G` and all 16,263 `E` commands vanished silently**, and of 8,858 `P`
+ * commands the 172 that survived did so by *coincidence* — a container vnum that happened to collide
+ * with a room vnum — carrying a `room` that pointed somewhere unrelated. Exactly `CLAUDE.md` gotcha 1:
+ * a mis-mapped field produces output that looks entirely plausible. Hence the per-kind fields below,
+ * and `room` being optional rather than a number that is sometimes a lie.
  */
 export type ResetKind = 'mob' | 'door' | 'object' | 'give' | 'equip' | 'put' | 'follower' | 'mount';
 
@@ -132,8 +147,26 @@ export interface ResetCommand {
    * anywhere at all counts against it. That is what makes a lured mob suppress its own replacement.
    */
   readonly limit: number;
-  /** Where it goes. Already **our** room id, translated through the name join. */
-  readonly room: RoomId;
+  /**
+   * Where it goes. Already **our** room id, translated through the name join.
+   *
+   * **Absent for `give`, `equip` and `put`**, which place a thing on the last mobile loaded or inside
+   * another object rather than in a room. See the table above.
+   */
+  readonly room?: RoomId;
+  /**
+   * `equip` only: Duris' wear position, **raw**.
+   *
+   * Deliberately not translated to an `EquipSlot` here, unlike rooms. A room id is a *join key* between
+   * data sources and has to be reconciled at harvest; a wear position is a *rules* concept, and our slot
+   * set is a fraction of Duris' 42 positions. Translating early would bake today's slots into the
+   * harvested files, so adding a `waist` slot later would need a re-harvest to make old data reachable.
+   * The mapping lives with the equipment model instead. `PRIMARY_WEAPON` is 16 — the most common value
+   * in the world by a distance.
+   */
+  readonly wearPosition?: number;
+  /** `put` only: the **object vnum of the container** this goes into. Never a room. */
+  readonly container?: number;
   /**
    * Percentage chance — Duris' `arg4`.
    *

@@ -173,6 +173,31 @@ describe('parsing a .zon file', () => {
     assert.equal(door.doorState, 'locked', 'state 2 of the low two bits');
   });
 
+  it('reads arg3 as a wear position on E, not as a room', () => {
+    // **The bug 15c fixed, pinned.** `renum_zone` translates only `arg1` for an `E`; `arg3` is the wear
+    // position — 16 is `PRIMARY_WEAPON`, the commonest value in the world. Reading it as a room meant
+    // looking up "room 16", missing, and dropping the command: all 16,263 of them, silently.
+    const parsed = parseZoneFile(write('h.zon', ZON));
+    const equip = parsed!.commands.find((c) => c.kind === 'equip');
+    assert.ok(equip);
+    assert.equal(equip.wearPosition, 16);
+    assert.equal(equip.durisRoom, undefined, 'an E command has no room at all');
+  });
+
+  it('reads arg3 as the container on P, and gives G no arg3 at all', () => {
+    // `P` puts an object inside another *object*; `G` gives one to the last mobile loaded and takes no
+    // third argument. Both were read as rooms. `P`'s survivors were coincidences — a container vnum that
+    // happened to collide with a room vnum — carrying a room that pointed somewhere unrelated.
+    const zon = ZON.replace('S\n', 'G 1 91001 2 0 100\nP 1 91002 1 91003 100\nS\n');
+    const parsed = parseZoneFile(write('i.zon', zon));
+    const give = parsed!.commands.find((c) => c.kind === 'give');
+    const put = parsed!.commands.find((c) => c.kind === 'put');
+    assert.equal(give?.durisRoom, undefined);
+    assert.equal(give?.what, 91001);
+    assert.equal(put?.container, 91003, 'the container is an object vnum');
+    assert.equal(put?.durisRoom, undefined);
+  });
+
   it('reads the door state out of the low two bits only', () => {
     // `|4` is secret and `|8` blocked, and neither has a mechanic here — `Door` carries closed and locked
     // and nothing else. Masking rather than comparing means a secret closed door still reads as closed.
@@ -307,5 +332,26 @@ describe('assembling a zone’s population', () => {
     assert.deepEqual(built.templates, []);
     assert.deepEqual(built.resets, []);
     assert.equal(stats.commandsDropped, 1);
+  });
+
+  it('keeps a mob’s kit instead of dropping it for having no room', () => {
+    // **The regression this whole slice exists for.** `G` and `E` place a thing on the last mobile
+    // loaded, so they carry no room — and requiring one of them deleted every mob's equipment in the
+    // world without a word. The proof is that the sentry keeps its collar and its purse.
+    const zone = ourZone();
+    const mobPath = write('kit.mob', SENTRY);
+    const zonPath = write(
+      'kit.zon',
+      `#970\nname~\nfile~\n1 2 0 10 20 1\nM 0 97018 3 97002 100\nE 1 91000 5 16 100\nG 1 91001 2 0 100\nS\n`,
+    );
+    const stats = newSpawnStats();
+    const built = buildZoneSpawns(zone, 'test.wld', mobPath, zonPath, [duris(97_002, 'A Corner In the Ice Garden')], stats);
+    assert.ok(built);
+    assert.deepEqual(built.resets.map((r) => r.kind), ['mob', 'equip', 'give']);
+    assert.equal(stats.commandsDropped, 0);
+
+    const equip = built.resets.find((r) => r.kind === 'equip');
+    assert.equal(equip?.wearPosition, 16, 'PRIMARY_WEAPON, carried through');
+    assert.equal(equip?.room, undefined, 'and no room invented for it');
   });
 });

@@ -233,7 +233,10 @@ function reportSpawns(spawns: readonly ZoneSpawns[], stats: SpawnBuildStats): vo
   line('templates skipped', stats.templatesSkipped);
   line('rooms vnum-mapped', stats.roomsMapped);
   line('reset commands read', stats.commands);
-  line('dropped (no room)', stats.commandsDropped, stats.commands);
+  // "unresolved", not "no room": a command is dropped either because the room it names is not one we
+  // kept or because its mob template is not one we kept. Calling it "no room" was misleading even
+  // before 15c, and actively wrong now that `give`/`equip`/`put` legitimately have no room at all.
+  line('dropped (unresolved)', stats.commandsDropped, stats.commands);
   // Phase 14: how much of the world will actually break and run. Printed because `ACT_WIMPY` is set
   // sparingly upstream, and a morale mechanic that nothing in the shipped world carries the flag for
   // would look built and be invisible — the same reason the `safe` room count is reported.
