@@ -212,8 +212,15 @@ export interface ItemTemplate {
   readonly uses?: number;
   /** Set when this is a container. §4. */
   readonly container?: ContainerRule;
-  /** Coins, when this is a pile of money rather than a thing. */
-  readonly coins?: number;
+  /**
+   * What this is worth in coin, when it is a pile of money rather than a thing.
+   *
+   * All four of Duris currencies — see `containers.ts`. `value[0..3]` are copper, silver, gold and
+   * platinum in that order, read off `utils.h` rather than guessed, because a pile of "platinum and
+   * gold" carries its numbers in `value[2]` and `value[3]` and reading `value[0]` as "the coins"
+   * would report fifteen thousand coppers and lose the platinum entirely.
+   */
+  readonly coins?: Readonly<Partial<Record<"copper" | "silver" | "gold" | "platinum", number>>>;
 }
 
 /**

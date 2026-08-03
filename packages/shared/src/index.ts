@@ -15,6 +15,7 @@ export * from './equipment.ts';
 export * from './items.ts';
 export * from './inventory.ts';
 export * from './stacks.ts';
+export * from './containers.ts';
 export * from './spawn.ts';
 export * from './protocol.ts';
 export * from './tilemap.ts';

@@ -291,10 +291,27 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
     stackLimit: stackLimitFor(raw.type),
     ...(uses === undefined ? {} : { uses }),
     ...(container ? { container } : {}),
-    // `value[0]` on a money pile is the number of coins. It is the one type whose worth is its
-    // quantity rather than its price.
-    ...(raw.type === DURIS_ITEM.money ? { coins: Math.max(0, raw.values[0] ?? 0) } : {}),
+    // A money pile carries its worth across all four of `value[0..3]` — copper, silver, gold,
+    // platinum, in that order per `utils.h`. Zeroes are dropped so a purse of pure gold does not
+    // record three empty currencies.
+    ...(raw.type === DURIS_ITEM.money ? { coins: coinsFrom(raw.values) } : {}),
   };
+}
+
+/**
+ * A money pile's worth, by coin.
+ *
+ * The order is `utils.h`'s and not guessable: `GET_COPPER` is `cash[0]` and `GET_PLATINUM` is
+ * `cash[3]`, and `actobj.c` pours `value[0..3]` into them in exactly that order.
+ */
+function coinsFrom(values: readonly number[]): Record<string, number> {
+  const kinds = ['copper', 'silver', 'gold', 'platinum'] as const;
+  const out: Record<string, number> = {};
+  kinds.forEach((kind, i) => {
+    const n = values[i] ?? 0;
+    if (n > 0) out[kind] = Math.floor(n);
+  });
+  return out;
 }
 
 /** The whole catalogue, as the game will read it. */
