@@ -5,6 +5,7 @@ import type { Item } from './equipment.ts';
 import {
   STARTING_CAPACITY,
   carry,
+  carryStack,
   emptyInventory,
   fits,
   loose,
@@ -281,6 +282,28 @@ describe('what is inside a container survives the trip to disk', () => {
     const inner = read.stacks[0]?.held?.contents[0];
     assert.equal(inner?.item.id, 'quiver', 'the quiver inside it is still an item');
     assert.equal(inner?.held, undefined, 'but not a container, and the arrow in it is gone');
+  });
+
+  it('takes a full container back into the bag for the price of the container', () => {
+    // Picking a dropped quiver back up. §4's rule that contents do not count against the bag holding
+    // them does not stop applying because the quiver spent a minute on the floor — a bag with two free
+    // slots must accept a one-slot quiver however many arrows are in it.
+    const full = quiver([{ item: arrow(), count: 20 }]);
+    const bag: Inventory = { stacks: [{ item: item('anvil', 17), count: 1 }], capacity: 20 };
+    const out = carryStack(bag, full);
+    assert.ok('stacks' in out, 'three free slots, and the quiver costs two');
+    assert.equal(out.stacks[1]?.held?.contents[0]?.count, 20, 'arrows and all');
+    assert.equal(slotsUsed(out), 19);
+  });
+
+  it('will not absorb a full container into a stack of empty ones', () => {
+    // `mergeable` refuses a container holding anything, which is what keeps `count` meaningful. Two
+    // quivers with different arrows in them are not the same object and cannot share a slot.
+    const bag: Inventory = { stacks: [{ item: item('quiver', 2, 'a leather quiver'), count: 3 }], capacity: 20 };
+    const out = carryStack(bag, quiver([{ item: arrow(), count: 1 }]));
+    assert.ok('stacks' in out);
+    assert.equal(out.stacks.length, 2, 'the full one lands beside the empty three');
+    assert.equal(out.stacks[0]?.count, 3);
   });
 
   it('empties containers onto the corpse instead of burning what is in them', () => {

@@ -111,8 +111,22 @@ export type CarryRefusal = { readonly needed: number; readonly free: number };
  * what lets an otherwise full bag still accept one more of something it is already carrying.
  */
 export function carry(inventory: Inventory, item: Item): Inventory | CarryRefusal {
-  const incoming = stackOf(item);
-  const limit = limitOf(item);
+  return carryStack(inventory, stackOf(item));
+}
+
+/**
+ * Puts a whole stack in the bag — the same act as {@link carry}, for a stack that already exists.
+ *
+ * The case that needs it is **a container coming back off the floor with things in it**: `carry` builds
+ * a fresh single item from a type, which has nowhere to put the twenty arrows in the quiver you just
+ * picked up. Rather than a second code path that could accept what `carry` refuses, `carry` is now the
+ * one-item spelling of this.
+ *
+ * `mergeable` already refuses a container holding anything, so a full quiver lands as its own stack and
+ * cannot be absorbed into a pile of empty ones.
+ */
+export function carryStack(inventory: Inventory, incoming: Stack): Inventory | CarryRefusal {
+  const limit = limitOf(incoming.item);
 
   // Merge first. Same type *and* same charges — `mergeable` is what enforces §3's rule that a
   // part-used one cannot hide in a stack of full ones.
@@ -130,7 +144,7 @@ export function carry(inventory: Inventory, item: Item): Inventory | CarryRefusa
     return next;
   }
 
-  const needed = Math.max(1, item.size);
+  const needed = stackSlots(incoming, limit);
   const free = slotsFree(inventory);
   if (needed > free) return { needed, free };
   return { stacks: [...inventory.stacks, incoming], capacity: inventory.capacity };

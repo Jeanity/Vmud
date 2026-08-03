@@ -27,7 +27,16 @@
  * met anything.
  */
 
-import { DURIS_ITEM, TILE_SIZE, type EntityId, type EntityView, type Item, type Place, type RoomId } from '@mygame/shared';
+import {
+  DURIS_ITEM,
+  TILE_SIZE,
+  type EntityId,
+  type EntityView,
+  type Held,
+  type Item,
+  type Place,
+  type RoomId,
+} from '@mygame/shared';
 
 /** One thing on the floor. */
 export interface GroundItem {
@@ -38,6 +47,15 @@ export interface GroundItem {
   /** Where it lies, in room pixels — a dropped thing lands at your feet, not at the room's centre. */
   readonly x: number;
   readonly y: number;
+  /**
+   * What it holds, if it is a container with anything in it — `DESIGN-inventory.md` §4.
+   *
+   * **A sack you put down is still full.** Without this the floor could only hold bare items, so
+   * dropping a quiver of twenty arrows destroyed the arrows and left the quiver: the same silent loss
+   * `readInventory` had, one store over. Absent on the sixteen thousand things that are not containers,
+   * and on the empty ones.
+   */
+  readonly held?: Held;
 }
 
 /** Everything currently on the floor anywhere, by entity id. */
@@ -61,6 +79,9 @@ export function dropItem(
   ground: Ground,
   item: Item,
   where: { roomId: RoomId; place: Place; x: number; y: number },
+  /** What it holds. Passed straight through, so putting a full quiver down and taking it back is a
+   * round trip rather than a way to destroy arrows. */
+  held?: Held,
 ): GroundItem {
   const dropped: GroundItem = {
     id: nextGroundId--,
@@ -69,6 +90,9 @@ export function dropItem(
     place: where.place,
     x: where.x,
     y: where.y,
+    // Only when there is something in it: an empty container on the floor is an ordinary object, and
+    // writing an empty `contents` on every dropped dagger says nothing.
+    ...(held && held.contents.length > 0 ? { held } : {}),
   };
   ground.set(dropped.id, dropped);
   return dropped;

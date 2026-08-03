@@ -133,3 +133,26 @@ describe('how it appears and how close you must be', () => {
     assert.equal(withinPickupReach(dropped, TILE_SIZE * 4, 0), false);
   });
 });
+
+describe('a container put down is still full', () => {
+  const arrow: Item = { id: 'arrow', name: 'an arrow', ac: 0, size: 1, stackLimit: 20 };
+
+  it('carries what a container holds onto the floor and back', () => {
+    // Before this, `dropItem` took a bare `Item` — so dropping a quiver of twenty arrows put the quiver
+    // on the floor and destroyed the arrows. The same silent loss `readInventory` had, one store over.
+    const ground: Ground = new Map();
+    resetGroundIds();
+    const held = { rule: { capacity: 30, accepts: 'missile' } as const, contents: [{ item: arrow, count: 20 }] };
+    const dropped = dropItem(ground, item('quiver', 'a leather quiver'), at(8, 8), held);
+    assert.deepEqual(dropped.held, held);
+    assert.deepEqual(takeItem(ground, dropped.id)?.held, held, 'and it comes back up with it');
+  });
+
+  it('does not write an empty container onto every dropped dagger', () => {
+    const ground: Ground = new Map();
+    resetGroundIds();
+    const empty = { rule: { capacity: 30, accepts: 'any' } as const, contents: [] };
+    assert.equal(dropItem(ground, item('sack'), at(0, 0), empty).held, undefined);
+    assert.equal(dropItem(ground, item('dagger'), at(0, 0)).held, undefined);
+  });
+});

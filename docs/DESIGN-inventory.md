@@ -72,6 +72,28 @@ This is a proposal, not a decision taken, and it is cheap to change in either di
 nesting is wanted later, the alternative is propagating bulk upward so a full bag costs more slots
 than an empty one — which closes the exploit but makes capacity arithmetic much harder to explain.
 
+**Owner confirmed depth 2 on 2026-08-03**, so the proposal above is now the rule. `putRefusal` returns
+`'too-deep'` for *any* container going into a container, and `readInventory` refuses the same shape on
+the way in — a save file is hand-editable, and a bag that loads deeper than the rules allow is a bag
+whose rules are decoration.
+
+### The verbs
+
+`put <item> <container>` and `get <item> from <container>` move things in and out of a container in the
+bag. `look in <container>` reads one without disturbing it, and it looks **in the bag first and then at
+your feet** — `look in sack` while standing on an identical sack means the one you are holding, which
+is the one `inventory` just told you about.
+
+`inventory` already lists contents indented under each container, so `look in` is for the container you
+want to read *alone*. Bare `look <container>` answers the same way, because "what is in it" is the only
+interesting thing to say about one.
+
+**A container on the floor is still full.** The ground store carries `held` through a drop and back up
+through a pickup; without that, putting a quiver of twenty arrows down destroyed the arrows and left the
+quiver — the same silent loss §8 records for the save reader, one store over. What is inside a floor
+container still counts against an `O` command's world-wide instance limit, or leaving something in a
+dropped sack would be a way to make the world mint another one.
+
 ## 5. Capacity is a character property, not an item
 
 **The base bag is a number on the character, not something you wear.** Larger bags found or purchased

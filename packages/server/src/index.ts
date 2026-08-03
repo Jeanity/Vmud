@@ -53,12 +53,14 @@ import {
   STARTING_HIT_POINTS,
   addCoins,
   carry,
+  carryStack,
   describeContainer,
   describePurse,
   instantiate,
   roomCentre,
   tileCentre,
   describeStack,
+  freeInside,
   CURRENCIES,
   apportion,
   contributionValue,
@@ -2268,6 +2270,10 @@ function lookAt(player: Player, argument: string): void {
     describeRoom(player);
     return;
   }
+  // Containers first, and it takes the argument whole: `look in quiver` is one request, not `look` at
+  // something called "in quiver". It answers `look quiver` too when the quiver is a container, since
+  // "what is in it" is the only interesting thing to say about one.
+  if (lookInside(player, argument)) return;
   const target = resolveTarget(player, argument);
   if (!target) return;
   describeEntity(player, target);
@@ -2901,7 +2907,13 @@ function countInstances(vnum: number): number {
   const id = `obj:${vnum}`;
   let seen = 0;
 
-  for (const entry of ground.values()) if (entry.item.id === id) seen++;
+  for (const entry of ground.values()) {
+    if (entry.item.id === id) seen++;
+    // Inside a container on the floor counts as existing. Otherwise a player could hold the world's
+    // only copy of something under the limit by leaving it in a dropped sack, and the next repop would
+    // mint another one.
+    for (const inside of entry.held?.contents ?? []) if (inside.item.id === id) seen += inside.count;
+  }
   for (const corpse of graveyard.values()) for (const item of corpse.contents) if (item.id === id) seen++;
 
   for (const player of sim.allPlayers()) {
@@ -3071,7 +3083,13 @@ function pickUp(player: Player, id: EntityId): void {
     return;
   }
 
-  const result = carry(player.inventory, entry.item);
+  // **The contents come back up with it.** `carryStack` rather than `carry`, so a quiver that was put
+  // down full is picked up full — and it is charged only for the quiver's own bulk, because §4's rule
+  // that contents do not count against the bag holding them does not stop applying on the floor.
+  const result = carryStack(player.inventory, {
+    ...stackOf(entry.item),
+    ...(entry.held ? { held: entry.held } : {}),
+  });
   if (!('stacks' in result)) {
     send(player.id, {
       t: 'log',
@@ -3115,6 +3133,80 @@ function heldAt(player: Player, index: number): Held | undefined {
   if (stack.held) return stack.held;
   const rule = templateOf(stack.item)?.container;
   return rule ? { rule, contents: [] } : undefined;
+}
+
+/**
+ * `look in <container>`: what is inside one, in the bag or at your feet.
+ *
+ * **The bag is searched first**, because `look in sack` while standing on an identical sack means the
+ * one you are holding — that is the one `inventory` just told you about, and reaching past it to the
+ * floor would be the wrong guess in the common case.
+ *
+ * Returns whether it handled the argument, so {@link lookAt} can fall through to looking at a *person*
+ * rather than swallowing every `look`. **The word "in" is what decides how hard it tries.** Typed, this
+ * owns the request and answers for it, including the refusals. Untyped — a bare `look kobold` — it only
+ * speaks when it has actually found a container, because otherwise a kobold doll lying at your feet
+ * would answer *"a kobold doll is not a container"* to somebody who wanted to look at the kobold.
+ */
+function lookInside(player: Player, argument: string): boolean {
+  // `look in quiver`, and `look inside quiver`. Without stripping these the target resolver hunts for
+  // an entity literally named "in quiver" and answers "You see no in quiver here", which reads as the
+  // quiver being gone rather than as the phrasing being unsupported.
+  const match = /^(?:in|inside)\s+(.+)$/i.exec(argument.trim());
+  const explicit = match !== null;
+  const wanted = (match?.[1] ?? argument).trim();
+  if (!wanted) return false;
+
+  const index = matchInventory(player.inventory, wanted);
+  const carried = index === -1 ? undefined : heldAt(player, index);
+  if (carried) {
+    describeContents(player, player.inventory.stacks[index]!.item, carried, 'You are carrying');
+    return true;
+  }
+
+  // Then the floor — but only what is in reach, the same gate `get` uses. A container across the room
+  // is not one you can see the inside of.
+  const reachable = itemsIn(ground, player.roomId).filter((entry) => withinPickupReach(entry, player.x, player.y));
+  const found = nearestMatching(reachable, wanted, player.x, player.y);
+  const rule = found && (found.held?.rule ?? templateOf(found.item)?.container);
+  if (found && rule) {
+    describeContents(player, found.item, { rule, contents: found.held?.contents ?? [] }, 'Lying here');
+    return true;
+  }
+
+  if (!explicit) return false;
+  // **"Not a container" and "not here" are different answers and a player can act on the difference.**
+  // Collapsing them told somebody holding a blowgun needle that they had no needle, which sends them
+  // looking for a thing that is already in their hand.
+  const seen = player.inventory.stacks[index]?.item ?? found?.item;
+  send(player.id, {
+    t: 'log',
+    channel: 'error',
+    text: seen ? `${capitalise(seen.name)} is not a container.` : `You see no ${wanted} to look inside.`,
+  });
+  return true;
+}
+
+/** The listing itself, shared by the carried and the lying-here cases so they cannot drift apart. */
+function describeContents(player: Player, item: Item, held: Held, where: string): void {
+  send(player.id, {
+    t: 'log',
+    channel: 'system',
+    text: `&+c${where}:&N ${describeContainer(item, held)}`,
+  });
+  if (held.contents.length === 0) {
+    send(player.id, { t: 'log', channel: 'system', text: '  it is empty' });
+    return;
+  }
+  for (const inside of held.contents) {
+    send(player.id, { t: 'log', channel: 'system', text: `  - ${describeStack(inside, inside.item.uses)}` });
+  }
+  const free = freeInside(held);
+  send(player.id, {
+    t: 'log',
+    channel: 'system',
+    text: `  &+K${free} slot${free === 1 ? '' : 's'} free.&N`,
+  });
 }
 
 /** Replaces the container at a position with a new state of it. */
@@ -3279,17 +3371,22 @@ function dropFromBag(player: Player, rest: string): void {
     send(player.id, { t: 'log', channel: 'error', text: `You are not carrying ${rest}.` });
     return;
   }
+  // **Read before the removal, because it goes with the item.** A container holding anything is always
+  // a stack of one — `mergeable` refuses to merge one that holds things — so taking the item takes the
+  // whole stack and its `held` with it. Losing it here would destroy every arrow in a quiver the moment
+  // its owner put it down.
+  const held = player.inventory.stacks[index]?.held;
   const removed = removeAt(player.inventory, index);
   if (!removed) return;
   player.inventory = removed.inventory;
   // At the character's feet, not the room's centre — the same rule a corpse follows, and what makes
   // *where* you dropped something a fact worth remembering.
-  const entry = dropItem(ground, removed.item, {
-    roomId: player.roomId,
-    place: player.place,
-    x: player.x,
-    y: player.y,
-  });
+  const entry = dropItem(
+    ground,
+    removed.item,
+    { roomId: player.roomId, place: player.place, x: player.x, y: player.y },
+    held,
+  );
 
   send(player.id, { t: 'log', channel: 'system', text: `You drop ${removed.item.name}.` });
   actToRoom(player, 'room', (who) => `${who} drops ${removed.item.name}.`);
