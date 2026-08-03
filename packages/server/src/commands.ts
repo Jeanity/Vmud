@@ -93,6 +93,9 @@ export const COMMANDS = [
   // 15c. `p` is free — nothing above starts with it — so `put` lands on its own initial, which is
   // what Diku gives it too.
   'put',
+  // 15c, and it costs no prefix anybody was using: `w` is west and `wea` is wear, both above, so
+  // `wie` is the shortest thing that reaches this — which is what Diku gives it as well.
+  'wield',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -229,6 +232,17 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // beside `wear` as the other thing you do not do mid-swing. Rummaging in a bag while something is
   // hitting you is the same kind of several-motions act that donning armour is.
   put: { status: 'resting', posture: 'sitting', inCombat: false },
+  // **`CMD_Y(CMD_WIELD, STAT_RESTING + POS_PRONE, do_wield, 0, TRUE)` — and the contrast with `wear`
+  // two rows up is the whole reason `wield` is a separate verb rather than an alias.** The source
+  // refuses `wear` in combat and allows `wield`, at *prone* rather than sitting: drawing a weapon is
+  // one motion you can manage flat on your back with something standing over you, and buckling on a
+  // breastplate is not. Transcribed rather than reasoned to, and it happens to be the distinction that
+  // makes the split earn its keep.
+  //
+  // It takes nothing away that `remove` did not already allow: shedding gear mid-fight is legal (§15b
+  // read `interp.c` for exactly this), so a two-hander displacing a shield in combat is a thing the
+  // player could have done in two commands anyway.
+  wield: { status: 'resting', posture: 'prone' },
 };
 
 /* -------------------------------------------------------------------------- */

@@ -34,7 +34,9 @@ import {
   UNLIMITED_DURATION,
   newAffect,
   placeKey,
+  stripColour,
   type Direction,
+  type ItemTemplate,
   type Place,
   type Room,
   type RoomFlag,
@@ -63,6 +65,16 @@ export interface AdminRequest {
   readonly remote: string | undefined;
   /** The parsed JSON body, when one was sent. */
   readonly body: unknown;
+  /**
+   * Query parameters, already decoded. Empty for every route but the item search.
+   *
+   * Added with the Items panel, which is the first read that **cannot** put its argument in the path:
+   * a catalogue of 16,421 entries has to be searched rather than listed, and a free-text term with
+   * spaces and punctuation in it is not a path segment. A `POST` with a body would have been the other
+   * option and is worse — searching is a read, and a read that cannot be linked to or refreshed is a
+   * read wearing the wrong verb.
+   */
+  readonly query?: Readonly<Record<string, string>>;
 }
 
 export interface AdminResponse {
@@ -145,6 +157,15 @@ export interface AdminDeps {
   readonly world: GameWorld;
   readonly store: PlayerStore;
   readonly live: LiveOps;
+  /**
+   * The harvested item catalogue, by vnum — what the Items section reads.
+   *
+   * Injected rather than loaded here for the reason every other world fact is: `index.ts` owns loading
+   * and this file owns answering. It is also **empty on a checkout with no Duris source**, which is not
+   * an error — `data/zones-source/` is git-ignored, so the honest answer for a catalogue that was never
+   * built is a section that says so rather than a route that 500s.
+   */
+  readonly items: ReadonlyMap<number, ItemTemplate>;
   /**
    * One line to whoever the scope names. Returns how many heard it.
    *
@@ -295,6 +316,8 @@ export class AdminApi {
       if (request.method === 'GET') return { status: 200, body: { settings: this.deps.live.settings() } };
       if (request.method === 'PATCH') return this.patchSettings(request.body);
     }
+    if (head === 'items' && parts.length === 1 && request.method === 'GET') return this.items(request.query);
+    if (head === 'items' && slug !== undefined && parts.length === 2 && request.method === 'GET') return this.item(slug);
     if (head === 'players' && parts.length === 1 && request.method === 'GET') return this.roster();
     if (head === 'players' && slug !== undefined && parts.length === 2) {
       if (request.method === 'GET') return this.player(slug);
@@ -395,6 +418,55 @@ export class AdminApi {
    * population file reports `null` rather than 0 — "never repops" and "repops now" are opposite
    * things and a dash beats a zero.
    */
+  /**
+   * The item catalogue, searched.
+   *
+   * **Searched rather than listed, because 16,421 entries is not a page.** The whole catalogue is about
+   * three megabytes of JSON; sending it once and filtering in the browser would be simpler and would
+   * make the panel's first paint wait on it, so the term goes to the server and a bounded page comes
+   * back. `total` is reported separately from the rows so the operator can see when a search is too
+   * broad rather than silently reading the first fifty of nine hundred.
+   *
+   * Matched on **keywords, name and vnum**. Keywords are Duris' own authored list — the thing a player
+   * would type — and the display name carries colour codes, so the name is matched with them stripped:
+   * searching for `silver` must find `&+Ca silver dagger&N`, and it would not against the raw string.
+   */
+  private items(query: Readonly<Record<string, string>> | undefined): AdminResponse {
+    const term = (query?.['q'] ?? '').trim().toLowerCase();
+    const kind = (query?.['kind'] ?? '').trim();
+    const limit = Math.max(1, Math.min(200, Number(query?.['limit'] ?? 50) || 50));
+
+    const matches: ItemTemplate[] = [];
+    for (const template of this.deps.items.values()) {
+      if (kind === 'weapon' && !template.damage) continue;
+      if (kind === 'armour' && template.ac <= 0) continue;
+      if (kind === 'container' && !template.container) continue;
+      if (kind === 'twoHanded' && !template.twoHanded) continue;
+      if (term && !itemMatches(template, term)) continue;
+      matches.push(template);
+    }
+    // By vnum, which is the catalogue's own order and the one an operator can navigate: neighbouring
+    // vnums are the same builder's work in the same file, so a search result reads as a group.
+    matches.sort((a, b) => a.vnum - b.vnum);
+
+    return {
+      status: 200,
+      body: {
+        total: matches.length,
+        catalogue: this.deps.items.size,
+        items: matches.slice(0, limit).map(itemRow),
+      },
+    };
+  }
+
+  /** One item, whole. The row is a summary; this is every harvested field. */
+  private item(slug: string): AdminResponse {
+    const vnum = Number(slug);
+    const template = Number.isInteger(vnum) ? this.deps.items.get(vnum) : undefined;
+    if (!template) return { status: 404, body: { error: `no item ${slug} in the catalogue` } };
+    return { status: 200, body: { item: template } };
+  }
+
   private zones(): AdminResponse {
     const { world, live } = this.deps;
     return {
@@ -1355,6 +1427,42 @@ const BODY_LIMIT = 64 * 1024;
  * this function is testable in principle, but the request/response shapes above are where the
  * behaviour is, and they are tested directly.
  */
+/**
+ * Whether a catalogue entry answers to a search term.
+ *
+ * Three surfaces, and each is there for a different kind of operator. **Keywords** are what a player
+ * would type, so searching the way the game resolves names finds what a bug report is about.
+ * **The display name** is what the operator is reading on screen — with colour codes stripped, or
+ * `silver` would miss `&+Ca silver dagger&N` and look like the item is not in the world. **The vnum**
+ * is exact, because a reset table names items by number and nothing else.
+ */
+function itemMatches(template: ItemTemplate, term: string): boolean {
+  if (String(template.vnum) === term) return true;
+  if (template.keywords.some((word) => word.toLowerCase().includes(term))) return true;
+  return stripColour(template.name).toLowerCase().includes(term);
+}
+
+/** One row of the search result: enough to scan, not the whole record. */
+function itemRow(template: ItemTemplate): Record<string, unknown> {
+  return {
+    vnum: template.vnum,
+    name: template.name,
+    keywords: template.keywords,
+    type: template.type,
+    slot: template.slot ?? null,
+    ac: template.ac,
+    size: template.size,
+    cost: template.cost,
+    // Only when they mean something, so a row of nulls does not imply a sword has a capacity of zero.
+    ...(template.damage ? { damage: `${template.damage.count}d${template.damage.sides}` } : {}),
+    ...(template.twoHanded ? { twoHanded: true } : {}),
+    ...(template.stackLimit > 1 ? { stackLimit: template.stackLimit } : {}),
+    ...(template.uses === undefined ? {} : { uses: template.uses }),
+    ...(template.container ? { container: template.container } : {}),
+    ...(template.coins ? { coins: template.coins } : {}),
+  };
+}
+
 export function serveAdmin(api: AdminApi, req: IncomingMessage, res: ServerResponse): void {
   const chunks: Buffer[] = [];
   let size = 0;
@@ -1391,6 +1499,10 @@ export function serveAdmin(api: AdminApi, req: IncomingMessage, res: ServerRespo
         token: typeof token === 'string' ? token : undefined,
         remote: req.socket.remoteAddress,
         body,
+        // Parsed against a throwaway base because `req.url` is a path, not an absolute URL, and
+        // `URLSearchParams` is what decodes `%20` and `+` correctly — an item search is free text and
+        // hand-rolling that is how a query for "elven long sword" arrives as one word.
+        query: Object.fromEntries(new URL(req.url ?? '/', 'http://admin.invalid').searchParams),
       })
       .then(respond)
       .catch((err: unknown) => {

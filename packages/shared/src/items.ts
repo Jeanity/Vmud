@@ -211,6 +211,13 @@ export interface ItemTemplate {
   readonly ac: number;
   /** What it hits for, verbatim from `value[1]d value[2]`. Absent on anything that is not a weapon. */
   readonly damage?: Dice;
+  /**
+   * Needs **both hands** — 557 of the catalogue's 2,841 weapons. `wield` is what enforces it.
+   *
+   * Harvested from Duris' own disjunction (`extra_flags & ITEM_TWOHANDS || value[0] == 13`), which is
+   * not the same as either half: twenty-two two-handed swords carry no flag at all. See `objects.ts`.
+   */
+  readonly twoHanded?: true;
   readonly size: number;
   /** Coins it is worth. Duris' own `cost`. */
   readonly cost: number;
@@ -255,6 +262,10 @@ export function instantiate(template: ItemTemplate): Item {
     // default and writing it on every sword in a save file says nothing.
     ...(template.stackLimit > 1 ? { stackLimit: template.stackLimit } : {}),
     ...(template.uses === undefined ? {} : { uses: template.uses }),
+    // On the instance too, because the rule follows the object and not the catalogue: a greatsword in
+    // a save file has to still need two hands after a restart, and `readItem` reads this back for the
+    // same reason it reads `stackLimit` — a field with no line in its reader is deleted, silently.
+    ...(template.twoHanded ? { twoHanded: true as const } : {}),
   };
 }
 

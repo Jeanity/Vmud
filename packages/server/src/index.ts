@@ -2682,6 +2682,7 @@ function runCommand(player: Player, line: string): void {
     case 'put': return putInContainer(player, rest);
     case 'drop': return dropFromBag(player, rest);
     case 'wear': return wearFromBag(player, rest);
+    case 'wield': return wieldFromBag(player, rest);
     case 'remove': return removeWorn(player, rest);
     case 'inventory': return listInventory(player);
     case 'kill': {
@@ -3581,8 +3582,44 @@ function dropFromBag(player: Player, rest: string): void {
  * refused, which is the only outcome that does not silently drop something on the floor.
  */
 function wearFromBag(player: Player, rest: string): void {
+  equipFromBag(player, rest, 'wear');
+}
+
+/**
+ * `wield <weapon>`: take a weapon in hand — `wear`'s sibling, and now that it has a rule of its own.
+ *
+ * **Duris splits the two and 15b did not, for a reason that has since expired.** The argument then was
+ * that one verb was enough while a character had one weapon and refusing `wear dagger` would be a rule
+ * with no benefit attached. Two-handed weapons are that benefit: 557 of the catalogue's 2,841 weapons
+ * need both hands, and *which hand a thing occupies* is suddenly a question with consequences.
+ *
+ * The split is deliberately **asymmetric**, which is the kinder half of Duris' behaviour without the
+ * unkind half. `wield` refuses anything that is not a weapon, so it means what it says; `wear` still
+ * accepts a weapon, because a player who types the wrong verb at the right item should get their sword
+ * in their hand rather than a lecture. Duris refuses both ways; that costs a beginner a swing and buys
+ * nothing.
+ */
+function wieldFromBag(player: Player, rest: string): void {
+  equipFromBag(player, rest, 'wield');
+}
+
+/**
+ * The one act behind `wear` and `wield` — including the two-hand rule, which neither may skip.
+ *
+ * **A two-handed weapon takes the off hand too, and what was there goes into the bag.** Duris refuses
+ * outright — *"You need two free hands to wield that"* — and this displaces instead, which is the house
+ * rule `wear` already follows: a character cannot end an equip holding less than they started, because
+ * losing gear to one mistyped command is the feeling this project's owner named as the worst in a game.
+ * The refusal survives in the one case where displacing would lose something: a bag with no room for
+ * what comes off.
+ *
+ * The rule runs **both ways**. Wielding a greatsword sheds the shield; strapping on a shield sheds the
+ * greatsword. One of those is easy to forget, and forgetting it is a character quietly fighting with a
+ * two-hander and a shield.
+ */
+function equipFromBag(player: Player, rest: string, mode: 'wear' | 'wield'): void {
   if (!rest.trim()) {
-    send(player.id, { t: 'log', channel: 'error', text: 'Wear what?' });
+    send(player.id, { t: 'log', channel: 'error', text: mode === 'wield' ? 'Wield what?' : 'Wear what?' });
     return;
   }
   const index = matchInventory(player.inventory, rest);
@@ -3597,36 +3634,55 @@ function wearFromBag(player: Player, rest: string): void {
   // every key in the world wearable somewhere.
   const slot = item.slot;
   if (!slot) {
-    send(player.id, { t: 'log', channel: 'error', text: `You cannot wear ${item.name}.` });
+    send(player.id, { t: 'log', channel: 'error', text: `You cannot ${mode} ${item.name}.` });
     return;
   }
-  const displaced = player.equipped[slot];
+  if (mode === 'wield' && slot !== 'mainHand') {
+    send(player.id, { t: 'log', channel: 'error', text: `${capitalise(item.name)} is not a weapon. Try wearing it.` });
+    return;
+  }
+
+  // Every slot this equip empties. Normally one; a two-hander clears both hands, and so does putting
+  // something in the off hand while a two-hander is held.
+  const clears: EquipSlot[] = [slot];
+  if (slot === 'mainHand' && item.twoHanded) clears.push('offHand');
+  if (slot === 'offHand' && player.equipped.mainHand?.twoHanded) clears.push('mainHand');
 
   const removed = removeAt(player.inventory, index);
   if (!removed) return;
   let bag = removed.inventory;
 
-  if (displaced) {
-    const stowed = carry(bag, displaced);
+  const displaced: Item[] = [];
+  for (const cleared of clears) {
+    const worn = player.equipped[cleared];
+    if (!worn) continue;
+    const stowed = carry(bag, worn);
     if (!('stacks' in stowed)) {
       send(player.id, {
         t: 'log',
         channel: 'error',
-        text: `You would have nowhere to put ${displaced.name}. Make room first.`,
+        text: `You would have nowhere to put ${worn.name}. Make room first.`,
       });
       return;
     }
     bag = stowed;
+    displaced.push(worn);
   }
 
   player.inventory = bag;
-  player.equipped = { ...player.equipped, [slot]: item };
+  const kit = { ...player.equipped };
+  for (const cleared of clears) delete kit[cleared];
+  player.equipped = { ...kit, [slot]: item };
 
-  send(player.id, { t: 'log', channel: 'system', text: `You wear ${item.name}.` });
-  if (displaced) {
-    send(player.id, { t: 'log', channel: 'system', text: `You stop using ${displaced.name}.` });
+  const verb = slot === 'mainHand' ? 'wield' : 'wear';
+  send(player.id, { t: 'log', channel: 'system', text: `You ${verb} ${item.name}.` });
+  if (item.twoHanded) {
+    send(player.id, { t: 'log', channel: 'system', text: `It takes both hands.` });
   }
-  actToRoom(player, 'room', (who) => `${who} wears ${item.name}.`);
+  for (const gone of displaced) {
+    send(player.id, { t: 'log', channel: 'system', text: `You stop using ${gone.name}.` });
+  }
+  actToRoom(player, 'room', (who) => `${who} ${verb}s ${item.name}.`);
   afterKitChange(player);
 }
 
@@ -4012,6 +4068,9 @@ const admin = new AdminApi({
   world,
   store,
   live: adminLive,
+  // The same catalogue the simulation instantiates from, not a second copy read off disk — an Items
+  // section showing something the running world does not have would be worse than no section.
+  items: itemCatalogue,
   /**
    * The operator speaking, to as many people as the scope names.
    *

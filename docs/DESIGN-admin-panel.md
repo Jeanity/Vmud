@@ -95,7 +95,7 @@ follows.
 | **World rules** | **built (15b)** | §9 below — the switches that change how the world behaves for everyone. One today: player killing |
 | **Zones** | **built (A3), read-only** | read first: zone list, room browser with flags/sector/prose, door states, repop clocks. Live ops second: force a repop, work a door. Authoring last, as §1 overlays: room prose, flags, sector |
 | **Mobs** | with zones | live: instances by zone, slay, spawn from template. Authoring: template overrides (name, level, combat numbers, aggro) as §1 overlays over the harvested spawn files |
-| **Items** | stub until Phase 15c | Phase 15b gave the game bags, ground objects and worn gear — but **no item data**. Every item is the rolled starter kit in `shared/src/equipment.ts`, which is code rather than data, so there is still nothing here to edit. 15c's harvest from Duris' `.obj` files is what unblocks it |
+| **Items** | **built (15c), read-only** | the harvested catalogue, searched. 16,421 entries is not a page, so the term goes to the server and a bounded page comes back with the total beside it — an operator reading the first fifty of nine hundred and believing it is the answer is the failure that avoids. Matched on keywords (what a player types), display name with colour stripped, and exact vnum (what a reset table names). Read-only because the catalogue is a **worldgen output**: editing it here would be editing a build artefact, and §1's rule is that authoring lands as overlay files. Item overlays are **A6** |
 | **Quests** | stub until Phase 17 | nothing exists to edit. The tab names the phase |
 
 **The `announce` channel was taken, and it was a protocol bump (10).** A1 shipped announcements on

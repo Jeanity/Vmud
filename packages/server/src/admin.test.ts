@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import { boundsOf, type Room, type Zone } from '@mygame/shared';
+import { boundsOf, type ItemTemplate, type Room, type Zone } from '@mygame/shared';
 
 import { AdminApi, type AdminDeps, type AdminRequest, type AnnounceScope, type LiveOps } from './admin.ts';
 import { PlayerStore, slugify } from './players.ts';
@@ -137,6 +137,14 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     world,
     store,
     live,
+    // A three-entry catalogue rather than the real 16,421: these tests are about the router's search
+    // and its shape, and a synthetic set is the only way to assert "two weapons, one of them
+    // two-handed" without the answer moving the next time the harvest changes.
+    items: new Map<number, ItemTemplate>([
+      [100, { vnum: 100, keywords: ['dagger', 'silver'], name: '&+Ca silver dagger&N', roomLine: 'x', type: 5, slot: 'mainHand', ac: 0, size: 1, cost: 40, stackLimit: 1, damage: { count: 1, sides: 4, bonus: 0 } }],
+      [101, { vnum: 101, keywords: ['greatsword'], name: 'a greatsword', roomLine: 'x', type: 5, slot: 'mainHand', ac: 0, size: 6, cost: 400, stackLimit: 1, damage: { count: 2, sides: 10, bonus: 0 }, twoHanded: true }],
+      [102, { vnum: 102, keywords: ['sack'], name: 'a sack', roomLine: 'x', type: 15, ac: 0, size: 3, cost: 5, stackLimit: 1, container: { capacity: 20, accepts: 'any' } }],
+    ]),
     // Records the scope as well as the line: what these tests are checking is that the router
     // *resolved and validated* the target, not that the server walks the right set of players.
     announce: (text, scope) => {
@@ -746,5 +754,62 @@ describe('authoring a room', () => {
   it('404s a room that is not loaded', () => {
     const { api } = makeRig();
     assert.equal(quietly(() => api.route(req('PATCH', '/rooms/99999', { name: 'Nowhere' }))).status, 404);
+  });
+});
+
+describe('the item catalogue', () => {
+  /** The search takes its term from the query string, which is the one read that cannot use the path. */
+  function search(api: AdminApi, query: Record<string, string>): { total: number; items: Record<string, unknown>[] } {
+    const response = api.route({ ...req('GET', '/items'), query });
+    assert.equal(response.status, 200);
+    return response.body as { total: number; items: Record<string, unknown>[] };
+  }
+
+  it('lists everything when nothing is asked for', () => {
+    const { api } = makeRig();
+    const all = search(api, {});
+    assert.equal(all.total, 3);
+    assert.deepEqual(all.items.map((i) => i['vnum']), [100, 101, 102], 'by vnum, the catalogue\'s own order');
+  });
+
+  it('matches a keyword, which is what a player would type', () => {
+    const { api } = makeRig();
+    assert.deepEqual(search(api, { q: 'dagger' }).items.map((i) => i['vnum']), [100]);
+  });
+
+  it('matches the display name with its colour codes stripped', () => {
+    // `&+Ca silver dagger&N` — searching for "silver" against the raw string finds it by luck here,
+    // so the test uses a term that only exists *around* a code to prove the stripping.
+    const { api } = makeRig();
+    assert.deepEqual(search(api, { q: 'a silver' }).items.map((i) => i['vnum']), [100]);
+  });
+
+  it('matches an exact vnum, because a reset table names items by number and nothing else', () => {
+    const { api } = makeRig();
+    assert.deepEqual(search(api, { q: '101' }).items.map((i) => i['vnum']), [101]);
+  });
+
+  it('filters by kind, including the two-handed weapons wield exists for', () => {
+    const { api } = makeRig();
+    assert.equal(search(api, { kind: 'weapon' }).total, 2);
+    assert.deepEqual(search(api, { kind: 'twoHanded' }).items.map((i) => i['vnum']), [101]);
+    assert.deepEqual(search(api, { kind: 'container' }).items.map((i) => i['vnum']), [102]);
+  });
+
+  it('reports the total beside the page, so a too-broad search is visible', () => {
+    // The row cap is what keeps 16,421 entries off the wire; without `total` an operator reading the
+    // first page has no way to know they are reading part of the answer.
+    const { api } = makeRig();
+    const page = search(api, { limit: '1' });
+    assert.equal(page.total, 3);
+    assert.equal(page.items.length, 1);
+  });
+
+  it('answers one item whole, and 404s for one that is not there', () => {
+    const { api } = makeRig();
+    const one = api.route(req('GET', '/items/101'));
+    assert.equal(one.status, 200);
+    assert.equal((one.body as { item: { twoHanded?: boolean } }).item.twoHanded, true);
+    assert.equal(api.route(req('GET', '/items/9999')).status, 404);
   });
 });

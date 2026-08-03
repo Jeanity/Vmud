@@ -274,6 +274,22 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
   const sides = raw.values[2] ?? 0;
   const damage = isWeapon && count > 0 && sides > 0 ? { count, sides, bonus: 0 } : undefined;
 
+  // **Two-handed, and the test is Duris' own disjunction rather than the flag alone.** `actobj.c`:
+  //
+  // ```c
+  // hands_needed = (IS_SET(obj->extra_flags, ITEM_TWOHANDS) || obj->value[0] == WEAPON_2HANDSWORD) ? 2 : 1;
+  // ```
+  //
+  // Reading only the flag would be plausible and wrong: measured over the 2,841 weapons in the
+  // catalogue, **535 carry `ITEM_TWOHANDS` and 223 are weapon class 13, but only 201 are both** — so
+  // twenty-two two-handed swords are two-handed by class with no flag on them, and the flag alone
+  // misses every one. `ITEM_TWOHANDS` is `BIT_23` of **`extra_flags`**, not of `wear_flags`, where the
+  // same bit is `ITEM_WEAR_BACK` — reading the wrong field would make every backpack a greatsword.
+  const ITEM_TWOHANDS = 1 << 22;
+  const WEAPON_2HANDSWORD = 13;
+  const twoHanded =
+    isWeapon && ((raw.extraFlags & ITEM_TWOHANDS) !== 0 || raw.values[0] === WEAPON_2HANDSWORD);
+
   const container = containerRule(raw.type, raw.values);
   const uses = usesFor(raw.type, raw.values);
 
@@ -286,6 +302,7 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
     ...(slot ? { slot } : {}),
     ac,
     ...(damage ? { damage } : {}),
+    ...(twoHanded ? { twoHanded: true as const } : {}),
     size: sizeFrom(raw.weight),
     cost: Math.max(0, raw.cost),
     stackLimit: stackLimitFor(raw.type),

@@ -140,6 +140,26 @@ Slots: head, neck, chest, legs, feet, hands, **main hand**, **off hand**, back, 
 The slot set maps directly onto LPC's layered sprite system, which is what makes worn equipment
 visible on the character rather than merely listed. That was a stated goal of the art direction.
 
+### `wear` and `wield`, and the weapons that need both hands
+
+15b shipped one verb on the argument that the split earns its keep only when a character has enough
+gear for it to save typing. The harvest is what expired that argument: **557 of the catalogue's 2,841
+weapons need two hands**, so which hand a thing occupies became a question with consequences.
+
+- `wield <weapon>` puts a weapon in the main hand and **refuses anything that is not a weapon**.
+- `wear <anything>` still accepts a weapon. The asymmetry is deliberate — Duris refuses both ways, and
+  a beginner who types the wrong verb at the right item should get their sword in their hand rather
+  than a lecture.
+- **A two-handed weapon takes the off hand too**, and whatever was there goes into the bag. Duris
+  refuses outright; displacing follows §7's rule that a character cannot end an equip holding less than
+  they started. The refusal survives only where displacing would lose something: a bag with no room.
+- **The rule runs both ways.** Strapping on a shield sheds the greatsword. Forgetting that direction is
+  a character quietly fighting with a two-hander *and* a shield.
+
+The in-combat rule differs between the two and is transcribed rather than chosen: `interp.c` has
+`CMD_N` for wear at sitting and **`CMD_Y` for wield at prone**. Drawing a weapon is one motion you can
+manage flat on your back with something standing over you; buckling on a breastplate is not.
+
 ### There is no light slot — light is a property of items
 
 A dedicated light slot would be free light forever. Instead, **any equipped item may emit light**,

@@ -68,6 +68,13 @@ export interface Item {
   /** What it hits for, on a weapon. Absent on everything worn rather than wielded. */
   readonly damage?: Dice;
   /**
+   * Needs **both hands**, so nothing may occupy the off hand while it is held. `wield` enforces it.
+   *
+   * On the item rather than looked up per swing, because the rule has to survive a restart and a
+   * catalogue edit: the greatsword in your save file is the greatsword you wielded.
+   */
+  readonly twoHanded?: true;
+  /**
    * Slots this costs in a bag. Phase 15b, and `DESIGN-inventory.md` §2 is the spec.
    *
    * **A bulk model wearing a slot model's clothes**, deliberately: a breastplate costing ten of your
@@ -261,6 +268,9 @@ export function readItem(raw: unknown, slot?: EquipSlot): Item | undefined {
     // is every item written before 15c and every sword written since.
     ...(typeof item.stackLimit === 'number' && item.stackLimit > 1 ? { stackLimit: item.stackLimit } : {}),
     ...(typeof item.uses === 'number' && item.uses > 0 ? { uses: item.uses } : {}),
+    // Same rule as those two: a persisted field with no line here is deleted on the next login, and a
+    // greatsword that quietly became one-handed over a restart would let a shield in beside it.
+    ...(item.twoHanded === true ? { twoHanded: true as const } : {}),
     ...(damage && typeof damage.count === 'number' && typeof damage.sides === 'number'
       ? { damage: { count: damage.count, sides: damage.sides, bonus: damage.bonus ?? 0 } }
       : {}),
