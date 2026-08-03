@@ -84,6 +84,7 @@ import {
   slotsUsed,
   type EquipSlot,
   type Item,
+  type Stack,
   meets,
   summariseAffects,
   parseDirection,
@@ -3159,20 +3160,12 @@ function lookInside(player: Player, argument: string): boolean {
   const wanted = (match?.[1] ?? argument).trim();
   if (!wanted) return false;
 
-  const index = matchInventory(player.inventory, wanted);
-  const carried = index === -1 ? undefined : heldAt(player, index);
-  if (carried) {
-    describeContents(player, player.inventory.stacks[index]!.item, carried, 'You are carrying');
-    return true;
-  }
-
-  // Then the floor — but only what is in reach, the same gate `get` uses. A container across the room
-  // is not one you can see the inside of.
-  const reachable = itemsIn(ground, player.roomId).filter((entry) => withinPickupReach(entry, player.x, player.y));
-  const found = nearestMatching(reachable, wanted, player.x, player.y);
-  const rule = found && (found.held?.rule ?? templateOf(found.item)?.container);
-  if (found && rule) {
-    describeContents(player, found.item, { rule, contents: found.held?.contents ?? [] }, 'Lying here');
+  // Through the same resolver `put` and `get … from` use, so the bag-before-floor precedence is one
+  // rule in one place rather than three copies that drift.
+  const lookup = resolveContainer(player, wanted);
+  if (lookup.found === 'container') {
+    const { ref } = lookup;
+    describeContents(player, ref.item, ref.held, ref.where === 'bag' ? 'You are carrying' : 'Lying here');
     return true;
   }
 
@@ -3180,11 +3173,13 @@ function lookInside(player: Player, argument: string): boolean {
   // **"Not a container" and "not here" are different answers and a player can act on the difference.**
   // Collapsing them told somebody holding a blowgun needle that they had no needle, which sends them
   // looking for a thing that is already in their hand.
-  const seen = player.inventory.stacks[index]?.item ?? found?.item;
   send(player.id, {
     t: 'log',
     channel: 'error',
-    text: seen ? `${capitalise(seen.name)} is not a container.` : `You see no ${wanted} to look inside.`,
+    text:
+      lookup.found === 'not-a-container'
+        ? `${capitalise(lookup.item.name)} is not a container.`
+        : `You see no ${wanted} to look inside.`,
   });
   return true;
 }
@@ -3254,10 +3249,148 @@ function setHeld(player: Player, index: number, held: Held): void {
 }
 
 /**
- * `put <item> <container>`: move something from the bag into a container in the bag.
+ * A container somebody named, and **which store it lives in**.
+ *
+ * The two are genuinely different writes — a bag position against an entity id in a shared map — and
+ * collapsing them behind one "index" would be the kind of ambiguity that turned a walk key into a sack
+ * the last time this file guessed at an index. The tag makes the caller say which it is writing to.
+ */
+type ContainerRef =
+  | { readonly where: 'bag'; readonly index: number; readonly item: Item; readonly held: Held }
+  | {
+      readonly where: 'ground';
+      readonly id: EntityId;
+      readonly item: Item;
+      readonly held: Held;
+      /** Where it lies, carried along so turning toward it needs no second lookup that could miss. */
+      readonly x: number;
+      readonly y: number;
+    };
+
+/**
+ * What naming a container found: one, something that is not one, or nothing.
+ *
+ * Three answers rather than an optional, because *"that is not a container"* and *"there is no such
+ * thing here"* are different facts and a player can act on the difference — being told you have no
+ * needle while holding one sends you looking for something already in your hand.
+ */
+type ContainerLookup =
+  | { readonly found: 'container'; readonly ref: ContainerRef }
+  | { readonly found: 'not-a-container'; readonly item: Item }
+  | { readonly found: 'nothing' };
+
+/**
+ * Resolves a keyword to a container — **the bag first, then what is in reach on the floor**.
+ *
+ * One resolver for `put`, `get … from` and `look in`, so the precedence cannot drift between them.
+ * The bag wins because `put arrow sack` while standing on an identical sack means the one you are
+ * holding: that is the sack `inventory` just told you about, and reaching past it would be the wrong
+ * guess in the common case.
+ *
+ * The floor half uses **`get`'s reach gate, not `look`'s**. You can look at something across the room;
+ * you cannot reach into it from there.
+ */
+function resolveContainer(player: Player, keyword: string): ContainerLookup {
+  const index = matchInventory(player.inventory, keyword);
+  if (index !== -1) {
+    const item = player.inventory.stacks[index]!.item;
+    const held = heldAt(player, index);
+    if (held) return { found: 'container', ref: { where: 'bag', index, item, held } };
+    // Deliberately not falling through to the floor. Something you are holding by that name is what
+    // you meant, and answering about a different object with the same name would be worse than saying
+    // this one will not do.
+    return { found: 'not-a-container', item };
+  }
+
+  const reachable = itemsIn(ground, player.roomId).filter((entry) => withinPickupReach(entry, player.x, player.y));
+  const entry = nearestMatching(reachable, keyword, player.x, player.y);
+  if (!entry) return { found: 'nothing' };
+  const rule = entry.held?.rule ?? templateOf(entry.item)?.container;
+  if (!rule) return { found: 'not-a-container', item: entry.item };
+  return {
+    found: 'container',
+    ref: {
+      where: 'ground',
+      id: entry.id,
+      item: entry.item,
+      held: { rule, contents: entry.held?.contents ?? [] },
+      x: entry.x,
+      y: entry.y,
+    },
+  };
+}
+
+/**
+ * Writes a container's new contents back to whichever store it came from.
+ *
+ * **Ground entries are re-read by id before the write**, the discipline `pickUp` follows: the sack may
+ * have been picked up since it was resolved, and quietly recreating it would put items into an object
+ * that no longer exists. Returns whether the write happened, so a caller that has *not yet* committed
+ * its own half can abandon the whole move rather than leaving the item in two places or in none.
+ *
+ * Empty contents drop the field entirely, which keeps `dropItem`'s invariant: `held` on a ground entry
+ * means *holding something*. An emptied sack is still a sack — the rule comes back from the catalogue
+ * the same way it did the first time.
+ */
+function writeHeld(player: Player, ref: ContainerRef, held: Held): boolean {
+  if (ref.where === 'bag') {
+    const stack = player.inventory.stacks[ref.index];
+    if (!stack || stack.item.id !== ref.item.id) return false;
+    setHeld(player, ref.index, held);
+    return true;
+  }
+  const entry = ground.get(ref.id);
+  if (!entry || entry.roomId !== player.roomId) return false;
+  const { held: _was, ...rest } = entry;
+  ground.set(ref.id, held.contents.length > 0 ? { ...rest, held } : rest);
+  return true;
+}
+
+/** Where the container is, in the words the message wants: "in your quiver" / "in the sack here". */
+function containerPhrase(ref: ContainerRef): string {
+  return ref.where === 'bag' ? ref.item.name : `${ref.item.name} lying here`;
+}
+
+/** Says why a named container is unusable, in the words the two verbs share. */
+function refuseContainer(player: Player, lookup: ContainerLookup, keyword: string, forPutting: boolean): void {
+  send(player.id, {
+    t: 'log',
+    channel: 'error',
+    text:
+      lookup.found === 'not-a-container'
+        ? `${capitalise(lookup.item.name)} is not a container.`
+        : forPutting
+          ? `You see no ${keyword} to put things in.`
+          : `You see no ${keyword} here.`,
+  });
+}
+
+/** Adds one item to a container's contents, merging rather than piling up singletons. */
+function intoContents(held: Held, item: Item): Stack[] {
+  const incoming = stackOf(item);
+  const contents = [...held.contents];
+  const at = contents.findIndex((s) => mergeable(s, incoming));
+  if (at < 0) {
+    contents.push(incoming);
+    return contents;
+  }
+  const { merged, leftover } = mergeStacks(contents[at]!, incoming, limitOf(item));
+  contents[at] = merged;
+  if (leftover) contents.push(leftover);
+  return contents;
+}
+
+/**
+ * `put <item> <container>`: move something from the bag into a container — **yours or one on the
+ * floor**.
  *
  * **The container's contents do not count against the bag** (§4), so this is the command that buys a
- * player space — twenty loose arrows become one quiver, and nineteen slots come back.
+ * player space — twenty loose arrows become one quiver, and nineteen slots come back. A floor container
+ * buys more than that: a chest by the door is storage you do not carry at all.
+ *
+ * The *item* still comes from the bag only. `put` moves one thing from your hands into a container;
+ * something already on the floor is a `get` away from being in your hands, and making this verb also a
+ * floor-to-floor mover would be two acts sharing a word.
  */
 function putInContainer(player: Player, rest: string): void {
   // `put arrow quiver`, and also `put arrow in quiver` because a player will type it.
@@ -3269,25 +3402,26 @@ function putInContainer(player: Player, rest: string): void {
   const target = words[words.length - 1]!;
   const wanted = words.slice(0, -1).join(' ');
 
-  const bagIndex = matchInventory(player.inventory, target);
-  const held = bagIndex === -1 ? undefined : heldAt(player, bagIndex);
-  if (!held) {
-    send(player.id, { t: 'log', channel: 'error', text: `You are not carrying a ${target} to put things in.` });
+  const lookup = resolveContainer(player, target);
+  if (lookup.found !== 'container') {
+    refuseContainer(player, lookup, target, true);
     return;
   }
+  const ref = lookup.ref;
+
   const itemIndex = matchInventory(player.inventory, wanted);
   if (itemIndex === -1) {
     send(player.id, { t: 'log', channel: 'error', text: `You are not carrying ${wanted}.` });
     return;
   }
-  if (itemIndex === bagIndex) {
+  if (ref.where === 'bag' && itemIndex === ref.index) {
     send(player.id, { t: 'log', channel: 'error', text: 'It will not hold itself.' });
     return;
   }
 
   const item = player.inventory.stacks[itemIndex]!.item;
   const itemTemplate = templateOf(item);
-  const refusal = putRefusal(held, item, itemTemplate?.type, itemTemplate?.container !== undefined);
+  const refusal = putRefusal(ref.held, item, itemTemplate?.type, itemTemplate?.container !== undefined);
   if (refusal) {
     send(player.id, {
       t: 'log',
@@ -3297,76 +3431,73 @@ function putInContainer(player: Player, rest: string): void {
         refusal === 'too-deep'
           ? `${capitalise(item.name)} is a container, and a container does not go inside another.`
           : refusal === 'wrong-kind'
-            ? `${capitalise(held.rule.accepts === 'missile' ? 'that' : 'that')} does not belong in ${player.inventory.stacks[bagIndex]!.item.name}.`
-            : `There is no room in ${player.inventory.stacks[bagIndex]!.item.name}.`,
+            ? `That does not belong in ${ref.item.name}.`
+            : `There is no room in ${ref.item.name}.`,
     });
     return;
   }
 
-  // Out of the bag first, then in — and the *order* matters for the index, because removing a stack
-  // above the container shifts it down one.
-  // **One pass over the array, because a removal does not always shift the indices.** The first
-  // version removed the item and then adjusted the container's index by one — which is right only when
-  // the source stack *emptied*. `removeAt` splices at count 1 and merely decrements above it, so
-  // putting one of five eggs away shifted nothing and the adjusted index pointed at the neighbour.
-  // Found live: it made the guard's walk key a container and duplicated a suit of mail into it.
+  // **One pass over the array, because a removal does not always shift the indices.** An early version
+  // removed the item and then adjusted the container's index by one — right only when the source stack
+  // *emptied*. `removeAt` splices at count 1 and merely decrements above it, so putting one of five
+  // eggs away shifted nothing and the adjusted index pointed at the neighbour. Found live: it made the
+  // guard's walk key a container and duplicated a suit of mail into it.
   const stacks = [...player.inventory.stacks];
   const source = stacks[itemIndex]!;
   const emptied = source.count <= 1;
   if (emptied) stacks.splice(itemIndex, 1);
   else stacks[itemIndex] = { ...source, count: source.count - 1 };
-  const containerAt = emptied && itemIndex < bagIndex ? bagIndex - 1 : bagIndex;
 
-  // Merged into a matching stack inside, so a quiver does not fill with singleton arrows.
-  const incoming = stackOf(item);
-  const contents = [...held.contents];
-  const at = contents.findIndex((s) => mergeable(s, incoming));
-  if (at >= 0) {
-    const { merged, leftover } = mergeStacks(contents[at]!, incoming, limitOf(item));
-    contents[at] = merged;
-    if (leftover) contents.push(leftover);
+  const contents = intoContents(ref.held, item);
+
+  if (ref.where === 'bag') {
+    // Only a bag container has an index to shift, and only a removal below it shifts one.
+    const at = emptied && itemIndex < ref.index ? ref.index - 1 : ref.index;
+    const container = stacks[at];
+    // Belt and braces after the bug above: if the index does not still name the container we resolved,
+    // do nothing rather than turning some innocent item into a sack.
+    if (!container || container.item.id !== ref.item.id) return;
+    stacks[at] = { ...container, held: { rule: ref.held.rule, contents } };
+    player.inventory = { stacks, capacity: player.inventory.capacity };
   } else {
-    contents.push(incoming);
+    // **The floor is written first, and the bag only if that succeeded.** The other order hands the
+    // item to a sack that may have been picked up in the meantime, and the item is then in neither
+    // place. Nothing has been taken from the player until this line runs.
+    if (!writeHeld(player, ref, { rule: ref.held.rule, contents })) {
+      send(player.id, { t: 'log', channel: 'error', text: `${capitalise(ref.item.name)} is not there any more.` });
+      return;
+    }
+    player.inventory = { stacks, capacity: player.inventory.capacity };
   }
 
-  const container = stacks[containerAt];
-  // Belt and braces after the bug above: if the index does not still name the container we resolved,
-  // do nothing rather than turning some innocent item into a sack.
-  if (!container || container.item.id !== player.inventory.stacks[bagIndex]!.item.id) return;
-  stacks[containerAt] = { ...container, held: { rule: held.rule, contents } };
-  player.inventory = { stacks, capacity: player.inventory.capacity };
-
-  send(player.id, {
-    t: 'log',
-    channel: 'system',
-    text: `You put ${item.name} in ${container.item.name}.`,
-  });
+  send(player.id, { t: 'log', channel: 'system', text: `You put ${item.name} in ${containerPhrase(ref)}.` });
+  if (ref.where === 'ground') {
+    faceToward(player, ref.x, ref.y);
+    actToRoom(player, 'room', (who) => `${who} puts ${item.name} in ${ref.item.name}.`);
+  }
   send(player.id, { t: 'self', view: sim.selfViewOf(player) });
   rememberProgress(player);
 }
 
-/** `get <item> from <container>`: take something back out. */
+/** `get <item> from <container>`: take something back out, of yours or of one lying here. */
 function getFromContainer(player: Player, wanted: string, target: string): void {
-  const bagIndex = matchInventory(player.inventory, target);
-  const held = bagIndex === -1 ? undefined : heldAt(player, bagIndex);
-  if (!held) {
-    send(player.id, { t: 'log', channel: 'error', text: `You are not carrying a ${target}.` });
+  const lookup = resolveContainer(player, target);
+  if (lookup.found !== 'container') {
+    refuseContainer(player, lookup, target, false);
     return;
   }
+  const ref = lookup.ref;
+
   const word = wanted.trim().toLowerCase();
-  const at = held.contents.findIndex(
+  const at = ref.held.contents.findIndex(
     (s) => !word || s.item.id === word || s.item.name.toLowerCase().split(/[^a-z0-9]+/).includes(word),
   );
   if (at === -1) {
-    send(player.id, {
-      t: 'log',
-      channel: 'error',
-      text: `There is no ${wanted} in ${player.inventory.stacks[bagIndex]!.item.name}.`,
-    });
+    send(player.id, { t: 'log', channel: 'error', text: `There is no ${wanted} in ${ref.item.name}.` });
     return;
   }
 
-  const stack = held.contents[at]!;
+  const stack = ref.held.contents[at]!;
   // Coming *out* costs bag slots, so it can be refused — which is the honest mirror of putting it in
   // having freed them.
   const result = carry(player.inventory, stack.item);
@@ -3378,19 +3509,24 @@ function getFromContainer(player: Player, wanted: string, target: string): void 
     });
     return;
   }
-  player.inventory = result;
 
-  const contents = [...held.contents];
+  const contents = [...ref.held.contents];
   if (stack.count > 1) contents[at] = { ...stack, count: stack.count - 1 };
   else contents.splice(at, 1);
-  // The container's own index is unchanged: `carry` appends or merges, never removes.
-  setHeld(player, bagIndex, { rule: held.rule, contents });
 
-  send(player.id, {
-    t: 'log',
-    channel: 'system',
-    text: `You get ${stack.item.name} from ${player.inventory.stacks[bagIndex]!.item.name}.`,
-  });
+  // **Out of the container before it reaches the bag**, so a container that has gone cannot also have
+  // handed you its arrow. The bag write is the last thing that happens, exactly as in `put`.
+  if (!writeHeld(player, ref, { rule: ref.held.rule, contents })) {
+    send(player.id, { t: 'log', channel: 'error', text: `${capitalise(ref.item.name)} is not there any more.` });
+    return;
+  }
+  player.inventory = result;
+
+  send(player.id, { t: 'log', channel: 'system', text: `You get ${stack.item.name} from ${containerPhrase(ref)}.` });
+  if (ref.where === 'ground') {
+    faceToward(player, ref.x, ref.y);
+    actToRoom(player, 'room', (who) => `${who} gets ${stack.item.name} from ${ref.item.name}.`);
+  }
   send(player.id, { t: 'self', view: sim.selfViewOf(player) });
   rememberProgress(player);
 }

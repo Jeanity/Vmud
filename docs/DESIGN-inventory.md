@@ -79,10 +79,24 @@ whose rules are decoration.
 
 ### The verbs
 
-`put <item> <container>` and `get <item> from <container>` move things in and out of a container in the
-bag. `look in <container>` reads one without disturbing it, and it looks **in the bag first and then at
-your feet** — `look in sack` while standing on an identical sack means the one you are holding, which
-is the one `inventory` just told you about.
+`put <item> <container>` and `get <item> from <container>` move things in and out; `look in <container>`
+reads one without disturbing it. All three take **the bag first and then what is in reach on the floor**
+— `put arrow sack` while standing on an identical sack means the one you are holding, which is the one
+`inventory` just told you about — and all three go through one resolver, so the precedence cannot drift
+between them. A container you are *holding* by that name settles the question: if it turns out not to be
+a container you are told so, rather than having a different object with the same name quietly used
+instead.
+
+**A container on the floor is usable, not just readable.** That makes a chest by the door into storage
+you never carry, which is a different thing from a quiver and worth having. The floor half uses `get`'s
+reach gate rather than `look`'s: you can look *at* something across the room and not reach into it. The
+*item* still comes from the bag either way — `put` moves one thing from your hands into a container, and
+something already on the floor is a `get` away from being in your hands.
+
+**The order of the two writes is the whole safety argument.** Both verbs write the container first and
+the bag last, and abandon the move if the container has gone. The other order hands an item to a sack
+that no longer exists, and the item is then in neither place — the one inventory bug you cannot
+apologise your way out of.
 
 `inventory` already lists contents indented under each container, so `look in` is for the container you
 want to read *alone*. Bare `look <container>` answers the same way, because "what is in it" is the only
