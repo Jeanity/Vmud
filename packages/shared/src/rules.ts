@@ -171,14 +171,14 @@ export function roundsPerMinute(): number {
   return 60_000 / ROUND_MS;
 }
 
-/** SRD: max HP at level 1 is the hit die plus the Constitution modifier. */
-export function maxHitPoints(hitDie: number, level: number, conMod: number): number {
-  const average = Math.floor(hitDie / 2) + 1;
-  return hitDie + conMod + (Math.max(1, level) - 1) * (average + conMod);
-}
-
-export function experienceToLevel(level: number): number {
-  // A smooth curve rather than the SRD's lookup table, so it extends past level 20 without
-  // extra data. Tuned to sit close to the SRD values through the low levels.
-  return Math.floor(500 * (level - 1) ** 2 + 300 * (level - 1));
-}
+/*
+ * `maxHitPoints` and `experienceToLevel` lived here and were deleted by Phase 14b. Both were the SRD's
+ * *magnitudes* — a d8-plus-Constitution maximum, and a smooth quadratic experience curve — and
+ * `DESIGN-progression.md` §1 settled that the SRD sets the shape of the rules while **Duris sets their
+ * magnitudes**. Their replacements are `progression.ts`: hit points rolled per level on Duris' own d4
+ * and stored, and Duris' step table read out of `duris.properties`.
+ *
+ * Named here rather than silently removed because the SRD versions are the obvious thing to reach for
+ * again. `maxHitPoints(8, 1, 1)` returned 9, against a world whose gentlest creature has 23 — that gap
+ * is the whole reason the phase existed, and reintroducing either function would reopen it.
+ */

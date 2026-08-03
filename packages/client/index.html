@@ -158,6 +158,10 @@
       /* Tabular figures so a counting pool does not jitter the line width every point. */
       #status .pool output { color: var(--dim); font-variant-numeric: tabular-nums; min-width: 4.2em; }
 
+      /* Not a pool colour: a dimmer, cooler fill so experience reads as progress rather than as a
+         fourth thing that can run out and kill you. */
+      #status .pool.xp { margin-top: 3px; padding-top: 3px; border-top: 1px solid var(--edge); }
+      #bar-xp   { background: #7d7ea8; }
       #bar-hp   { background: #8faa63; }
       #bar-mana { background: #6f93b8; }
       #bar-move { background: #b8a468; }
@@ -595,6 +599,11 @@
             <div class="pool"><span class="tag">hp</span><span class="track"><i id="bar-hp"></i></span><output id="num-hp">—</output></div>
             <div class="pool"><span class="tag">ma</span><span class="track"><i id="bar-mana"></i></span><output id="num-mana">—</output></div>
             <div class="pool"><span class="tag">mv</span><span class="track"><i id="bar-move"></i></span><output id="num-move">—</output></div>
+            <!-- Experience is not a pool: it never regenerates and nothing spends it but a level.
+                 It sits with them anyway because it is the same question in the same shape — how
+                 full is the thing, and how far to the top — and Phase 14b made it a number that
+                 finally moves. Separated by a hairline so the eye reads three-and-one, not four. -->
+            <div class="pool xp"><span class="tag">xp</span><span class="track"><i id="bar-xp"></i></span><output id="num-xp">—</output></div>
           </div>
           <!-- One line, three spans: the radius (always), what is producing it, and how long that has
                left. The source and the clock stay empty for the bare eye, so an unlit character sees

@@ -22,6 +22,7 @@ import {
   stepMovement,
   tileAt,
   type AffectView,
+  MAX_LEVEL,
   type Equipped,
   type CarriedLight,
   type Direction,
@@ -2164,6 +2165,43 @@ export class WorldScene extends Phaser.Scene {
         row.classList.toggle('critical', fraction <= 0.25);
       }
     }
+
+    this.applyExperience(view);
+  }
+
+  /**
+   * Progress toward the next level.
+   *
+   * **Not folded into the pool loop above**, though it wears the same row: the loop's warning colours,
+   * its dying-window clamp and its "current out of max" reading are all pool semantics, and experience
+   * has none of them. It cannot fall, it cannot kill you, and its maximum moves every level.
+   *
+   * The denominator is reconstructed rather than sent. `SelfView` carries what is banked and what is
+   * still needed, and Duris' curve is *subtractive* — experience is a running balance toward the next
+   * level, not a lifetime total — so the two already add up to the cost of this level. Shipping the
+   * cost as a third field would be shipping a sum of two numbers already on the wire.
+   *
+   * Until Phase 14b this was worth nothing: the server sent a hardcoded `300` because experience was
+   * banked and never spent. It buys levels now, so it is worth drawing.
+   */
+  private applyExperience(view: SelfView): void {
+    const bar = document.getElementById('bar-xp');
+    const num = document.getElementById('num-xp');
+    if (!bar && !num) return;
+
+    // At the ceiling there is no next level, and `experienceToNext` is 0 — which through the
+    // arithmetic below would read as a full bar about to tip over. It is the opposite: nothing more
+    // to earn. Said in words, because a bar cannot say "done" and a full one says "imminent".
+    if (view.level >= MAX_LEVEL) {
+      if (bar) bar.style.width = '100%';
+      if (num) num.textContent = 'max';
+      return;
+    }
+
+    const cost = view.experience + view.experienceToNext;
+    const fraction = cost > 0 ? Math.max(0, Math.min(1, view.experience / cost)) : 0;
+    if (bar) bar.style.width = `${(fraction * 100).toFixed(1)}%`;
+    if (num) num.textContent = `${Math.round(view.experience)}/${Math.round(cost)}`;
   }
 
   private litAt(x: number, y: number): boolean {
