@@ -15,6 +15,7 @@ import {
   slotsFree,
   slotsUsed,
   stackOf,
+  wordsFromName,
   type Inventory,
 } from './inventory.ts';
 import type { Stack } from './stacks.ts';
@@ -132,6 +133,38 @@ describe('naming something in the bag', () => {
   it('does not match a partial word, which would make "a" mean everything', () => {
     const bag = { stacks: [stackOf(item('a', 1, 'a leather tunic'))], capacity: 20 };
     assert.equal(matchInventory(bag, 'tun'), -1);
+  });
+});
+
+describe('the words a name yields', () => {
+  it('strips colour before splitting, so the code cannot fuse with the first word', () => {
+    // `&+La long...` split raw yields `la` — half a colour code welded to the article — and loses
+    // nothing a player types, but the same laziness has already cost the admin search a match.
+    assert.deepEqual(wordsFromName('&+La long black dagger&n'), ['long', 'black', 'dagger']);
+  });
+
+  it('keeps hyphenated words whole, which is what the bug report typed', () => {
+    assert.deepEqual(wordsFromName('a black two-handed sword'), ['black', 'two-handed', 'sword']);
+  });
+
+  it('drops the articles and connectives nobody means as a name', () => {
+    assert.deepEqual(wordsFromName('a pair of boots'), ['pair', 'boots']);
+  });
+});
+
+describe('matching through an injected word list', () => {
+  it('finds a word the display name cannot yield', () => {
+    // The server injects the authored catalogue words; this is that seam exercised without the
+    // catalogue. "two-handed" is not derivable from the name here — only the injection supplies it.
+    const bag = { stacks: [stackOf(item('sword', 4, 'a big black sword'))], capacity: 20 };
+    const authored = (i: Item): readonly string[] => [...wordsFromName(i.name), 'two-handed'];
+    assert.equal(matchInventory(bag, 'two-handed', authored), 0);
+    assert.equal(matchInventory(bag, 'two-handed'), -1, 'and the default alone cannot');
+  });
+
+  it('still matches the id exactly, whatever the word list says', () => {
+    const bag = { stacks: [stackOf(item('obj:63', 1, 'a sword'))], capacity: 20 };
+    assert.equal(matchInventory(bag, 'obj:63', () => []), 0);
   });
 });
 

@@ -72,6 +72,7 @@ import {
   isMoney,
   purseIsEmpty,
   vnumOf,
+  wordsFromName,
   type Purse,
   type ItemTemplate,
   emptyInventory,
@@ -129,6 +130,7 @@ import {
   type Command,
   type CommandBudget,
 } from './commands.ts';
+import { wordsForItem, wordsForMob } from './keywords.ts';
 import { legacyRoomReveal } from './legacy-fog.ts';
 import {
   WORLD_SEED,
@@ -2251,9 +2253,7 @@ function resolveTarget(player: Player, argument: string): EntityView | undefined
   }
 
   const found = findTarget(ref, targetsFor(player), (entity) =>
-    entity.id === player.id
-      ? [...keywordsFromName(entity.name), 'me', 'self']
-      : keywordsFromName(entity.name),
+    entity.id === player.id ? [...namelistFor(entity), 'me', 'self'] : namelistFor(entity),
   );
   if (!found) {
     send(player.id, {
@@ -2981,6 +2981,40 @@ function templateOf(item: Item): ItemTemplate | undefined {
 }
 
 /**
+ * The words this item answers to — the authored keyword list unioned with its display name.
+ *
+ * This closure is what every item matcher is fed, and it is the whole fix for `wield two-handed`
+ * failing on a sword authored as `sword two-handed black`: the matchers are injected with a word
+ * list rather than owning a split, and this is the list. See `keywords.ts` for the measured
+ * arguments — union over replacement, and the two guards.
+ */
+function wordsFor(item: Item): readonly string[] {
+  return wordsForItem(item, templateOf(item));
+}
+
+/**
+ * The words an *entity in the room* answers to — what `resolveTarget` feeds `findTarget`.
+ *
+ * Three kinds of view, three sources, one union rule:
+ *
+ * - **A mob** has an authored list on its spawn template (`['sentry', 'guard', 'watch']` on the
+ *   sentry guard), and until this function nothing read it: `kill watch` found nothing with the word
+ *   authored precisely so it would. The live mob does not carry the list — its `vnum` reaches the
+ *   template, the same join the death spoils use.
+ * - **A ground object** answers to its catalogue words, so `look sword` works on a dropped sword the
+ *   moment `get sword` does — the two verbs resolving the same object by different rules is the kind
+ *   of inconsistency a player reads as haunted.
+ * - **Everything else** — players, corpses — answers to its display name, colour-stripped.
+ */
+function namelistFor(view: EntityView): readonly string[] {
+  const dropped = ground.get(view.id);
+  if (dropped) return wordsFor(dropped.item);
+  const actor = sim.get(view.id);
+  if (actor && isMob(actor)) return wordsForMob(actor.name, mobTemplates.get(actor.vnum)?.keywords);
+  return wordsFromName(view.name);
+}
+
+/**
  * Rebuilds the fighting profile from the level and the worn kit.
  *
  * **One function because there are now six callers** — creation, login, levelling, dying, wearing and
@@ -3034,7 +3068,7 @@ function getFromGround(player: Player, rest: string): void {
     });
     return;
   }
-  const found = nearestMatching(here, rest, player.x, player.y);
+  const found = nearestMatching(here, rest, player.x, player.y, wordsFor);
   if (!found) {
     send(player.id, { t: 'log', channel: 'error', text: `You see no ${rest} here.` });
     return;
@@ -3292,7 +3326,7 @@ type ContainerLookup =
  * you cannot reach into it from there.
  */
 function resolveContainer(player: Player, keyword: string): ContainerLookup {
-  const index = matchInventory(player.inventory, keyword);
+  const index = matchInventory(player.inventory, keyword, wordsFor);
   if (index !== -1) {
     const item = player.inventory.stacks[index]!.item;
     const held = heldAt(player, index);
@@ -3304,7 +3338,7 @@ function resolveContainer(player: Player, keyword: string): ContainerLookup {
   }
 
   const reachable = itemsIn(ground, player.roomId).filter((entry) => withinPickupReach(entry, player.x, player.y));
-  const entry = nearestMatching(reachable, keyword, player.x, player.y);
+  const entry = nearestMatching(reachable, keyword, player.x, player.y, wordsFor);
   if (!entry) return { found: 'nothing' };
   const rule = entry.held?.rule ?? templateOf(entry.item)?.container;
   if (!rule) return { found: 'not-a-container', item: entry.item };
@@ -3410,7 +3444,7 @@ function putInContainer(player: Player, rest: string): void {
   }
   const ref = lookup.ref;
 
-  const itemIndex = matchInventory(player.inventory, wanted);
+  const itemIndex = matchInventory(player.inventory, wanted, wordsFor);
   if (itemIndex === -1) {
     send(player.id, { t: 'log', channel: 'error', text: `You are not carrying ${wanted}.` });
     return;
@@ -3491,7 +3525,7 @@ function getFromContainer(player: Player, wanted: string, target: string): void 
 
   const word = wanted.trim().toLowerCase();
   const at = ref.held.contents.findIndex(
-    (s) => !word || s.item.id === word || s.item.name.toLowerCase().split(/[^a-z0-9]+/).includes(word),
+    (s) => !word || s.item.id === word || wordsFor(s.item).includes(word),
   );
   if (at === -1) {
     send(player.id, { t: 'log', channel: 'error', text: `There is no ${wanted} in ${ref.item.name}.` });
@@ -3538,7 +3572,7 @@ function dropFromBag(player: Player, rest: string): void {
     send(player.id, { t: 'log', channel: 'error', text: 'Drop what?' });
     return;
   }
-  const index = matchInventory(player.inventory, rest);
+  const index = matchInventory(player.inventory, rest, wordsFor);
   if (index === -1) {
     send(player.id, { t: 'log', channel: 'error', text: `You are not carrying ${rest}.` });
     return;
@@ -3622,7 +3656,7 @@ function equipFromBag(player: Player, rest: string, mode: 'wear' | 'wield'): voi
     send(player.id, { t: 'log', channel: 'error', text: mode === 'wield' ? 'Wield what?' : 'Wear what?' });
     return;
   }
-  const index = matchInventory(player.inventory, rest);
+  const index = matchInventory(player.inventory, rest, wordsFor);
   if (index === -1) {
     send(player.id, { t: 'log', channel: 'error', text: `You are not carrying ${rest}.` });
     return;
@@ -3698,7 +3732,7 @@ function removeWorn(player: Player, rest: string): void {
   const entry = Object.entries(player.equipped).find(
     ([, item]) =>
       item !== undefined &&
-      (item.id === wanted || item.name.toLowerCase().split(/[^a-z0-9]+/).includes(wanted)),
+      (item.id === wanted || wordsFor(item).includes(wanted)),
   );
   if (!entry) {
     send(player.id, { t: 'log', channel: 'error', text: `You are not wearing ${rest}.` });

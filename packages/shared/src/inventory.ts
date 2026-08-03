@@ -36,6 +36,7 @@
  * slots of plate carries an empty bag, which is the point: what you are wearing is not luggage.
  */
 
+import { stripColour } from './colour.ts';
 import type { Item } from './equipment.ts';
 import { mergeStacks, mergeable, stackSlots, type Stack } from './stacks.ts';
 // `MAX_NESTING_DEPTH` is a value, and importing it is deliberate: the depth rule belongs to containers
@@ -172,20 +173,62 @@ export function removeAt(inventory: Inventory, index: number): { inventory: Inve
 }
 
 /**
+ * The words an item's **display name** yields, colour-stripped and split.
+ *
+ * The floor of what a thing answers to, not the whole of it. Harvested items carry an *authored*
+ * keyword list too — `"sword two-handed black"` — and the server unions the two; see `wordsForItem`
+ * in `server/src/keywords.ts`. This half lives here because it needs no catalogue: it is what an
+ * authored starter-kit item answers to, and what everything answers to as a fallback.
+ *
+ * Colour is stripped **before** the split, which matters: `&+La long black dagger&n` split raw
+ * yields a junk first word (`la` — half a colour code fused with the article) and misses nothing a
+ * player would type, but the same laziness on `&+Ca silver dagger&N` costs the space between code
+ * and word and has already bitten the admin search once.
+ */
+const NOISE_WORDS = new Set(['a', 'an', 'the', 'of', 'some', 'and']);
+
+export function wordsFromName(name: string): string[] {
+  return stripColour(name)
+    .toLowerCase()
+    .split(/[^a-z0-9-]+/)
+    .filter((word) => word.length > 0 && !NOISE_WORDS.has(word));
+}
+
+/**
  * The index of the first carried stack a player's word names, or `-1`.
  *
- * Matches the way every other target in the game does — against the *display name*, which is what a
- * player can actually see. "a leather tunic" answers to `tunic` and to `leather`, and the first match
- * wins, because a bag is an ordered list and "the first one" is the only ordering a player can
- * predict without being shown indices.
+ * **The word list is injected, and that is the fix for a bug this comment used to assert as a
+ * feature.** It read *"matches against the display name, which is what a player can actually see"* —
+ * and the display name is not what a player types. Harvested items carry Duris' authored keyword
+ * list (`ItemTemplate.keywords`), measured at 16,421 of 16,421 items, and splitting the name instead
+ * meant `wield two-handed` failed on "a black two-handed sword" while the word sat unread in the
+ * catalogue. The list cannot be *read* here — this package has no I/O and no catalogue — so the
+ * caller supplies it, the same injection `reset.ts` uses for its census and for the same reason.
+ *
+ * The first match wins, because a bag is an ordered list and "the first one" is the only ordering a
+ * player can predict without being shown indices.
  */
-export function matchInventory(inventory: Inventory, word: string): number {
+export function matchInventory(
+  inventory: Inventory,
+  word: string,
+  wordsOf: (item: Item) => readonly string[] = nameWordsOf,
+): number {
   const wanted = word.trim().toLowerCase();
   if (!wanted) return -1;
   return inventory.stacks.findIndex(
-    (stack) =>
-      stack.item.id === wanted || stack.item.name.toLowerCase().split(/[^a-z0-9]+/).includes(wanted),
+    (stack) => stack.item.id === wanted || wordsOf(stack.item).includes(wanted),
   );
+}
+
+/**
+ * `wordsFromName` in the shape `wordsOf` wants — the default when no richer list is supplied.
+ *
+ * A default rather than a required parameter, deliberately: the callers that matter (the game
+ * server's verbs) all pass the catalogue-backed resolver, and a caller with no catalogue — a test, a
+ * tool — should degrade to the name rather than be forced to restate this function at every site.
+ */
+function nameWordsOf(item: Item): readonly string[] {
+  return wordsFromName(item.name);
 }
 
 /**

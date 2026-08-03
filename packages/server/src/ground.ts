@@ -30,6 +30,7 @@
 import {
   DURIS_ITEM,
   TILE_SIZE,
+  wordsFromName,
   type EntityId,
   type EntityView,
   type Held,
@@ -211,13 +212,16 @@ export function nearestMatching(
   word: string,
   x: number,
   y: number,
+  /**
+   * The words each item answers to. Injected exactly as {@link matchInventory}'s is and for the same
+   * reason: the authored keyword lists live in the catalogue, and this store has no business holding
+   * one. Defaults to the display-name split so a bare call keeps 15b's behaviour.
+   */
+  wordsOf: (item: Item) => readonly string[] = (item) => wordsFromName(item.name),
 ): GroundItem | undefined {
   const wanted = word.trim().toLowerCase();
   const matches = candidates.filter(
-    (entry) =>
-      !wanted ||
-      entry.item.id === wanted ||
-      entry.item.name.toLowerCase().split(/[^a-z0-9]+/).includes(wanted),
+    (entry) => !wanted || entry.item.id === wanted || wordsOf(entry.item).includes(wanted),
   );
   let best: GroundItem | undefined;
   let bestDistance = Infinity;

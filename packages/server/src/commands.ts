@@ -331,13 +331,15 @@ export function findTarget<T>(
 /**
  * The words a thing answers to, derived from its display name.
  *
- * A stopgap with a known end date. Real MUD content carries an **authored** keyword list — "sword
- * long steel" — which is what lets a longsword answer to `sword` without answering to `steel`
- * accidentally, and it is the field `isname` is written against. We have no authored lists because we
- * have no authored items yet, so this splits the display name and drops the article and the noise
- * words, which gets `a pitch-soaked torch` answering to both `torch` and `pitch-soaked`.
+ * **The stopgap's end date arrived, and the field won — but as a union, not a replacement.** The
+ * authored lists are read now (`keywords.ts`), and the measurement is why this function survives
+ * beside them rather than being deleted as originally promised: authored-only would strip a working
+ * name word from 6,121 items and 129 mobs, and leave 8 mobs answering to no word on screen at all —
+ * "a bored soldier" is authored only as `guard`. So the name-split is the floor, the authored list
+ * is the ceiling, and everything player-facing matches against both.
  *
- * When items become real (roadmap Phase 15) this is replaced by the field, not extended.
+ * Still the *whole* answer for what has no template: players, and corpses. The shared twin
+ * (`wordsFromName`) differs only in stripping colour first; this one predates colour reaching names.
  */
 const NOISE_WORDS = new Set(['a', 'an', 'the', 'of', 'some', 'and']);
 
