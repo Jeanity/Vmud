@@ -62,10 +62,11 @@ async function main(): Promise<void> {
   const model = arg('model');
   const theme = arg('theme');
   const dry = process.argv.includes('--dry');
+  const perRoom = process.argv.includes('--per-room');
   const limit = Number(arg('limit') ?? Infinity);
 
   if (!Number.isInteger(zoneId) || !model || !theme) {
-    console.error('usage: --zone <id> --model <name> --theme "<one line>" [--dry] [--limit n]');
+    console.error('usage: --zone <id> --model <name> --theme "<one line>" [--per-room] [--dry] [--limit n]');
     process.exit(2);
   }
 
@@ -80,15 +81,35 @@ async function main(): Promise<void> {
     if (group) group.push(room);
     else byTitle.set(room.name, [room]);
   }
-  const titles = [...byTitle.entries()]
+  // **`--per-room` writes every room its own prose instead of one draft per title.**
+  //
+  // The default exists because the shipped world does it that way — 51 of 51 repeated titles share
+  // exactly one description — and because thirty identical canopy rooms read as "the same kind of
+  // place", which is information. This mode is the measured alternative, and the measurement is what
+  // it is: with different neighbours the *body* diverges correctly (a room beside the duskwood writes
+  // about duskwood; one beside three oaks writes about oaks), while the *opening sentence* converges
+  // on the room's title regardless. So it buys real per-room detail at four times the calls, and
+  // near-identical openings are the price. `gemma3:12b` halves the identical run against `qwen2.5:14b`.
+  //
+  // Implemented by changing only what a "group" is: one room each rather than one title each. Every
+  // stage below — the draft, the retry pass, the reporting — is untouched, which is the whole reason
+  // the grouping was a separate step.
+  const groups: [string, RoomRow[]][] = perRoom
+    ? zone.rooms.map((room) => [room.name, [room]] as [string, RoomRow[]])
+    : [...byTitle.entries()];
+
+  const titles = groups
     .filter(([, rooms]) => !rooms.every((room) => room.described))
-    .sort((a, b) => b[1].length - a[1].length)
+    // Commonest titles first either way, so an interrupted run leaves the world in the best state it
+    // could: the places you walk through most, described.
+    .sort((a, b) => (byTitle.get(b[0])?.length ?? 0) - (byTitle.get(a[0])?.length ?? 0))
     .slice(0, limit);
 
   const total = titles.reduce((sum, [, rooms]) => sum + rooms.length, 0);
   console.log(
     `${zone.zone.name}: ${zone.rooms.length} rooms, ${byTitle.size} distinct titles.\n` +
-      `${titles.length} titles need prose, covering ${total} rooms. Model: ${model}.` +
+      `${titles.length} ${perRoom ? 'rooms need' : 'titles need'} prose, covering ${total} rooms. Model: ${model}.` +
+      (perRoom ? '  [PER-ROOM — one draft each]' : '') +
       (dry ? '  [DRY RUN — nothing will be saved]' : ''),
   );
 
@@ -105,7 +126,11 @@ async function main(): Promise<void> {
     const lead = rooms.reduce((best, room) => (room.id < best.id ? room : best));
     const brief = `${theme} This room: ${title}.`;
 
-    process.stdout.write(`\n[${label}] ${title}  (${rooms.length} room${rooms.length === 1 ? '' : 's'}, ${lead.sector}) … `);
+    process.stdout.write(
+      `\n[${label}] ${title}  ` +
+        (perRoom ? `(#${lead.id}, ${lead.sector})` : `(${rooms.length} room${rooms.length === 1 ? '' : 's'}, ${lead.sector})`) +
+        ' … ',
+    );
 
     let draft: { description: string; model: string; ms: number; retriedFor?: string[] };
     try {

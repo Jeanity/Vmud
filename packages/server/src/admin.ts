@@ -676,10 +676,7 @@ export class AdminApi {
         sector: room.sector,
         zone: this.deps.world.zoneName(room.zone) ?? `zone ${room.zone}`,
       },
-      nearby: this.neighbourhood(room)
-        .filter((near) => near.description)
-        .slice(0, NEARBY_IN_PROMPT)
-        .map((near) => ({ name: near.name, description: near.description!, dir: near.dir })),
+      nearby: this.promptNeighbours(room),
       samples: this.styleSamples(room),
     });
 
@@ -710,6 +707,52 @@ export class AdminApi {
   }
 
   /**
+   * The neighbours the *model* is shown — **named always, quoted only when a human wrote them.**
+   *
+   * ## The copy cascade this exists to stop
+   *
+   * Measured, on a per-room pass over The Stump Bog's 93 rooms: **all 37 rooms called "The Stump Bog
+   * (Water)" came out word-for-word identical**, adjacent and non-adjacent alike, and 46 of 60
+   * adjacent same-title pairs were over 95% the same. Not sampling convergence — a photocopier.
+   *
+   * The mechanism is this function's own input. Each room was shown its neighbours' prose under
+   * *"stay consistent with these"*, and in a zone being filled room by room those neighbours had just
+   * been written **by the same model minutes earlier**. It copied them, and the text propagated
+   * outward from the first room until it had saturated the zone. A two-room pilot missed it entirely
+   * because the zone was empty then: with no described neighbours the same pair diverged properly.
+   *
+   * ## Why the fix is not "drop the neighbours"
+   *
+   * The neighbours are what tie a room to where it stands, and that demonstrably works — a room
+   * beside the Gigantic Duskwood wrote about duskwood while one beside three oaks wrote about oaks.
+   * But re-reading that result: it was the neighbour's **name** carrying the information, not its
+   * prose. So the name always goes, and the prose goes only when it is not the model's own output
+   * coming back around.
+   *
+   * The test is `by`, recorded in the overlay at the moment a draft is saved — so:
+   *
+   * - **harvested** prose (the Duris builders' own) — quoted; it is the house style and the point.
+   * - **hand-written** prose (somebody typed it) — quoted; a person's writing is worth matching.
+   * - **model-written** prose — named only. This is the loop, and it is the only case cut.
+   *
+   * Neighbours with usable prose are preferred when trimming to {@link NEARBY_IN_PROMPT}, so cutting
+   * the loop costs context only when there is no human-written context to be had.
+   */
+  private promptNeighbours(room: Room): readonly { name: string; description?: string; dir: string | null }[] {
+    const machineWrote = (id: number): boolean => this.deps.world.overrides.get(id as RoomId)?.by !== undefined;
+
+    const all = this.neighbourhood(room).map((near) => ({
+      name: near.name,
+      dir: near.dir,
+      ...(near.description && !machineWrote(near.id) ? { description: near.description } : {}),
+    }));
+    // Quotable first, so the trim keeps the neighbours that can actually teach something.
+    return all
+      .sort((a, b) => Number(Boolean(b.description)) - Number(Boolean(a.description)))
+      .slice(0, NEARBY_IN_PROMPT);
+  }
+
+  /**
    * Real descriptions from the same zone, to show the model the style rather than describe it.
    *
    * **Spread across the zone rather than taken from beside the room.** The neighbours are already in
@@ -724,10 +767,25 @@ export class AdminApi {
    * of the voice than a 130-word one, and the median is 115.
    */
   private styleSamples(room: Room): readonly { name: string; description: string }[] {
+    // **Machine-written rooms are excluded, and this is the stronger half of the cascade fix.**
+    // The block these feed is headed *"match the voice, rhythm and level of detail of the EXAMPLES
+    // exactly"* — the most direct copy instruction in the prompt. Once a zone had been filled, its
+    // rooms became the nearest-sector samples for the next zone, and the model was being told to
+    // match its own output exactly. The Stump Bog's swamp samples were the Stag Forest's swamp
+    // rooms, every one of them written an hour earlier by the same model.
+    //
+    // Falling back to a further-away *human* sample beats an exactly-matching machine one: the whole
+    // purpose of few-shot here is to transmit the Duris builders' voice, and a copy of a copy
+    // transmits drift instead. See `promptNeighbours` for the other half.
     const described = this.deps.world
       .allZones()
       .flatMap((zone) => zone.rooms)
-      .filter((candidate) => candidate.description && candidate.id !== room.id);
+      .filter(
+        (candidate) =>
+          candidate.description &&
+          candidate.id !== room.id &&
+          this.deps.world.overrides.get(candidate.id)?.by === undefined,
+      );
     if (described.length === 0) return [];
 
     // **Sector outranks zone**, and the Stag Forest is why. It has prose for 0 of 98 rooms, so

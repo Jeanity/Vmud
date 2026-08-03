@@ -187,3 +187,38 @@ The pattern the other sections copy: a read view that labels where every fact li
 go through the owning system's own seams, refusal over pretence when a fact cannot honestly be
 edited, an audit line for everything that changed, and a UI stub for everything that waits on a
 phase — named, with the phase number, doing nothing.
+
+## 8. Generating prose, and the copy cascade
+
+Track A's drafting (`server/src/ollama.ts`) shows the model two kinds of borrowed text: **style
+examples** from elsewhere in the world, under *"match the voice, rhythm and level of detail exactly"*,
+and the **adjacent rooms**, to tie a room to where it stands. Both were unfiltered, and both became
+loops the moment the world contained machine-written prose.
+
+**How it presented.** A per-room pass over The Stump Bog's 93 rooms produced **one description for all
+37 rooms sharing a title** — word-for-word, adjacent and non-adjacent alike, with 46 of 60 adjacent
+same-title pairs over 95% identical. A two-room pilot had shown the opposite (26% overlap, genuinely
+different bodies) and missed it entirely, because the pilot ran against an *empty* zone: with no
+described neighbours there was nothing to copy.
+
+**The mechanism, both halves.** As the run progressed each room was shown neighbours the same model
+had written minutes earlier and told to stay consistent with them, so it reproduced them, and the text
+propagated outward from the first room until it saturated the zone. Worse, the *style samples* are
+chosen by nearest sector across the whole loaded world — so once The Stag Forest was filled, its swamp
+rooms became the Stump Bog's swamp examples, and the strongest copy instruction in the prompt was
+pointed at the model's own output from an hour before.
+
+**The rule this settles: never show a generator its own output as an exemplar.** Concretely, and both
+turn on `by`, the model name already recorded in the overlay when a draft is saved:
+
+- **Style samples** exclude machine-written rooms outright. A further-away *human* sample beats an
+  exactly-matching machine one — few-shot exists to transmit the Duris builders' voice, and a copy of
+  a copy transmits drift.
+- **Neighbours are named always but quoted only when a human wrote them.** Re-reading the result that
+  first suggested neighbours were valuable — a room beside the Gigantic Duskwood writing about
+  duskwood — it was the neighbour's *name* carrying the information, never its prose. So the linkage
+  survives the fix at no cost.
+
+**The panel is deliberately not filtered.** An author must be able to read their own zone back;
+`AdminApi.promptNeighbours` filters what the *model* sees and nothing else. A test pins that
+distinction, because "helpfully" widening the fix would hide an author's work from them.

@@ -571,6 +571,18 @@ describe('the zone browser', () => {
     assert.ok(!body.nearby.some((near) => near.id === 6001));
   });
 
+  it('keeps machine-written prose out of the panel\'s own context, or rather does not', () => {
+    // The panel shows *everything*, including what a model wrote — an author needs to read their own
+    // zone back. It is only the **model's** view that is filtered, and that filtering lives in
+    // `promptNeighbours`, not here. Pinned so the cascade fix is not "helpfully" widened to the
+    // panel, which would hide an author's work from them.
+    const { api } = makeRig();
+    quietly(() => api.route(req('PATCH', '/rooms/6002', { description: 'Machine wrote this.', by: 'gemma3:12b' })));
+    const body = api.route(req('GET', '/rooms/6001')).body as { nearby: { id: number; description: string | null }[] };
+    const neighbour = body.nearby.find((n) => n.id === 6002);
+    assert.equal(neighbour?.description, 'Machine wrote this.', 'the human still sees it');
+  });
+
   it('says whether an exit leads anywhere this server has loaded', () => {
     const { api } = makeRig();
     const body = api.route(req('GET', '/rooms/6001')).body as {

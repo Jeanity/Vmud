@@ -70,7 +70,15 @@ export interface OllamaModel {
 /** One room offered to the model as an example or as context. */
 export interface ProseSample {
   readonly name: string;
-  readonly description: string;
+  /**
+   * Optional, and only for a *neighbour* — a style example always carries one.
+   *
+   * A neighbour with no prose is still worth naming: "north of you is a Gigantic Duskwood" places
+   * this room whether or not anybody has written the duskwood yet, and the *name* is what carried the
+   * locational information in the first place. See `AdminApi.describe` for why some neighbours
+   * deliberately arrive without their text.
+   */
+  readonly description?: string;
   /** How it relates to the room being written — `null` for a style sample from elsewhere in the zone. */
   readonly dir?: string | null;
 }
@@ -181,17 +189,24 @@ export function buildPrompt(request: DraftRequest): string {
   if (request.samples.length > 0) {
     lines.push('EXAMPLES — real rooms from this same zone:', '');
     for (const sample of request.samples) {
+      // A style example without prose would be a heading over nothing — the caller only ever sends
+      // samples that have text, and skipping rather than printing an empty block says so.
+      if (!sample.description) continue;
       lines.push(`[${sample.name}]`, stripCodes(sample.description), '');
     }
   }
 
   if (request.nearby.length > 0) {
     lines.push(
-      'ADJACENT ROOMS — what stands next to the room you are writing. Stay consistent with these:',
+      'ADJACENT ROOMS — what stands next to the room you are writing.',
+      'Use them to place this room in the world. Do NOT copy their wording, and do not describe them.',
       '',
     );
     for (const near of request.nearby) {
-      lines.push(`[${near.dir ? `${near.dir}: ` : ''}${near.name}]`, stripCodes(near.description), '');
+      lines.push(`[${near.dir ? `${near.dir}: ` : ''}${near.name}]`);
+      // Named without prose when the prose was itself machine-written — see `AdminApi.describe`.
+      if (near.description) lines.push(stripCodes(near.description));
+      lines.push('');
     }
   }
 

@@ -70,6 +70,29 @@ describe('the prompt', () => {
     assert.match(prompt, /north: Western Guard's Walk/);
   });
 
+  it('names a neighbour that has no quotable prose, and quotes one that has', () => {
+    // The cascade fix's shape. A neighbour whose text was machine-written arrives here stripped of
+    // it — but still named, because the *name* is what places this room: a room beside a Gigantic
+    // Duskwood writes about duskwood whether or not anybody has written the duskwood's own prose.
+    const prompt = buildPrompt(
+      request({
+        nearby: [
+          { name: 'A Gigantic Duskwood', dir: 'north' },
+          { name: 'The West Hall', description: 'A twelve foot tapestry covers the wall.', dir: 'south' },
+        ],
+      }),
+    );
+    assert.match(prompt, /north: A Gigantic Duskwood/, 'named even with nothing to quote');
+    assert.match(prompt, /twelve foot tapestry/, 'and the quotable one is quoted');
+  });
+
+  it('tells the model to place itself by the neighbours rather than copy them', () => {
+    // The old wording was "Stay consistent with these", and pointed at freshly-generated prose the
+    // model read that as "reproduce these": all 37 rooms of one Stump Bog title came out identical.
+    const prompt = buildPrompt(request());
+    assert.match(prompt, /Do NOT copy their wording/);
+  });
+
   it('holds together with no samples and no neighbours', () => {
     // The Stag Forest has prose for 0 of 98 rooms — there is nothing to show it, and the first room
     // written in a zone must still be writable.
