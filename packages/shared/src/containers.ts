@@ -210,6 +210,52 @@ export function describePurse(purse: Purse): string {
   return parts.length > 0 ? parts.join(', ') : 'no coin';
 }
 
+/**
+ * Splits a whole number between claimants by weight, **losing none of it**.
+ *
+ * Largest-remainder apportionment — the same method used to allocate parliamentary seats, and here for
+ * the same reason: the thing being divided comes in indivisible units and every one of them has to go
+ * somewhere.
+ *
+ * **Written because the naive version leaked badly.** Coin was first divided by flooring each
+ * claimant's exact share, on the reasoning that "a rounding loss of a copper beats minting one". The
+ * owner caught it in play: a kobold fisherman carrying 3 copper and 2 silver, killed by two people,
+ * paid out 1 silver and 1 copper to one and a single copper to the other. Measured across splits, that
+ * is not a copper — flooring destroys a *third to a half* of a small purse at every ratio:
+ *
+ * | split | copper of 3 | silver of 2 |
+ * | --- | --- | --- |
+ * | 70/30 | 2 + 0 = **2** | 1 + 0 = **1** |
+ * | 60/40 | 1 + 1 = **2** | 1 + 0 = **1** |
+ * | 50/50 | 1 + 1 = **2** | 1 + 1 = 2 |
+ *
+ * And it hits hardest where purses are smallest, which is most of the world: the median mob carries a
+ * few coins, not a few hundred. Handing out the remainders instead makes the payout exact — what the
+ * mob carried is what the room receives, always.
+ *
+ * Ties on the fractional part go to the earlier claimant. Deterministic on purpose: `CLAUDE.md` rule 3
+ * forbids unseeded randomness in simulation, and a coin split that varied between identical fights
+ * would be unauditable.
+ */
+export function apportion(total: number, weights: readonly number[]): number[] {
+  const n = weights.length;
+  if (n === 0 || total <= 0) return new Array<number>(Math.max(0, n)).fill(0);
+
+  const sum = weights.reduce((a, w) => a + Math.max(0, w), 0);
+  // No weights to be proportional to — a kill nobody contributed to measurably. Even shares, and the
+  // remainder still goes out rather than evaporating.
+  const shares = sum > 0 ? weights.map((w) => (Math.max(0, w) / sum) * total) : weights.map(() => total / n);
+
+  const whole = shares.map((s) => Math.floor(s));
+  let left = Math.floor(total) - whole.reduce((a, b) => a + b, 0);
+  // Biggest fractional part first; index breaks a tie, so the result never depends on sort stability.
+  const order = shares
+    .map((s, i) => ({ i, frac: s - Math.floor(s) }))
+    .sort((a, b) => b.frac - a.frac || a.i - b.i);
+  for (let k = 0; left > 0; k++, left--) whole[order[k % n]!.i]!++;
+  return whole;
+}
+
 /** The coins a money pile is worth, read off its harvested values. */
 export function coinsOf(template: { readonly coins?: Purse }): Purse {
   return template.coins ?? {};

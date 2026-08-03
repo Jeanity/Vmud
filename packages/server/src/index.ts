@@ -56,6 +56,8 @@ import {
   describePurse,
   describeStack,
   CURRENCIES,
+  apportion,
+  contributionValue,
   isMoney,
   purseIsEmpty,
   vnumOf,
@@ -1432,20 +1434,34 @@ function resolveDeath(death: Death): void {
   // line of the same file as its experience, which says it thought so too.
   const purse = template?.coins ?? {};
   const shares = divideExperience(pool, death.contributions);
-  for (const award of shares) {
+
+  // **Apportioned across everyone at once, not floored per earner.** Owner caught the first version in
+  // play: a fisherman carrying 3 copper and 2 silver paid 1 silver 1 copper to one killer and a single
+  // copper to the other, and the rest simply vanished. Flooring each share destroys a third to a half
+  // of a small purse at *every* ratio — and small purses are most of the world. `apportion` hands out
+  // the remainders, so what a mob carried is exactly what the room receives.
+  // **Weighted by the raw contribution, not by the experience it already bought.** Owner's rule
+  // (2026-08-03): the split "should go on how much they contribute to the fight, either by damage or
+  // healing" — which `contributionValue` already measures, folding damage dealt, damage taken and
+  // support into one number. Feeding the *floored* experience back in would round twice: a healer
+  // whose experience share lost a point to flooring would lose coin for the same reason, compounding
+  // an error the apportionment above exists to remove.
+  const weights = shares.map((award) => contributionValue(award.contribution));
+  const cuts = new Map<string, number[]>();
+  for (const kind of CURRENCIES) {
+    const whole = purse[kind] ?? 0;
+    if (whole > 0) cuts.set(kind, apportion(whole, weights));
+  }
+
+  for (const [index, award] of shares.entries()) {
     const earner = sim.player(award.actor);
     if (!earner) continue;
     earner.experience += award.experience;
 
-    // Split the same way the experience was, so whatever made tanking pay makes it pay in coin too. A
-    // zero pool leaves nothing to be proportional to, so those fall back to equal shares rather than
-    // dividing by zero. Floored per earner: a rounding loss of a copper beats minting one.
-    const fraction = pool > 0 ? award.experience / pool : 1 / Math.max(1, shares.length);
-    const gained: Purse = {};
-    for (const kind of CURRENCIES) {
-      const whole = purse[kind] ?? 0;
-      const cut = Math.floor(whole * fraction);
-      if (cut > 0) (gained as Record<string, number>)[kind] = cut;
+    const gained: Record<string, number> = {};
+    for (const [kind, split] of cuts) {
+      const cut = split[index] ?? 0;
+      if (cut > 0) gained[kind] = cut;
     }
     if (!purseIsEmpty(gained)) {
       earner.purse = addCoins(earner.purse, gained);

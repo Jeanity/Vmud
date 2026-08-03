@@ -11,6 +11,7 @@ import { describe, it } from 'node:test';
 import {
   MAX_NESTING_DEPTH,
   accepts,
+  apportion,
   CURRENCIES,
   addCoins,
   containerBulk,
@@ -153,5 +154,62 @@ describe('how a container reads in a listing', () => {
       describeContainer(quiver, held(20, 'missile', [{ item: arrow, count: 20 }])),
       'a quiver (arrows) [1/20]',
     );
+  });
+});
+
+describe('splitting coin loses none of it', () => {
+  // The bug the owner caught in play. A kobold fisherman carrying 3 copper and 2 silver, killed by two
+  // people, paid 1 silver 1 copper to one and a single copper to the other — the rest evaporated.
+  const sum = (a: readonly number[]) => a.reduce((x, y) => x + y, 0);
+
+  it('pays out exactly what the mob carried, at every split', () => {
+    // The property flooring broke, and it broke it at *every* ratio rather than occasionally.
+    for (const total of [1, 2, 3, 5, 6, 7, 20, 137]) {
+      for (const weights of [[7, 3], [6, 4], [5, 5], [8, 2], [1, 1, 1], [10, 3, 1], [100, 1]]) {
+        assert.equal(sum(apportion(total, weights)), total, `${total} across ${weights.join('/')}`);
+      }
+    }
+  });
+
+  it('reproduces the fisherman, whole', () => {
+    // 3 copper and 2 silver between two killers: every coin reaches somebody.
+    assert.equal(sum(apportion(3, [7, 3])), 3);
+    assert.equal(sum(apportion(2, [7, 3])), 2);
+  });
+
+  it('still favours the bigger contributor', () => {
+    // Conserving must not flatten it into an even split — the whole point of dividing by contribution
+    // is that tanking and dealing are paid differently.
+    const [big, small] = apportion(10, [8, 2]);
+    assert.ok(big! > small!, `${big} should beat ${small}`);
+    assert.equal(big! + small!, 10);
+  });
+
+  it('gives the odd coin to the larger share rather than dropping it', () => {
+    assert.deepEqual(apportion(3, [7, 3]), [2, 1]);
+    assert.deepEqual(apportion(1, [9, 1]), [1, 0], 'one coin, one winner');
+  });
+
+  it('splits evenly when nothing distinguishes the claimants', () => {
+    // A kill nobody contributed to measurably. Even shares, and the remainder still goes out.
+    assert.deepEqual(apportion(4, [0, 0]), [2, 2]);
+    assert.equal(sum(apportion(5, [0, 0, 0])), 5);
+  });
+
+  it('is deterministic, because an unauditable coin split is worse than an unfair one', () => {
+    // `CLAUDE.md` rule 3: no unseeded randomness in simulation. Ties go to the earlier claimant.
+    assert.deepEqual(apportion(1, [5, 5]), [1, 0]);
+    assert.deepEqual(apportion(1, [5, 5]), [1, 0]);
+  });
+
+  it('answers sensibly for nothing to split and nobody to split it', () => {
+    assert.deepEqual(apportion(0, [1, 1]), [0, 0]);
+    assert.deepEqual(apportion(5, []), []);
+    assert.deepEqual(apportion(-3, [1]), [0]);
+  });
+
+  it('never pays anyone a negative amount, however odd the weights', () => {
+    for (const cut of apportion(7, [-5, 3, 2])) assert.ok(cut >= 0, `${cut} is not negative`);
+    assert.equal(sum(apportion(7, [-5, 3, 2])), 7);
   });
 });
