@@ -23,6 +23,7 @@ import {
   CONNECTOR_WIDTH,
   ROOM_GAP,
   ROOM_TILES,
+  STARTING_CAPACITY,
   UNLIMITED_DURATION,
   boundsOf,
   newAffect,
@@ -30,6 +31,8 @@ import {
   secondWindAffects,
   settlingAffect,
   type Affect,
+  type Inventory,
+  type Item,
   type Room,
   type Zone,
 } from '@mygame/shared';
@@ -611,5 +614,54 @@ describe('the progress on disk', () => {
     store.setProgress(record, 40, 1);
     store.flush(record);
     assert.equal(store.list()[0]!.level, 40);
+  });
+});
+
+describe('the bag on disk', () => {
+  const arrow: Item = { id: 'arrow', name: 'an arrow', ac: 0, size: 1, stackLimit: 20 };
+  const sack: Item = { id: 'sack', name: 'a small sack', ac: 0, size: 3 };
+
+  it('round-trips a bag, keeping stacks as stacks', () => {
+    const { store, dir } = makeStore();
+    const record = store.load('Packer');
+    const bag: Inventory = { stacks: [{ item: arrow, count: 12 }], capacity: STARTING_CAPACITY };
+    store.setInventory(record, bag);
+    store.flush(record);
+
+    const reloaded = new PlayerStore({ dir }).load('Packer');
+    assert.deepEqual(reloaded.inventory, bag);
+  });
+
+  it('keeps what is inside a container', () => {
+    // **The 15c bug this exists for.** `readInventory` read `item`, `count` and `remaining` and
+    // stopped, so anything a player had *put somewhere* was gone at the next login — and, because
+    // `setInventory` normalises through that same reader, gone before it ever reached the disk. The
+    // shared test proves the reader; this proves the whole trip, which is where it actually failed.
+    const { store, dir } = makeStore();
+    const record = store.load('Quivered');
+    const bag: Inventory = {
+      stacks: [
+        {
+          item: sack,
+          count: 1,
+          held: { rule: { capacity: 30, accepts: 'missile' }, contents: [{ item: arrow, count: 20 }] },
+        },
+      ],
+      capacity: STARTING_CAPACITY,
+    };
+    store.setInventory(record, bag);
+    store.flush(record);
+
+    assert.ok(JSON.stringify(readSaved(dir, 'Quivered')).includes('"held"'), 'the file itself has it');
+    const reloaded = new PlayerStore({ dir }).load('Quivered');
+    assert.deepEqual(reloaded.inventory, bag);
+  });
+
+  it('writes nothing for an empty bag at the default capacity', () => {
+    const { store, dir } = makeStore();
+    const record = store.load('Empty');
+    store.setInventory(record, { stacks: [], capacity: STARTING_CAPACITY });
+    store.flush(record);
+    assert.equal('inventory' in readSaved(dir, 'Empty'), false);
   });
 });

@@ -38,6 +38,10 @@
 
 import type { Item } from './equipment.ts';
 import { mergeStacks, mergeable, stackSlots, type Stack } from './stacks.ts';
+// `MAX_NESTING_DEPTH` is a value, and importing it is deliberate: the depth rule belongs to containers
+// and is enforced on the way *in* as well as on the way out. See {@link readStack}.
+import { MAX_NESTING_DEPTH, type Held } from './containers.ts';
+import { CONTAINER_ACCEPTS, type ContainerAccepts } from './items.ts';
 
 /**
  * Slots a character starts with. `DESIGN-inventory.md` §5's own number.
@@ -171,16 +175,97 @@ export function matchInventory(inventory: Inventory, word: string): number {
 }
 
 /**
- * Every item in the bag, one entry per physical thing.
+ * Every item in the bag, one entry per physical thing — **including what is inside containers**.
  *
  * For a death that empties a bag into a corpse: a stack of five arrows is five arrows on the body, not
  * one. Charges are lost in the flattening, which is a known limit rather than a decision — corpse
  * contents are still `Item[]`, and giving them stacks is the same wiring as this file, one layer out.
+ *
+ * **Descending into containers is not a nicety.** A quiver on a corpse is one item; twenty arrows in
+ * that quiver are twenty more, and a version of this that stopped at the top level destroyed them
+ * silently on every death. The quiver comes out too, so what the corpse holds is exactly what the
+ * character was carrying — nothing created, nothing quietly burned.
  */
 export function loose(inventory: Inventory): Item[] {
   const out: Item[] = [];
-  for (const stack of inventory.stacks) for (let i = 0; i < stack.count; i++) out.push(stack.item);
+  for (const stack of inventory.stacks) {
+    for (let i = 0; i < stack.count; i++) out.push(stack.item);
+    // A container with contents always has `count: 1` — `stacks.ts` refuses to merge one that holds
+    // anything — so there is no risk of emptying the same quiver twice.
+    if (stack.held) {
+      for (const inside of stack.held.contents) for (let i = 0; i < inside.count; i++) out.push(inside.item);
+    }
+  }
   return out;
+}
+
+/** The kinds a container may accept, from the catalogue's own list rather than a copy of it. */
+const ACCEPTS = new Set<string>(CONTAINER_ACCEPTS);
+
+/**
+ * Reads one stack off disk, including what it holds.
+ *
+ * **`depth` is the §4 nesting rule enforced on the way in, not only on the way out.** `put` refuses a
+ * container inside a container, but a save file is hand-editable and nothing stops somebody nesting
+ * three deep in a text editor — at which point every reader downstream would have to cope with a shape
+ * the rules say cannot exist. Refusing it here means the invariant holds for anything that has been
+ * loaded, however the file got that way.
+ *
+ * Contents recurse through this same function, so a stack of arrows inside a quiver is read by the
+ * code that reads a stack of arrows in a bag. One reader, one set of rules.
+ */
+function readStack(
+  entry: unknown,
+  readItem: (value: unknown) => Item | undefined,
+  depth: number,
+): Stack | undefined {
+  const row = entry as { item?: unknown; count?: unknown; remaining?: unknown; held?: unknown } | null;
+  if (typeof row !== 'object' || row === null) return undefined;
+  const item = readItem(row.item);
+  if (!item) return undefined;
+
+  const count = typeof row.count === 'number' && row.count >= 1 ? Math.floor(row.count) : 1;
+  const stack: Stack = {
+    item,
+    count,
+    ...(typeof row.remaining === 'number' && row.remaining >= 0 ? { remaining: row.remaining } : {}),
+  };
+
+  const held = readHeld(row.held, readItem, depth);
+  return held ? { ...stack, held } : stack;
+}
+
+/**
+ * Reads a container's rule and contents, or nothing if this stack is not one.
+ *
+ * The rule is validated the way every other loaded field is: a capacity that is not a positive number
+ * and an `accepts` the catalogue does not define are both refused rather than repaired, because a
+ * container claiming to accept `"everything"` would be a quiet rule change rather than a typo.
+ */
+function readHeld(
+  raw: unknown,
+  readItem: (value: unknown) => Item | undefined,
+  depth: number,
+): Held | undefined {
+  // Past the nesting limit there is nothing legitimate to read. The container itself still loads; only
+  // what it claims to hold is dropped, which loses less than refusing the whole bag.
+  if (depth >= MAX_NESTING_DEPTH) return undefined;
+
+  const source = raw as { rule?: unknown; contents?: unknown } | null;
+  if (typeof source !== 'object' || source === null) return undefined;
+  const rule = source.rule as { capacity?: unknown; accepts?: unknown } | null;
+  if (typeof rule !== 'object' || rule === null) return undefined;
+  if (typeof rule.capacity !== 'number' || !Number.isFinite(rule.capacity) || rule.capacity <= 0) return undefined;
+  if (typeof rule.accepts !== 'string' || !ACCEPTS.has(rule.accepts)) return undefined;
+
+  const contents: Stack[] = [];
+  if (Array.isArray(source.contents)) {
+    for (const entry of source.contents) {
+      const inside = readStack(entry, readItem, depth + 1);
+      if (inside) contents.push(inside);
+    }
+  }
+  return { rule: { capacity: Math.round(rule.capacity), accepts: rule.accepts as ContainerAccepts }, contents };
 }
 
 /**
@@ -202,15 +287,8 @@ export function readInventory(raw: unknown, readItem: (value: unknown) => Item |
   if (Array.isArray(source.stacks)) {
     const stacks: Stack[] = [];
     for (const entry of source.stacks) {
-      const row = entry as { item?: unknown; count?: unknown; remaining?: unknown };
-      const item = readItem(row?.item);
-      if (!item) continue;
-      const count = typeof row.count === 'number' && row.count >= 1 ? Math.floor(row.count) : 1;
-      stacks.push({
-        item,
-        count,
-        ...(typeof row.remaining === 'number' && row.remaining >= 0 ? { remaining: row.remaining } : {}),
-      });
+      const stack = readStack(entry, readItem, 1);
+      if (stack) stacks.push(stack);
     }
     return { stacks, capacity };
   }

@@ -173,8 +173,13 @@ export function sizeFrom(weight: number): number {
 /**
  * What a container will accept. `any` is a sack; the restricted ones are the reason containers exist —
  * `DESIGN-inventory.md` §4's quiver, which lets arrows stop eating your inventory.
+ *
+ * A list with the type derived from it, rather than the type alone, because a save file is validated
+ * against these at load time (`readInventory`) and a hand-written copy of the union would silently
+ * start refusing a kind the day a fourth one is added.
  */
-export type ContainerAccepts = 'any' | 'missile' | 'weapon';
+export const CONTAINER_ACCEPTS = ['any', 'missile', 'weapon'] as const;
+export type ContainerAccepts = (typeof CONTAINER_ACCEPTS)[number];
 
 export interface ContainerRule {
   /** How many slots of bulk it holds — **not** counted against the bag holding it. §4. */

@@ -152,6 +152,24 @@ type/instance split is **not** built — an `Item` today is a flat record copied
 is honest while nothing has per-instance state to lose. It becomes wrong the moment 15c's charges land,
 and that is the seam to cut.
 
+**As built (15c):** the purse persists too, and stacks persist *as stacks* — `count` and `remaining`
+are on the wire to disk, so twenty arrows come back as twenty arrows in one slot rather than as twenty
+loose ones that no longer fit.
+
+> **A reader that ignores a field deletes it.** §4's containers shipped with `readInventory` reading
+> `item`, `count` and `remaining` and simply not knowing about `held`, so everything a player had *put
+> somewhere* was gone at the next login — and gone before it reached the disk as well, because
+> `PlayerStore.setInventory` normalises through that same reader. Nothing failed, nothing logged, and
+> the bag looked right until you opened the quiver. The lesson is structural rather than a one-off fix:
+> **every field of a persisted shape needs a line in its reader and a round-trip test**, because the
+> failure mode of forgetting one is silent destruction rather than a crash. `readInventory` also
+> enforces §4's depth limit *on the way in* — a save file is hand-editable, and a bag that loads deeper
+> than the rules allow is a bag whose rules are decoration.
+>
+> The same omission had a second face: `loose`, which empties a bag onto a corpse when its owner dies,
+> also stopped at the top level — so dying with a full quiver left the quiver on the body and destroyed
+> every arrow in it. Both are fixed and both now have tests.
+
 **The floor does not persist.** `server/src/ground.ts` is in memory, so a restart clears every dropped
 object. A character's own things are safe — they are in their save file — and only what somebody chose
 to put down is lost. Persisting it is not a matter of writing another JSON file: the ground is keyed by

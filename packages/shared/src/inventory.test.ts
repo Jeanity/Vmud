@@ -7,6 +7,7 @@ import {
   carry,
   emptyInventory,
   fits,
+  loose,
   matchInventory,
   readInventory,
   removeAt,
@@ -15,6 +16,7 @@ import {
   stackOf,
   type Inventory,
 } from './inventory.ts';
+import type { Stack } from './stacks.ts';
 
 function item(id: string, size: number, name = id): Item {
   return { id, name, slot: 'chest', ac: 0, size };
@@ -226,5 +228,80 @@ describe('reading a pre-15c bag', () => {
   it('round-trips the new shape', () => {
     const bag: Inventory = { stacks: [{ item: item('rope', 2), count: 2 }], capacity: 20 };
     assert.deepEqual(readInventory(JSON.parse(JSON.stringify(bag)), readItem), bag);
+  });
+});
+
+describe('what is inside a container survives the trip to disk', () => {
+  const arrow = (): Item => ({ ...item('arrow', 1, 'an arrow'), stackLimit: 20 });
+  const quiver = (contents: Stack[]): Stack => ({
+    item: item('quiver', 2, 'a leather quiver'),
+    count: 1,
+    held: { rule: { capacity: 30, accepts: 'missile' }, contents },
+  });
+
+  it('brings a bag holding a container holding a stack of arrows back identical', () => {
+    // **The bug this test exists for.** `readInventory` read `item`, `count` and `remaining` and
+    // stopped, so anything a player had *put somewhere* vanished at the next restart — and, because
+    // `PlayerStore.setInventory` normalises through this same reader, on the way to disk as well.
+    const bag: Inventory = { stacks: [quiver([{ item: arrow(), count: 12 }])], capacity: 20 };
+    assert.deepEqual(readInventory(JSON.parse(JSON.stringify(bag)), readItem), bag);
+  });
+
+  it('keeps a container full of stacks as stacks, not as loose arrows', () => {
+    // Sixty arrows in a quiver are three stacks of twenty on the way out and three on the way back —
+    // §4's own example. A reader that flattened them would quietly change how much the quiver holds.
+    const bag: Inventory = {
+      stacks: [quiver([{ item: arrow(), count: 20 }, { item: arrow(), count: 20 }, { item: arrow(), count: 20 }])],
+      capacity: 20,
+    };
+    assert.deepEqual(readInventory(JSON.parse(JSON.stringify(bag)), readItem), bag);
+  });
+
+  it('refuses a container inside a container, because a save file is a text file somebody can edit', () => {
+    // §4's depth rule is bag → container → items, and `putRefusal` returns `'too-deep'` for *any*
+    // container going in. The reader enforces the same bound, because nothing else stops a save being
+    // hand-edited into a russian doll and a bag that loads deeper than the rules allow is a bag whose
+    // rules are decoration. The over-deep container arrives as an ordinary item — its contents are
+    // lost, which is the honest outcome for something that was never legally there.
+    const tooDeep = {
+      stacks: [
+        {
+          item: item('sack', 3, 'a sack'),
+          count: 1,
+          held: {
+            rule: { capacity: 20, accepts: 'any' },
+            contents: [quiver([{ item: arrow(), count: 1 }])],
+          },
+        },
+      ],
+      capacity: 20,
+    };
+    const read = readInventory(JSON.parse(JSON.stringify(tooDeep)), readItem);
+    assert.ok(read.stacks[0]?.held, 'the sack is a legal container and keeps its contents');
+    const inner = read.stacks[0]?.held?.contents[0];
+    assert.equal(inner?.item.id, 'quiver', 'the quiver inside it is still an item');
+    assert.equal(inner?.held, undefined, 'but not a container, and the arrow in it is gone');
+  });
+
+  it('empties containers onto the corpse instead of burning what is in them', () => {
+    // `loose` is what a death hands to `makeCorpse`. Stopping at the top level would have destroyed
+    // twenty arrows and left the empty quiver, which is the same silent loss as the save bug above —
+    // only permanent, and on the one event where a player is already unhappy.
+    const bag: Inventory = {
+      stacks: [quiver([{ item: arrow(), count: 20 }]), { item: item('rope', 2, 'a coil of rope'), count: 2 }],
+      capacity: 20,
+    };
+    const dropped = loose(bag).map((i) => i.id);
+    assert.equal(dropped.filter((id) => id === 'arrow').length, 20, 'every arrow is on the body');
+    assert.equal(dropped.filter((id) => id === 'quiver').length, 1, 'and so is the quiver itself');
+    assert.equal(dropped.length, 23);
+  });
+
+  it('drops a rule it cannot believe rather than loading a container with no capacity', () => {
+    for (const rule of [undefined, {}, { capacity: 0, accepts: 'any' }, { capacity: 10, accepts: 'sandwiches' }]) {
+      const read = readInventory({ stacks: [{ item: item('sack', 3), count: 1, held: { rule, contents: [] } }], capacity: 20 }, readItem);
+      assert.equal(read.stacks.length, 1, 'the sack itself is still a sack');
+      assert.equal(read.stacks[0]?.held, undefined, JSON.stringify(rule));
+    }
   });
 });
