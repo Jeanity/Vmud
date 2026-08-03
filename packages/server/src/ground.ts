@@ -27,7 +27,7 @@
  * met anything.
  */
 
-import { TILE_SIZE, type EntityId, type EntityView, type Item, type Place, type RoomId } from '@mygame/shared';
+import { DURIS_ITEM, TILE_SIZE, type EntityId, type EntityView, type Item, type Place, type RoomId } from '@mygame/shared';
 
 /** One thing on the floor. */
 export interface GroundItem {
@@ -93,12 +93,12 @@ export function itemsIn(ground: Ground, roomId: RoomId): GroundItem[] {
  * `kind: 'item'` puts it down the same path corpses already take — one image, no facing, no health
  * bar — so nothing in the renderer needed a new concept for objects on the floor.
  */
-export function groundViewOf(entry: GroundItem): EntityView {
+export function groundViewOf(entry: GroundItem, durisType?: number): EntityView {
   return {
     id: entry.id,
     kind: 'item',
     name: entry.item.name,
-    sprite: groundSprite(entry.item),
+    sprite: groundSprite(entry.item, durisType),
     x: entry.x,
     y: entry.y,
     facing: 'south',
@@ -112,12 +112,57 @@ export function groundViewOf(entry: GroundItem): EntityView {
 /**
  * Which floor sprite an item draws as.
  *
- * By **slot** rather than by item id, so a new garment inherits a sensible look without anybody
- * remembering to add it here. The client's item textures are generated shapes rather than art (see
- * `makeItemTextures`), which is honest for now: a leather tunic on the floor is a bundle, and drawing
- * it as anything more specific would need art the pack does not have at this size.
+ * **By Duris' own item type where we know it, falling back to the wear slot.** Owner's point
+ * (2026-08-03): *"not everyone reads every description"* — a thing on the floor has to be noticeable
+ * and identifiable at a glance, or it may as well not be there. Two generic blobs across a catalogue
+ * of 16,421 items made every floor look the same.
+ *
+ * The type is passed in rather than looked up, because this file has no business holding the
+ * catalogue — the same injection the reset census uses. Absent (the authored starter kit, which has no
+ * vnum) it falls back to the slot, which is what shipped in 15b.
+ *
+ * These are generated shapes rather than art, and that is still honest: a colour and a silhouette is
+ * enough to say *sword* apart from *flask* apart from *coin*, which is the job. Real per-item art is
+ * an LPC gap and Phase 16's.
  */
-export function groundSprite(item: Item): string {
+export function groundSprite(item: Item, durisType?: number): string {
+  switch (durisType) {
+    case DURIS_ITEM.weapon:
+    case DURIS_ITEM.fireweapon:
+      return 'item_weapon';
+    case DURIS_ITEM.missile:
+      return 'item_missile';
+    case DURIS_ITEM.armor:
+    case DURIS_ITEM.shield:
+      return 'item_armour';
+    case DURIS_ITEM.container:
+    case DURIS_ITEM.quiver:
+    case DURIS_ITEM.scabbard:
+    case DURIS_ITEM.storage:
+      return 'item_container';
+    case DURIS_ITEM.potion:
+    case DURIS_ITEM.drinkcon:
+      return 'item_flask';
+    case DURIS_ITEM.scroll:
+    case DURIS_ITEM.book:
+    case DURIS_ITEM.spellbook:
+      return 'item_scroll';
+    case DURIS_ITEM.wand:
+    case DURIS_ITEM.staff:
+      return 'item_wand';
+    case DURIS_ITEM.money:
+    case DURIS_ITEM.treasure:
+      return 'item_coin';
+    case DURIS_ITEM.key:
+      return 'item_key';
+    case DURIS_ITEM.food:
+      return 'item_food';
+    case DURIS_ITEM.light:
+      return 'item_light';
+    default:
+      break;
+  }
+  // No type — an authored item. 15b's rule.
   if (item.slot === 'mainHand' || item.slot === 'offHand') return 'item_weapon';
   return 'item_bundle';
 }

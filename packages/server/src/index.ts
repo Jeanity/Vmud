@@ -600,7 +600,7 @@ function visibleEntities(observer: Player): EntityView[] {
   // is not visible because you happen to know somebody dropped one — and this is what makes a dark
   // room a real place to lose something in.
   for (const entry of itemsIn(ground, observer.roomId)) {
-    if (observer.visible.has(tileIndexAt(grid, entry.x, entry.y))) out.push(groundViewOf(entry));
+    if (observer.visible.has(tileIndexAt(grid, entry.x, entry.y))) out.push(groundViewOf(entry, templateOf(entry.item)?.type));
   }
   return out;
 }
@@ -2929,6 +2929,7 @@ function countInstances(vnum: number): number {
  */
 function placeResetObjects(outcome: { readonly objects: readonly { readonly template: ItemTemplate; readonly room: RoomId }[] }): number {
   let placed = 0;
+  const rooms: RoomId[] = [];
   for (const { template, room } of outcome.objects) {
     const located = world.locate(room);
     const origin = located && world.grid(located.place)?.roomOrigins.get(room);
@@ -2941,8 +2942,13 @@ function placeResetObjects(outcome: { readonly objects: readonly { readonly temp
       y: tileCentre(centre.ty),
     });
     placed++;
+    rooms.push(room);
   }
-  if (placed > 0) syncEntitiesIn(outcome.objects[0]!.room);
+  // **Every room that received something, not just the first.** A repop scatters objects across a
+  // whole zone, and syncing only `objects[0].room` left anyone standing in the other rooms unable to
+  // see what had just appeared at their feet until something else made them resync. Harmless at boot,
+  // where nobody is connected yet, and exactly the kind of thing that only shows up an hour in.
+  for (const room of new Set(rooms)) syncEntitiesIn(room);
   return placed;
 }
 

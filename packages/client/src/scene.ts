@@ -3205,6 +3205,21 @@ export class WorldScene extends Phaser.Scene {
     // with a fallback, so real art replaces these without touching anything else.
     this.drawItemTexture(`${ITEM_TEXTURE_PREFIX}item_weapon`, 0xc8cbd0, 0x8a8f96);
     this.drawItemTexture(`${ITEM_TEXTURE_PREFIX}item_bundle`, 0xb08a5c, 0x7d6240);
+    // **One colour per kind of thing.** Owner's point (2026-08-03): *"not everyone reads every
+    // description"* — so a thing on the floor has to say what it is at a glance, and two generic
+    // blobs across a catalogue of 16,421 items made every floor look the same. Still generated
+    // shapes rather than art (real per-item art is an LPC gap and Phase 16's), but a distinct colour
+    // is enough to tell a flask from a coin from a sword without walking over to click it.
+    this.drawItemTexture(`${ITEM_TEXTURE_PREFIX}item_armour`, 0x8f98a8, 0x5d6472);
+    this.drawItemTexture(`${ITEM_TEXTURE_PREFIX}item_missile`, 0xa8926a, 0x6f5f44);
+    this.drawItemTexture(`${ITEM_TEXTURE_PREFIX}item_container`, 0x9a6f42, 0x6b4c2c);
+    this.drawItemTexture(`${ITEM_TEXTURE_PREFIX}item_flask`, 0x6fb3c8, 0x3f7a8c);
+    this.drawItemTexture(`${ITEM_TEXTURE_PREFIX}item_scroll`, 0xe0d6b0, 0xa89a70);
+    this.drawItemTexture(`${ITEM_TEXTURE_PREFIX}item_wand`, 0xb98ad8, 0x7d55a0);
+    this.drawItemTexture(`${ITEM_TEXTURE_PREFIX}item_coin`, 0xe8c25a, 0xa8862c);
+    this.drawItemTexture(`${ITEM_TEXTURE_PREFIX}item_key`, 0xc9b26b, 0x8d7a3e);
+    this.drawItemTexture(`${ITEM_TEXTURE_PREFIX}item_food`, 0xc07a5a, 0x8a5138);
+    this.drawItemTexture(`${ITEM_TEXTURE_PREFIX}item_light`, 0xf0d68a, 0xb59a48);
   }
 
   /**
