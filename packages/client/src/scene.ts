@@ -247,6 +247,22 @@ const WALK_PIXELS_PER_FRAME = 18;
  */
 const WALK_MOVING_EPSILON = 0.25;
 
+/**
+ * Suffix of the companion sheet a layer stands still on.
+ *
+ * **The walk sheet has no rest pose in it**, which is not obvious and cost a round of guessing.
+ * Measured against the pack's own `idle.png`: the *closest* walk column still differs from the idle
+ * frame by 173 pixels, and the cycle turns out to be eight genuine strides — columns 0–3 leading with
+ * one leg and 4–7 with the other — so **every** column is mid-stride. Standing on column 0 therefore
+ * left a character permanently caught with one foot forward, which shows most when they turn on the
+ * spot: the legs snap between two strides and never settle.
+ *
+ * LPC ships `idle.png` beside `walk.png` for exactly this, so both are loaded and a layer swaps
+ * texture rather than column when it stops. That is 14 more sheets and about 250 KB, which is the
+ * cheapest correct answer available — the alternative is drawing a rest pose we do not have.
+ */
+const IDLE_SUFFIX = '-idle';
+
 const LPC_SHEETS: readonly string[] = [
   'body-human-male',
   'torso-longsleeve-forest',
@@ -264,7 +280,7 @@ const LPC_SHEETS: readonly string[] = [
   'feet-boots-travel',
   'head-cap-leather',
   'head-hood-cloth',
-];
+].flatMap((sheet) => [sheet, sheet + '-idle']);
 
 /**
  * Which LPC sheet each wearable item draws as. Phase 15a.
@@ -2523,8 +2539,16 @@ export class WorldScene extends Phaser.Scene {
    * server sent, so the absence is handled here, once.
    */
   private faceEntity(entity: Entity, facing: Direction): void {
+    // Standing and walking are different *sheets*, not different columns of one — see `IDLE_SUFFIX`.
+    const standing = entity.walked === 0;
+    const column = walkColumn(entity);
     for (const layer of entity.layers) {
-      layer.setFrame(layerFrame(layer.texture, facing, walkColumn(entity)));
+      const walkSheet = layer.getData('sheet') as string | undefined;
+      if (walkSheet) {
+        const wanted = standing ? walkSheet + IDLE_SUFFIX : walkSheet;
+        if (layer.texture.key !== wanted) layer.setTexture(wanted);
+      }
+      layer.setFrame(layerFrame(layer.texture, facing, column));
     }
   }
 
@@ -2594,6 +2618,8 @@ export class WorldScene extends Phaser.Scene {
 
     return stack.map((sheet) => {
       const image = this.add.image(0, LPC_FOOT_OFFSET, sheet);
+      // The walk sheet is the layer's identity; the idle one is derived from it when it stops.
+      image.setData('sheet', sheet);
       image.setFrame(layerFrame(image.texture, facing));
       return image;
     });
