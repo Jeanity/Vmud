@@ -61,6 +61,8 @@ import {
   weaponFrom,
   STARTING_HIT_POINTS,
   emptyInventory,
+  emptyPurse,
+  type Purse,
   type Equipped,
   type Inventory,
   type Item,
@@ -427,6 +429,14 @@ export interface Player extends Actor {
    * you have on is not luggage. A character in thirty slots of plate carries an empty bag.
    */
   inventory: Inventory;
+  /**
+   * Coin, in all four of Duris currencies. Phase 15c — see `containers.ts`.
+   *
+   * **A number on the character, not a stack in the bag.** Coins as an item would cost slots, so a
+   * player emptying a dungeon would spend their bag on money and have nowhere to put the loot. Duris
+   * does the same (`points.cash`), and so does every Diku.
+   */
+  purse: Purse;
 }
 
 /**
@@ -718,6 +728,8 @@ export class Simulation {
       // Empty, and it stays that way until they pick something up. A starting bag with something in
       // it would be a second kit nobody rolled.
       inventory: emptyInventory(),
+      // Nobody starts with money. What you have, you took off something.
+      purse: emptyPurse(),
       combat: {
         ...base,
         armourClass: base.armourClass + armourClassFrom(equipped),

@@ -51,8 +51,14 @@ import {
 
   weaponFrom,
   STARTING_HIT_POINTS,
+  addCoins,
   carry,
+  describePurse,
   describeStack,
+  isMoney,
+  vnumOf,
+  type Purse,
+  type ItemTemplate,
   emptyInventory,
   limitOf,
   loose,
@@ -817,6 +823,9 @@ function rememberProgress(player: Player): void {
   // The bag too, since 15b. Same fact of the same kind: what a character has is theirs, and losing it
   // to a disconnect would teach players not to carry anything.
   store.setInventory(record, player.inventory);
+  // And the coin, since 15c. Money that evaporated on logout would teach players to spend it before
+  // quitting, which is a mechanic nobody designed.
+  store.setPurse(record, player.purse);
 }
 
 /**
@@ -842,6 +851,7 @@ function restoreProgress(player: Player, record: PlayerRecord): void {
   // And the bag. Restored unconditionally when present, *including an empty one*, because an empty bag
   // with a raised capacity is still a fact about the character — see `PlayerStore.save`.
   if (record.inventory) player.inventory = record.inventory;
+  if (record.purse) player.purse = record.purse;
 
   const progress = record.progress;
   if (progress) {
@@ -2751,6 +2761,23 @@ function searchCorpse(player: Player, corpse: Corpse): void {
     return;
   }
 
+  // **Coin comes off a body first, and never touches the bag.** Most of the world's money is carried
+  // rather than lying about — 15c's harvest gives IceCrag mobs four platinum apiece — so a corpse that
+  // handed you a "pile of coins" *item* would be the common case, not the exception. Same rule the
+  // ground already follows: converted, not carried, and it cannot be refused for want of a slot.
+  const coin = corpse.contents.filter((item) => isMoney(templateOf(item)?.type));
+  if (coin.length > 0) {
+    let gained: Purse = {};
+    for (const item of coin) gained = addCoins(gained, templateOf(item)?.coins ?? {});
+    player.purse = addCoins(player.purse, gained);
+    corpse.contents = corpse.contents.filter((item) => !isMoney(templateOf(item)?.type));
+    send(player.id, {
+      t: 'log',
+      channel: 'system',
+      text: `You get ${describePurse(gained)} from ${corpseName(corpse)}.`,
+    });
+  }
+
   const result = lootCorpse(corpse, player.inventory);
   player.inventory = result.inventory;
 
@@ -2785,6 +2812,18 @@ function syncCorpseView(corpse: Corpse): void {
 /* -------------------------------------------------------------------------- */
 /* Carrying things — Phase 15b                                                 */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * The catalogue entry an instance came from, or nothing for the authored starter kit.
+ *
+ * The bridge between the two halves of §8's type/instance split. An `Item` carries what a *bag* needs —
+ * name, bulk, armour, stacking — and deliberately not what only the catalogue knows: its Duris type, its
+ * container rule, what it is worth in coin. Anything asking those questions comes through here.
+ */
+function templateOf(item: Item): ItemTemplate | undefined {
+  const vnum = vnumOf(item);
+  return vnum === undefined ? undefined : itemCatalogue.get(vnum);
+}
 
 /**
  * Rebuilds the fighting profile from the level and the worn kit.
@@ -2869,6 +2908,30 @@ function pickUp(player: Player, id: EntityId): void {
     });
     return;
   }
+  // **A money pile is converted, not carried.** Phase 15c. Coin lives on the character rather than in
+  // the bag — §8 — so a pile leaves the world and the purse goes up, and `ITEM_MONEY` never reaches a
+  // `Stack` at all. Checked before the bag, or a pile of ten thousand platinum would be refused for
+  // want of a slot.
+  const template = templateOf(entry.item);
+  if (template && isMoney(template.type)) {
+    takeItem(ground, entry.id);
+    player.purse = addCoins(player.purse, template.coins ?? {});
+    faceToward(player, entry.x, entry.y);
+    send(player.id, {
+      t: 'log',
+      channel: 'system',
+      text: `You pick up ${describePurse(template.coins ?? {})}.`,
+    });
+    actToRoom(player, 'room', (who) => `${who} picks up some coins.`);
+    rememberProgress(player);
+    for (const observer of sim.playersIn(entry.roomId)) {
+      if (!watching.get(observer.id)?.has(entry.id)) continue;
+      send(observer.id, { t: 'entityLeave', id: entry.id });
+      watching.get(observer.id)?.delete(entry.id);
+    }
+    return;
+  }
+
   const result = carry(player.inventory, entry.item);
   if (!('stacks' in result)) {
     send(player.id, {
@@ -3063,6 +3126,14 @@ function listInventory(player: Player): void {
       text: `  ${describeStack(stack, stack.item.uses)} (${slots} slot${slots === 1 ? '' : 's'})`,
     });
   }
+
+  // Coin is a line of its own, above the kit — it is not worn and it is not carried, and putting it
+  // in either list would be a lie about where it lives.
+  send(player.id, {
+    t: 'log',
+    channel: 'system',
+    text: `&+YPurse:&N ${describePurse(player.purse)}`,
+  });
 
   send(player.id, { t: 'log', channel: 'system', text: '&+cYou are wearing:&N' });
   const worn = Object.entries(player.equipped).filter(([, item]) => item !== undefined);

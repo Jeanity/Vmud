@@ -30,7 +30,9 @@ import {
   AffectFlag,
   APPLY_LOCATIONS,
   STARTING_CAPACITY,
+  CURRENCIES,
   emptyInventory,
+  purseIsEmpty,
   readEquipped,
   readInventory,
   readItem,
@@ -43,6 +45,7 @@ import {
   type AffectType,
   type Equipped,
   type Inventory,
+  type Purse,
   type ApplyLocation,
   type Place,
   type RoomId,
@@ -55,6 +58,23 @@ import {
   bitsetBytes,
   createBitset,
 } from '@mygame/shared/vision.ts';
+
+/**
+ * Rebuilds a purse from disk, dropping anything that is not a positive number.
+ *
+ * Same posture as every other reader here: these files are hand-editable, and a negative or NaN coin
+ * count is the one corruption a character never recovers from.
+ */
+function readPurse(raw: unknown): Purse {
+  if (typeof raw !== 'object' || raw === null) return {};
+  const source = raw as Record<string, unknown>;
+  const out: Record<string, number> = {};
+  for (const kind of CURRENCIES) {
+    const n = source[kind];
+    if (typeof n === 'number' && Number.isFinite(n) && n > 0) out[kind] = Math.floor(n);
+  }
+  return out;
+}
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const DEFAULT_PLAYER_DIR = join(REPO_ROOT, 'data', 'players');
@@ -148,6 +168,14 @@ export interface PlayerRecord {
    * phase, which restores as an empty bag — the only honest answer, since nothing was carried.
    */
   inventory: Inventory | undefined;
+  /**
+   * Coin, in all four currencies. Phase 15c.
+   *
+   * Same reason the bag is stored: money that evaporated on logout would teach players to spend it
+   * before quitting, which is a mechanic nobody designed. Absent on a record from before the phase,
+   * restoring as an empty purse — nothing was carried, so nothing is lost.
+   */
+  purse: Purse | undefined;
 }
 
 /**
@@ -184,6 +212,8 @@ interface StoredRecord {
   equipped?: unknown;
   /** Carried items and bag capacity. Absent before Phase 15b. */
   inventory?: unknown;
+  /** Coin by currency. Absent before Phase 15c, and for anyone who has never found any. */
+  purse?: unknown;
   /** Base64 bitset per {@link placeKey}. */
   seen?: Record<string, string>;
   /** Ground pickup keys this character has collected. Absent in any save written before v5. */
@@ -322,6 +352,7 @@ export class PlayerStore {
       progress: undefined,
       equipped: undefined,
       inventory: undefined,
+      purse: undefined,
     };
     if (slug) {
       try {
@@ -336,6 +367,7 @@ export class PlayerStore {
           progress: decodeProgress(stored.level, stored.experience, stored.maxHp),
         equipped: readEquipped(stored.equipped),
         inventory: stored.inventory === undefined ? undefined : readInventory(stored.inventory, readItem),
+        purse: readPurse(stored.purse),
         };
         // A save written by the previous version has room ids and no bitsets. Refusing to load it
         // would lock a character out of their own account over a data format; this converts what it
@@ -468,6 +500,20 @@ export class PlayerStore {
     const next = JSON.stringify(equipped);
     if (JSON.stringify(record.equipped ?? {}) === next) return;
     record.equipped = readEquipped(JSON.parse(next));
+    this.touch(record);
+  }
+
+  /**
+   * Records a character's coin. See {@link PlayerRecord.purse}.
+   *
+   * Round-tripped through {@link readPurse} rather than stored by reference, the same discipline
+   * {@link setEquipped} follows: the record must not alias live state, or a later pickup would edit
+   * what is about to be written without marking it dirty.
+   */
+  setPurse(record: PlayerRecord, purse: Purse): void {
+    const next = JSON.stringify(purse);
+    if (JSON.stringify(record.purse ?? {}) === next) return;
+    record.purse = readPurse(JSON.parse(next));
     this.touch(record);
   }
 
@@ -623,6 +669,8 @@ export class PlayerStore {
       (record.inventory.stacks.length > 0 || record.inventory.capacity !== STARTING_CAPACITY)
         ? { inventory: record.inventory }
         : {}),
+      // Omitted for a character who has never found a coin, like every other absent-means-nothing field.
+      ...(record.purse && !purseIsEmpty(record.purse) ? { purse: record.purse } : {}),
       savedAt: new Date().toISOString(),
     };
     try {
@@ -703,6 +751,7 @@ export class PlayerStore {
         progress: decodeProgress(stored.level, stored.experience, stored.maxHp),
         equipped: readEquipped(stored.equipped),
         inventory: stored.inventory === undefined ? undefined : readInventory(stored.inventory, readItem),
+        purse: readPurse(stored.purse),
       };
       out.push({
         slug,
