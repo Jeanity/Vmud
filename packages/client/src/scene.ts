@@ -681,6 +681,14 @@ interface Entity {
 export class WorldScene extends Phaser.Scene {
   private readonly net: Net;
   private readonly log: LogPanel;
+  /**
+   * Every portal on the current level, for hit-testing a click.
+   *
+   * Rebuilt with the tilemap and thrown away with it: a portal is part of a level's geometry and none
+   * of it survives leaving the Place.
+   */
+  private portals: { dir: Direction; roomId: RoomId; x: number; y: number }[] = [];
+
   /** Click a body, get its verbs. Constructed lazily in `create`, once the DOM is certain to exist. */
   private targetMenu!: TargetMenu;
 
@@ -1490,6 +1498,18 @@ export class WorldScene extends Phaser.Scene {
       return;
     }
 
+    // **Or a portal.** Checked here rather than through a per-object `pointerdown` handler, and the
+    // difference is not stylistic: this method runs for every press and ends by walking you somewhere,
+    // so an object handling its own press still gets walked over a frame later. One hit test, one
+    // decision. Bodies win a tie — a mob standing against the wall is what you meant to click.
+    const portal = this.portalAt(world.x, world.y);
+    if (portal) {
+      this.targetMenu.show(pointer.x, pointer.y, `a portal leading ${portal.dir}`, [
+        { label: 'Enter portal', run: () => this.net.send({ t: 'move', dir: portal.dir }) },
+      ]);
+      return;
+    }
+
     // The press is a plain click first and the start of a possible drag second. Order matters: a
     // click that turns out to be a drag must behave, at this instant, exactly as it always has.
     this.beginDrag(pointer);
@@ -1863,6 +1883,9 @@ export class WorldScene extends Phaser.Scene {
     this.fogScratch = undefined;
     this.mapTexture = undefined;
 
+    // Emptied with the map it belongs to. A portal remembered across a Place change would be a click
+    // target floating over a level that never had it.
+    this.portals = [];
     this.grid = buildZoneTilemap(zone, level);
     const grid = this.grid;
 
@@ -1923,6 +1946,17 @@ export class WorldScene extends Phaser.Scene {
         .setWordWrapWidth(ROOM_TILES * TILE_SIZE - 8);
       this.placeObjects.push(label);
       this.roomLabels.push(label);
+
+      // **Portals, drawn on the wall they leave through.** Owner-reported twice: a mob fled east out
+      // of a room whose only visible opening was north, which read as the game moving a body through
+      // a wall. A portal is a real exit whose destination is not the geometric neighbour, so the
+      // tilemap carves no opening for it and the wall stays solid — 6.1% of the world's exits. It is
+      // reachable by typing the direction and by nothing else, which makes it a secret by accident
+      // rather than by design. A marker makes it an exit you can see and click.
+      for (const [dir, exit] of Object.entries(room.exits ?? {})) {
+        if (!exit?.portal) continue;
+        this.placeObjects.push(this.makePortalMarker(origin, dir as Direction, room.id));
+      }
     }
     // Labels built while zoomed out must start hidden, not appear for one frame and then vanish.
     this.applyLabelVisibility(ZOOM_STEPS[this.zoomStep] ?? 1);
@@ -3080,6 +3114,68 @@ export class WorldScene extends Phaser.Scene {
    * orange for the torch, cold and steady for the everburning one, and the beacon pale enough to
    * look like it is lighting the floor around it — which, for thirty seconds, it is.
    */
+
+  /**
+   * A portal on the wall it leaves through.
+   *
+   * Drawn rather than tiled, because a portal is precisely the exit the tilemap could *not* express:
+   * `buildZoneTilemap` carves an opening only where the destination is the geometric neighbour, and a
+   * portal is by definition where that reconciliation failed. So it is an object sitting on the wall
+   * rather than a hole in it, which is also the honest picture — you are stepping somewhere the map
+   * cannot draw a corridor to.
+   *
+   * Interactive on its own, not through the entity feed: a portal is a property of the *room*, which
+   * the client already has in `RoomView.room.exits`, and inventing a server-side entity for a piece of
+   * fixed geometry would put something in the interest-management path that never moves and never
+   * changes. Clicking it offers `Enter portal`, which sends the ordinary `move` intent — the server has
+   * always allowed a typed direction through a portal, so this makes the exit *visible* rather than
+   * newly usable.
+   */
+  private makePortalMarker(origin: { tx: number; ty: number }, dir: Direction, roomId: RoomId): Phaser.GameObjects.Container {
+    // On the wall, a little inside the room's floor, so it reads as being set *into* the wall rather
+    // than standing on the ground in front of it.
+    const mid = (ROOM_TILES / 2) * TILE_SIZE;
+    const edge = ROOM_TILES * TILE_SIZE;
+    const lip = TILE_SIZE * 0.4;
+    const at =
+      dir === 'north' ? { x: mid, y: lip }
+      : dir === 'south' ? { x: mid, y: edge - lip }
+      : dir === 'east' ? { x: edge - lip, y: mid }
+      : dir === 'west' ? { x: lip, y: mid }
+      // Up and down have no wall to sit on, so they go in a corner where they cannot be mistaken for
+      // one of the four that do.
+      : { x: edge - lip, y: lip };
+
+    const container = this.add
+      .container(origin.tx * TILE_SIZE + at.x, origin.ty * TILE_SIZE + at.y)
+      .setDepth(2);
+    // A ring rather than a filled shape, so whatever the wall is drawn as still reads through it, and
+    // a violet nothing else in the palette uses — its whole job is to be noticed.
+    const core = this.add.circle(0, 0, TILE_SIZE * 0.2, 0x5a3a8c, 0.55);
+    const ring = this.add.circle(0, 0, TILE_SIZE * 0.34).setStrokeStyle(2, 0x9d6bd8, 0.95);
+    container.add([core, ring]);
+
+    // Remembered so `portalAt` can hit-test it. Cleared with the rest of `placeObjects` on a Place
+    // change, because a portal belongs to a level's geometry and none of it survives leaving.
+    this.portals.push({ dir, roomId, x: container.x, y: container.y });
+    return container;
+  }
+
+  /**
+   * The portal under a world point, if the player is standing in its room.
+   *
+   * Room-gated because the map draws the whole level: portals three rooms away are on screen, and
+   * offering a verb the server would refuse is an invitation to a refusal.
+   */
+  private portalAt(x: number, y: number): { dir: Direction; roomId: RoomId } | undefined {
+    const reach = TILE_SIZE * 0.5;
+    for (const portal of this.portals) {
+      if (portal.roomId !== this.selfRoomId) continue;
+      if (Math.abs(portal.x - x) <= reach && Math.abs(portal.y - y) <= reach) return portal;
+    }
+    return undefined;
+  }
+
   private makeItemTextures(): void {
     // Anything the server names that this build has never heard of. Deliberately drab: an unknown
     // pickup should look like a question, not like treasure.
