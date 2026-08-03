@@ -35,6 +35,9 @@
  */
 
 import type { Item } from './equipment.ts';
+// Type-only, so the cycle with `containers.ts` (which needs `Stack`) exists in the types and never at
+// run time. A stack has to know it may hold things; a container has to know what things are.
+import type { Held } from './containers.ts';
 
 /**
  * One entry in a bag: some number of identical items, all with the same charges left.
@@ -50,6 +53,14 @@ export interface Stack {
    * `undefined` for something use does not consume — a sword, a tunic, a key.
    */
   readonly remaining?: number;
+  /**
+   * What is inside, when this is a container. `containers.ts` §4.
+   *
+   * On the *stack* rather than on the `Item`, because contents are per-instance: two quivers hold
+   * different arrows, and `Item` is a type-level record copied wherever it goes. A stack carrying
+   * this always has `count: 1` — see {@link mergeable}.
+   */
+  readonly held?: Held;
 }
 
 /** How many of this type share one slot. Absent or nonsensical means it does not stack. */
@@ -85,6 +96,10 @@ export function stackSlots(stack: Stack, limit: number): number {
  * an item duplication bug wearing the clothes of a convenience.
  */
 export function mergeable(a: Stack, b: Stack): boolean {
+  // **A container holding anything cannot stack**, and it falls out of the invariant rather than being
+  // a new rule: a stack is homogeneous, and two quivers with different arrows in them are not the same
+  // thing. Empty ones merge freely, which is what a merchant's crate of empty sacks wants.
+  if (a.held?.contents.length || b.held?.contents.length) return false;
   return a.item.id === b.item.id && a.remaining === b.remaining;
 }
 

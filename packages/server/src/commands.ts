@@ -90,6 +90,9 @@ export const COMMANDS = [
   'wear',
   'remove',
   'inventory',
+  // 15c. `p` is free — nothing above starts with it — so `put` lands on its own initial, which is
+  // what Diku gives it too.
+  'put',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -222,6 +225,10 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // Interface rather than action, and prone like `affects`: reading what you are carrying while it is
   // killing you is precisely when you want to.
   inventory: { status: 'resting', posture: 'prone' },
+  // `CMD_N(CMD_PUT, STAT_RESTING + POS_SITTING, do_put, 0, TRUE)` — refused in combat, and it sits
+  // beside `wear` as the other thing you do not do mid-swing. Rummaging in a bag while something is
+  // hitting you is the same kind of several-motions act that donning armour is.
+  put: { status: 'resting', posture: 'sitting', inCombat: false },
 };
 
 /* -------------------------------------------------------------------------- */

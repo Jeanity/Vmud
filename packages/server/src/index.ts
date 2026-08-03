@@ -53,11 +53,17 @@ import {
   STARTING_HIT_POINTS,
   addCoins,
   carry,
+  describeContainer,
   describePurse,
   describeStack,
   CURRENCIES,
   apportion,
   contributionValue,
+  mergeStacks,
+  mergeable,
+  putRefusal,
+  stackOf,
+  type Held,
   isMoney,
   purseIsEmpty,
   vnumOf,
@@ -2652,7 +2658,15 @@ function runCommand(player: Player, line: string): void {
       return;
 
     case 'loot': return lootByKeyword(player, rest);
-    case 'get': return getFromGround(player, rest);
+    case 'get': {
+      // `get <thing> from <container>` splits here rather than inside the ground handler, because the
+      // two are different acts against different stores that happen to share a verb — which is what
+      // Diku does too (`do_get` branches on the argument count).
+      const from = /^(.*?)\s+from\s+(.+)$/i.exec(rest.trim());
+      if (from) return getFromContainer(player, from[1]!, from[2]!);
+      return getFromGround(player, rest);
+    }
+    case 'put': return putInContainer(player, rest);
     case 'drop': return dropFromBag(player, rest);
     case 'wear': return wearFromBag(player, rest);
     case 'remove': return removeWorn(player, rest);
@@ -3008,6 +3022,159 @@ function pickUp(player: Player, id: EntityId): void {
   }
 }
 
+/**
+ * The container at a bag position, or nothing if that stack is not one.
+ *
+ * A stack becomes a container the first time something is put in it: `held` is created on demand from
+ * the catalogue's rule rather than at pickup, so the 16,000 items that are *not* containers carry no
+ * empty structure around, and a sack picked up before this shipped still works.
+ */
+function heldAt(player: Player, index: number): Held | undefined {
+  const stack = player.inventory.stacks[index];
+  if (!stack) return undefined;
+  if (stack.held) return stack.held;
+  const rule = templateOf(stack.item)?.container;
+  return rule ? { rule, contents: [] } : undefined;
+}
+
+/** Replaces the container at a position with a new state of it. */
+function setHeld(player: Player, index: number, held: Held): void {
+  const stacks = [...player.inventory.stacks];
+  const stack = stacks[index];
+  if (!stack) return;
+  stacks[index] = { ...stack, held };
+  player.inventory = { stacks, capacity: player.inventory.capacity };
+}
+
+/**
+ * `put <item> <container>`: move something from the bag into a container in the bag.
+ *
+ * **The container's contents do not count against the bag** (§4), so this is the command that buys a
+ * player space — twenty loose arrows become one quiver, and nineteen slots come back.
+ */
+function putInContainer(player: Player, rest: string): void {
+  // `put arrow quiver`, and also `put arrow in quiver` because a player will type it.
+  const words = rest.trim().split(/\s+/).filter((w) => w.length > 0 && w.toLowerCase() !== 'in');
+  if (words.length < 2) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Put what in what?' });
+    return;
+  }
+  const target = words[words.length - 1]!;
+  const wanted = words.slice(0, -1).join(' ');
+
+  const bagIndex = matchInventory(player.inventory, target);
+  const held = bagIndex === -1 ? undefined : heldAt(player, bagIndex);
+  if (!held) {
+    send(player.id, { t: 'log', channel: 'error', text: `You are not carrying a ${target} to put things in.` });
+    return;
+  }
+  const itemIndex = matchInventory(player.inventory, wanted);
+  if (itemIndex === -1) {
+    send(player.id, { t: 'log', channel: 'error', text: `You are not carrying ${wanted}.` });
+    return;
+  }
+  if (itemIndex === bagIndex) {
+    send(player.id, { t: 'log', channel: 'error', text: 'It will not hold itself.' });
+    return;
+  }
+
+  const item = player.inventory.stacks[itemIndex]!.item;
+  const itemTemplate = templateOf(item);
+  const refusal = putRefusal(held, item, itemTemplate?.type, itemTemplate?.container !== undefined);
+  if (refusal) {
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      // Three refusals, three sentences — §4's own reason for keeping them apart.
+      text:
+        refusal === 'too-deep'
+          ? `${capitalise(item.name)} is a container, and a container does not go inside another.`
+          : refusal === 'wrong-kind'
+            ? `${capitalise(held.rule.accepts === 'missile' ? 'that' : 'that')} does not belong in ${player.inventory.stacks[bagIndex]!.item.name}.`
+            : `There is no room in ${player.inventory.stacks[bagIndex]!.item.name}.`,
+    });
+    return;
+  }
+
+  // Out of the bag first, then in — and the *order* matters for the index, because removing a stack
+  // above the container shifts it down one.
+  const removed = removeAt(player.inventory, itemIndex);
+  if (!removed) return;
+  player.inventory = removed.inventory;
+  const shifted = itemIndex < bagIndex ? bagIndex - 1 : bagIndex;
+
+  // Merged into a matching stack inside, so a quiver does not fill with singleton arrows.
+  const incoming = stackOf(removed.item);
+  const contents = [...held.contents];
+  const at = contents.findIndex((s) => mergeable(s, incoming));
+  if (at >= 0) {
+    const { merged, leftover } = mergeStacks(contents[at]!, incoming, limitOf(removed.item));
+    contents[at] = merged;
+    if (leftover) contents.push(leftover);
+  } else {
+    contents.push(incoming);
+  }
+  setHeld(player, shifted, { rule: held.rule, contents });
+
+  send(player.id, {
+    t: 'log',
+    channel: 'system',
+    text: `You put ${removed.item.name} in ${player.inventory.stacks[shifted]!.item.name}.`,
+  });
+  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+  rememberProgress(player);
+}
+
+/** `get <item> from <container>`: take something back out. */
+function getFromContainer(player: Player, wanted: string, target: string): void {
+  const bagIndex = matchInventory(player.inventory, target);
+  const held = bagIndex === -1 ? undefined : heldAt(player, bagIndex);
+  if (!held) {
+    send(player.id, { t: 'log', channel: 'error', text: `You are not carrying a ${target}.` });
+    return;
+  }
+  const word = wanted.trim().toLowerCase();
+  const at = held.contents.findIndex(
+    (s) => !word || s.item.id === word || s.item.name.toLowerCase().split(/[^a-z0-9]+/).includes(word),
+  );
+  if (at === -1) {
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text: `There is no ${wanted} in ${player.inventory.stacks[bagIndex]!.item.name}.`,
+    });
+    return;
+  }
+
+  const stack = held.contents[at]!;
+  // Coming *out* costs bag slots, so it can be refused — which is the honest mirror of putting it in
+  // having freed them.
+  const result = carry(player.inventory, stack.item);
+  if (!('stacks' in result)) {
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text: `You have no room for ${stack.item.name} — ${result.free} slot${result.free === 1 ? '' : 's'} free.`,
+    });
+    return;
+  }
+  player.inventory = result;
+
+  const contents = [...held.contents];
+  if (stack.count > 1) contents[at] = { ...stack, count: stack.count - 1 };
+  else contents.splice(at, 1);
+  // The container's own index is unchanged: `carry` appends or merges, never removes.
+  setHeld(player, bagIndex, { rule: held.rule, contents });
+
+  send(player.id, {
+    t: 'log',
+    channel: 'system',
+    text: `You get ${stack.item.name} from ${player.inventory.stacks[bagIndex]!.item.name}.`,
+  });
+  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+  rememberProgress(player);
+}
+
 /** `drop <keyword>`: put something down where you stand. */
 function dropFromBag(player: Player, rest: string): void {
   if (!rest.trim()) {
@@ -3165,11 +3332,27 @@ function listInventory(player: Player): void {
     // is a rule (§3: charges show only once touched) rather than a formatting choice, and a second
     // copy of it here would drift from the one the container listing will need.
     const slots = stackSlots(stack, limitOf(stack.item));
+    // A container shows how full it is instead of a plain name, because "how much more fits" is the
+    // question you actually have about one. §4's `describeContainer` owns that wording.
+    const rule = stack.held?.rule ?? templateOf(stack.item)?.container;
+    const label = rule
+      ? describeContainer(stack.item, { rule, contents: stack.held?.contents ?? [] })
+      : describeStack(stack, stack.item.uses);
     send(player.id, {
       t: 'log',
       channel: 'system',
-      text: `  ${describeStack(stack, stack.item.uses)} (${slots} slot${slots === 1 ? '' : 's'})`,
+      text: `  ${label} (${slots} slot${slots === 1 ? '' : 's'})`,
     });
+    // Its contents, indented under it. Shown inline rather than behind a `look in`, because the whole
+    // point of the container is that the arrows are still *yours* — hiding them behind a second
+    // command would make a quiver feel like storage rather than like carrying.
+    for (const inside of stack.held?.contents ?? []) {
+      send(player.id, {
+        t: 'log',
+        channel: 'system',
+        text: `    - ${describeStack(inside, inside.item.uses)}`,
+      });
+    }
   }
 
   // Coin is a line of its own, above the kit — it is not worn and it is not carried, and putting it
