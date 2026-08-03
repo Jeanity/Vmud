@@ -131,6 +131,66 @@ export function applyExperience(rng: Rng, current: Progress): LevelUp {
   return { level, experience, maxHp, gained, hitPointsGained };
 }
 
+/**
+ * What dying takes, as a fraction of the level you were climbing toward.
+ *
+ * Duris' `exp.death.level.loss`, default **0.10** — `limits.c`'s `EXP_DEATH` branch computes
+ * `-1 * (new_exp_table[level + 1] * 0.10)`. Deliberately quoted against the *next* level rather than
+ * against what you are holding, which is what makes it a steady cost: dying always sets you back the
+ * same tenth of a level whether you had banked nothing or nearly enough.
+ *
+ * A tenth is far gentler than it sounds from the presence of `lose_level` in the same file — at level
+ * 1→2 it is 200 experience, about one kobold. The level only goes when the subtraction runs out of
+ * balance to take, which is Duris' `while (GET_EXP(ch) < 0)` loop and {@link applyDeathCost} below.
+ */
+export const DEATH_LEVEL_LOSS = 0.1;
+
+export interface DeathCost extends Progress {
+  /** Experience actually taken. Zero for a level-1 character, who is exempt. */
+  readonly experienceLost: number;
+  /** Levels lost — almost always zero. See {@link applyDeathCost}. */
+  readonly levelsLost: number;
+}
+
+/**
+ * Charges a death.
+ *
+ * **Level 1 pays nothing**, which is Duris' own guard (`GET_LEVEL(ch) > 1` in `fight.c`) and not a
+ * kindness invented here: a new character learning that mobs hit back should not also be learning
+ * about debt, and there is nothing below level 1 to demote them to.
+ *
+ * A level is lost only when the charge runs out of banked experience to take — the balance would go
+ * negative, so it is topped back up from the level below and the level goes instead. That makes dying
+ * near the *top* of a level cheap and dying near the *bottom* expensive, which is the right shape:
+ * it costs you the progress you actually had.
+ *
+ * **Hit points are not refunded on the way down.** Duris' `lose_level` docks `base_hit` by 3, but ours
+ * were *rolled* per level and stored (`DESIGN-progression.md` §3), so there is no formula to invert —
+ * subtracting an average would let a character farm maximum hit points by dying at the right moment.
+ * Losing the level is the cost; the hit points that level bought are kept.
+ */
+export function applyDeathCost(current: Progress): DeathCost {
+  if (current.level <= 1) return { ...current, experienceLost: 0, levelsLost: 0 };
+
+  const charge = Math.round(experienceForLevel(current.level + 1) * DEATH_LEVEL_LOSS);
+  let { level, experience } = current;
+  let levelsLost = 0;
+  experience -= charge;
+
+  // Duris' `while (GET_EXP(ch) < 0)`: refill from the level below and demote, repeatedly. It loops
+  // rather than stepping once because a single charge could in principle exceed a whole cheaper level
+  // — the curve steps by 4x at a band boundary, so the level below is sometimes a quarter the price.
+  while (experience < 0 && level > 1) {
+    level -= 1;
+    levelsLost += 1;
+    experience += experienceForLevel(level + 1);
+  }
+  // Floor at zero for the level-1 case the loop cannot fix: there is no level below to borrow from.
+  if (experience < 0) experience = 0;
+
+  return { level, experience, maxHp: current.maxHp, experienceLost: charge, levelsLost };
+}
+
 /** How much more is needed for the next level, or `null` at the ceiling where there is no next. */
 export function experienceToNext(progress: Progress): number | null {
   if (progress.level >= MAX_LEVEL) return null;

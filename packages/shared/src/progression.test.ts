@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import {
   MAX_LEVEL,
   STARTING_HIT_POINTS,
+  applyDeathCost,
   applyExperience,
   experienceForLevel,
   experienceToNext,
@@ -100,6 +101,58 @@ describe('hit points per level', () => {
     // character must live about seven rounds to win their first fight. The SRD's 9 bought five.
     assert.equal(STARTING_HIT_POINTS, 22);
     assert.ok(STARTING_HIT_POINTS / 3 > 7, 'survives long enough to win the first fight');
+  });
+});
+
+describe('what dying costs', () => {
+  it('takes a tenth of the level you were climbing toward', () => {
+    // Duris' `EXP_DEATH`: `-1 * (new_exp_table[level + 1] * exp.death.level.loss)`, default 0.10.
+    // Quoted against the *next* level, so the cost is steady whether you had banked much or little.
+    const after = applyDeathCost({ level: 2, experience: 1_000, maxHp: 25 });
+    assert.equal(after.experienceLost, 200, 'a tenth of level 3\'s 2,000');
+    assert.equal(after.experience, 800);
+    assert.equal(after.level, 2, 'and the level stands');
+    assert.equal(after.levelsLost, 0);
+  });
+
+  it('charges a level-1 character nothing at all', () => {
+    // Duris' own guard, `GET_LEVEL(ch) > 1`. Somebody learning that mobs hit back should not also be
+    // learning about debt, and there is nothing below level 1 to demote them to.
+    const before = { level: 1, experience: 500, maxHp: 22 };
+    const after = applyDeathCost(before);
+    assert.equal(after.experienceLost, 0);
+    assert.deepEqual({ level: after.level, experience: after.experience }, { level: 1, experience: 500 });
+  });
+
+  it('takes a level only when there is not enough banked to pay', () => {
+    // Dying near the top of a level is cheap; near the bottom it costs the level. That is the right
+    // shape — it takes the progress you actually had.
+    const after = applyDeathCost({ level: 3, experience: 50, maxHp: 30 });
+    assert.equal(after.levelsLost, 1);
+    assert.equal(after.level, 2);
+    // 50 - 200 = -150, refilled by level 3's own cost of 2,000.
+    assert.equal(after.experience, 1_850);
+  });
+
+  it('never demotes below level 1, and never banks a negative', () => {
+    const after = applyDeathCost({ level: 2, experience: 0, maxHp: 25 });
+    assert.equal(after.level, 1);
+    assert.ok(after.experience >= 0);
+  });
+
+  it('keeps the hit points the lost level bought', () => {
+    // They were *rolled* and stored, so there is no formula to invert — and subtracting an average
+    // would let a character farm a maximum by dying at the right moment. See `DESIGN-progression.md`.
+    const after = applyDeathCost({ level: 3, experience: 0, maxHp: 30 });
+    assert.equal(after.levelsLost, 1);
+    assert.equal(after.maxHp, 30);
+  });
+
+  it('scales with the band, because the curve does', () => {
+    // Level 16 costs 100,000, so dying there is 10,000 — fifty times the level-2 charge. The penalty
+    // stays worth the same fraction of your time at every level, which a flat number would not.
+    assert.equal(applyDeathCost({ level: 15, experience: 999_999, maxHp: 60 }).experienceLost, 10_000);
+    assert.equal(applyDeathCost({ level: 2, experience: 999_999, maxHp: 25 }).experienceLost, 200);
   });
 });
 

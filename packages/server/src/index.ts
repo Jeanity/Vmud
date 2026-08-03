@@ -43,6 +43,7 @@ import {
   doorwayTiles,
   HP_FLOOR,
   encode,
+  applyDeathCost,
   applyExperience,
   armourClassFrom,
   makeRng,
@@ -1204,6 +1205,101 @@ function announceAttack(outcome: AttackOutcome): void {
   }
 }
 
+
+/**
+ * A player who has bled out. Phase 14b's last clause, and the answer Phase 13 left open.
+ *
+ * **Nothing reached here before.** `combat.ts` routes only mobs to {@link resolveDeath} — a player at
+ * zero is spared by the mercy rule into the dying window, and the window's *end* was never built. A
+ * character who bled past the floor simply lay at negative hit points for ever, and the only way back
+ * was an admin edit. So this is not a penalty bolted onto a death; it is the death.
+ *
+ * The order is the interesting part, and each step depends on the one before:
+ *
+ * 1. **The corpse is made first**, from the body, while it still has a position — Phase 13's rule, and
+ *    the same reason `resolveDeath` does it in that order.
+ * 2. **The cost is charged before the respawn**, so the line that reports it can be sent with the
+ *    arrival rather than a tick later, and so a character cannot log out in the gap and keep the level.
+ * 3. **The respawn is a full arrival**, the same one a teleport runs: fog, room, entities. Restoring
+ *    hit points without it would leave a live character standing in a room the client thinks is empty.
+ *
+ * `DESIGN-progression.md` §6. Equipment stays on the body rather than in the corpse, and that is a
+ * scope line rather than a mercy: Phase 15 is what makes a dropped thing recoverable, and a corpse you
+ * cannot loot is a character permanently disarmed.
+ */
+function reapPlayer(player: Player): void {
+  const diedIn = player.roomId;
+
+  for (const observer of sim.playersIn(diedIn)) {
+    if (observer.id === player.id) continue;
+    if (!watching.get(observer.id)?.has(player.id)) continue;
+    send(observer.id, { t: 'log', channel: 'combat', text: `${capitalise(player.name)} has died.` });
+  }
+
+  // Before the body moves. A player's corpse decays on its own longer clock — see `corpses.ts`.
+  const corpse = makeCorpse(graveyard, player, true);
+
+  const cost = applyDeathCost({ level: player.level, experience: player.experience, maxHp: player.maxHp });
+  player.level = cost.level;
+  player.experience = cost.experience;
+  // Levelling down leaves the profile stale — attack bonus and round length are read off the level.
+  // Armour and weapon come from the kit, which dying does not touch.
+  const base = playerCombatStats(player.level);
+  player.combat = {
+    ...base,
+    armourClass: base.armourClass + armourClassFrom(player.equipped),
+    damage: weaponFrom(player.equipped, base.damage),
+  };
+  player.roundMs = base.roundMs;
+
+  // Whole again, and standing. `setStance` rather than assignment: both axes are on the wire, and a
+  // character revived into a posture the client does not know about cannot be moved.
+  player.hp = player.maxHp;
+  player.mana = player.maxMana;
+  player.move = player.maxMove;
+  sim.setStance(player, { status: 'normal', posture: 'standing' });
+  // The wind of whatever killed them dies with them; a corpse run should not start out of breath.
+  player.windedMs = 0;
+
+  const home = world.spawnRoom();
+  const from = player.roomId;
+  const fromPlace = player.place;
+  if (sim.relocate(player, home.id)) {
+    announceArrival(player, from, fromPlace);
+    for (const actor of clearEngagements(scheduler, sim, player)) syncEntityState(actor);
+  }
+  // The body has gone and the corpse has taken its place; tell whoever is still standing there both
+  // at once, the same way `resolveDeath` does it.
+  syncEntitiesIn(diedIn);
+  for (const observer of sim.playersIn(diedIn)) {
+    if (!watching.get(observer.id)?.has(corpse.id)) continue;
+    send(observer.id, {
+      t: 'log',
+      channel: 'room',
+      text: `${capitalise(corpseName(corpse))} falls to the ground.`,
+    });
+  }
+
+  send(player.id, { t: 'log', channel: 'combat', text: '&+RYou have died.&N' });
+  // **The cost, named.** Phase 14b's completion test is "dying costs something you can point at in
+  // the log", so it is spelled out rather than left to be inferred from a number that moved.
+  send(player.id, {
+    t: 'log',
+    channel: 'system',
+    text:
+      cost.experienceLost === 0
+        ? 'You were too green to lose anything by it. Your corpse lies where you fell.'
+        : `It cost you ${cost.experienceLost} experience` +
+          (cost.levelsLost > 0 ? ` and ${cost.levelsLost} level${cost.levelsLost === 1 ? '' : 's'}` : '') +
+          `. Your corpse lies where you fell — ${corpse.of}'s remains, in ${describeRoomName(diedIn)}.`,
+  });
+  persistAdminEdit(player);
+}
+
+/** A room's name for a sentence, or its id when the room is not one this server loaded. */
+function describeRoomName(id: RoomId): string {
+  return world.locate(id)?.room.name ?? `room ${id}`;
+}
 
 /**
  * A body reaching the end: pay out, remove it, and leave a corpse where it fell.
@@ -3053,6 +3149,17 @@ setInterval(() => {
   // Actors, not players: mobs regenerate through the same pass. Only a player has a `self` to be sent,
   // so the filter is here — and a mob whose health moved is picked up by the entity sync below instead,
   // which is what carries `healthFraction` to everyone watching it.
+  // **Bleeding out, resolved before the `self` below.** The dying window is a clock driven by
+  // regeneration's negative rate, so the tick that carries a character past the floor is a *vitals*
+  // change and this is the only place that sees it. Reaping first means the `self` that follows
+  // describes the revived character rather than the corpse — otherwise the client is told they are
+  // dead and then, a tick later, that they are somewhere else and fine.
+  //
+  // No edge-tracking is needed: handling a death *resolves* it, so a player is never `dead` twice.
+  for (const actor of vitalsChanged) {
+    if (isPlayer(actor) && actor.status === 'dead') reapPlayer(actor);
+  }
+
   for (const actor of vitalsChanged) {
     if (!isPlayer(actor) || relighted.has(actor)) continue;
     send(actor.id, { t: 'self', view: sim.selfViewOf(actor) });

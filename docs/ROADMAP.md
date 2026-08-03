@@ -86,8 +86,8 @@ a new idea still answers the three questions; its second question now also picks
 | --- | --- | --- | --- |
 | 1 ✅ | V1 — the combat feed ✅ | Phase 14 — mercy and fear ✅ | A2 — messaging to a room or place ✅ |
 | 2 ✅ | V2 — click a body, get its verbs ✅ | Phase 14c — the fight moves with you ✅ | A3 — zones, read-only ✅ |
-| **3 — current** | V6 — the world in its own colours ✅ | Phase 14b — a character worth keeping | A4b — the zone map ✅, then A5 — authoring ✅ |
-| 4 | V3 — speech in the world | Phase 15 — inventory and worn equipment | A4 — zones and mobs, live ops |
+| **3 ✅** | V6 — the world in its own colours ✅ | Phase 14b — a character worth keeping ✅ | A4b — the zone map ✅, then A5 — authoring ✅ |
+| **4 — current** | V3 — speech in the world | Phase 15 — inventory and worn equipment | A4 — zones and mobs, live ops |
 | 5 | V4 — the world as a graph of Places | Phase 16 — gear that matters | A6 — items |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
@@ -906,7 +906,7 @@ next-nearest, and only then a looted one. A corpse lies where it fell, so three 
 three on the floor — and taking whichever the graveyard happened to store first meant `loot` twice
 running searched the same body while the one at your feet stayed untouched.
 
-#### Phase 14b — A character worth keeping
+#### Phase 14b — A character worth keeping ✅ **done**
 
 Promoted out of §4's parking lot, where it has sat since Phase 11 as "the largest hole in the
 schedule"; lettered rather than renumbering, per this file's own rule. The `GAME_DEV_*` switches
@@ -919,7 +919,13 @@ are the stopgap it retires.
   something (`ROADMAP` rule: decide, then build; the corpse and its clock already exist).
 - **Seen when.** A brand-new character, with **no `GAME_DEV_*` switch set**, survives their first
   fight in the world they spawn into, levels from the experience the game already divides — and
-  dying costs something you can point at in the log.
+  dying costs something you can point at in the log. ✅ **all three, verified live**: Freshstart
+  spawned into the Kobold Settlement at 22 hit points in a rolled starter kit, took a kobold youth
+  through a pursuit to the first level in the game's history, then attacked something forty levels
+  above them and was told *"It cost you 200 experience and 1 level. Your corpse lies where you
+  fell."* The whole of it rests on one decision — **the SRD sets the shape of the rules and Duris
+  sets their magnitudes** — which has its own note, `DESIGN-progression.md`, because four of the
+  five problems here were decisions rather than work.
 - **Carries.** ~~Persisting `level` and `experience` at all~~ — **done early, 2026-08-02, by the
   owner's decision**: an admin edit must be permanent, so the storage half was pulled forward.
   `PlayerRecord.progress` holds both, login restores them (and returns the character to `lastRoom`),

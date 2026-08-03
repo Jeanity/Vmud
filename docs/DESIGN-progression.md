@@ -227,15 +227,44 @@ Still true and still useful: **half the low-level population never flees at all*
 the fisherman (91 hp), the wet nurse (57) and one guard (132). Too tough for level 1 today, but they
 become the efficient prey the moment a character has a level or two.
 
-## 6. What death costs — deferred, with the options recorded
+## 6. What death costs — **settled and built**
 
-Phase 13 left this open and it needs these numbers to mean anything. It now has them, so it is the
-next slice rather than this one. Duris' own answer is `lose_level` in `limits.c`: you drop a level,
-and below 26 you lose 3 base hit points and 3 base mana with it.
+Phase 13 left this open because it needed these numbers to mean anything. It has them now.
 
-That is harsh in a way modern players may not accept, and the decision is the owner's. The corpse and
-its clock already exist (Phase 13), so *"retrieve your corpse for something"* is available without
-new machinery.
+**The first finding was that nothing happened at all.** `combat.ts` routes only *mobs* to
+`resolveDeath` — a player at zero is spared by the mercy rule into the dying window, and the window's
+*end* had never been built. A character who bled past the floor lay at negative hit points for ever,
+and the only way back was an admin edit. So this was not a penalty bolted onto a death; it was the
+death.
+
+**The cost is Duris' own, and it is far gentler than `lose_level` suggests.** That function exists in
+`limits.c`, but reading what actually *calls* it on death: `fight.c` charges
+`gain_exp(ch, NULL, 0, EXP_DEATH)`, which is
+`-1 * (new_exp_table[level + 1] * exp.death.level.loss)` with a default of **0.10**. A tenth of the
+level you were climbing toward — 200 experience at level 2, about one kobold. `lose_level` fires only
+from the `while (GET_EXP(ch) < 0)` loop, when the charge runs out of banked experience to take.
+
+- **Level 1 pays nothing** — Duris' own `GET_LEVEL(ch) > 1` guard. Somebody learning that mobs hit
+  back should not also be learning about debt, and there is nothing below to demote them to.
+- **Quoted against the next level, not against what you hold**, so the cost is steady rather than
+  proportional to how well the session was going.
+- **A level goes only when the charge overdraws the balance.** Dying near the top of a level is cheap;
+  near the bottom it costs the level. That is the right shape — it takes the progress you had.
+- **The hit points a lost level bought are kept.** They were *rolled* and stored (§3), so there is no
+  formula to invert, and subtracting an average would let a character farm a maximum by dying at the
+  right moment. Losing the level is the cost.
+
+**You wake at the world's spawn room** — the configured one, data rather than a hardcoded id — whole,
+standing, and no longer winded, because a corpse run should not begin out of breath.
+
+**Equipment stays on the body, and that is a scope line rather than a mercy.** Phase 15 is what makes
+a dropped thing recoverable; a corpse you cannot loot is a character permanently disarmed. The corpse
+itself is real and carries Phase 13's longer player decay clock, so the *place* you died is already
+information worth acting on.
+
+Verified live: a level-2 character with 70 banked attacked something forty levels above them, died,
+and was charged 200 — overdrawing into **level 1 with 1,870**, respawned at An Overgrown Field with a
+corpse left in A Covered Gazebo Lost Among the Frozen Flowers, and told so in one line.
 
 ## 7. Not in this phase
 
