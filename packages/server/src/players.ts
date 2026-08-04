@@ -150,7 +150,7 @@ export interface PlayerRecord {
    * `{level: 1, experience: 0}` with no hit points is stored as undefined: that is what a brand-new
    * character is, and recording it would have every file assert a fact nothing established.
    */
-  progress: { level: number; experience: number; maxHp?: number } | undefined;
+  progress: { level: number; experience: number; maxHp?: number; damageBonus?: number } | undefined;
   /**
    * What this character is wearing. Phase 14b's starting kit, and later whatever they have found.
    *
@@ -208,6 +208,8 @@ interface StoredRecord {
   name: string;
   /** Rolled hit-point maximum. Absent before Phase 14b, when it was derived from the level instead. */
   maxHp?: number;
+  /** Accumulated per-level damage bonus. Absent before Phase 16b — see `expectedDamageBonus`. */
+  damageBonus?: number;
   /** Worn kit. Absent before Phase 14b. */
   equipped?: unknown;
   /** Carried items and bag capacity. Absent before Phase 15b. */
@@ -364,7 +366,7 @@ export class PlayerStore {
           affects: decodeAffects(stored, elapsedSince(stored.savedAt)),
           lastRoom: stored.lastRoom,
           missing: decodeMissing(stored.missing),
-          progress: decodeProgress(stored.level, stored.experience, stored.maxHp),
+          progress: decodeProgress(stored.level, stored.experience, stored.maxHp, stored.damageBonus),
         equipped: readEquipped(stored.equipped),
         inventory: stored.inventory === undefined ? undefined : readInventory(stored.inventory, readItem),
         purse: readPurse(stored.purse),
@@ -464,7 +466,7 @@ export class PlayerStore {
    * and the brand-new-character pair collapsing to "nothing recorded". Callers pass what the live
    * character holds; this decides whether that is worth a byte.
    */
-  setProgress(record: PlayerRecord, level: number, experience: number, maxHp?: number): void {
+  setProgress(record: PlayerRecord, level: number, experience: number, maxHp?: number, damageBonus?: number): void {
     const cleanLevel = Number.isFinite(level) ? Math.min(60, Math.max(1, Math.round(level))) : 1;
     const cleanExperience = Number.isFinite(experience) ? Math.max(0, Math.round(experience)) : 0;
     // **Hit points are stored, not derived** (Phase 14b). They are rolled once per level, so a
@@ -475,10 +477,19 @@ export class PlayerStore {
       typeof maxHp === 'number' && Number.isFinite(maxHp) ? Math.max(1, Math.round(maxHp)) : record.progress?.maxHp;
     // A level-1 character with nothing banked is the default, and writing it down says nothing —
     // *unless* they have hit points worth remembering, which a rolled starting kit means they might.
+    const cleanBonus =
+      typeof damageBonus === 'number' && Number.isFinite(damageBonus)
+        ? Math.max(0, Math.round(damageBonus))
+        : record.progress?.damageBonus;
     const value =
-      cleanLevel === 1 && cleanExperience === 0 && cleanMaxHp === undefined
+      cleanLevel === 1 && cleanExperience === 0 && cleanMaxHp === undefined && cleanBonus === undefined
         ? undefined
-        : { level: cleanLevel, experience: cleanExperience, ...(cleanMaxHp === undefined ? {} : { maxHp: cleanMaxHp }) };
+        : {
+            level: cleanLevel,
+            experience: cleanExperience,
+            ...(cleanMaxHp === undefined ? {} : { maxHp: cleanMaxHp }),
+            ...(cleanBonus === undefined ? {} : { damageBonus: cleanBonus }),
+          };
 
     const current = record.progress;
     if (current === value) return;
@@ -658,6 +669,7 @@ export class PlayerStore {
             level: record.progress.level,
             experience: record.progress.experience,
             ...(record.progress.maxHp === undefined ? {} : { maxHp: record.progress.maxHp }),
+            ...(record.progress.damageBonus === undefined ? {} : { damageBonus: record.progress.damageBonus }),
           }),
       // Absent on a character wearing nothing, which no live character is — but a hand-edited save
       // might be, and an empty object on disk says less than no key at all.
@@ -748,7 +760,7 @@ export class PlayerStore {
         affects: decodeAffects(stored, 0),
         lastRoom: stored.lastRoom,
         missing: decodeMissing(stored.missing),
-        progress: decodeProgress(stored.level, stored.experience, stored.maxHp),
+        progress: decodeProgress(stored.level, stored.experience, stored.maxHp, stored.damageBonus),
         equipped: readEquipped(stored.equipped),
         inventory: stored.inventory === undefined ? undefined : readInventory(stored.inventory, readItem),
         purse: readPurse(stored.purse),
@@ -1017,7 +1029,8 @@ function decodeProgress(
   level: unknown,
   experience: unknown,
   maxHp?: unknown,
-): { level: number; experience: number; maxHp?: number } | undefined {
+  damageBonus?: unknown,
+): { level: number; experience: number; maxHp?: number; damageBonus?: number } | undefined {
   if (typeof level !== 'number' || !Number.isFinite(level)) return undefined;
   const cleanLevel = Math.min(60, Math.max(1, Math.round(level)));
   const cleanExperience =
@@ -1026,8 +1039,18 @@ function decodeProgress(
   // level's expected average rather than treating it as a character with no hit points at all.
   const cleanMaxHp =
     typeof maxHp === 'number' && Number.isFinite(maxHp) ? Math.max(1, Math.round(maxHp)) : undefined;
-  if (cleanLevel === 1 && cleanExperience === 0 && cleanMaxHp === undefined) return undefined;
-  return { level: cleanLevel, experience: cleanExperience, ...(cleanMaxHp === undefined ? {} : { maxHp: cleanMaxHp }) };
+  // Phase 16, and read back for the reason `maxHp` is: rolled once per level and stored, so a formula
+  // cannot reproduce it. Absent on every record written before 16b — `restoreProgress` hands those the
+  // band midpoints rather than zero, or a level-40 veteran would come back hitting like a novice.
+  const cleanBonus =
+    typeof damageBonus === 'number' && Number.isFinite(damageBonus) ? Math.max(0, Math.round(damageBonus)) : undefined;
+  if (cleanLevel === 1 && cleanExperience === 0 && cleanMaxHp === undefined && cleanBonus === undefined) return undefined;
+  return {
+    level: cleanLevel,
+    experience: cleanExperience,
+    ...(cleanMaxHp === undefined ? {} : { maxHp: cleanMaxHp }),
+    ...(cleanBonus === undefined ? {} : { damageBonus: cleanBonus }),
+  };
 }
 
 /**

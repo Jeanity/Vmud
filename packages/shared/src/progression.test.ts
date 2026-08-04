@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  damageBandFor,
+  expectedDamageBonus,
+  rollDamageGain,
   MAX_LEVEL,
   STARTING_HIT_POINTS,
   applyDeathCost,
@@ -164,5 +167,55 @@ describe('experience to next', () => {
 
   it('never goes negative while a level-up is pending', () => {
     assert.equal(experienceToNext({ level: 1, experience: 9_000, maxHp: 22 }), 0);
+  });
+});
+
+describe('damage that rises with level — §8', () => {
+  it('gives nothing below level 6, because 14b already calibrated that band', () => {
+    // A same-level fight at 5 is 8.1 rounds today, inside the six-to-eight target. Any bonus there
+    // drops it under, so this phase must not re-tune what the last one got right.
+    for (const level of [1, 2, 3, 4, 5]) {
+      assert.deepEqual(damageBandFor(level), { min: 0, max: 0 }, `level ${level}`);
+      assert.equal(rollDamageGain(() => 0.99, level), 0);
+    }
+    assert.equal(expectedDamageBonus(5), 0);
+  });
+
+  it('spikes across 16–20, because the world does', () => {
+    // Median mob hit points go 203 -> 500 between 15 and 20 — the sharpest jump in the game. A smooth
+    // curve through it leaves level 20 at fourteen rounds instead of seven.
+    assert.deepEqual(damageBandFor(15), { min: 2, max: 3 });
+    assert.deepEqual(damageBandFor(16), { min: 8, max: 10 });
+    assert.deepEqual(damageBandFor(20), { min: 8, max: 10 });
+    assert.deepEqual(damageBandFor(21), { min: 3, max: 5 });
+  });
+
+  it('lands on the measured totals the design note argues from', () => {
+    // These are the numbers §8's table states, and the table is what the round counts were computed
+    // against — if this drifts, the design note is describing a game that no longer exists.
+    assert.equal(expectedDamageBonus(10), 13);
+    assert.equal(expectedDamageBonus(15), 25);
+    assert.equal(expectedDamageBonus(20), 70);
+    assert.equal(expectedDamageBonus(50), 190);
+    assert.equal(expectedDamageBonus(60), 230);
+  });
+
+  it('rolls inside the band, and every roll is reachable', () => {
+    const seen = new Set<number>();
+    for (let i = 0; i < 200; i++) seen.add(rollDamageGain(() => i / 200, 10));
+    assert.deepEqual([...seen].sort(), [2, 3]);
+    assert.equal(rollDamageGain(() => 0, 18), 8, 'the bottom of the 16-20 band');
+    assert.equal(rollDamageGain(() => 0.999, 18), 10, 'and the top');
+  });
+
+  it('never goes backwards as a character levels', () => {
+    // A bonus that dipped would mean a level-up made you weaker, which is the one thing a progression
+    // system may not do.
+    let last = 0;
+    for (let level = 1; level <= 60; level++) {
+      const now = expectedDamageBonus(level);
+      assert.ok(now >= last, `level ${level}: ${now} < ${last}`);
+      last = now;
+    }
   });
 });

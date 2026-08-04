@@ -411,6 +411,14 @@ export interface Player extends Actor {
   visibleRoom: RoomId;
   experience: number;
   /**
+   * Accumulated flat damage from levelling — `DESIGN-progression.md` §8.
+   *
+   * Rolled once per level and stored on the record, exactly as `maxHp` is, and for the same reason: a
+   * character's damage is a fact about them rather than something a formula reproduces. Zero for a
+   * fresh character, because §8's bands give nothing below level 6.
+   */
+  damageBonus: number;
+  /**
    * What this character is wearing and wielding. Phase 14b.
    *
    * Rolled at creation and stored, never re-derived — the same discipline as `maxHp`, and for the
@@ -761,6 +769,9 @@ export class Simulation {
       maxMove: 100,
       level: 1,
       experience: 0,
+      // §8 gives nothing below level 6, so a fresh character genuinely starts at zero rather than
+      // starting at a number nobody rolled.
+      damageBonus: 0,
       // On your feet and awake. Both axes start at the top; everything that lowers them is either a
       // command or damage, and damage does not exist yet.
       posture: 'standing',

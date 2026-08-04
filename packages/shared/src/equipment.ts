@@ -74,6 +74,9 @@ export interface Item {
    * catalogue edit: the greatsword in your save file is the greatsword you wielded.
    */
   readonly twoHanded?: true;
+  /** What wearing it adds to accuracy and to damage — Duris' `APPLY_HITROLL` / `APPLY_DAMROLL`. */
+  readonly hitroll?: number;
+  readonly damroll?: number;
   /**
    * Slots this costs in a bag. Phase 15b, and `DESIGN-inventory.md` §2 is the spec.
    *
@@ -234,6 +237,25 @@ export function weaponFrom(equipped: Equipped, fallback: Dice): Dice {
   return equipped.mainHand?.damage ?? fallback;
 }
 
+/**
+ * What the whole kit adds to a swing, and to landing one.
+ *
+ * **Summed over every slot, not just the weapon** — that is what `APPLY_DAMROLL` means in the source,
+ * and it is why a ring is worth wearing. Kept separate from {@link weaponFrom} because the dice come
+ * from one hand and these come from the body.
+ */
+export function damrollFrom(equipped: Equipped): number {
+  let total = 0;
+  for (const slot of EQUIP_SLOTS) total += equipped[slot]?.damroll ?? 0;
+  return total;
+}
+
+export function hitrollFrom(equipped: Equipped): number {
+  let total = 0;
+  for (const slot of EQUIP_SLOTS) total += equipped[slot]?.hitroll ?? 0;
+  return total;
+}
+
 const SLOT_SET = new Set<string>(EQUIP_SLOTS);
 
 /**
@@ -271,6 +293,10 @@ export function readItem(raw: unknown, slot?: EquipSlot): Item | undefined {
     // Same rule as those two: a persisted field with no line here is deleted on the next login, and a
     // greatsword that quietly became one-handed over a restart would let a shield in beside it.
     ...(item.twoHanded === true ? { twoHanded: true as const } : {}),
+    // Read back for the reason `stackLimit` is: a persisted field with no line here is deleted at the
+    // next login, and a sword that quietly lost its damroll would be a bug nobody could reproduce.
+    ...(typeof item.hitroll === 'number' && item.hitroll !== 0 ? { hitroll: item.hitroll } : {}),
+    ...(typeof item.damroll === 'number' && item.damroll !== 0 ? { damroll: item.damroll } : {}),
     ...(damage && typeof damage.count === 'number' && typeof damage.sides === 'number'
       ? { damage: { count: damage.count, sides: damage.sides, bonus: damage.bonus ?? 0 } }
       : {}),

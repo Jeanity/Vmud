@@ -218,6 +218,15 @@ export interface ItemTemplate {
    * not the same as either half: twenty-two two-handed swords carry no flag at all. See `objects.ts`.
    */
   readonly twoHanded?: true;
+  /**
+   * Duris' `APPLY_HITROLL` / `APPLY_DAMROLL`, summed over the item's `A` blocks.
+   *
+   * **This is the gear-side power curve §8 leaves room for**, and it was parsed and discarded until
+   * 2026-08-04: 3,207 objects carry a hitroll and 3,187 a damroll (median +2, p90 +4, max +100).
+   * Absent when zero. Negative is kept — cursed gear is content, not corruption.
+   */
+  readonly hitroll?: number;
+  readonly damroll?: number;
   readonly size: number;
   /** Coins it is worth. Duris' own `cost`. */
   readonly cost: number;
@@ -266,6 +275,8 @@ export function instantiate(template: ItemTemplate): Item {
     // a save file has to still need two hands after a restart, and `readItem` reads this back for the
     // same reason it reads `stackLimit` — a field with no line in its reader is deleted, silently.
     ...(template.twoHanded ? { twoHanded: true as const } : {}),
+    ...(template.hitroll ? { hitroll: template.hitroll } : {}),
+    ...(template.damroll ? { damroll: template.damroll } : {}),
   };
 }
 

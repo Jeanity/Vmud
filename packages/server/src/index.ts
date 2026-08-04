@@ -48,6 +48,10 @@ import {
   armourClassFrom,
   makeRng,
   playerCombatStats,
+  rollDamageGain,
+  expectedDamageBonus,
+  damrollFrom,
+  hitrollFrom,
 
   weaponFrom,
   STARTING_HIT_POINTS,
@@ -839,7 +843,7 @@ function rememberVitals(player: Player): void {
 function rememberProgress(player: Player): void {
   const record = records.get(player.id);
   if (!record) return;
-  store.setProgress(record, player.level, player.experience, player.maxHp);
+  store.setProgress(record, player.level, player.experience, player.maxHp, player.damageBonus);
   store.setEquipped(record, player.equipped);
   // The bag too, since 15b. Same fact of the same kind: what a character has is theirs, and losing it
   // to a disconnect would teach players not to carry anything.
@@ -885,6 +889,11 @@ function restoreProgress(player: Player, record: PlayerRecord): void {
     // rather than to nothing.
     player.maxHp = progress.maxHp ?? expectedHitPoints(progress.level);
     player.hp = player.maxHp;
+    // Phase 16, and the same migration `maxHp` gets one line up: a record written before 16b has no
+    // stored bonus, and handing it zero would put a level-40 veteran back in the world hitting like a
+    // novice. The band midpoints are what they would have rolled on average. Anybody levelling from
+    // here rolls for real — see `levelUpIfEarned`.
+    player.damageBonus = progress.damageBonus ?? expectedDamageBonus(progress.level);
   }
 
   refitCombat(player);
@@ -931,6 +940,13 @@ function levelUpIfEarned(player: Player): void {
   player.maxHp = result.maxHp;
   player.hp = Math.min(player.maxHp, player.hp + result.hitPointsGained);
 
+  // **Rolled here and nowhere else** — §8's rule, and hit points' rule before it: once, at the level-up,
+  // then stored. A bonus derived at login is a bonus a player rerolls by reconnecting. Every level
+  // crossed is rolled, so two levels at once pay both bands.
+  let damageGained = 0;
+  for (let l = before + 1; l <= player.level; l++) damageGained += rollDamageGain(progressRng, l);
+  player.damageBonus += damageGained;
+
   // Attack bonus and round length move with the level; armour and weapon come from the kit, which
   // levelling does not change. One rebuild, so nothing can read a stale half.
   refitCombat(player);
@@ -942,7 +958,9 @@ function levelUpIfEarned(player: Player): void {
     text:
       `&+WYou raise a level!&N You are now level ${player.level}` +
       (result.gained > 1 ? ` (up ${result.gained} from ${before})` : '') +
-      `, with ${result.hitPointsGained} more hit point${result.hitPointsGained === 1 ? '' : 's'}.`,
+      `, with ${result.hitPointsGained} more hit point${result.hitPointsGained === 1 ? '' : 's'}` +
+      (damageGained > 0 ? ` and ${damageGained} more damage a blow` : '') +
+      '.',
   });
   // Persisted at once, for the owner's rule that progress is permanent: a level gained and then lost
   // to a crash is the worst possible bug in a progression system.
@@ -3024,10 +3042,17 @@ function namelistFor(view: EntityView): readonly string[] {
  */
 function refitCombat(player: Player): void {
   const base = playerCombatStats(player.level);
+  const weapon = weaponFrom(player.equipped, base.damage);
+  // **Phase 16: the swing is the weapon's dice plus what the character is and what they are wearing.**
+  // `DESIGN-progression.md` §8 — the level bonus is ours (Duris has none, and puts high-level power in
+  // gear), and the damroll is Duris' own, summed across every slot rather than read off the weapon.
+  // Both land on `Dice.bonus`, which already existed and is not doubled by a critical — the SRD's rule,
+  // and the right one here: a crit should reward the weapon rather than the character sheet.
   player.combat = {
     ...base,
     armourClass: base.armourClass + armourClassFrom(player.equipped),
-    damage: weaponFrom(player.equipped, base.damage),
+    attackBonus: base.attackBonus + hitrollFrom(player.equipped),
+    damage: { ...weapon, bonus: weapon.bonus + player.damageBonus + damrollFrom(player.equipped) },
   };
   player.roundMs = base.roundMs;
 }
@@ -4000,8 +4025,15 @@ const adminLive: LiveOps = {
     player.level = level;
     player.maxHp = profile.maxHp;
     player.hp = profile.maxHp;
+    // **Phase 16: the damage bonus is set, not rolled, on an admin edit.** Rolling it would make an
+    // operator's "put them at 50" a slot machine, and setting a level backwards then forwards would
+    // ratchet a character's damage up for free. The band midpoints are the same answer the migration
+    // path gives, which keeps an admin-made 50 and a levelled 50 comparable.
+    player.damageBonus = expectedDamageBonus(level);
     player.combat = profile.combat;
     player.roundMs = profile.combat.roundMs;
+    // After the profile, or the assignment above overwrites the bonus and the damroll with it.
+    refitCombat(player);
     sim.refreshStatus(player);
     send(player.id, { t: 'self', view: sim.selfViewOf(player) });
     syncEntityState(player);

@@ -196,3 +196,67 @@ export function experienceToNext(progress: Progress): number | null {
   if (progress.level >= MAX_LEVEL) return null;
   return Math.max(0, experienceForLevel(progress.level + 1) - progress.experience);
 }
+
+/* -------------------------------------------------------------------------- */
+/* Phase 16: damage that rises with level                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How much flat damage a character gains **at** each level — `DESIGN-progression.md` §8.
+ *
+ * **This is the one divergence from Duris in this file, and it is deliberate.** Duris has no per-level
+ * damage bonus at all: `specials.damage_mod` looks like the missing term and is a *race* multiplier
+ * scaled by zone difficulty, and `advance_level` is startlingly flat because in the real MUD high-level
+ * power lives in equipment. But the owner's test is about *level* rather than kit — an unequipped level
+ * 50 should flatten a level 10 — and nothing that lives in gear can answer that.
+ *
+ * The bands are measured against the shipped world rather than chosen:
+ *
+ * - **Nothing below 6.** 14b already calibrated the newbie band and a same-level fight at 5 is 8.1
+ *   rounds. Any bonus there drops it under the six-to-eight target, so this phase must not re-tune what
+ *   14b got right.
+ * - **8–10 across 16–20, and the spike is the world's rather than ours.** Median mob hit points go
+ *   203 → 500 between levels 15 and 20, the sharpest jump in the game. A smooth curve through it leaves
+ *   level 20 at fourteen rounds.
+ * - **It stops trying above 25.** A flat bonus big enough to make a level-50 same-level fight last seven
+ *   rounds is +771, at which point a weapon's seven average damage is 0.9% of a swing — and Phase 16 is
+ *   the gear phase. Duris bounds its own flat term at ±100 (`fight.c:4681`) and does the rest
+ *   multiplicatively; ours stops for the same reason. The closing factor at high level is Phase 19's
+ *   skills, Phase 20's buffs, and a group.
+ */
+export function damageBandFor(level: number): { readonly min: number; readonly max: number } {
+  if (level <= 5) return { min: 0, max: 0 };
+  if (level <= 15) return { min: 2, max: 3 };
+  if (level <= 20) return { min: 8, max: 10 };
+  return { min: 3, max: 5 };
+}
+
+/**
+ * The gain for reaching one particular level, rolled.
+ *
+ * **Rolled once at the level-up and stored**, never derived at login — the same rule hit points and the
+ * starter kit follow, and for the same two reasons: a character's damage is then a fact about them
+ * rather than noise on every swing, and a value rolled at login is a value a player rerolls by
+ * reconnecting.
+ */
+export function rollDamageGain(rng: Rng, level: number): number {
+  const band = damageBandFor(level);
+  if (band.max <= 0) return 0;
+  return band.min + Math.floor(rng() * (band.max - band.min + 1));
+}
+
+/**
+ * The expected total by a level — **the migration path, not the live rule.**
+ *
+ * A character who levelled before this shipped has no stored bonus, and giving them zero would leave a
+ * level-40 veteran hitting like a novice. This hands them the band midpoints, which is the average they
+ * would have rolled. Deliberately *not* used for anybody levelling normally: they roll.
+ */
+export function expectedDamageBonus(level: number): number {
+  let total = 0;
+  for (let l = 2; l <= level; l++) {
+    const band = damageBandFor(l);
+    total += (band.min + band.max) / 2;
+  }
+  return Math.round(total);
+}

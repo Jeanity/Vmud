@@ -293,6 +293,26 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
   const container = containerRule(raw.type, raw.values);
   const uses = usesFor(raw.type, raw.values);
 
+  // **Duris' gear-side power curve, which was parsed and then dropped on the floor.** The `A <location>
+  // <modifier>` blocks have been read into `raw.affects` since the harvest landed and nothing carried
+  // them, so a level-40 sword was better than a level-10 one only by its dice. Measured across the
+  // 20,079 objects: `APPLY_HITROLL` on 3,207, `APPLY_DAMROLL` on 3,187 (median +2, p90 +4, max +100).
+  //
+  // Summed rather than taken once, because an object may carry the same apply twice, and **negatives are
+  // kept**: cursed gear is a real category in this world and a sword that costs you accuracy is content.
+  //
+  // `APPLY_HIT` (2,458 objects, median +15) is deliberately *not* carried. Maximum hit points are rolled
+  // once and stored per §3, and letting a hat change them would mean deciding what happens to a wounded
+  // character who takes it off — a real question, and not this phase's.
+  const APPLY_HITROLL = 18;
+  const APPLY_DAMROLL = 19;
+  let hitroll = 0;
+  let damroll = 0;
+  for (const affect of raw.affects) {
+    if (affect.location === APPLY_HITROLL) hitroll += affect.modifier;
+    if (affect.location === APPLY_DAMROLL) damroll += affect.modifier;
+  }
+
   return {
     vnum: raw.vnum,
     keywords: raw.keywords,
@@ -303,6 +323,8 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
     ac,
     ...(damage ? { damage } : {}),
     ...(twoHanded ? { twoHanded: true as const } : {}),
+    ...(hitroll === 0 ? {} : { hitroll }),
+    ...(damroll === 0 ? {} : { damroll }),
     size: sizeFrom(raw.weight),
     cost: Math.max(0, raw.cost),
     stackLimit: stackLimitFor(raw.type),
