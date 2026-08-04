@@ -297,6 +297,13 @@
       }
       .rows .note { font-size: 12px; }
       .rows .muted { font-size: 11px; margin-left: auto; }
+      .rows .row.clickable { cursor: pointer; }
+      .rows .row.clickable:hover { background: rgba(157, 176, 138, 0.07); }
+      /* The A6 editor, expanded under its row. Labels small and dim, inputs narrow: numbers, not prose. */
+      .item-editor { padding: 8px 8px 8px 70px; border-bottom: 1px solid var(--edge); }
+      .item-editor label { color: var(--dim); font-size: 11px; text-transform: uppercase; }
+      .item-editor input[type='number'] { width: 64px; }
+      .item-editor .flash { margin: 0; font-size: 11px; }
     </style>
   </head>
   <body>

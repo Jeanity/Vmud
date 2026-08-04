@@ -35,6 +35,7 @@ import {
   newAffect,
   placeKey,
   stripColour,
+  type Dice,
   type Direction,
   type ItemTemplate,
   type Place,
@@ -49,6 +50,7 @@ import { LIGHT_SOURCES, lightSource, type LightSource } from '@mygame/shared/lig
 
 import { draftDescription, listModels, ollamaReachable } from './ollama.ts';
 import { saveRoomOverrides } from './overrides.ts';
+import { readDice, saveItemOverrides, type ItemOverride, type ItemOverrides } from './item-overrides.ts';
 import { seenTileCount, slugify, type PlayerStore, type StoredSummary } from './players.ts';
 import type { WorldSettings } from './settings.ts';
 import type { Player } from './sim.ts';
@@ -135,6 +137,14 @@ export interface LiveOps {
 
   /** The operator switches as they currently stand. See `settings.ts`. */
   settings(): WorldSettings;
+  /** The authored item overlay — read for edited marks and for saving; never mutated here. */
+  itemOverrides(): ItemOverrides;
+  /**
+   * One authored edit to an item, applied to the live catalogue. Returns the template as it now
+   * stands, or nothing for a vnum the catalogue does not have. The router validates; this applies —
+   * the same split `authorRoom` keeps with the world.
+   */
+  authorItem(vnum: number, next: Partial<ItemOverride>, cleared: readonly string[]): ItemTemplate | undefined;
 
   /**
    * Throws a switch: applies it live and writes it to disk in the same breath.
@@ -186,6 +196,8 @@ export interface AdminDeps {
    * constant in `index.ts`, so the loader and the writer share one path.
    */
   readonly overridesFile: string | undefined;
+  /** Where authored items are saved, or undefined to edit the live catalogue without persisting. */
+  readonly itemOverridesFile: string | undefined;
   /** Boot-time constants the dashboard reports. */
   readonly facts: {
     readonly protocol: number;
@@ -211,6 +223,19 @@ const PATCH_KEYS = new Set(['hp', 'mana', 'move', 'level', 'light', 'clearAffect
  * panel that posts `pos` and gets a 200 back has told its operator the room moved.
  */
 const ROOM_PATCH_KEYS = new Set(['name', 'description', 'sector', 'flags', 'by', 'brief']);
+
+/**
+ * What an item PATCH may carry — the authorable content of `item-overrides.ts`, plus provenance.
+ *
+ * The refusal message for anything else names the reason, exactly as the room editor's does: `slot`,
+ * `type` and `container` are *behaviour* derived from Duris' own bits, and `stackLimit`/`uses` are
+ * §3's type-derived rules. An editor that could set them would be half a mechanics editor with none
+ * of the validation one needs.
+ */
+const ITEM_PATCH_KEYS = new Set(['name', 'keywords', 'ac', 'damage', 'cost', 'by']);
+const ITEM_NAME_MAX = 120;
+const ITEM_KEYWORD_MAX = 30;
+const ITEM_AC_MAX = 50;
 
 /** Fields the panel may record about a draft, but which are not themselves authored content. */
 const ROOM_META_KEYS = new Set(['by', 'brief']);
@@ -317,7 +342,10 @@ export class AdminApi {
       if (request.method === 'PATCH') return this.patchSettings(request.body);
     }
     if (head === 'items' && parts.length === 1 && request.method === 'GET') return this.items(request.query);
-    if (head === 'items' && slug !== undefined && parts.length === 2 && request.method === 'GET') return this.item(slug);
+    if (head === 'items' && slug !== undefined && parts.length === 2) {
+      if (request.method === 'GET') return this.item(slug);
+      if (request.method === 'PATCH') return this.authorItem(slug, request.body);
+    }
     if (head === 'players' && parts.length === 1 && request.method === 'GET') return this.roster();
     if (head === 'players' && slug !== undefined && parts.length === 2) {
       if (request.method === 'GET') return this.player(slug);
@@ -454,7 +482,12 @@ export class AdminApi {
       body: {
         total: matches.length,
         catalogue: this.deps.items.size,
-        items: matches.slice(0, limit).map(itemRow),
+        items: matches.slice(0, limit).map((template) => ({
+          ...itemRow(template),
+          // The ✎ mark. A row, not the whole record — the panel shows *that* it is authored here and
+          // *what* is authored in the editor, the same split the zones browser keeps.
+          ...(this.deps.live.itemOverrides().has(template.vnum) ? { edited: true } : {}),
+        })),
       },
     };
   }
@@ -464,7 +497,119 @@ export class AdminApi {
     const vnum = Number(slug);
     const template = Number.isInteger(vnum) ? this.deps.items.get(vnum) : undefined;
     if (!template) return { status: 404, body: { error: `no item ${slug} in the catalogue` } };
-    return { status: 200, body: { item: template } };
+    // The override rides along so the editor can show which fields are authored and which are the
+    // harvest's — the ✎ mark's whole meaning, and the difference between "edit" and "re-type".
+    return { status: 200, body: { item: template, authored: this.deps.live.itemOverrides().get(vnum) ?? null } };
+  }
+
+  /**
+   * `PATCH /items/:vnum` — the A6 write, and the panel's Save.
+   *
+   * The same whole-or-nothing shape as {@link authorRoom}: every field is validated before anything is
+   * applied, `null` clears a field back to the harvest, and an unknown key is refused **with the
+   * reason** — `slot` and `type` are behaviour, not content, and the message says so rather than
+   * leaving an operator to wonder which spelling would have worked.
+   */
+  private authorItem(slug: string, body: unknown): AdminResponse {
+    const vnum = Number(slug);
+    if (!Number.isInteger(vnum)) return { status: 400, body: { error: `"${slug}" is not an item vnum` } };
+    if (!this.deps.items.has(vnum)) return { status: 404, body: { error: `no item ${vnum} in the catalogue` } };
+
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return { status: 400, body: { error: 'PATCH body must be a JSON object' } };
+    }
+    const patch = body as Record<string, unknown>;
+    const keys = Object.keys(patch);
+    if (keys.length === 0) return { status: 400, body: { error: 'empty patch' } };
+    for (const key of keys) {
+      if (!ITEM_PATCH_KEYS.has(key)) {
+        return {
+          status: 400,
+          body: {
+            error:
+              `"${key}" is not authorable — one of: ${[...ITEM_PATCH_KEYS].join(', ')}. ` +
+              `An item's slot, type, container rule and stacking are behaviour derived from the ` +
+              `source's own bits, not content.`,
+          },
+        };
+      }
+    }
+
+    // Validated whole before anything is written, so an edit either lands or does not. A mutable
+    // local rather than `Partial<ItemOverride>`, whose fields are readonly — same shape `authorRoom`
+    // builds for the same reason.
+    const next: { name?: string; keywords?: readonly string[]; ac?: number; damage?: Dice; cost?: number; by?: string } = {};
+    const cleared: string[] = [];
+
+    if (patch.name !== undefined) {
+      if (patch.name === null) cleared.push('name');
+      else if (typeof patch.name !== 'string' || !patch.name.trim()) {
+        return { status: 400, body: { error: 'name must be a non-empty string, or null to unauthor it' } };
+      } else if (patch.name.length > ITEM_NAME_MAX) {
+        return { status: 400, body: { error: `name must be at most ${ITEM_NAME_MAX} characters` } };
+      } else next.name = patch.name.trim();
+    }
+    if (patch.keywords !== undefined) {
+      if (patch.keywords === null) cleared.push('keywords');
+      else if (!Array.isArray(patch.keywords)) {
+        return { status: 400, body: { error: 'keywords must be an array of words, or null' } };
+      } else {
+        const words = (patch.keywords as unknown[])
+          .filter((w): w is string => typeof w === 'string')
+          .map((w) => w.trim().toLowerCase())
+          .filter((w) => w.length > 0);
+        if (words.length === 0 || words.length !== patch.keywords.length) {
+          return { status: 400, body: { error: 'keywords must be one or more non-empty words' } };
+        }
+        const long = words.find((w) => w.length > ITEM_KEYWORD_MAX);
+        if (long) return { status: 400, body: { error: `keyword "${long}" is over ${ITEM_KEYWORD_MAX} characters` } };
+        next.keywords = [...new Set(words)];
+      }
+    }
+    if (patch.ac !== undefined) {
+      if (patch.ac === null) cleared.push('ac');
+      else if (typeof patch.ac !== 'number' || !Number.isInteger(patch.ac) || patch.ac < 0 || patch.ac > ITEM_AC_MAX) {
+        // The bound is ours, not Duris': this edits the compressed scale the fight actually uses,
+        // where a single legendary piece caps at 8 — 50 is already outlandish and anything past it
+        // is a typo with consequences.
+        return { status: 400, body: { error: `ac must be an integer from 0 to ${ITEM_AC_MAX}` } };
+      } else next.ac = patch.ac;
+    }
+    if (patch.damage !== undefined) {
+      if (patch.damage === null) cleared.push('damage');
+      else {
+        const dice = readDice(patch.damage);
+        if (!dice) {
+          return { status: 400, body: { error: 'damage must be {count, sides, bonus?} within sane bounds, or null' } };
+        }
+        next.damage = dice;
+      }
+    }
+    if (patch.cost !== undefined) {
+      if (patch.cost === null) cleared.push('cost');
+      else if (typeof patch.cost !== 'number' || !Number.isInteger(patch.cost) || patch.cost < 0) {
+        return { status: 400, body: { error: 'cost must be a non-negative integer, or null' } };
+      } else next.cost = patch.cost;
+    }
+    if (patch.by !== undefined) {
+      if (patch.by === null) cleared.push('by');
+      else if (typeof patch.by !== 'string') return { status: 400, body: { error: 'by must be a string or null' } };
+      else next.by = patch.by.slice(0, 200);
+    }
+
+    const applied = this.deps.live.authorItem(vnum, next, cleared);
+    if (!applied) return { status: 404, body: { error: `no item ${vnum} in the catalogue` } };
+    if (this.deps.itemOverridesFile) saveItemOverrides(this.deps.live.itemOverrides(), this.deps.itemOverridesFile);
+
+    this.audit('item.author', { vnum, fields: keys, cleared });
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        item: itemRow(applied),
+        authored: this.deps.live.itemOverrides().get(vnum) ?? null,
+      },
+    };
   }
 
   private zones(): AdminResponse {

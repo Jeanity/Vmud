@@ -211,6 +211,13 @@ import {
 import { advanceZones, newZoneClock, runReset, type ZoneClock } from './reset.ts';
 import { Simulation, isMob, isPlayer, type Actor, type AffectEvent, type Player } from './sim.ts';
 import { indexTemplates, loadItemCatalogue, loadZoneSpawns } from './spawns.ts';
+import {
+  ITEMS_FILE,
+  applyItemOverride,
+  loadItemOverrides,
+  mergeItemOverride,
+  type ItemOverride,
+} from './item-overrides.ts';
 import { ROOMS_FILE } from './overrides.ts';
 import { GameWorld, placeOf } from './world.ts';
 
@@ -279,11 +286,64 @@ const mobTemplates = indexTemplates(loadedSpawns);
  * is no per-zone answer to "what is object 91000".
  */
 const itemCatalogue = loadItemCatalogue();
+
+/**
+ * A6: the authored overlay, composed over the harvest — and the pristine copies that make a revert
+ * honest.
+ *
+ * `itemOverrides` is the content of `data/world/overrides/items.json`, shared with the admin router
+ * for saving. **`pristineItems` holds the harvested template of every vnum that carries an override**,
+ * stashed the moment one first lands. Without it, "clear this field" could only rebuild from the
+ * already-overridden template — which is not a revert, it is whatever the last edit happened to leave.
+ * Only overridden vnums are stashed, so the map stays a handful of entries rather than a second
+ * catalogue.
+ */
+const itemOverrides = loadItemOverrides();
+const pristineItems = new Map<number, ItemTemplate>();
+for (const [vnum, override] of itemOverrides) {
+  const base = itemCatalogue.get(vnum);
+  if (!base) continue; // authored against a vnum this harvest no longer has — kept in the file, inert
+  pristineItems.set(vnum, base);
+  itemCatalogue.set(vnum, applyItemOverride(base, override));
+}
 console.log(
   itemCatalogue.size > 0
-    ? `[items] ${itemCatalogue.size} item types loaded`
+    ? `[items] ${itemCatalogue.size} item types loaded` +
+        (itemOverrides.size > 0 ? `, ${itemOverrides.size} authored` : '')
     : '[items] no catalogue; mobs will carry nothing. Run `npm run worldgen`.',
 );
+
+/**
+ * One authored edit to an item, applied live — the item half of `world.authorRoom`.
+ *
+ * Rebuilds from the **pristine** template plus whatever the merged override still says, so clearing a
+ * field restores the harvest exactly. Affects every instance created from here on — a reset's next
+ * `G`, a repop's next `O` — and deliberately not instances already in bags and on floors: an `Item`
+ * is a flat copy by §8's design, and reaching into saves to rewrite them would be the kind of edit
+ * nobody can audit.
+ */
+function authorItem(
+  vnum: number,
+  next: Partial<ItemOverride>,
+  cleared: readonly string[],
+): ItemTemplate | undefined {
+  const current = itemCatalogue.get(vnum);
+  if (!current) return undefined;
+  const pristine = pristineItems.get(vnum) ?? current;
+  const merged = mergeItemOverride(itemOverrides.get(vnum), next, cleared, new Date().toISOString());
+  if (merged) {
+    pristineItems.set(vnum, pristine);
+    itemOverrides.set(vnum, merged);
+    const applied = applyItemOverride(pristine, merged);
+    itemCatalogue.set(vnum, applied);
+    return applied;
+  }
+  // Nothing authored remains: the entry is deleted and the harvest is back, mark and all.
+  itemOverrides.delete(vnum);
+  pristineItems.delete(vnum);
+  itemCatalogue.set(vnum, pristine);
+  return pristine;
+}
 
 /**
  * What each mob has worked out, by mob id. See `perception.ts`.
@@ -4035,6 +4095,9 @@ function persistAdminEdit(player: Player): void {
 
 const adminLive: LiveOps = {
   online: () => [...sim.allPlayers()],
+  // A6. The router validates and persists; these apply — the same split `authorRoom` keeps.
+  itemOverrides: () => itemOverrides,
+  authorItem,
   setVitals(player, pools) {
     if (pools.hp !== undefined) player.hp = pools.hp;
     if (pools.mana !== undefined) player.mana = pools.mana;
@@ -4173,6 +4236,7 @@ const admin = new AdminApi({
   // The same catalogue the simulation instantiates from, not a second copy read off disk — an Items
   // section showing something the running world does not have would be worse than no section.
   items: itemCatalogue,
+  itemOverridesFile: ITEMS_FILE,
   /**
    * The operator speaking, to as many people as the scope names.
    *

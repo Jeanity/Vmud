@@ -16,6 +16,7 @@ import { describe, it } from 'node:test';
 import { boundsOf, type ItemTemplate, type Room, type Zone } from '@mygame/shared';
 
 import { AdminApi, type AdminDeps, type AdminRequest, type AnnounceScope, type LiveOps } from './admin.ts';
+import { applyItemOverride, loadItemOverrides, mergeItemOverride, type ItemOverrides } from './item-overrides.ts';
 import { PlayerStore, slugify } from './players.ts';
 import type { WorldSettings } from './settings.ts';
 import type { Player } from './sim.ts';
@@ -78,7 +79,7 @@ interface Rig {
   scopes: AnnounceScope[];
 }
 
-function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string } = {}): Rig {
+function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string; itemOverridesFile?: string } = {}): Rig {
   const dir = mkdtempSync(join(tmpdir(), 'mygame-admin-'));
   const store = new PlayerStore({ dir });
   const world = new GameWorld([testZone()], { zone: 600, room: null });
@@ -88,8 +89,41 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
   const scopes: AnnounceScope[] = [];
   let worldSettings: WorldSettings = { pvp: false };
 
+  // A three-entry catalogue rather than the real 16,421: these tests are about the router's search
+  // and its shape, and a synthetic set is the only way to assert "two weapons, one of them
+  // two-handed" without the answer moving the next time the harvest changes. Hoisted above the live
+  // ops because A6's `authorItem` closes over it.
+  const items = new Map<number, ItemTemplate>([
+    [100, { vnum: 100, keywords: ['dagger', 'silver'], name: '&+Ca silver dagger&N', roomLine: 'x', type: 5, slot: 'mainHand', ac: 0, size: 1, cost: 40, stackLimit: 1, damage: { count: 1, sides: 4, bonus: 0 } }],
+    [101, { vnum: 101, keywords: ['greatsword'], name: 'a greatsword', roomLine: 'x', type: 5, slot: 'mainHand', ac: 0, size: 6, cost: 400, stackLimit: 1, damage: { count: 2, sides: 10, bonus: 0 }, twoHanded: true }],
+    [102, { vnum: 102, keywords: ['sack'], name: 'a sack', roomLine: 'x', type: 15, ac: 0, size: 3, cost: 5, stackLimit: 1, container: { capacity: 20, accepts: 'any' } }],
+  ]);
+
+  // A6's live half, faithfully: a real overlay map with real pristine copies, so the tests exercise
+  // the same merge/apply/revert path `index.ts` wires rather than a fake that agrees by luck.
+  const itemOverrides: ItemOverrides = new Map();
+  const pristineItems = new Map<number, ItemTemplate>();
+
   const live: LiveOps = {
     online: () => players,
+    itemOverrides: () => itemOverrides,
+    authorItem: (vnum, next, clearedKeys) => {
+      const current = items.get(vnum);
+      if (!current) return undefined;
+      const pristine = pristineItems.get(vnum) ?? current;
+      const merged = mergeItemOverride(itemOverrides.get(vnum), next, clearedKeys, 'test-time');
+      if (merged) {
+        pristineItems.set(vnum, pristine);
+        itemOverrides.set(vnum, merged);
+        const applied = applyItemOverride(pristine, merged);
+        items.set(vnum, applied);
+        return applied;
+      }
+      itemOverrides.delete(vnum);
+      pristineItems.delete(vnum);
+      items.set(vnum, pristine);
+      return pristine;
+    },
     setVitals: (player, pools) => {
       if (pools.hp !== undefined) player.hp = pools.hp;
       if (pools.mana !== undefined) player.mana = pools.mana;
@@ -137,14 +171,7 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     world,
     store,
     live,
-    // A three-entry catalogue rather than the real 16,421: these tests are about the router's search
-    // and its shape, and a synthetic set is the only way to assert "two weapons, one of them
-    // two-handed" without the answer moving the next time the harvest changes.
-    items: new Map<number, ItemTemplate>([
-      [100, { vnum: 100, keywords: ['dagger', 'silver'], name: '&+Ca silver dagger&N', roomLine: 'x', type: 5, slot: 'mainHand', ac: 0, size: 1, cost: 40, stackLimit: 1, damage: { count: 1, sides: 4, bonus: 0 } }],
-      [101, { vnum: 101, keywords: ['greatsword'], name: 'a greatsword', roomLine: 'x', type: 5, slot: 'mainHand', ac: 0, size: 6, cost: 400, stackLimit: 1, damage: { count: 2, sides: 10, bonus: 0 }, twoHanded: true }],
-      [102, { vnum: 102, keywords: ['sack'], name: 'a sack', roomLine: 'x', type: 15, ac: 0, size: 3, cost: 5, stackLimit: 1, container: { capacity: 20, accepts: 'any' } }],
-    ]),
+    items,
     // Records the scope as well as the line: what these tests are checking is that the router
     // *resolved and validated* the target, not that the server walks the right set of players.
     announce: (text, scope) => {
@@ -156,6 +183,7 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     auditFile: options.auditFile,
     // Undefined unless a test asks: authoring must never write into the repository's real overlay.
     overridesFile: options.overridesFile,
+    itemOverridesFile: options.itemOverridesFile,
     facts: { protocol: 9, tickMs: 100, roundMs: 3000, startedAt: Date.now() },
   };
   return { api: new AdminApi(deps), store, dir, players, calls, heard, scopes };
@@ -811,5 +839,67 @@ describe('the item catalogue', () => {
     assert.equal(one.status, 200);
     assert.equal((one.body as { item: { twoHanded?: boolean } }).item.twoHanded, true);
     assert.equal(api.route(req('GET', '/items/9999')).status, 404);
+  });
+});
+
+describe('authoring an item — A6', () => {
+  it('refuses behaviour fields by name, with the reason', () => {
+    const { api } = makeRig();
+    const refused = api.route(req('PATCH', '/items/100', { slot: 'head' }));
+    assert.equal(refused.status, 400);
+    assert.match(String((refused.body as { error: string }).error), /behaviour/);
+  });
+
+  it('lands an edit on the live catalogue and marks the row edited', () => {
+    const { api } = makeRig();
+    const patched = api.route(req('PATCH', '/items/100', { name: '&+Ra crimson dagger&N', cost: 90 }));
+    assert.equal(patched.status, 200);
+
+    const rows = (api.route({ ...req('GET', '/items'), query: { q: 'dagger' } }).body as { items: Record<string, unknown>[] }).items;
+    assert.equal(rows[0]!['name'], '&+Ra crimson dagger&N');
+    assert.equal(rows[0]!['edited'], true, 'the ✎ mark');
+    assert.equal(rows[0]!['cost'], 90);
+
+    const one = api.route(req('GET', '/items/100')).body as { item: ItemTemplate; authored: unknown };
+    assert.equal(one.item.name, '&+Ra crimson dagger&N');
+    assert.ok(one.authored, 'the editor is told which fields are authored');
+  });
+
+  it('clears a field back to the harvest, and a full revert drops the mark', () => {
+    // The pristine copy is what makes this a revert rather than "whatever the last edit left".
+    const { api } = makeRig();
+    api.route(req('PATCH', '/items/100', { name: 'renamed', cost: 90 }));
+    const half = api.route(req('PATCH', '/items/100', { name: null }));
+    assert.equal(half.status, 200);
+    const halved = (half.body as { item: { name: string; cost: number } }).item;
+    assert.equal(halved.name, '&+Ca silver dagger&N', 'the harvest is back');
+    assert.equal(halved.cost, 90, 'the other authored field survives');
+
+    const full = api.route(req('PATCH', '/items/100', { cost: null }));
+    assert.equal((full.body as { authored: unknown }).authored, null, 'nothing authored, no entry');
+    const rows = (api.route({ ...req('GET', '/items'), query: { q: 'dagger' } }).body as { items: Record<string, unknown>[] }).items;
+    assert.equal(rows[0]!['edited'], undefined, 'and the mark is gone');
+  });
+
+  it('validates whole-or-nothing, so a half-bad patch changes nothing', () => {
+    const { api } = makeRig();
+    const bad = api.route(req('PATCH', '/items/100', { name: 'fine', damage: { count: 0, sides: 6 } }));
+    assert.equal(bad.status, 400);
+    const rows = (api.route({ ...req('GET', '/items'), query: { q: 'dagger' } }).body as { items: Record<string, unknown>[] }).items;
+    assert.equal(rows[0]!['name'], '&+Ca silver dagger&N', 'the good half did not land either');
+  });
+
+  it('persists to the overlay file, in the shape the loader reads back', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mygame-itemfile-'));
+    const file = join(dir, 'items.json');
+    const { api } = makeRig({ itemOverridesFile: file });
+    quietly(() => api.route(req('PATCH', '/items/101', { damage: { count: 3, sides: 10, bonus: 2 } })));
+    const back = loadItemOverrides(file);
+    assert.deepEqual(back.get(101)?.damage, { count: 3, sides: 10, bonus: 2 });
+  });
+
+  it('404s an unknown vnum before validating anything', () => {
+    const { api } = makeRig();
+    assert.equal(api.route(req('PATCH', '/items/9999', { name: 'x' })).status, 404);
   });
 });
