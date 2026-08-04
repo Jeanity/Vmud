@@ -74,3 +74,25 @@ Anything LPC does not have gets **drawn to match** rather than borrowed from ano
 is explicit about one cohesive look. The corpse sprites (a pile of bones, and a single bone once looted)
 are generated in `scene.ts` for that reason, and are the first thing here that should be replaced by real
 art when a suitable LPC set turns up.
+
+## Shield (Phase 16)
+
+`offhand-shield.png` and `offhand-shield-idle.png` are the **heater shield, wooden face**, from the
+**Universal LPC Spritesheet Character Generator** at
+<https://github.com/LiberatedPixelCup/Universal-LPC-Spritesheet-Character-Generator>
+(`spritesheets/shield/heater/original/wood/fg/{walk,idle}.png`).
+
+Taken byte-for-byte with no processing: the generator's sheets are the same 576x256 walk / 128x256
+idle geometry at 64 px a frame that every garment above uses.
+
+The generator's own per-asset credits are `credits/credits.csv` in that repository, which is the
+authoritative record. Shield art there is credited to **bluecarrot16**, with the LPC base by
+**Stephen Challener (Redshrike)**. Licensed under **CC-BY-SA 3.0** / **GPL 3.0** / **OGA-BY 3.0** —
+the same share-alike terms as everything else in this folder.
+
+The full pack is checked out at `assets/ulpc/` (untracked, ~1.5 GB) and is where the remaining shield
+styles — kite, round, scutum, spartan, crusader — and the heraldic `pattern/` overlays live, if a
+second shield look is ever wanted. The `fg`/`bg` split in those directories is LPC's own answer to
+draw order: `fg` is the half drawn over the body, and it is the only half the walk and idle cycles
+need.
+

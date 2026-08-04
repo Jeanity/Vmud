@@ -282,6 +282,10 @@ const LPC_SHEETS: readonly string[] = [
   'feet-boots-travel',
   'head-cap-leather',
   'head-hood-cloth',
+  // Phase 16: the first thing a character carries that is actually drawn. LPC's heater shield, taken
+  // from the Universal LPC Spritesheet Generator's `shield/heater` at the same 576x256 / 128x256
+  // geometry every garment above uses, so it needed no processing at all.
+  'offhand-shield',
 ].flatMap((sheet) => [sheet, sheet + '-idle']);
 
 /**
@@ -306,6 +310,10 @@ const ITEM_LAYER: Readonly<Record<string, string>> = {
   travel_boots: 'feet-boots-travel',
   leather_cap: 'head-cap-leather',
   cloth_hood: 'head-hood-cloth',
+  // Protocol 14's first art *class* rather than an item id: 419 shields in the catalogue, one sheet.
+  // Which sheet a shield is stays here, which is the whole reason the wire says "shield" and not
+  // "offhand-shield" — swapping the heater for a kite is an edit to this line and nothing else.
+  shield: 'offhand-shield',
 };
 
 /**
@@ -313,12 +321,17 @@ const ITEM_LAYER: Readonly<Record<string, string>> = {
  * a person dresses and the order the overlaps have to resolve: a boot cuff sits under a trouser leg,
  * a trouser waist under a shirt hem, a hood over everything.
  *
- * `mainHand` is deliberately absent. The pack's weapon art is **attack animations only** — Swing,
- * Thrust and Shoot sheets — with no idle-hold frame, and our characters are drawn from the walk/idle
- * rows. Drawing a dagger would need either an attack animation the combat system does not have (a
- * swing is a log line today, not a motion) or custom art. Recorded rather than bodged: see Phase 16.
+ * **`offHand` is last, because a shield is held in front of the body.** LPC ships shields as a
+ * foreground layer for the walk and idle cycles — the artist has already drawn each facing correctly,
+ * including the one where the arm is on the far side — so it goes over everything rather than needing
+ * a per-facing rule of our own.
+ *
+ * `mainHand` is still absent. The pack's weapon art is **attack animations only** — Swing, Thrust and
+ * Shoot sheets — with no idle-hold frame, and our characters are drawn from the walk/idle rows.
+ * Drawing a dagger would need either an attack animation the combat system does not have (a swing is a
+ * log line today, not a motion) or custom art. Recorded rather than bodged: see Phase 16.
  */
-const LAYER_ORDER: readonly string[] = ['feet', 'legs', 'chest', 'head'];
+const LAYER_ORDER: readonly string[] = ['feet', 'legs', 'chest', 'head', 'offHand'];
 
 const SPRITE_LAYERS: Readonly<Record<string, readonly string[]>> = {
   /** Every player. Phase 15 derives this list from what they are wearing instead of naming it here. */

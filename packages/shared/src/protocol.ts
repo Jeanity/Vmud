@@ -15,7 +15,24 @@ import type { Posture, Status } from './position.ts';
 import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
 
 /**
- * Bumped to 13: you can see that a thing is a container.
+ * Bumped to 14: worn gear says what *kind* of thing it is.
+ *
+ * `EntityView.wearing` has carried **slot → item id** since 15a, on the rule that ids keep art
+ * direction off the wire: which LPC layer a leather tunic draws as is the client's business, and
+ * sending sheet keys would make a re-skin a protocol change. That rule survives. What it could not do
+ * is **harvested** gear: there are 419 shields in the catalogue and 2,841 weapons, and a client holding
+ * `obj:32` has no way to know it is looking at a shield rather than a lantern.
+ *
+ * So the value is now an **art class** — a small vocabulary of *what the thing is*: `shield`, and the
+ * weapon classes when their art lands. **A class is not a sheet name**, and the distinction is the
+ * whole reason this is allowed: "this is a shield" is a fact about the game that the server owns,
+ * while "shields draw as `offhand-shield.png`" stays a fact about the art that the client owns. Swap
+ * the sheet and nothing here changes.
+ *
+ * Authored gear is unchanged in practice: the starter kit's ids (`leather_tunic`) already name exactly
+ * one thing each, so an id *is* its class and the same string goes out as before.
+ *
+ * Was 13: you can see that a thing is a container.
  *
  * `EntityView` gained **`container`**, a flag on an object lying on the floor, and `look` gained
  * **`inside`**. Together they are one idea: a click on a sack offers *Look inside* and a click on a
@@ -110,7 +127,7 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * Was 6: doors have live state — the `door` message, and `open`/`close` losing their required `dir`.
  * Was 5: carried light sources — `SelfView` gained `light`.
  */
-export const PROTOCOL_VERSION = 13;
+export const PROTOCOL_VERSION = 14;
 
 /**
  * One timed effect on your own character, as the HUD reads it.
@@ -165,6 +182,17 @@ export type EntityId = number;
 
 export type EntityKind = 'player' | 'mob' | 'item';
 
+/**
+ * What a worn thing *is*, for the purpose of drawing it — protocol 14.
+ *
+ * Deliberately coarse. The catalogue has 419 shields and the pack has one shield sheet, so the useful
+ * unit is the kind rather than the object. Authored starter-kit ids double as their own class because
+ * each names exactly one thing; anything harvested resolves to one of the named classes or to nothing,
+ * and a slot that resolves to nothing simply does not draw — which is the honest default for a slot
+ * the pack has no art for.
+ */
+export type ArtClass = string;
+
 export interface EntityView {
   readonly id: EntityId;
   readonly kind: EntityKind;
@@ -185,7 +213,7 @@ export interface EntityView {
    *
    * Absent for anything with no body to dress, which today is every ground item and every mob.
    */
-  readonly wearing?: Readonly<Record<string, string>>;
+  readonly wearing?: Readonly<Record<string, ArtClass>>;
   /**
    * This object on the floor is a **container** — something `look inside` has an answer for. Phase 15c.
    *

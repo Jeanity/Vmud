@@ -606,6 +606,20 @@ function lateralHeading(dir: Direction | undefined): 'north' | 'east' | 'south' 
 export class Simulation {
   private readonly world: GameWorld;
   /**
+   * What kind of thing a worn item is, for drawing it — protocol 14's art class.
+   *
+   * **Injected, because the answer is in the catalogue and this file has no business holding it** — the
+   * same seam `reset.ts` uses for its object census. Set by `index.ts` at boot; left undefined, every
+   * item falls back to its own id, which is exactly the pre-14 behaviour and what a checkout with no
+   * harvested catalogue should do.
+   *
+   * It cannot be derived from the `Item` alone, and that was measured rather than assumed: of the 4,820
+   * off-hand items in the catalogue, "has armour and no damage dice" catches 417 — but **177 of those
+   * are sleeves and bracers**, `ITEM_ARMOR` pieces that happen to map to the off hand. A character in
+   * studded leather sleeves would have grown a shield.
+   */
+  artClassOf: ((item: Item) => string | undefined) | undefined;
+  /**
    * Everything in the world with a body, players and mobs alike, in **one** map.
    *
    * One rather than two, and that is the point of Phase 7. Two maps would mean every pass over the
@@ -1630,7 +1644,7 @@ export class Simulation {
       // Players only — a mob's appearance is its template's `sprite`, and dressing mobs from an
       // equipment list is Phase 16's, when they have gear worth taking off them.
       ...(isPlayer(actor) && Object.keys(actor.equipped).length > 0
-        ? { wearing: wornIds(actor.equipped) }
+        ? { wearing: wornIds(actor.equipped, this.artClassOf) }
         : {}),
     };
   }

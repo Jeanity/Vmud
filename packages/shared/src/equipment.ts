@@ -204,17 +204,27 @@ export function rollStarterKit(rng: Rng): Equipped {
 }
 
 /**
- * The kit reduced to **slot → item id**, which is all the wire needs.
+ * The kit reduced to **slot → art class**, which is all the wire needs.
  *
  * Names, armour values and damage dice are the *character sheet's* business and stay off the entity
  * feed: a stranger's tunic has to be drawn, not appraised, and shipping its armour class would tell
  * every onlooker exactly how hard the wearer is to hit. See `EntityView.wearing`.
+ *
+ * **Protocol 14 changed what the value means, and the change is smaller than it looks.** It used to be
+ * the item's id, on 15a's rule that ids keep art direction off the wire. That rule holds for the
+ * authored starter kit, where an id names exactly one thing and therefore *is* its own class — a
+ * `leather_tunic` goes out as `leather_tunic`, unchanged. It could never hold for harvested gear: the
+ * catalogue has 419 shields, and `obj:32` tells a client nothing about what to draw.
+ *
+ * `classOf` is injected rather than looked up here, the same shape `reset.ts` uses for its census —
+ * this module has no business holding the catalogue. Anything it cannot classify keeps its id, which
+ * means a slot with no art simply does not draw.
  */
-export function wornIds(equipped: Equipped): Record<string, string> {
+export function wornIds(equipped: Equipped, classOf: (item: Item) => string | undefined = () => undefined): Record<string, string> {
   const out: Record<string, string> = {};
   for (const slot of EQUIP_SLOTS) {
     const item = equipped[slot];
-    if (item) out[slot] = item.id;
+    if (item) out[slot] = classOf(item) ?? item.id;
   }
   return out;
 }

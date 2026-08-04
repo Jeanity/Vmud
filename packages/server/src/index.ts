@@ -47,6 +47,7 @@ import {
   applyExperience,
   armourClassFrom,
   makeRng,
+  DURIS_ITEM,
   playerCombatStats,
   rollDamageGain,
   expectedDamageBonus,
@@ -4129,6 +4130,13 @@ const adminLive: LiveOps = {
     console.log(`[settings] pvp=${settings.pvp}`);
   },
 };
+
+// **Protocol 14: what a worn thing *is*, for drawing it.** The catalogue is the only place that knows,
+// and `sim.ts` is the only place that builds an `EntityView`, so this is the seam between them. One
+// class today — a shield — because the pack has one shield sheet; weapon classes arrive with their art.
+// `DURIS_ITEM.shield` rather than a guess from the item's own fields: measured, the obvious heuristic
+// dresses 177 pairs of sleeves as shields.
+sim.artClassOf = (item) => (templateOf(item)?.type === DURIS_ITEM.shield ? 'shield' : undefined);
 
 const admin = new AdminApi({
   world,
