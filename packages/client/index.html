@@ -394,6 +394,14 @@
 
       /* The slots the doll has no cell for. Hidden entirely when nothing is in them, because a
          permanently empty "eyes" row would make a rare find look like a missing feature. */
+      /* The bag. Dense, because it is a list you scan rather than a diagram you read. */
+      .bag-slots { color: var(--dim); font-size: 11px; margin-bottom: 4px; }
+      .bag-row { display: flex; gap: 8px; align-items: baseline; font-size: 12px; padding: 1px 0; }
+      .bag-row.nested { padding-left: 14px; font-size: 11px; }
+      .bag-row.nested::before { content: '-'; color: var(--dim); margin-right: -4px; }
+      .bag-row .tag { color: var(--dim); font-size: 11px; margin-left: auto; white-space: nowrap; }
+      .bag-purse { margin-top: 6px; color: var(--warn); font-size: 11px; }
+
       #worn-extra { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
       #worn-extra.empty { display: none; }
       .worn-row { display: flex; gap: 8px; align-items: baseline; font-size: 11px; }

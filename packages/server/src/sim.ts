@@ -71,7 +71,16 @@ import {
   rollDice,
   roomAtTile,
   arrivalTile,
+  STARTING_CAPACITY,
+  limitOf,
   roomCentre,
+  slotsUsed,
+  stackSlots,
+  usedInside,
+  type BagRow,
+  type BagView,
+  type ContainerRule,
+  type Stack,
   samePlace,
   statusFor,
   stepMovement,
@@ -1811,6 +1820,11 @@ export class Simulation {
       // shown as such rather than as a target of zero, which would look like a level-up stuck.
       experienceToNext: experienceToNext({ level: player.level, experience: player.experience, maxHp: player.maxHp }) ?? 0,
       equipped: player.equipped,
+      // Protocol 15. Omitted for a character carrying nothing at the default capacity, so the common
+      // case costs no payload on a message sent every time a hit point moves.
+      ...(player.inventory.stacks.length > 0 || player.inventory.capacity !== STARTING_CAPACITY
+        ? { bag: bagViewOf(player) }
+        : {}),
       roomId: player.roomId,
       place: player.place,
       posture: player.posture,
@@ -1861,4 +1875,37 @@ function facingOf(dx: number, dy: number, previous: Direction): Direction {
   if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'east' : 'west';
   if (Math.abs(dy) > Math.abs(dx)) return dy > 0 ? 'south' : 'north';
   return previous;
+}
+
+/**
+ * The bag as the character sheet's drawer draws it — protocol 15.
+ *
+ * **Deliberately the same shape the `inventory` command prints**, because they are one answer to one
+ * question and two renderings of a bag that could disagree is a bug nobody would think to look for.
+ * Containers show how full they are and their contents indented, exactly as the text listing does.
+ *
+ * Text and counts rather than `Item` records: `self` goes out on every vitals change, and a stranger's
+ * armour value has no business riding along on a heartbeat.
+ */
+function bagViewOf(player: Player): BagView {
+  const rowOf = (stack: Stack, rule?: ContainerRule): BagRow => ({
+    name: stack.item.name,
+    ...(stack.count > 1 ? { count: stack.count } : {}),
+    ...(stack.remaining !== undefined && stack.item.uses !== undefined && stack.remaining < stack.item.uses
+      ? { remaining: stack.remaining }
+      : {}),
+    slots: stackSlots(stack, limitOf(stack.item)),
+    ...(rule ? { holds: [usedInside({ rule, contents: stack.held?.contents ?? [] }), rule.capacity] as const } : {}),
+    ...(stack.held && stack.held.contents.length > 0
+      ? { contents: stack.held.contents.map((inside) => rowOf(inside)) }
+      : {}),
+  });
+
+  const purse = Object.fromEntries(Object.entries(player.purse).filter(([, n]) => n > 0));
+  return {
+    rows: player.inventory.stacks.map((stack) => rowOf(stack, stack.held?.rule)),
+    used: slotsUsed(player.inventory),
+    capacity: player.inventory.capacity,
+    ...(Object.keys(purse).length > 0 ? { purse } : {}),
+  };
 }

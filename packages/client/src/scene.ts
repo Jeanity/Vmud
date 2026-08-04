@@ -38,6 +38,8 @@ import {
   type Zone,
   stripColour,
   EQUIP_SLOTS,
+  type BagRow,
+  type BagView,
 } from '@mygame/shared';
 
 /**
@@ -1168,7 +1170,7 @@ export class WorldScene extends Phaser.Scene {
     const caret = document.getElementById('inventory-caret');
     if (!button || !panel) return;
 
-    this.renderInventory();
+    this.renderInventory(this.lastBag);
     button.addEventListener('click', () => {
       const open = panel.classList.toggle('open');
       button.setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -1177,21 +1179,87 @@ export class WorldScene extends Phaser.Scene {
   }
 
   /**
-   * Draws what the character is carrying.
+   * Draws what the character is carrying — protocol 15.
    *
-   * One honest line today. `DESIGN-inventory.md` §2 measures capacity in *slots an item costs* rather
-   * than in item count, so when this fills in it will show bulk against capacity — but neither number
-   * is on the wire yet, and printing `0/20` from a design document would be inventing a fact the
-   * server has never asserted.
+   * **This replaced a stub that always said "you are carrying nothing".** 15a wired the drawer before
+   * there was anything on the wire to put in it, and said so in a comment; by 2026-08-04 the bag was
+   * real, the line was simply false, and the owner reported it as a bug. It was one.
+   *
+   * The shape matches the `inventory` command's own listing on purpose — counts, charges, a container's
+   * fullness and its contents indented — because they answer the same question and two renderings of
+   * one bag that could disagree is a bug nobody thinks to look for.
+   *
+   * Names are **painted**, never assigned: they are the builder's authored text and carry the MUD's own
+   * colour codes. The paper doll learned this the hard way when 15c's harvested items first arrived.
    */
-  private renderInventory(): void {
+  /** The last bag the server sent, so opening the drawer redraws rather than waiting for a heartbeat. */
+  private lastBag: BagView | undefined;
+
+  private renderInventory(bag?: BagView): void {
     const panel = document.getElementById('inventory');
     if (!panel) return;
     panel.replaceChildren();
-    const empty = document.createElement('div');
-    empty.className = 'empty';
-    empty.textContent = 'You are carrying nothing.';
-    panel.append(empty);
+
+    if (!bag || bag.rows.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'You are carrying nothing.';
+      panel.append(empty);
+      // The purse still shows: coin is not in the bag — `DESIGN-inventory.md` §8 — and a character with
+      // no kit and eight gold should see the eight gold.
+      if (bag?.purse) panel.append(this.purseLine(bag.purse));
+      return;
+    }
+
+    const slots = document.createElement('div');
+    slots.className = 'bag-slots';
+    slots.textContent = `${bag.used} of ${bag.capacity} slots`;
+    panel.append(slots);
+
+    const rowNode = (row: BagRow, depth: number): HTMLElement => {
+      const node = document.createElement('div');
+      node.className = depth > 0 ? 'bag-row nested' : 'bag-row';
+      const name = document.createElement('span');
+      name.className = 'item';
+      paint(name, row.name);
+      node.append(name);
+
+      // The count, the charges and the fullness are each shown only when they say something. A sword
+      // reading "(x1)" or "[0/0]" is noise that makes the real numbers harder to see.
+      const notes: string[] = [];
+      if (row.count !== undefined && row.count > 1) notes.push(`x${row.count}`);
+      if (row.remaining !== undefined) notes.push(`${row.remaining} left`);
+      if (row.holds) notes.push(`${row.holds[0]}/${row.holds[1]}`);
+      if (depth === 0) notes.push(`${row.slots} slot${row.slots === 1 ? '' : 's'}`);
+      if (notes.length > 0) {
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = notes.join(' · ');
+        node.append(tag);
+      }
+      return node;
+    };
+
+    for (const row of bag.rows) {
+      panel.append(rowNode(row, 0));
+      // A container's contents, indented under it — the same choice the text listing makes, and for the
+      // same reason: the arrows in your quiver are still yours, and hiding them behind a second command
+      // would make a quiver feel like storage rather than like carrying.
+      for (const inside of row.contents ?? []) panel.append(rowNode(inside, 1));
+    }
+    if (bag.purse) panel.append(this.purseLine(bag.purse));
+  }
+
+  /** Coin, in the order `DESIGN-inventory.md` §8 reads it — the largest metal first. */
+  private purseLine(purse: Readonly<Record<string, number>>): HTMLElement {
+    const node = document.createElement('div');
+    node.className = 'bag-purse';
+    const order = ['platinum', 'gold', 'silver', 'copper'];
+    node.textContent = order
+      .filter((metal) => (purse[metal] ?? 0) > 0)
+      .map((metal) => `${purse[metal]} ${metal}`)
+      .join(', ');
+    return node;
   }
 
   /**
@@ -1427,6 +1495,12 @@ export class WorldScene extends Phaser.Scene {
       this.setSelfRoom(message.view.roomId);
       this.applyLight(message.view.lightRadius, message.view.light);
       this.applyEquipment(message.view.light, message.view.equipped);
+      // **Kept, because the drawer can be opened after the message that filled it.** `self` arrives on
+      // every vitals change; the panel is only in the DOM to be redrawn when it is open, so the last
+      // bag is held and re-rendered when it opens. Without this, opening the drawer between heartbeats
+      // shows an empty bag until something hits you.
+      this.lastBag = message.view.bag;
+      this.renderInventory(this.lastBag);
       this.applyAffects(message.view.affects);
       this.applyStance(message.view.posture, message.view.status);
       this.applyPools(message.view);

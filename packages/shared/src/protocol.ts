@@ -15,7 +15,23 @@ import type { Posture, Status } from './position.ts';
 import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
 
 /**
- * Bumped to 14: worn gear says what *kind* of thing it is.
+ * Bumped to 15: the bag reaches the sheet.
+ *
+ * `SelfView` gains **`bag`** — what you are carrying, the slots it fills, and the coin.
+ *
+ * **This is the deferral in protocol 12 coming due, on its own stated condition.** That entry said:
+ * *"`SelfView` deliberately did not gain the bag. The inventory is read through the `inventory`
+ * command, which prints it; a field on every `self` message that no client rendered would be a payload
+ * nothing consumes… It goes on the wire when there is a panel to draw it."* 15a shipped the drawer as
+ * an honest stub that always read *"You are carrying nothing"*, which is what the owner reported as a
+ * bug on 2026-08-04 — correctly, because by then it was one. There is a panel now.
+ *
+ * **It carries text and counts, not items.** `self` is sent on every vitals change, so the shape is
+ * what a drawer draws — a painted name, how many, how full a container is — rather than whole `Item`
+ * records with armour values and damage dice on them. That also keeps the rule §6 set for the entity
+ * feed: what a thing *is worth* stays on the character sheet's own request, not on every heartbeat.
+ *
+ * Was 14: worn gear says what *kind* of thing it is.
  *
  * `EntityView.wearing` has carried **slot → item id** since 15a, on the rule that ids keep art
  * direction off the wire: which LPC layer a leather tunic draws as is the client's business, and
@@ -127,7 +143,7 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * Was 6: doors have live state — the `door` message, and `open`/`close` losing their required `dir`.
  * Was 5: carried light sources — `SelfView` gained `light`.
  */
-export const PROTOCOL_VERSION = 14;
+export const PROTOCOL_VERSION = 15;
 
 /**
  * One timed effect on your own character, as the HUD reads it.
@@ -192,6 +208,30 @@ export type EntityKind = 'player' | 'mob' | 'item';
  * the pack has no art for.
  */
 export type ArtClass = string;
+
+/** One line of the bag: a stack, and what is inside it if it is a container. */
+export interface BagRow {
+  /** The item's name, colour codes intact — painted by the client, never assigned. */
+  readonly name: string;
+  /** How many. Absent for one, because "a sword (x1)" reads worse than "a sword". */
+  readonly count?: number;
+  /** Charges left, when this is a thing with charges and one has been used. §3. */
+  readonly remaining?: number;
+  /** Slots this row occupies. */
+  readonly slots: number;
+  /** How full it is, when it is a container: `[used, capacity]`. */
+  readonly holds?: readonly [used: number, capacity: number];
+  /** What is inside it. Absent unless it is a container with something in it. */
+  readonly contents?: readonly BagRow[];
+}
+
+export interface BagView {
+  readonly rows: readonly BagRow[];
+  readonly used: number;
+  readonly capacity: number;
+  /** Coin, by metal, zeroes omitted. Absent for an empty purse. */
+  readonly purse?: Readonly<Record<string, number>>;
+}
 
 export interface EntityView {
   readonly id: EntityId;
@@ -281,6 +321,13 @@ export interface SelfView {
    * hit than another, which is the entire point of rolling it.
    */
   readonly equipped: Equipped;
+  /**
+   * The bag, as the drawer draws it. Protocol 15.
+   *
+   * Absent while a character carries nothing *and* has the default capacity, so an empty bag costs no
+   * payload — the same rule `PlayerStore.save` follows for the same reason.
+   */
+  readonly bag?: BagView;
   readonly roomId: RoomId;
   /** Which map the player is standing on. See {@link Place}. */
   readonly place: Place;
