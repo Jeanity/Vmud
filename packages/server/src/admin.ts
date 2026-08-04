@@ -28,6 +28,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname } from 'node:path';
 
 import {
+  AUTHORED_VNUM_BASE,
   AffectFlag,
   ROOM_FLAGS,
   SECTORS,
@@ -51,6 +52,7 @@ import { LIGHT_SOURCES, lightSource, type LightSource } from '@mygame/shared/lig
 import { draftDescription, listModels, ollamaReachable } from './ollama.ts';
 import { saveRoomOverrides } from './overrides.ts';
 import { readDice, saveItemOverrides, type ItemOverride, type ItemOverrides } from './item-overrides.ts';
+import type { AuthoredItems, ItemDraft } from './item-authoring.ts';
 import { seenTileCount, slugify, type PlayerStore, type StoredSummary } from './players.ts';
 import type { WorldSettings } from './settings.ts';
 import type { Player } from './sim.ts';
@@ -145,6 +147,33 @@ export interface LiveOps {
    * the same split `authorRoom` keeps with the world.
    */
   authorItem(vnum: number, next: Partial<ItemOverride>, cleared: readonly string[]): ItemTemplate | undefined;
+
+  /**
+   * A6b: items created here rather than harvested. Read for the *created* mark; never mutated here.
+   *
+   * A separate hook from {@link itemOverrides} because they are separate stores with opposite rules —
+   * one holds patches that vanish when they author nothing, the other whole records that persist until
+   * deleted. See `item-authoring.ts`.
+   */
+  authoredItems(): AuthoredItems;
+  /**
+   * Creates an item, or re-drafts one that was created here. `vnum` undefined creates.
+   *
+   * **The number is allocated by this side, never accepted from the caller** — a form that could pick
+   * its own vnum could pick one a future harvest will claim, and vnum collisions are not merge
+   * conflicts, they are two items silently becoming one.
+   */
+  authorNewItem(vnum: number | undefined, draft: ItemDraft, by: string): { item: ItemTemplate } | { error: string };
+  /** Removes a created item. Refuses anything it did not create — a harvested item cannot be deleted. */
+  deleteAuthoredItem(vnum: number): boolean;
+
+  /**
+   * Instantiates a catalogue item into a live character's bag, and tells them.
+   *
+   * Returns the item's name so the audit line and the panel can both say *what* was given rather than
+   * only its vnum. A refusal carries its reason — a full bag is a real answer, not a failure.
+   */
+  giveItem(player: Player, vnum: number): { name: string } | { error: string };
 
   /**
    * Throws a switch: applies it live and writes it to disk in the same breath.
@@ -342,9 +371,12 @@ export class AdminApi {
       if (request.method === 'PATCH') return this.patchSettings(request.body);
     }
     if (head === 'items' && parts.length === 1 && request.method === 'GET') return this.items(request.query);
+    // A6b. `POST /items` creates; the vnum comes back in the response because the server allocates it.
+    if (head === 'items' && parts.length === 1 && request.method === 'POST') return this.createItem(request.body);
     if (head === 'items' && slug !== undefined && parts.length === 2) {
       if (request.method === 'GET') return this.item(slug);
       if (request.method === 'PATCH') return this.authorItem(slug, request.body);
+      if (request.method === 'DELETE') return this.destroyItem(slug);
     }
     if (head === 'players' && parts.length === 1 && request.method === 'GET') return this.roster();
     if (head === 'players' && slug !== undefined && parts.length === 2) {
@@ -355,6 +387,7 @@ export class AdminApi {
     if (head === 'players' && slug !== undefined && action !== undefined && parts.length === 3 && request.method === 'POST') {
       if (action === 'teleport') return this.teleport(slug, request.body);
       if (action === 'tell') return this.tell(slug, request.body);
+      if (action === 'give') return this.give(slug, request.body);
       if (action === 'kick') return this.kick(slug);
       if (action === 'reset-pickups') return this.resetPickups(slug);
     }
@@ -487,6 +520,10 @@ export class AdminApi {
           // The ✎ mark. A row, not the whole record — the panel shows *that* it is authored here and
           // *what* is authored in the editor, the same split the zones browser keeps.
           ...(this.deps.live.itemOverrides().has(template.vnum) ? { edited: true } : {}),
+          // A6b's own mark, and a *different* one: edited means a harvested item with changes over it,
+          // created means there is no harvest under it at all. Conflating them would put `Restore
+          // harvested` on a row with nothing to restore.
+          ...(this.deps.live.authoredItems().has(template.vnum) ? { created: true } : {}),
         })),
       },
     };
@@ -499,7 +536,16 @@ export class AdminApi {
     if (!template) return { status: 404, body: { error: `no item ${slug} in the catalogue` } };
     // The override rides along so the editor can show which fields are authored and which are the
     // harvest's — the ✎ mark's whole meaning, and the difference between "edit" and "re-type".
-    return { status: 200, body: { item: template, authored: this.deps.live.itemOverrides().get(vnum) ?? null } };
+    // `created` rides along too: an item with no harvest under it gets a Delete and no Restore, and
+    // the editor cannot work that out from the record alone.
+    return {
+      status: 200,
+      body: {
+        item: template,
+        authored: this.deps.live.itemOverrides().get(vnum) ?? null,
+        created: this.deps.live.authoredItems().get(vnum) ?? null,
+      },
+    };
   }
 
   /**
@@ -518,6 +564,13 @@ export class AdminApi {
     if (typeof body !== 'object' || body === null || Array.isArray(body)) {
       return { status: 400, body: { error: 'PATCH body must be a JSON object' } };
     }
+
+    // **One Save for both kinds of item, and the *server* decides which it is.** A created item has no
+    // harvest to patch, so an edit to one is a re-draft of the whole record — a different store, a
+    // different validator, and no `Restore harvested` because there is nothing behind it. Dispatching
+    // here rather than in the panel means the front end has one route to call and cannot get the
+    // choice wrong; the vnum range is the discriminator, exactly as it is on disk.
+    if (vnum >= AUTHORED_VNUM_BASE) return this.reauthorItem(vnum, body as Record<string, unknown>);
     const patch = body as Record<string, unknown>;
     const keys = Object.keys(patch);
     if (keys.length === 0) return { status: 400, body: { error: 'empty patch' } };
@@ -610,6 +663,81 @@ export class AdminApi {
         authored: this.deps.live.itemOverrides().get(vnum) ?? null,
       },
     };
+  }
+
+  /**
+   * `POST /items` — A6b's create.
+   *
+   * **The body carries no vnum and one is refused if sent.** The number is the server's to allocate
+   * from the reserved range, because a caller that could choose would eventually choose one Duris also
+   * uses, and a vnum collision is not a conflict anybody sees — it is two different items quietly
+   * becoming one, in the catalogue, in every saved bag, and in every reset that names it.
+   *
+   * The validation lives in `draftAuthoredItem` rather than here, so the door a form comes through and
+   * the door a hand-edited file comes through are the same door.
+   */
+  private createItem(body: unknown): AdminResponse {
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return { status: 400, body: { error: 'POST body must be a JSON object' } };
+    }
+    const draft = body as Record<string, unknown>;
+    if (draft.vnum !== undefined) {
+      return {
+        status: 400,
+        body: { error: 'vnum is allocated by the server — an item may not choose its own join key' },
+      };
+    }
+    const by = typeof draft.by === 'string' ? draft.by.slice(0, 200) : 'panel';
+    const created = this.deps.live.authorNewItem(undefined, draft as ItemDraft, by);
+    if ('error' in created) return { status: 400, body: { error: created.error } };
+
+    this.audit('item.create', { vnum: created.item.vnum, name: created.item.name });
+    return { status: 201, body: { ok: true, vnum: created.item.vnum, item: itemRow(created.item) } };
+  }
+
+  /**
+   * The created-item half of `PATCH /items/:vnum`. Reached only through {@link authorItem}'s dispatch.
+   *
+   * Accepts the same field names the patch path does plus the ones only a whole record has — `slot`,
+   * `type`, `size` and the container rule are *refused* on a harvested item because they are derived
+   * from the source's own bits, and there is no source here to disagree with.
+   */
+  private reauthorItem(vnum: number, patch: Record<string, unknown>): AdminResponse {
+    const keys = Object.keys(patch).filter((key) => key !== 'by');
+    if (keys.length === 0) return { status: 400, body: { error: 'empty patch' } };
+    const by = typeof patch.by === 'string' ? patch.by.slice(0, 200) : 'panel';
+    const edited = this.deps.live.authorNewItem(vnum, patch as ItemDraft, by);
+    if ('error' in edited) return { status: 400, body: { error: edited.error } };
+
+    this.audit('item.reauthor', { vnum, fields: keys });
+    return { status: 200, body: { ok: true, item: itemRow(edited.item), created: true } };
+  }
+
+  /**
+   * `DELETE /items/:vnum` — removes an item that was created here.
+   *
+   * **A harvested item cannot be deleted, and the refusal says why**: the next `npm run worldgen` would
+   * put it straight back, so a delete that appeared to work would be a lie with a restart's fuse on it.
+   * Retiring a Duris item is a zone edit, not a catalogue one.
+   */
+  private destroyItem(slug: string): AdminResponse {
+    const vnum = Number(slug);
+    if (!Number.isInteger(vnum)) return { status: 400, body: { error: `"${slug}" is not an item vnum` } };
+    if (vnum < AUTHORED_VNUM_BASE) {
+      return {
+        status: 400,
+        body: {
+          error:
+            `item ${vnum} came from the harvest and cannot be deleted — the next worldgen would ` +
+            `restore it. Only items created here can be removed.`,
+        },
+      };
+    }
+    if (!this.deps.live.deleteAuthoredItem(vnum)) {
+      return { status: 404, body: { error: `no item created here with vnum ${vnum}` } };
+    }
+    this.audit('item.delete', { vnum });
+    return { status: 200, body: { ok: true } };
   }
 
   private zones(): AdminResponse {
@@ -1382,6 +1510,35 @@ export class AdminApi {
     this.deps.live.kick(player);
     this.audit('kick', { slug });
     return { status: 200, body: { ok: true } };
+  }
+
+  /**
+   * `POST /players/:slug/give` — puts one instance of a catalogue item into a character's hands.
+   *
+   * **A6b's completion test, and A4's first tool.** An item that can be authored and never held is not
+   * created in any sense a person can check: the whole point of the create form is that the thing shows
+   * up in a bag, on a paper doll, in a fight. This is the shortest honest path from the catalogue to a
+   * pair of hands, and it is deliberately about *any* item rather than only created ones — the mob and
+   * spawn tooling A4 brings wants the same call.
+   *
+   * Online only, because an instance goes into a live inventory. Giving to a stored character would
+   * mean editing a save file's bag, which is a different and much less safe operation.
+   */
+  private give(slug: string, body: unknown): AdminResponse {
+    const player = this.findOnline(slug);
+    if (!player) return { status: 409, body: { error: `"${slug}" is not online — an item needs a pair of hands` } };
+    const vnum = (body as { vnum?: unknown } | null)?.vnum;
+    if (typeof vnum !== 'number' || !Number.isInteger(vnum)) {
+      return { status: 400, body: { error: 'body must be {"vnum": <integer>}' } };
+    }
+    if (!this.deps.items.has(vnum)) return { status: 404, body: { error: `no item ${vnum} in the catalogue` } };
+
+    const given = this.deps.live.giveItem(player, vnum);
+    // A full bag is the operator's problem to solve, not ours to solve by dropping it on the floor —
+    // the same refusal `remove` makes, and for the same reason.
+    if ('error' in given) return { status: 409, body: { error: given.error } };
+    this.audit('give', { slug, vnum, name: given.name });
+    return { status: 200, body: { ok: true, name: given.name } };
   }
 
   private resetPickups(slug: string): AdminResponse {

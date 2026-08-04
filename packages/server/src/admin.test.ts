@@ -13,10 +13,23 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import { boundsOf, type ItemTemplate, type Room, type Zone } from '@mygame/shared';
+import {
+  AUTHORED_VNUM_BASE,
+  DURIS_ITEM,
+  boundsOf,
+  type ItemTemplate,
+  type Room,
+  type Zone,
+} from '@mygame/shared';
 
 import { AdminApi, type AdminDeps, type AdminRequest, type AnnounceScope, type LiveOps } from './admin.ts';
 import { applyItemOverride, loadItemOverrides, mergeItemOverride, type ItemOverrides } from './item-overrides.ts';
+import {
+  draftAuthoredItem,
+  takeAuthoredVnum,
+  type AuthoredStore,
+  type ItemDraft,
+} from './item-authoring.ts';
 import { PlayerStore, slugify } from './players.ts';
 import type { WorldSettings } from './settings.ts';
 import type { Player } from './sim.ts';
@@ -103,6 +116,7 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
   // the same merge/apply/revert path `index.ts` wires rather than a fake that agrees by luck.
   const itemOverrides: ItemOverrides = new Map();
   const pristineItems = new Map<number, ItemTemplate>();
+  const authored: AuthoredStore = { items: new Map(), next: AUTHORED_VNUM_BASE };
 
   const live: LiveOps = {
     online: () => players,
@@ -123,6 +137,32 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
       pristineItems.delete(vnum);
       items.set(vnum, pristine);
       return pristine;
+    },
+    // A6b's live half, equally faithfully: the real validator and the real allocator over a real map,
+    // so a route test that creates an item exercises the same refusals the server does.
+    authoredItems: () => authored.items,
+    authorNewItem: (vnum, draft, by) => {
+      const existing = vnum === undefined ? undefined : authored.items.get(vnum);
+      if (vnum !== undefined && !existing) return { error: `no item created here with vnum ${vnum}` };
+      const merged: ItemDraft = existing ? { ...existing.item, ...draft } : draft;
+      const drafted = draftAuthoredItem(vnum ?? authored.next, merged);
+      if ('error' in drafted) return drafted;
+      const number = vnum ?? takeAuthoredVnum(authored);
+      authored.items.set(number, { item: drafted.item, at: 'test-time', by });
+      items.set(number, drafted.item);
+      return { item: drafted.item };
+    },
+    deleteAuthoredItem: (vnum) => {
+      if (!authored.items.has(vnum)) return false;
+      authored.items.delete(vnum);
+      items.delete(vnum);
+      return true;
+    },
+    giveItem: (player, vnum) => {
+      const template = items.get(vnum);
+      if (!template) return { error: `no item ${vnum} in the catalogue` };
+      calls.push(`give ${player.name} ${vnum}`);
+      return { name: template.name };
     },
     setVitals: (player, pools) => {
       if (pools.hp !== undefined) player.hp = pools.hp;
@@ -901,5 +941,119 @@ describe('authoring an item — A6', () => {
   it('404s an unknown vnum before validating anything', () => {
     const { api } = makeRig();
     assert.equal(api.route(req('PATCH', '/items/9999', { name: 'x' })).status, 404);
+  });
+});
+
+describe('creating an item — A6b', () => {
+  /** The smallest legal creation. Everything below is this plus one change. */
+  const draft = {
+    name: '&+ya brass lantern&N',
+    keywords: ['lantern', 'brass'],
+    type: DURIS_ITEM.light,
+    size: 2,
+    cost: 40,
+  };
+
+  it('allocates the vnum from the reserved range and puts the item in the catalogue', () => {
+    const { api } = makeRig();
+    const made = quietly(() => api.route(req('POST', '/items', draft)));
+    assert.equal(made.status, 201);
+    const { vnum } = made.body as { vnum: number };
+    assert.equal(vnum, AUTHORED_VNUM_BASE, 'the first created item starts the range');
+
+    // From here it is an item like any other: findable by the words a player would type.
+    const rows = (api.route({ ...req('GET', '/items'), query: { q: 'lantern' } }).body as {
+      items: Record<string, unknown>[];
+    }).items;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!['vnum'], vnum);
+    assert.equal(rows[0]!['created'], true, 'the created mark');
+    assert.equal(rows[0]!['edited'], undefined, 'and NOT the edited mark — they mean different things');
+  });
+
+  it('refuses a caller-chosen vnum, which is the whole collision argument', () => {
+    const { api } = makeRig();
+    const refused = api.route(req('POST', '/items', { ...draft, vnum: 100 }));
+    assert.equal(refused.status, 400);
+    assert.match(String((refused.body as { error: string }).error), /allocated by the server/);
+  });
+
+  it('refuses an incomplete draft rather than filling in a name', () => {
+    const { api } = makeRig();
+    const refused = api.route(req('POST', '/items', { keywords: ['thing'], type: DURIS_ITEM.treasure }));
+    assert.equal(refused.status, 400);
+    assert.match(String((refused.body as { error: string }).error), /name/);
+  });
+
+  it('hands out a fresh number each time', () => {
+    const { api } = makeRig();
+    const first = quietly(() => api.route(req('POST', '/items', draft))).body as { vnum: number };
+    const second = quietly(() => api.route(req('POST', '/items', { ...draft, name: 'a second lantern' })))
+      .body as { vnum: number };
+    assert.notEqual(first.vnum, second.vnum);
+    assert.equal(second.vnum, first.vnum + 1);
+  });
+
+  it('edits a created item through the same PATCH, and re-drafts rather than patching', () => {
+    const { api } = makeRig();
+    const { vnum } = quietly(() => api.route(req('POST', '/items', draft))).body as { vnum: number };
+
+    // `slot` is refused on a harvested item because the source's bits decide it. On a created one there
+    // is no source to disagree with, so it is simply a field.
+    const edited = quietly(() => api.route(req('PATCH', `/items/${vnum}`, { slot: 'head', cost: 75 })));
+    assert.equal(edited.status, 200);
+    const one = api.route(req('GET', `/items/${vnum}`)).body as {
+      item: ItemTemplate;
+      created: unknown;
+    };
+    assert.equal(one.item.slot, 'head');
+    assert.equal(one.item.cost, 75);
+    assert.equal(one.item.name, '&+ya brass lantern&N', 'an unmentioned field is untouched');
+    assert.ok(one.created, 'the editor is told there is no harvest to restore');
+  });
+
+  it('deletes a created item', () => {
+    const { api } = makeRig();
+    const { vnum } = quietly(() => api.route(req('POST', '/items', draft))).body as { vnum: number };
+    assert.equal(quietly(() => api.route(req('DELETE', `/items/${vnum}`))).status, 200);
+    assert.equal(api.route(req('GET', `/items/${vnum}`)).status, 404);
+  });
+
+  it('refuses to delete a harvested item, and says why', () => {
+    // A delete that appeared to work would be a lie with a restart's fuse on it.
+    const { api } = makeRig();
+    const refused = api.route(req('DELETE', '/items/100'));
+    assert.equal(refused.status, 400);
+    assert.match(String((refused.body as { error: string }).error), /worldgen would/);
+    assert.equal(api.route(req('GET', '/items/100')).status, 200, 'and it is still there');
+  });
+
+  it('never reuses a deleted number', () => {
+    const { api } = makeRig();
+    const { vnum } = quietly(() => api.route(req('POST', '/items', draft))).body as { vnum: number };
+    quietly(() => api.route(req('DELETE', `/items/${vnum}`)));
+    const next = quietly(() => api.route(req('POST', '/items', draft))).body as { vnum: number };
+    assert.equal(next.vnum, vnum + 1, 'a recycled identity would point old saves at a new item');
+  });
+
+  it('gives a created item to a live character, which is how it is checked at all', () => {
+    const { api, players, calls } = makeRig();
+    players.push(fakePlayer('Ravi'));
+    const { vnum } = quietly(() => api.route(req('POST', '/items', draft))).body as { vnum: number };
+    const given = quietly(() => api.route(req('POST', '/players/ravi/give', { vnum })));
+    assert.equal(given.status, 200);
+    assert.equal((given.body as { name: string }).name, '&+ya brass lantern&N');
+    assert.ok(calls.some((c) => c === `give Ravi ${vnum}`));
+  });
+
+  it('refuses a give to somebody offline — an instance needs a live bag', () => {
+    const { api } = makeRig();
+    assert.equal(api.route(req('POST', '/players/ravi/give', { vnum: 100 })).status, 409);
+  });
+
+  it('refuses a give of an item the catalogue does not have', () => {
+    const { api, players } = makeRig();
+    players.push(fakePlayer('Ravi'));
+    assert.equal(api.route(req('POST', '/players/ravi/give', { vnum: 424242 })).status, 404);
   });
 });

@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { WebSocketServer, type WebSocket } from 'ws';
 
 import {
+  AUTHORED_VNUM_BASE,
   DIRECTIONS,
   PLAYER_RADIUS,
   PROTOCOL_VERSION,
@@ -218,6 +219,13 @@ import {
   mergeItemOverride,
   type ItemOverride,
 } from './item-overrides.ts';
+import {
+  draftAuthoredItem,
+  loadAuthoredStore,
+  saveAuthoredStore,
+  takeAuthoredVnum,
+  type ItemDraft,
+} from './item-authoring.ts';
 import { ROOMS_FILE } from './overrides.ts';
 import { GameWorld, placeOf } from './world.ts';
 
@@ -306,10 +314,28 @@ for (const [vnum, override] of itemOverrides) {
   pristineItems.set(vnum, base);
   itemCatalogue.set(vnum, applyItemOverride(base, override));
 }
+
+/**
+ * A6b: items that were **made here**, added to the catalogue rather than folded over it.
+ *
+ * Added *after* the override fold and not through it, because there is nothing underneath them to fold
+ * over — see `item-authoring.ts` for why the two overlays are separate files with opposite rules. From
+ * this line on the catalogue makes no distinction: a created sword is looked up, matched by keyword,
+ * spawned by a reset and put in a bag by exactly the code that handles a harvested one. **That is the
+ * property worth protecting** — the moment anything downstream has to ask "is this one ours?", the
+ * created item stops being a real item and becomes a special case.
+ *
+ * The vnum range is what makes it safe: `AUTHORED_VNUM_BASE` is an order of magnitude above the highest
+ * vnum Duris ships, so `set` here can never quietly replace a harvested entry.
+ */
+const authoredStore = loadAuthoredStore();
+for (const [vnum, authored] of authoredStore.items) itemCatalogue.set(vnum, authored.item);
+
 console.log(
   itemCatalogue.size > 0
     ? `[items] ${itemCatalogue.size} item types loaded` +
-        (itemOverrides.size > 0 ? `, ${itemOverrides.size} authored` : '')
+        (itemOverrides.size > 0 ? `, ${itemOverrides.size} edited` : '') +
+        (authoredStore.items.size > 0 ? `, ${authoredStore.items.size} created here` : '')
     : '[items] no catalogue; mobs will carry nothing. Run `npm run worldgen`.',
 );
 
@@ -327,6 +353,10 @@ function authorItem(
   next: Partial<ItemOverride>,
   cleared: readonly string[],
 ): ItemTemplate | undefined {
+  // **A created item is never patched.** It has no harvest underneath it, so a partial override against
+  // it would be a patch over nothing and `Restore harvested` would restore an empty record. The two
+  // overlays must never hold the same vnum; the range is the guard, and this is where it is enforced.
+  if (vnum >= AUTHORED_VNUM_BASE) return undefined;
   const current = itemCatalogue.get(vnum);
   if (!current) return undefined;
   const pristine = pristineItems.get(vnum) ?? current;
@@ -343,6 +373,59 @@ function authorItem(
   pristineItems.delete(vnum);
   itemCatalogue.set(vnum, pristine);
   return pristine;
+}
+
+/**
+ * A6b: create an item, or edit one that was created here. **The whole-record path.**
+ *
+ * One function for both because an edit *is* a re-draft: the incoming fields are laid over the record
+ * that exists and the result goes through the same validator a creation does. A second, laxer path for
+ * edits is how a field ends up legal to change but illegal to set — the exact asymmetry
+ * `readAuthoredItem` avoids by running the API's own validator against the file on disk.
+ *
+ * `vnum` is `undefined` to create — the number is the server's to allocate and never the caller's, so a
+ * form cannot ask for one that a re-harvest might later claim.
+ */
+function authorNewItem(
+  vnum: number | undefined,
+  draft: ItemDraft,
+  by: string,
+): { item: ItemTemplate } | { error: string } {
+  const existing = vnum === undefined ? undefined : authoredStore.items.get(vnum);
+  if (vnum !== undefined && !existing) return { error: `no item created here with vnum ${vnum}` };
+
+  // An edit keeps every field it does not mention. `draftAuthoredItem` reads an explicit `null` as
+  // "back to the default", which is how a form clears one field without resending the rest.
+  const merged: ItemDraft = existing ? { ...existing.item, ...draft } : draft;
+  // **Drafted before the number is taken**, so a refused draft does not burn a vnum. The counter only
+  // ever moves forward, and moving it for an item that was never created would leave a permanent hole
+  // in the numbering for a typo.
+  const drafted = draftAuthoredItem(vnum ?? authoredStore.next, merged);
+  if ('error' in drafted) return drafted;
+  const number = vnum ?? takeAuthoredVnum(authoredStore);
+
+  authoredStore.items.set(number, { item: drafted.item, at: new Date().toISOString(), by });
+  saveAuthoredStore(authoredStore);
+  itemCatalogue.set(number, drafted.item);
+  return { item: drafted.item };
+}
+
+/**
+ * Removes a created item from the catalogue and the overlay.
+ *
+ * **Only ever a created one** — there is no such thing as deleting a harvested item, because the next
+ * `npm run worldgen` would put it straight back and the only honest way to retire one is a zone edit.
+ * Instances already in bags and on floors are untouched, for the same reason an edit does not reach
+ * into them: an `Item` is a flat copy by §8's design, and a saved bag is not ours to rewrite.
+ */
+function deleteAuthoredItem(vnum: number): boolean {
+  if (!authoredStore.items.has(vnum)) return false;
+  authoredStore.items.delete(vnum);
+  // The counter is untouched, which is the point of storing it: deleting the highest item must not
+  // free its number for the next creation.
+  saveAuthoredStore(authoredStore);
+  itemCatalogue.delete(vnum);
+  return true;
 }
 
 /**
@@ -4114,6 +4197,28 @@ const adminLive: LiveOps = {
   // A6. The router validates and persists; these apply — the same split `authorRoom` keeps.
   itemOverrides: () => itemOverrides,
   authorItem,
+  // A6b. Whole records rather than patches — see `item-authoring.ts` for why they are separate.
+  authoredItems: () => authoredStore.items,
+  authorNewItem,
+  deleteAuthoredItem,
+  giveItem(player, vnum) {
+    const template = itemCatalogue.get(vnum);
+    if (!template) return { error: `no item ${vnum} in the catalogue` };
+    const item = instantiate(template);
+    const stowed = carry(player.inventory, item);
+    if (!('stacks' in stowed)) {
+      return {
+        error: `${player.name} has nowhere to put ${item.name} — ${stowed.free} slot${stowed.free === 1 ? '' : 's'} free`,
+      };
+    }
+    player.inventory = stowed;
+    // Told, not slipped in. A bag that gains something silently is indistinguishable from a bug, and the
+    // operator watching is not the only person who should know.
+    send(player.id, { t: 'log', channel: 'system', text: `${item.name} appears in your hands.` });
+    send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+    persistAdminEdit(player);
+    return { name: item.name };
+  },
   setVitals(player, pools) {
     if (pools.hp !== undefined) player.hp = pools.hp;
     if (pools.mana !== undefined) player.mana = pools.mana;

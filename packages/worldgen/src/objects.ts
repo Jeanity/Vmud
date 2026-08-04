@@ -40,6 +40,7 @@ import {
   armourBonusFrom,
   sizeFrom,
   slotForWearFlags,
+  stackLimitFor,
   type ContainerAccepts,
   type ItemTemplate,
 } from '@mygame/shared';
@@ -180,19 +181,6 @@ export function loadObjects(dir: string): Map<number, RawObject> {
 /* Raw object → catalogue entry                                                */
 /* -------------------------------------------------------------------------- */
 
-/**
- * `ITEM_WEAR_*` bits, in the order a wear slot is picked. Mirrors `WEAR_BITS` in `shared/src/items.ts`
- * and is deliberately a **separate list**: this one is the file's vocabulary and that one is the game's,
- * and collapsing them would put the harvest's assumptions inside the rules module.
- */
-/** How many of a thing share one slot, by type. `DESIGN-inventory.md` §3. */
-function stackLimitFor(type: number): number {
-  // Arrows are the doc's own worked example, at 20 to a slot. Coins and small consumables stack too;
-  // a sword does not, because two swords are two swords.
-  if (type === DURIS_ITEM.missile) return 20;
-  if (type === DURIS_ITEM.potion || type === DURIS_ITEM.scroll || type === DURIS_ITEM.food) return 5;
-  return 1;
-}
 
 /**
  * Charges in one item, or nothing for something use does not consume.

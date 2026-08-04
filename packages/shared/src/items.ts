@@ -57,6 +57,41 @@ export const DURIS_ITEM = {
   storage: 35,
 } as const;
 
+/** Every type the catalogue speaks, for validating an authored item against the source's vocabulary. */
+export const DURIS_ITEM_TYPES: readonly number[] = Object.values(DURIS_ITEM);
+
+/**
+ * Where **our own** item vnums start. Nothing Duris ships may ever reach here.
+ *
+ * A6b. An authored item needs a number, and the only number that is safe is one the source can never
+ * claim — `CLAUDE.md`'s rule is that vnums are the join key between every data source we have and are
+ * never renumbered, so a collision is not a merge conflict, it is two different items silently
+ * becoming one.
+ *
+ * **Measured rather than assumed:** the harvested catalogue's 16,421 entries run from 4 to **700,008**,
+ * in blocks up to 90k with scattered outliers at 120k, 130k, 200k, 400k, 420k, 500k and 700k. Nine
+ * million is an order of magnitude clear of the highest of those and leaves the whole 1M–8M range for
+ * a future Duris drop to grow into. It is also large enough to be obvious on sight: a seven-digit vnum
+ * beginning with a 9 is ours, and no lookup is needed to know it.
+ */
+export const AUTHORED_VNUM_BASE = 9_000_000;
+
+/**
+ * How many of a thing share one slot, by type. `DESIGN-inventory.md` §3.
+ *
+ * **Lives here rather than in the harvest** — it moved out of `worldgen/src/objects.ts` when A6b needed
+ * the same answer for an item that has no `.obj` file behind it. A second copy would have drifted the
+ * way `WEAR_BIT_ORDER` and the client's `EQUIPMENT_SLOTS` both did: silently, and visible only as a
+ * number in a report.
+ */
+export function stackLimitFor(type: number): number {
+  // Arrows are the doc's own worked example, at 20 to a slot. Coins and small consumables stack too;
+  // a sword does not, because two swords are two swords.
+  if (type === DURIS_ITEM.missile) return 20;
+  if (type === DURIS_ITEM.potion || type === DURIS_ITEM.scroll || type === DURIS_ITEM.food) return 5;
+  return 1;
+}
+
 /**
  * `ITEM_WEAR_*` bits from `defines.h`, mapped onto the slots we model.
  *
