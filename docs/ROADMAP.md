@@ -87,8 +87,9 @@ a new idea still answers the three questions; its second question now also picks
 | 1 ✅ | V1 — the combat feed ✅ | Phase 14 — mercy and fear ✅ | A2 — messaging to a room or place ✅ |
 | 2 ✅ | V2 — click a body, get its verbs ✅ | Phase 14c — the fight moves with you ✅ | A3 — zones, read-only ✅ |
 | **3 ✅** | V6 — the world in its own colours ✅ | Phase 14b — a character worth keeping ✅ | A4b — the zone map ✅, then A5 — authoring ✅ |
-| **4 — current** | V3 — speech in the world | Phase 15 — inventory and worn equipment | A4 — zones and mobs, live ops |
-| 5 | V4 — the world as a graph of Places | Phase 16 — gear that matters | A6 — items |
+| 4 | V3 — speech in the world | Phase 15 — inventory and worn equipment ✅ | A4 — zones and mobs, live ops |
+| **5 — current** | V4 — the world as a graph of Places | Phase 16 — gear that matters (16a bands ✅, 16c mob armour ✅) | A6 — items ✅, A6b — items you make yourself ✅ |
+| 6 | A7a/A7b — item art as data | Phase 16 proper — light, AC, encumbrance | A4 + A4c — mobs live, and their loot |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
 A5, because A5's prose editor is a colour editor and building the palette before the renderer would
@@ -1301,9 +1302,80 @@ order.
 
   **Seen when:** you draw a room Duris never had, walk into it, and it is still there after
   `npm run worldgen`.
-- **A6 — Items.** After Phases 15–16 exist to give it something to edit. Until then the tab stays a
-  stub and the light catalogue stays read-only on the dashboard.
-- **A7 — Quests.** After Phase 21, same rule.
+- **A6 — Items** ✅ **editing done 2026-08-04.** Search over the 16,421-entry harvest, and a partial
+  overlay in `data/world/overrides/items.json` carrying **name, keywords, AC, damage dice and cost**.
+  Behaviour — `slot`, `type`, `container`, `stackLimit` — is refused by name with the reason, because
+  each is derived from the source's own bits and carries rules an item editor would have to
+  re-validate.
+- **A6b — Items you make yourself** ✅ **done 2026-08-04, owner-reported.** *"I can currently edit
+  existing items but I can't create completely new ones."* Right, and the missing half is the harder
+  one: a patch presupposes something to patch. Created items are **whole records** in
+  `data/world/overrides/items-authored.json`, a second overlay rather than a range check inside the
+  first, because the lifecycles are opposite — a partial override that authors nothing must be
+  deleted or the item wears a ✎ for ever, while a created item whose name is blanked is a bug rather
+  than a request to delete it.
+
+  **The vnum range is the whole safety argument, and it is measured.** The harvest's vnums run 4 to
+  **700,008**, in blocks to 90k with outliers at 120k, 130k, 200k, 400k, 420k, 500k and 700k. Created
+  items start at **9,000,000** — an order of magnitude clear, 1M–8M left for a future Duris drop, and
+  large enough that a seven-digit vnum beginning with 9 is ours on sight. The allocator's counter is
+  **stored, not derived**: "highest existing plus one" never repeats until you delete the highest
+  item, and a recycled vnum would silently change what a spawn overlay names.
+
+  Marks are two, not one: **✎** is a harvested item with changes over it and its editor offers
+  *Restore harvested*; **✦** is an item with no harvest under it and its editor offers *Delete*.
+  `POST /players/:slug/give` came with it — an item that can be authored and never held cannot be
+  checked at all.
+
+  **Seen when:** you invent a sword in the panel, put it in a character's hands, wield it, and it is
+  still in the catalogue after a restart ✅ — created *the Sunlit Brand* (3d8+4, `mainHand`), gave it
+  to a character, `wield brand` displaced their club, and a cold boot logged
+  `16422 item types loaded, 1 created here`.
+- **A7 — Item art: assigning LPC sheets** (owner, 2026-08-04). *"we also need the ability to assign a
+  LPC graphic to an item"*, and — the half that decides the shape — *"we also need the ability to
+  assign LPC art to the existing items."* So this is not a field on the create form; it is a property
+  of **any** item, harvested or made here, and 16,421 of them are harvested.
+
+  **The blocker is not the picker, it is `ITEM_LAYER`** — ten hardcoded rows in `client/src/scene.ts`
+  mapping item id → sheet name. It cannot hold the catalogue and cannot hold a created item at all.
+  That table has to become data before a picker is worth building.
+
+  **The catalogue already exists and we already have it.** `assets/ulpc` is the Universal LPC
+  Spritesheet Generator, whose `sheet_definitions/` holds **769 JSON definitions** (34 of them
+  weapons, across blunt / magic / polearm / ranged / shields / sword), each carrying a display name,
+  category, per-body-type paths, **`zPos` layer order**, colour variants, the preview frame
+  coordinates, and a **credits block with authors, licences and URLs** — which is the attribution
+  `CLAUDE.md` requires, machine-readable. The pack is git-ignored at 1.5 GB, so what we commit is a
+  derived index plus the sheets actually staged into `client/public/lpc/`.
+
+  **Two surfaces, routinely conflated and worth separating:** the *icon* (bag row, floor tile —
+  today a procedurally drawn placeholder) and the *worn layer* (sheets on the body).
+
+  **And one caveat that is Phase 16's, not this one's:** ULPC ships weapons as attack animations —
+  the club's definition is `"custom_animation": "slash_reverse_oversize"` — with **no idle-hold
+  frame**. Assigning a sword sheet buys an icon and a combat animation, not a character standing
+  holding it. Shields are the exception, a foreground walk/idle layer, which is exactly why the one
+  art class already shipping is `offhand-shield`. See the visible-weapons row in §4.
+
+  Split four ways because the costs are nothing alike:
+  - **A7a — index the pack.** An offline pass over the 769 definitions → a committed art catalogue;
+    stage only referenced sheets.
+  - **A7b — art as data.** `ITEM_LAYER` moves out of `scene.ts`; `art` becomes an authorable field on
+    any item. **The load-bearing slice** — after it, assigning art is a field edit.
+  - **A7c — the picker.** Browse by category with previews, assign, see it on a body.
+  - **A7d — icons.** Bag and floor sprites from the catalogue's preview frame, retiring the
+    placeholder.
+- **A4c — Loot: assigning items to mobs** (owner, 2026-08-04). *"we also need to be able to assign
+  items to mobs as loot."* Agreed, and it belongs with **A4** rather than with A6b: the item side is
+  done — anything in the catalogue, created or harvested, can already be instantiated — and what is
+  missing is a **mob overlay**, the same shape `items-authored.json` gave items, carrying the `G`
+  (carried) and `E` (worn) kit a template hands its instances. Two things to settle before building.
+  **Kit is per *template*, not per instance**, so authoring it changes every kobold guard the world
+  spawns, which is almost certainly what is wanted but should be said out loud. And **the harvest
+  already produces kit** — `data/world/spawns/*.json` carries `G`/`E`/`P` resets — so this overlay
+  composes over harvested kit exactly as the item overlay composes over harvested fields, with the
+  same partial-versus-whole question answered the same way.
+- **A7q — Quests.** After Phase 21, same rule as the old A7.
 
 ---
 

@@ -34,6 +34,8 @@ import { el, render } from '../dom.ts';
 /** One row as the search returns it. Optional fields are absent rather than null when they do not apply. */
 interface ItemRow {
   readonly edited?: boolean;
+  /** A6b: made here rather than harvested. **A different fact to `edited`** — see the marks below. */
+  readonly created?: boolean;
   readonly vnum: number;
   readonly name: string;
   readonly keywords: readonly string[];
@@ -62,12 +64,54 @@ interface ItemBody {
     readonly vnum: number;
     readonly name: string;
     readonly keywords: readonly string[];
+    readonly type: number;
+    readonly slot?: string;
     readonly ac: number;
+    readonly size: number;
     readonly cost: number;
     readonly damage?: { readonly count: number; readonly sides: number; readonly bonus: number };
   };
   readonly authored: Record<string, unknown> | null;
+  /** Present when there is no harvest under this item: a Delete rather than a Restore. */
+  readonly created?: Record<string, unknown> | null;
 }
+
+/**
+ * The catalogue types a created item may be, in the order somebody reaches for them.
+ *
+ * A subset of `DURIS_ITEM` on purpose — the full list carries types nothing in the game reads yet
+ * (`fireweapon`, `spellbook`, `scabbard`), and offering a type whose behaviour is unimplemented would be
+ * offering to create an item that does nothing and cannot be told why.
+ */
+const CREATABLE_TYPES: readonly (readonly [value: number, label: string])[] = [
+  [5, 'weapon'],
+  [9, 'armour'],
+  [11, 'worn'],
+  [37, 'shield'],
+  [1, 'light'],
+  [15, 'container'],
+  [19, 'food'],
+  [10, 'potion'],
+  [2, 'scroll'],
+  [3, 'wand'],
+  [4, 'staff'],
+  [7, 'missile'],
+  [18, 'key'],
+  [8, 'treasure'],
+];
+
+/**
+ * The slots a created item may be worn in — the game's own `EQUIP_SLOTS`, plus "carried only".
+ *
+ * Written out rather than imported so the *order* is an editorial choice: head down to feet, then the
+ * paired and rare positions. `EQUIP_SLOTS`' order is the wire's, and sorting a form by a wire order is
+ * how an operator ends up hunting for `feet` between `ioun` and `quiver`.
+ */
+const WEARABLE_SLOTS: readonly string[] = [
+  'head', 'eyes', 'face', 'nose', 'ear1', 'ear2', 'neck', 'neck2', 'about', 'chest', 'back',
+  'arms', 'wrist1', 'wrist2', 'hands', 'ring1', 'ring2', 'waist', 'legs', 'feet',
+  'mainHand', 'offHand', 'quiver', 'ioun',
+];
 
 /** The kind filters, in the order an operator is likely to want them. */
 const KINDS: readonly (readonly [value: string, label: string])[] = [
@@ -138,7 +182,12 @@ export const itemsSection = {
           { class: 'row clickable' },
           // ✎ beside the vnum, exactly where the zones browser puts it: *that* it is authored lives
           // on the row, *what* is authored lives in the editor.
-          el('span', { class: 'vnum' }, row.edited ? `${row.vnum} ✎` : String(row.vnum)),
+          //
+          // **✦ is a different mark, not a louder one.** ✎ means a harvested item with changes over it,
+          // and its editor offers Restore harvested. ✦ means there is no harvest at all, and its editor
+          // offers Delete. An operator who cannot tell them apart from the row will eventually click
+          // Restore expecting the first and get the second's nothing.
+          el('span', { class: 'vnum' }, `${row.vnum}${row.created ? ' ✦' : row.edited ? ' ✎' : ''}`),
           coloured(row.name),
           el('span', { class: 'note' }, traits(row).join(' · ')),
           // The authored keyword list, which is what a player types and what `isName` matches. Worth
@@ -181,6 +230,9 @@ export const itemsSection = {
       const result = await call<ItemBody>('GET', `/items/${vnum}`);
       if (!result.ok || !result.body) return;
       const { item, authored } = result.body;
+      // Whether there is a harvest under this item decides two things the record cannot say for itself:
+      // which fields may be edited, and whether the dangerous button says Restore or Delete.
+      const madeHere = Boolean(result.body.created);
 
       const flash = el('p', { class: 'flash' }, message ?? '');
       const name = colourBox({ value: item.name, placeholder: 'display name, colour codes welcome' });
@@ -190,6 +242,20 @@ export const itemsSection = {
       const dCount = el('input', { type: 'number', value: item.damage ? String(item.damage.count) : '', placeholder: '—' }) as HTMLInputElement;
       const dSides = el('input', { type: 'number', value: item.damage ? String(item.damage.sides) : '', placeholder: '—' }) as HTMLInputElement;
       const dBonus = el('input', { type: 'number', value: item.damage ? String(item.damage.bonus) : '', placeholder: '0' }) as HTMLInputElement;
+
+      // **Only a created item gets these.** On a harvested one `slot`, `type` and `size` come from the
+      // source's own bits and the server refuses to author them — offering boxes the save would reject
+      // is worse than not offering them.
+      const slot = el('select', {}) as HTMLSelectElement;
+      const type = el('select', {}) as HTMLSelectElement;
+      const size = el('input', { type: 'number', value: String(item.size), min: '1', max: '10' }) as HTMLInputElement;
+      if (madeHere) {
+        slot.append(el('option', { value: '' }, 'carried only'));
+        for (const name of WEARABLE_SLOTS) slot.append(el('option', { value: name }, name));
+        slot.value = item.slot ?? '';
+        for (const [value, label] of CREATABLE_TYPES) type.append(el('option', { value: String(value) }, label));
+        type.value = String(item.type);
+      }
 
       const save = el('button', {}, 'Save') as HTMLButtonElement;
       save.addEventListener('click', () => {
@@ -215,12 +281,19 @@ export const itemsSection = {
         if (typedDice) {
           const dice = { count: Number(dCount.value), sides: Number(dSides.value), bonus: Number(dBonus.value || 0) };
           if (JSON.stringify(dice) !== JSON.stringify(item.damage ?? null)) patch.damage = dice;
-        } else if (authored && 'damage' in authored) {
-          // **Blanking the triple clears an authored damage** — and only an authored one. On an item
-          // whose dice come from the harvest a blank triple is still "no damage here", so nothing is
-          // sent; without this branch the only way to undo a dice edit was Restore harvested, which
-          // takes the name with it.
+        } else if (madeHere ? item.damage !== undefined : authored && 'damage' in authored) {
+          // **Blanking the triple clears the damage.** On a harvested item only an *authored* clear
+          // makes sense — a blank triple on a tunic is "no damage here", not a request — so the guard
+          // asks the overlay. On a created item there is no harvest to fall back to, so the record's
+          // own dice are the thing being cleared and the record is what to ask.
           patch.damage = null;
+        }
+
+        // The whole-record fields, and only where they exist to edit.
+        if (madeHere) {
+          if ((slot.value || undefined) !== item.slot) patch.slot = slot.value || null;
+          if (Number(type.value) !== item.type) patch.type = Number(type.value);
+          if (size.value.trim() && Number(size.value) !== item.size) patch.size = Number(size.value);
         }
 
         if (Object.keys(patch).length === 0) {
@@ -239,6 +312,52 @@ export const itemsSection = {
           // after every save.
           reopen = { vnum, message: 'saved — future spawns use it; existing instances keep their copy' };
           search();
+        })();
+      });
+
+      /**
+       * The dangerous button, and which one it is depends on what is under the item.
+       *
+       * Restore harvested on a created item would be a button with nothing to restore *to* — the honest
+       * equivalent is Delete, and they are exclusive rather than both being shown greyed, because a
+       * disabled Delete beside an enabled Restore invites exactly the wrong click.
+       */
+      const destroy = el('button', { class: 'danger' }, 'Delete') as HTMLButtonElement;
+      destroy.addEventListener('click', () => {
+        if (destroy.textContent === 'Delete') {
+          // A two-click confirm rather than a modal: the second click is the confirmation, and the
+          // button says so in between. Deleting an item is not undoable and not worth a silent single
+          // click, but it is also not worth stealing focus for.
+          destroy.textContent = 'Really delete?';
+          return;
+        }
+        void (async () => {
+          const gone = await call<{ ok: boolean }>('DELETE', `/items/${vnum}`);
+          if (!gone.ok) {
+            flash.textContent = gone.error ?? 'refused';
+            destroy.textContent = 'Delete';
+            return;
+          }
+          openPanel?.remove();
+          openPanel = undefined;
+          search();
+        })();
+      });
+
+      // Give it to somebody. **The completion test for the whole slice** — an item that can be authored
+      // and never held cannot be checked at all, and this is the shortest path from the catalogue to a
+      // pair of hands. Any item, not only created ones: checking a harvested item's edit wants it too.
+      const who = el('input', { type: 'text', placeholder: 'character' }) as HTMLInputElement;
+      const give = el('button', {}, 'Give') as HTMLButtonElement;
+      give.addEventListener('click', () => {
+        const target = who.value.trim().toLowerCase();
+        if (!target) {
+          flash.textContent = 'type a character name first';
+          return;
+        }
+        void (async () => {
+          const handed = await call<{ ok: boolean; name: string }>('POST', `/players/${target}/give`, { vnum });
+          flash.textContent = handed.ok ? `given to ${who.value.trim()}` : handed.error ?? 'refused';
         })();
       });
 
@@ -263,9 +382,14 @@ export const itemsSection = {
       });
 
       const authoredKeys = Object.keys(authored ?? {}).filter((k) => k !== 'at' && k !== 'by');
-      const authoredNote = authored
-        ? `authored: ${authoredKeys.join(', ')}${typeof authored.at === 'string' ? ` (${authored.at.slice(0, 10)})` : ''}`
-        : 'nothing authored — every field is the harvest’s';
+      const madeNote = typeof result.body.created?.at === 'string'
+        ? `made here — no harvest under it (${String(result.body.created.at).slice(0, 10)})`
+        : 'made here — no harvest under it';
+      const authoredNote = madeHere
+        ? madeNote
+        : authored
+          ? `authored: ${authoredKeys.join(', ')}${typeof authored.at === 'string' ? ` (${authored.at.slice(0, 10)})` : ''}`
+          : 'nothing authored — every field is the harvest’s';
 
       openPanel = el(
         'div',
@@ -279,7 +403,11 @@ export const itemsSection = {
           el('label', {}, 'damage'), dCount, el('span', { class: 'muted' }, 'd'), dSides, el('span', { class: 'muted' }, '+'), dBonus,
           el('label', {}, 'cost'), cost,
         ),
-        el('div', { class: 'row' }, save, revert, flash),
+        // Only a created item can say what it *is*; a harvested one's row is the source's own bits.
+        ...(madeHere
+          ? [el('div', { class: 'row' }, el('label', {}, 'type'), type, el('label', {}, 'slot'), slot, el('label', {}, 'size'), size)]
+          : []),
+        el('div', { class: 'row' }, save, madeHere ? destroy : revert, who, give, flash),
         el('p', { class: 'note' }, authoredNote),
       );
       under.after(openPanel);
@@ -306,6 +434,90 @@ export const itemsSection = {
       })();
     };
 
+    /**
+     * The New item form — A6b.
+     *
+     * Deliberately **not** the editor with an empty record in it. The editor's whole discipline is
+     * diffing against what the server holds and sending only what changed, and there is nothing to diff
+     * against before an item exists; reusing it would mean a second meaning for every blank box. So:
+     * one form that posts a whole draft, and the editor takes over the moment the item is real.
+     *
+     * No vnum box, because the number is the server's to allocate. See `item-authoring.ts`.
+     */
+    const newFlash = el('p', { class: 'flash' });
+    const newName = colourBox({ value: '', placeholder: 'display name, colour codes welcome' });
+    const newKeywords = el('input', { type: 'text', placeholder: 'the words a player types' }) as HTMLInputElement;
+    const newType = el('select', {}) as HTMLSelectElement;
+    for (const [value, label] of CREATABLE_TYPES) newType.append(el('option', { value: String(value) }, label));
+    const newSlot = el('select', {}) as HTMLSelectElement;
+    newSlot.append(el('option', { value: '' }, 'carried only'));
+    for (const name of WEARABLE_SLOTS) newSlot.append(el('option', { value: name }, name));
+    const newAc = el('input', { type: 'number', value: '0', min: '0', max: '50' }) as HTMLInputElement;
+    const newSize = el('input', { type: 'number', value: '1', min: '1', max: '10' }) as HTMLInputElement;
+    const newCost = el('input', { type: 'number', value: '0', min: '0' }) as HTMLInputElement;
+    const newDCount = el('input', { type: 'number', placeholder: '—' }) as HTMLInputElement;
+    const newDSides = el('input', { type: 'number', placeholder: '—' }) as HTMLInputElement;
+    const newDBonus = el('input', { type: 'number', placeholder: '0' }) as HTMLInputElement;
+    const create = el('button', {}, 'Create') as HTMLButtonElement;
+    const newForm = el('div', { class: 'item-editor', style: 'display:none' });
+
+    create.addEventListener('click', () => {
+      const words = [...new Set(newKeywords.value.trim().toLowerCase().split(/\s+/).filter((w) => w.length > 0))];
+      const draft: Record<string, unknown> = {
+        name: newName.value().trim(),
+        keywords: words,
+        type: Number(newType.value),
+        ac: Number(newAc.value || 0),
+        size: Number(newSize.value || 1),
+        cost: Number(newCost.value || 0),
+        ...(newSlot.value ? { slot: newSlot.value } : {}),
+        ...(newDCount.value.trim() || newDSides.value.trim()
+          ? { damage: { count: Number(newDCount.value), sides: Number(newDSides.value), bonus: Number(newDBonus.value || 0) } }
+          : {}),
+      };
+      void (async () => {
+        const made = await call<{ ok: boolean; vnum: number }>('POST', '/items', draft);
+        if (!made.ok || !made.body) {
+          // The server's own words. It has the only complete account of why a draft is not an item, and
+          // paraphrasing it here would be a second validator that drifts.
+          newFlash.textContent = made.error ?? 'refused';
+          return;
+        }
+        const { vnum } = made.body;
+        // Search *for the thing just made*, so it is on screen rather than somewhere in 16,421 rows —
+        // and the editor opens on it, which is where art and the rest of the fields will be edited.
+        field.value = String(vnum);
+        reopen = { vnum, message: `created as vnum ${vnum}` };
+        newForm.style.display = 'none';
+        newFlash.textContent = '';
+        newName.set('');
+        newKeywords.value = '';
+        newDCount.value = newDSides.value = newDBonus.value = '';
+        search();
+      })();
+    });
+
+    const newButton = el('button', {}, 'New item') as HTMLButtonElement;
+    newButton.addEventListener('click', () => {
+      newForm.style.display = newForm.style.display === 'none' ? '' : 'none';
+    });
+
+    render(
+      newForm,
+      el('div', { class: 'row' }, el('label', {}, 'name'), newName.node),
+      el('div', { class: 'row' }, el('label', {}, 'keywords'), newKeywords),
+      el('div', { class: 'row' }, el('label', {}, 'type'), newType, el('label', {}, 'slot'), newSlot, el('label', {}, 'size'), newSize),
+      el(
+        'div',
+        { class: 'row' },
+        el('label', {}, 'AC'), newAc,
+        el('label', {}, 'damage'), newDCount, el('span', { class: 'muted' }, 'd'), newDSides, el('span', { class: 'muted' }, '+'), newDBonus,
+        el('label', {}, 'cost'), newCost,
+      ),
+      el('div', { class: 'row' }, create, newFlash),
+      el('p', { class: 'note' }, 'The vnum is allocated at nine million and up, where no Duris item reaches.'),
+    );
+
     let debounce: ReturnType<typeof setTimeout> | undefined;
     field.addEventListener('input', () => {
       if (debounce) clearTimeout(debounce);
@@ -319,7 +531,8 @@ export const itemsSection = {
       el(
         'div',
         { class: 'card' },
-        el('div', { class: 'controls' }, field, kind),
+        el('div', { class: 'controls' }, field, kind, newButton),
+        newForm,
         count,
         list,
       ),
@@ -330,10 +543,14 @@ export const itemsSection = {
         el(
           'p',
           { class: 'note' },
-          'Edits land in data/world/overrides/items.json as a partial overlay — only the fields you ' +
-            'change — composed over the harvest when the server boots. npm run worldgen can rebuild ' +
-            'the catalogue underneath it, and Restore harvested puts the original value back exactly. ' +
-            'Edits shape future spawns and loot; instances already in bags keep the copy they were made with.',
+          'Edits to a harvested item land in data/world/overrides/items.json as a partial overlay — ' +
+            'only the fields you change — composed over the harvest when the server boots. ' +
+            'npm run worldgen can rebuild the catalogue underneath it, and Restore harvested puts the ' +
+            'original value back exactly. Items you create here are whole records in ' +
+            'items-authored.json instead, numbered from nine million where no Duris item reaches, so a ' +
+            're-harvest can never collide with one; they carry ✦ and a Delete rather than ✎ and a ' +
+            'Restore. Either way, changes shape future spawns and loot — instances already in bags ' +
+            'keep the copy they were made with. Give puts one in a live character’s hands.',
         ),
       ),
     );

@@ -149,8 +149,11 @@ are safe — they are in their save file — and only what somebody chose to put
 the floor needs a world-state file that also has to survive `npm run worldgen` rebuilding the rooms
 underneath it, which is a real design question and not one to answer by accident.
 
-**Item authoring.** The Items panel reads the catalogue; it does not edit it. Item overlays are **A6**,
-the same shape A5 built for room prose.
+**Item authoring — done, both halves.** A6 edits a harvested item through a partial overlay; **A6b**
+creates one outright. The two are separate files because their rules are opposite, and the table in
+`item-authoring.ts` says why in four lines. What is *not* done is art: `ITEM_LAYER` in `scene.ts` is
+still ten hardcoded rows and cannot hold either the catalogue or a created item — that is **A7a/A7b**,
+and it blocks every other art job.
 
 **Be aware of the inert surface.** `SECTOR_REQUIRES_MOVEMENT` and `proficiencyBonus` still have **zero
 non-test callers**. `resolveAttack` and `rollDamage` came off this list in Phase 11 — they had been
