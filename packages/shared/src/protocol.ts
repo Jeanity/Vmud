@@ -15,7 +15,26 @@ import type { Posture, Status } from './position.ts';
 import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
 
 /**
- * Bumped to 15: the bag reaches the sheet.
+ * Bumped to 16: you can see which one you are fighting.
+ *
+ * `SelfView` gains **`target`** — the entity you are engaged with, or chasing if it broke off.
+ *
+ * **One field rather than two, because they are one question.** `fighting` and `pursuing` are separate
+ * facts on the server for good reason — a fight in progress owns the player, a pursuit pointer outlives
+ * it — but *"which body is mine"* has a single answer and a marker that flickered between two sources
+ * would be worse than none. So the server resolves the precedence once and the client draws what it is
+ * told.
+ *
+ * **It has to survive the flee**, which is the owner's whole reason for asking (2026-08-04): *"in case
+ * they flee into a room with a bunch of similar mobs that may have been damaged by other players."*
+ * `EntityView.fighting` is cleared the instant the fight breaks — `clearEngagements` is the point of
+ * the exit — so a marker driven by that alone goes dark exactly when it matters. The pursuit pointer is
+ * what survives, and this field prefers it once the fight is over.
+ *
+ * The id may name a body the client cannot currently see, and that is fine and needs no rule: the
+ * client draws the marker on an entity it holds, so an unseen quarry simply has nothing to mark.
+ *
+ * Was 15: the bag reaches the sheet.
  *
  * `SelfView` gains **`bag`** — what you are carrying, the slots it fills, and the coin.
  *
@@ -143,7 +162,7 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * Was 6: doors have live state — the `door` message, and `open`/`close` losing their required `dir`.
  * Was 5: carried light sources — `SelfView` gained `light`.
  */
-export const PROTOCOL_VERSION = 15;
+export const PROTOCOL_VERSION = 16;
 
 /**
  * One timed effect on your own character, as the HUD reads it.
@@ -328,6 +347,12 @@ export interface SelfView {
    * payload — the same rule `PlayerStore.save` follows for the same reason.
    */
   readonly bag?: BagView;
+  /**
+   * The body this character is fighting, or chasing if it broke off. Protocol 16.
+   *
+   * Absent when neither, which is what takes the marker off the screen.
+   */
+  readonly target?: EntityId;
   readonly roomId: RoomId;
   /** Which map the player is standing on. See {@link Place}. */
   readonly place: Place;

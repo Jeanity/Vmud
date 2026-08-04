@@ -205,6 +205,9 @@ const TRAVEL_KEYS: readonly (readonly [key: string, dir: Direction, needsShift: 
  */
 const LPC_FRAME = 64;
 
+/** How far above a body the target marker floats, in pixels. Clear of the head at this sprite scale. */
+const MARKER_HEIGHT = 46;
+
 /**
  * The LPC walk cycle: **columns 0 through 7**, with column 0 the neutral both-feet-down pose that
  * also serves as standing.
@@ -449,6 +452,9 @@ const ZOOM_EASE = 'Quad.easeInOut';
  * at all, because the server refuses to path there.
  */
 const PATH_DEPTH = 5;
+
+/** Above the bodies and the path line both — a marker hidden behind a sprite marks nothing. */
+const DEPTH_MARKER = 15;
 const PATH_COLOUR = 0xffe9a8;
 /** Matches the log's error colour, so a refusal reads the same in both places. */
 const DENIED_COLOUR = 0xd08a7d;
@@ -1196,6 +1202,39 @@ export class WorldScene extends Phaser.Scene {
   /** The last bag the server sent, so opening the drawer redraws rather than waiting for a heartbeat. */
   private lastBag: BagView | undefined;
 
+  /** The arrow over the body you are fighting or chasing, and whose it is. */
+  private marker: Phaser.GameObjects.Graphics | undefined;
+  private markerId: EntityId | undefined;
+
+  /**
+   * Points the marker at a body, or takes it off the screen.
+   *
+   * **Drawn on an entity the client actually holds**, which is what makes it immune to the one thing
+   * the server cannot promise: `SelfView.target` may name a body that has fled somewhere unlit, and an
+   * id with no entity behind it simply has nothing to mark. No rule needed — it falls out.
+   */
+  private setTarget(id: EntityId | undefined): void {
+    this.markerId = id;
+    const entity = id === undefined ? undefined : this.entities.get(id);
+    if (!entity) {
+      this.marker?.setVisible(false);
+      return;
+    }
+    if (!this.marker) {
+      // A downward chevron rather than a ring: it sits *above* the body without covering it, and it
+      // reads at this sprite scale where a reticle turns into a smudge.
+      const g = this.add.graphics();
+      g.fillStyle(0xe0c46a, 1);
+      g.fillTriangle(-5, -5, 5, -5, 0, 3);
+      g.lineStyle(1, 0x2a2620, 1);
+      g.strokeTriangle(-5, -5, 5, -5, 0, 3);
+      g.setDepth(DEPTH_MARKER);
+      this.marker = g;
+    }
+    this.marker.setVisible(true);
+    this.marker.setPosition(Math.round(entity.x), Math.round(entity.y) - MARKER_HEIGHT);
+  }
+
   private renderInventory(bag?: BagView): void {
     const panel = document.getElementById('inventory');
     if (!panel) return;
@@ -1504,6 +1543,7 @@ export class WorldScene extends Phaser.Scene {
       // bag is held and re-rendered when it opens. Without this, opening the drawer between heartbeats
       // shows an empty bag until something hits you.
       this.lastBag = message.view.bag;
+      this.setTarget(message.view.target);
       this.renderInventory(this.lastBag);
       this.applyAffects(message.view.affects);
       this.applyStance(message.view.posture, message.view.status);
@@ -2991,6 +3031,13 @@ export class WorldScene extends Phaser.Scene {
         this.faceEntity(entity, entity.view.facing);
       }
       entity.container.setPosition(Math.round(entity.x), Math.round(entity.y));
+      // **The target marker, moved with the body it marks.** Owner's ask (2026-08-04): know which one
+      // you are focused on, and know when that changed. Positioned here rather than parented to the
+      // entity's container so it is never scaled or flipped by the sprite's own transforms — an arrow
+      // that mirrors when the body turns west reads as a bug.
+      if (this.marker && this.markerId === entity.view.id) {
+        this.marker.setPosition(Math.round(entity.x), Math.round(entity.y) - MARKER_HEIGHT);
+      }
     }
 
     // After the movement above, not before it: the lit set follows the *predicted* position, and

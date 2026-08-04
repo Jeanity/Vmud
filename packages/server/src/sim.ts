@@ -1825,6 +1825,14 @@ export class Simulation {
       ...(player.inventory.stacks.length > 0 || player.inventory.capacity !== STARTING_CAPACITY
         ? { bag: bagViewOf(player) }
         : {}),
+      // **The fight first, then the chase.** Both are real at different moments and the precedence is
+      // resolved here rather than in the client: while you are swinging at something that is your
+      // target, and the instant the fight breaks the pointer to what ran is what you still care about.
+      ...(player.fighting !== undefined
+        ? { target: player.fighting }
+        : player.pursuing !== undefined
+          ? { target: player.pursuing }
+          : {}),
       roomId: player.roomId,
       place: player.place,
       posture: player.posture,
