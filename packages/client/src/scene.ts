@@ -37,6 +37,7 @@ import {
   type TilePoint,
   type Zone,
   stripColour,
+  EQUIP_SLOTS,
 } from '@mygame/shared';
 
 /**
@@ -555,7 +556,15 @@ const SHEET_STORAGE_KEY = 'mygame.sheetCollapsed';
  * equipped item may emit light and the radius is the best among them, which is what makes a torch cost
  * you a hand and a glowing amulet a real power spike at the same radius.
  */
-const EQUIPMENT_SLOTS = [
+/**
+ * The slots the paper doll has a cell for — the body's major places, laid out around the figure.
+ *
+ * **Not the full list any more.** Phase 16 took the slot set to Duris' own twenty-four, and a doll with
+ * twenty-four cells around a silhouette is a spreadsheet rather than a body. The rest render as a
+ * compact line underneath, and only when something is actually in them: an eyepatch is a rare find and
+ * should read as one, not as a permanently empty box.
+ */
+const DOLL_SLOTS = [
   'head',
   'neck',
   'back',
@@ -568,6 +577,32 @@ const EQUIPMENT_SLOTS = [
   'feet',
   'ring2',
 ] as const;
+
+/**
+ * Every slot, in the shared list's own order — **imported rather than copied**.
+ *
+ * The client used to keep its own array of eleven, which was fine while the two agreed and became a
+ * silent bug the moment Phase 16 added thirteen: a slot the server can fill and the sheet never reads
+ * is a piece of gear that vanishes from the player's view. One list, one order.
+ */
+const EQUIPMENT_SLOTS = EQUIP_SLOTS;
+
+/** How each of the extra slots reads on the sheet. Duris' paired positions get a side rather than a number. */
+const SLOT_LABEL: Readonly<Record<string, string>> = {
+  eyes: 'eyes',
+  face: 'face',
+  nose: 'nose',
+  ear1: 'right ear',
+  ear2: 'left ear',
+  neck2: 'neck',
+  about: 'about',
+  arms: 'arms',
+  wrist1: 'right wrist',
+  wrist2: 'left wrist',
+  waist: 'waist',
+  quiver: 'quiver',
+  ioun: 'ioun stone',
+};
 
 /** Brightness percentage -> overlay alpha. 100% would be no overlay at all. */
 function brightnessToAlpha(percent: number): number {
@@ -1199,6 +1234,33 @@ export class WorldScene extends Phaser.Scene {
       }
       cell.classList.toggle('empty', item === undefined);
       cell.classList.toggle('lit', item?.lit === true);
+    }
+
+    // **The slots the doll has no cell for, listed only when something is in them.** Phase 16 took the
+    // slot set to Duris' twenty-four, and a body diagram with twenty-four boxes around it stops reading
+    // as a body. These are the rare finds — an eyepatch, a cloak, a pair of bracers — and the owner's
+    // reason for wanting them at all is that they *should be usable when found*, which means visible
+    // when worn and invisible when not.
+    const extra = document.getElementById('worn-extra');
+    if (extra instanceof HTMLElement) {
+      const dollCells = new Set<string>(DOLL_SLOTS);
+      const rows = EQUIPMENT_SLOTS.filter((slot) => !dollCells.has(slot) && worn[slot] !== undefined);
+      extra.replaceChildren();
+      extra.classList.toggle('empty', rows.length === 0);
+      for (const slot of rows) {
+        const item = worn[slot]!;
+        const row = document.createElement('div');
+        row.className = 'worn-row';
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = SLOT_LABEL[slot] ?? slot;
+        const name = document.createElement('span');
+        name.className = 'item';
+        // Painted for the same reason the doll's cells are: these names are the builder's own text.
+        paint(name, item.ac ? `${item.name} (+${item.ac})` : item.name);
+        row.append(tag, name);
+        extra.append(row);
+      }
     }
   }
 

@@ -392,6 +392,13 @@
       #slot-ring2 { grid-area: ring2; }
       #equip-figure { grid-area: figure; }
 
+      /* The slots the doll has no cell for. Hidden entirely when nothing is in them, because a
+         permanently empty "eyes" row would make a rare find look like a missing feature. */
+      #worn-extra { margin-top: 8px; display: flex; flex-direction: column; gap: 2px; }
+      #worn-extra.empty { display: none; }
+      .worn-row { display: flex; gap: 8px; align-items: baseline; font-size: 11px; }
+      .worn-row .tag { color: var(--dim); min-width: 68px; text-transform: uppercase; }
+
       /* The figure. A silhouette, and deliberately an obvious one: there is no character art yet — the
          world sprite is still a generated placeholder — so drawing anything more specific would be
          inventing an appearance the game has never asserted. Phase 15 replaces this with the layered
@@ -761,6 +768,8 @@
               <div class="slot empty" id="slot-feet"><svg class="icon"><use href="#icon-feet" /></svg><span class="tag">feet</span><span class="item"></span></div>
               <div class="slot empty" id="slot-legs"><svg class="icon"><use href="#icon-legs" /></svg><span class="tag">legs</span><span class="item"></span></div>
             </div>
+            <div id="worn-extra" class="empty"></div>
+
           </div>
 
           <div class="sheet-section">

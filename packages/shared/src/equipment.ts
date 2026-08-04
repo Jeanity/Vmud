@@ -29,18 +29,53 @@
 
 import type { Dice, Rng } from './rules.ts';
 
+/**
+ * Every place a humanoid can wear something — Phase 16, and it is Duris' own list.
+ *
+ * 15a modelled eleven, which covered 87% of the world's `E` commands and dropped the rest into the
+ * mob's hands as loot. Owner's call (2026-08-04): *"we should add all the slots… items like eyepatches
+ * are rare but they should be usable when found by a player."* Measured, the thirteen added here
+ * recover **233 of the 315 lost placements**, and the biggest single one is the waist at 94.
+ *
+ * **Paired slots mirror Duris' paired positions**, which is why there are two of several: the source
+ * has `WEAR_FINGER_R`/`_L`, `WEAR_NECK_1`/`_2`, `WEAR_WRIST_R`/`_L` and `WEAR_EARRING_R`/`_L`, and one
+ * `ITEM_WEAR_*` bit each — the bit says *what kind of place*, the position says *which one*.
+ *
+ * **What is deliberately still missing**, and it is not an oversight in either case:
+ *
+ * - `WEAR_TAIL`, `WEAR_HORN`, and the four-arm positions (`ARMS_2`, `HANDS_2`, `WRIST_LR`, `WRIST_LL`)
+ *   need a body that has them. They land with races — Phase 21 — because a slot no character can ever
+ *   fill is the tested-and-never-called mechanism this project keeps warning itself about.
+ * - `WEAR_HORSE_BODY` and `WEAR_LEGS_REAR` are barding, and want mounts.
+ * - `WEAR_ATTACH_BELT_1..3` has **no `ITEM_WEAR` bit at all**, so no item can declare itself belt-
+ *   attachable; only an `E` command can place one, and the whole world does it twice. It is a
+ *   container-on-a-belt mechanic rather than a wear slot, and it waits for a reason to exist.
+ */
 export const EQUIP_SLOTS = [
   'head',
+  'eyes',
+  'face',
+  'nose',
+  'ear1',
+  'ear2',
   'neck',
+  'neck2',
   'back',
+  'about',
   'chest',
+  'arms',
+  'wrist1',
+  'wrist2',
   'hands',
   'mainHand',
   'offHand',
+  'waist',
   'legs',
   'feet',
   'ring1',
   'ring2',
+  'quiver',
+  'ioun',
 ] as const;
 
 export type EquipSlot = (typeof EQUIP_SLOTS)[number];

@@ -77,9 +77,19 @@ const WEAR_BITS: readonly (readonly [bit: number, slot: EquipSlot])[] = [
   [1 << 5, 'legs'], // ITEM_WEAR_LEGS
   [1 << 6, 'feet'], // ITEM_WEAR_FEET
   [1 << 7, 'hands'], // ITEM_WEAR_HANDS
+  [1 << 8, 'arms'], // ITEM_WEAR_ARMS
   [1 << 9, 'offHand'], // ITEM_WEAR_SHIELD
+  [1 << 10, 'about'], // ITEM_WEAR_ABOUT — a cloak, worn about the body
+  [1 << 11, 'waist'], // ITEM_WEAR_WAIST
+  [1 << 12, 'wrist1'], // ITEM_WEAR_WRIST — bracers; the position picks which wrist
   [1 << 2, 'neck'], // ITEM_WEAR_NECK
+  [1 << 17, 'eyes'], // ITEM_WEAR_EYES — the owner's eyepatch
+  [1 << 18, 'face'], // ITEM_WEAR_FACE
+  [1 << 19, 'ear1'], // ITEM_WEAR_EARRING
+  [1 << 20, 'quiver'], // ITEM_WEAR_QUIVER
   [1 << 22, 'back'], // ITEM_WEAR_BACK
+  [1 << 26, 'nose'], // ITEM_WEAR_NOSE
+  [1 << 28, 'ioun'], // ITEM_WEAR_IOUN — orbits the head; a slot of its own in the source
   [1 << 1, 'ring1'], // ITEM_WEAR_FINGER
   [1 << 14, 'offHand'], // ITEM_HOLD — last, so a wieldable thing is a weapon first
 ];
@@ -97,20 +107,45 @@ const WEAR_POSITIONS: Readonly<Record<number, EquipSlot>> = {
   1: 'ring1', // WEAR_FINGER_R
   2: 'ring2', // WEAR_FINGER_L
   3: 'neck', // WEAR_NECK_1
-  4: 'neck', // WEAR_NECK_2
+  4: 'neck2', // WEAR_NECK_2
   5: 'chest', // WEAR_BODY
   6: 'head', // WEAR_HEAD
   7: 'legs', // WEAR_LEGS
   8: 'feet', // WEAR_FEET
   9: 'hands', // WEAR_HANDS
+  10: 'arms', // WEAR_ARMS
   11: 'offHand', // WEAR_SHIELD
+  12: 'about', // WEAR_ABOUT
+  13: 'waist', // WEAR_WAIST
+  14: 'wrist1', // WEAR_WRIST_R
+  15: 'wrist2', // WEAR_WRIST_L
   16: 'mainHand', // PRIMARY_WEAPON — the commonest value in the world by a distance
   17: 'offHand', // SECONDARY_WEAPON
   18: 'offHand', // HOLD
+  19: 'eyes', // WEAR_EYES
+  20: 'face', // WEAR_FACE
+  21: 'ear1', // WEAR_EARRING_R
+  22: 'ear2', // WEAR_EARRING_L
+  23: 'quiver', // WEAR_QUIVER
   25: 'mainHand', // THIRD_WEAPON, on a four-armed race
   26: 'offHand', // FOURTH_WEAPON
   27: 'back', // WEAR_BACK
 };
+
+/**
+ * Which slot an item's **wear flags** allow, or nothing if it goes nowhere on a body.
+ *
+ * Exported because `worldgen` needs exactly this and used to keep **its own copy of the table**. That
+ * duplicate was silent right up until Phase 16 added thirteen slots to the list here and the harvest
+ * kept resolving against the old eleven — every bracer, cloak and eyepatch in the world stayed
+ * slotless, and the only symptom was a number in a report. One table, one order, one place.
+ */
+export function slotForWearFlags(wearFlags: number): EquipSlot | undefined {
+  for (const [bit, slot] of WEAR_BITS) {
+    if ((wearFlags & bit) !== 0) return slot;
+  }
+  return undefined;
+}
 
 /** Which slot an `E` command's wear position means, or nothing if we do not model it. */
 export function slotForWearPosition(position: number): EquipSlot | undefined {

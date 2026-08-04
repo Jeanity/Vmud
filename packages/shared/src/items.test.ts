@@ -73,10 +73,20 @@ describe('wear positions', () => {
     assert.equal(slotForWearPosition(26), 'offHand', 'FOURTH_WEAPON');
   });
 
-  it('answers nothing for a slot we do not model, rather than the nearest one', () => {
-    // 13 is WEAR_WAIST and 19 is WEAR_EYES. Guessing "close enough" would put a belt on your chest.
-    assert.equal(slotForWearPosition(13), undefined);
-    assert.equal(slotForWearPosition(19), undefined);
+  it('models the waist and the eyes now, and keeps them apart', () => {
+    // **This test used to assert that both answered `undefined`**, and it was right to: guessing
+    // "close enough" would have put a belt on your chest. Phase 16 modelled Duris' whole humanoid slot
+    // list instead — owner's call, and the eyepatch was the example — so the honest assertion is that
+    // each position lands on its own slot rather than on a neighbour.
+    assert.equal(slotForWearPosition(13), 'waist');
+    assert.equal(slotForWearPosition(19), 'eyes');
+  });
+
+  it('still answers nothing for a body we do not have', () => {
+    // The four-arm, horse and tail positions are the ones left, and they need a race or a mount rather
+    // than a row in a table. 99 is not a position at all.
+    assert.equal(slotForWearPosition(35), undefined, 'WEAR_HORSE_BODY');
+    assert.equal(slotForWearPosition(37), undefined, 'WEAR_TAIL');
     assert.equal(slotForWearPosition(99), undefined);
   });
 });

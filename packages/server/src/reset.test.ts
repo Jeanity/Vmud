@@ -466,11 +466,21 @@ describe('a mob gets its kit', () => {
     assert.equal(guard?.equipped.chest, undefined);
   });
 
-  it('holds a piece for a slot we do not model rather than destroying it', () => {
-    // Position 13 is WEAR_WAIST and we have no waist. The item is still real and still worth taking off
-    // the body, so it goes into its hands — losing it would delete loot for a slot we have not built.
+  it('puts a belt on the waist, which we model since Phase 16', () => {
+    // **Position 13 is `WEAR_WAIST`, and this test used to assert we had nowhere to put it.** Phase 16
+    // modelled Duris' whole humanoid slot list — owner's call — which recovered 308 of the 315 `E`
+    // placements that were falling into mobs' hands. The belt is one of them; the waist was the single
+    // biggest gap in the world at 94 commands.
     const { guard } = kitted([equip(BELT.vnum, 13)]);
-    assert.deepEqual(guard?.carrying.map((i) => i.name), ['a leather belt']);
+    assert.equal(guard?.equipped.waist?.name, 'a leather belt');
+    assert.deepEqual(guard?.carrying.map((i) => i.name), []);
+  });
+
+  it('still holds a piece for a body we do not have, rather than destroying it', () => {
+    // What is left is barding and tails — positions that need a mount or a race, not a row in a table.
+    // The item is real and worth taking off the corpse either way, so it goes into the mob's hands.
+    const { guard } = kitted([equip(BELT.vnum, 35)]);
+    assert.deepEqual(guard?.carrying.map((i) => i.name), ['a leather belt'], 'WEAR_HORSE_BODY');
   });
 
   it('keeps loading a mob’s kit after one piece fails', () => {

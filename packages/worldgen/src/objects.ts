@@ -39,7 +39,7 @@ import {
   DURIS_ITEM,
   armourBonusFrom,
   sizeFrom,
-  slotForWearPosition,
+  slotForWearFlags,
   type ContainerAccepts,
   type ItemTemplate,
 } from '@mygame/shared';
@@ -185,20 +185,6 @@ export function loadObjects(dir: string): Map<number, RawObject> {
  * and is deliberately a **separate list**: this one is the file's vocabulary and that one is the game's,
  * and collapsing them would put the harvest's assumptions inside the rules module.
  */
-const WEAR_BIT_ORDER: readonly (readonly [number, ReturnType<typeof slotForWearPosition>])[] = [
-  [1 << 13, slotForWearPosition(16)], // ITEM_WIELD → mainHand
-  [1 << 3, slotForWearPosition(5)], // BODY → chest
-  [1 << 4, slotForWearPosition(6)], // HEAD
-  [1 << 5, slotForWearPosition(7)], // LEGS
-  [1 << 6, slotForWearPosition(8)], // FEET
-  [1 << 7, slotForWearPosition(9)], // HANDS
-  [1 << 9, slotForWearPosition(11)], // SHIELD → offHand
-  [1 << 2, slotForWearPosition(3)], // NECK
-  [1 << 22, slotForWearPosition(27)], // BACK
-  [1 << 1, slotForWearPosition(1)], // FINGER → ring1
-  [1 << 14, slotForWearPosition(18)], // ITEM_HOLD → offHand, last
-];
-
 /** How many of a thing share one slot, by type. `DESIGN-inventory.md` §3. */
 function stackLimitFor(type: number): number {
   // Arrows are the doc's own worked example, at 20 to a slot. Coins and small consumables stack too;
@@ -252,13 +238,9 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
   if (raw.type === ITEM_CORPSE) return undefined;
   if ((raw.wearFlags & ITEM_TAKE) === 0) return undefined;
 
-  let slot: ReturnType<typeof slotForWearPosition>;
-  for (const [bit, candidate] of WEAR_BIT_ORDER) {
-    if (candidate && (raw.wearFlags & bit) !== 0) {
-      slot = candidate;
-      break;
-    }
-  }
+  // **One table, in `items.ts`.** This file used to hold its own copy of the wear-bit order, and it
+  // went stale the moment the slot list grew — see `slotForWearFlags`.
+  const slot = slotForWearFlags(raw.wearFlags);
 
   // Armour value lives in `value[0]`, and `read_object` itself demotes an armour with none to
   // `ITEM_WORN` — so reading it off the type rather than off the value would credit clothing with
