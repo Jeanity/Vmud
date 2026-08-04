@@ -44,15 +44,17 @@ reorder:
 
 ## 2. Progress
 
-25 phases. Seventeen done — Acts I–III complete, Act IV all but its progression half.
+25 phases. Seventeen done — Acts I–III complete, Act IV all but its progression half. Act V is
+under way: **Phase 15 is done**, and Phase 16 has its balance half (16a damage bands, 16c mob
+armour) with the phase proper — light, AC from material, encumbrance — still open.
 
 | Act | Phases | State |
 | --- | --- | --- |
 | I — The world answers back | 1–3 | **3 of 3 ✅** |
 | II — Bodies | 4, 5, 5b, 5c, 6 | **5 of 5 ✅** |
 | III — Life | 7–10 | **4 of 4 ✅** |
-| IV — Violence | 11–14, 14b, 14c | 5 of 6 |
-| V — Things | 15–17 | not started |
+| IV — Violence | 11–14, 14b, 14c | **6 of 6 ✅** |
+| V — Things | 15–17 | 1 of 3 — 15 ✅, 16 part-done |
 | VI — Together | 18–21 | not started |
 
 Beside the phases run two lighter tracks, added 2026-08-02: **Track V** (the world on screen) and
@@ -88,8 +90,9 @@ a new idea still answers the three questions; its second question now also picks
 | 2 ✅ | V2 — click a body, get its verbs ✅ | Phase 14c — the fight moves with you ✅ | A3 — zones, read-only ✅ |
 | **3 ✅** | V6 — the world in its own colours ✅ | Phase 14b — a character worth keeping ✅ | A4b — the zone map ✅, then A5 — authoring ✅ |
 | 4 | V3 — speech in the world | Phase 15 — inventory and worn equipment ✅ | A4 — zones and mobs, live ops |
-| **5 — current** | V4 — the world as a graph of Places | Phase 16 — gear that matters (16a bands ✅, 16c mob armour ✅) | A6 — items ✅, A6b — items you make yourself ✅ |
-| 6 | A7a/A7b — item art as data | Phase 16 proper — light, AC, encumbrance | A4 + A4c — mobs live, and their loot |
+| **5 ✅** | A7a/A7b — item art becomes data ✅ *(took the V slot: it is presentation of things that already exist)* | Phase 16 — gear that matters (16a bands ✅, 16c mob armour ✅) | A6 — items ✅, A6b — items you make yourself ✅ |
+| **6 — next** | A7c — the art picker, then A7d — bag and floor icons | Phase 16 proper — light as an equipped item, AC from material, encumbrance | A4 — mobs live, then A4c — their loot |
+| 7 | V3 — speech in the world, then V4 — Places as a graph | Phase 17 — containers, money and shops | A8 — zone geometry |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
 A5, because A5's prose editor is a colour editor and building the palette before the renderer would

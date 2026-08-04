@@ -301,14 +301,40 @@ and a mob that stopped fighting entirely when its target disconnected. **If you 
 
 ## Next, in order
 
-**The schedule now lives in [ROADMAP.md](ROADMAP.md)** — 23 phases, each pairing a mechanic with
+**The schedule now lives in [ROADMAP.md](ROADMAP.md)** — 25 phases, each pairing a mechanic with
 something you can see, plus two lighter tracks and a **cadence** (its §2b, owner's rule 2026-08-02):
 work proceeds in rounds of three — one visual MUD aspect, one mechanic, one admin-panel job — so
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-**Sixteen of 24 phases done — Acts I–III complete, Act IV all but its progression half; Track A is 1
-of 7, Track V is 1 of 5.** Round 1 is complete: **V1 the combat feed** (the `combat` channel now
+### Start here — round 6, in cadence order (paused 2026-08-04)
+
+Round 5 closed with item authoring and item art. Nothing is half-finished; the tree is clean and
+`main` is level with the branch. Three jobs, and any of them can go first:
+
+1. **A7c — the art picker.** The smallest and most visible. `GET /admin/api/art` already serves the
+   319-entry index and filters by `slot`, so the server half exists; what is missing is the panel
+   half — a browser with previews beside the item editor's `art` field, which is currently a field
+   with no way to discover a legal value. Sheets are 576×256 with the south-facing standing frame at
+   **column 0 of row 2**, which is the thumbnail to draw.
+2. **Phase 16 proper.** The balance half landed (16a bands, 16c mob armour); the phase itself is
+   still open — light as an equipped-item property (collapsing the interim `carriedLight` field the
+   design docs already say *should* collapse), AC derived from material × slot × condition, and
+   movement/encumbrance. `SECTOR_MOVE_COST` and `SECTOR_REQUIRES_MOVEMENT` are **written with zero
+   callers** and this is the phase that calls them.
+3. **A4, then A4c.** Force a repop, work a door, list live mob instances, slay one, spawn one — the
+   mob-testing loop. `POST /players/:slug/give` was written with A4 in mind and is reusable as-is.
+   **A4c** (owner, 2026-08-04: *"assign items to mobs as loot"*) needs a mob overlay first, the same
+   shape `items-authored.json` gave items.
+
+**Two loose ends worth a few minutes each, neither blocking.** `itemRow` does not include `art`, so
+the panel's editor cannot show what an item currently wears — A7c will want that. And the newbie
+spawn room (41260) still holds a level-23 kobold shaman that answers to `kobold`; it is passive, so
+the hazard is a level-1's first `kill kobold`, not aggro.
+
+**Eighteen of 25 phases done — Acts I–IV complete, Act V under way (15 ✅, 16 part-done).** Track A
+has landed A2, A3, A4b, A5, A6, A6b, A7a and A7b; what is left there is A4, A4c, A7c, A7d and A8.
+Track V has V1, V2 and V6, with V3, V4 and V5 outstanding. Round 1 is complete: **V1 the combat feed** (the `combat` channel now
 renders *only* in its own section of the character pane — the owner's split: prose and speech on the
 left, violence on the right) and **Phase 14, mercy and fear**.
 
