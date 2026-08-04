@@ -151,9 +151,20 @@ underneath it, which is a real design question and not one to answer by accident
 
 **Item authoring — done, both halves.** A6 edits a harvested item through a partial overlay; **A6b**
 creates one outright. The two are separate files because their rules are opposite, and the table in
-`item-authoring.ts` says why in four lines. What is *not* done is art: `ITEM_LAYER` in `scene.ts` is
-still ten hardcoded rows and cannot hold either the catalogue or a created item — that is **A7a/A7b**,
-and it blocks every other art job.
+`item-authoring.ts` says why in four lines. **Art landed too, as A7a/A7b.** `npm run artgen` indexes the ULPC pack into
+`shared/src/lpc-art.ts` — 319 sheets, each probed for a real 576×256 walk cycle — and `art` is an
+authorable field on any item. Three things worth not rediscovering:
+
+1. **`LoaderPlugin.start()` during scene creation stops the scene dead.** The client sat on
+   "connecting…" with the socket open, the whole join sequence sent, and **no error anywhere**. Sheets
+   are queued and the loader is kicked from `update`, which cannot run until creation is finished.
+2. **`mainHand` was never in the client's layer order.** A wielded weapon had no path to the screen at
+   all, whatever the wire said. Layers now sort by the `zPos` the artist gave them.
+3. **The idle-sheet swap assumed every sheet has an `-idle` twin.** The starter kit does; indexed art
+   does not, so standing still turned an authored sword into Phaser's `__MISSING` box. It falls back
+   to the walk sheet now.
+
+Still to do on art: **A7c** the picker (the `GET /art` half exists) and **A7d** bag and floor icons.
 
 **Be aware of the inert surface.** `SECTOR_REQUIRES_MOVEMENT` and `proficiencyBonus` still have **zero
 non-test callers**. `resolveAttack` and `rollDamage` came off this list in Phase 11 — they had been

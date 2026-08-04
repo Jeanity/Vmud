@@ -32,7 +32,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { Dice, ItemTemplate } from '@mygame/shared';
+import { LPC_ART_BY_ID, type Dice, type ItemTemplate } from '@mygame/shared';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -48,6 +48,11 @@ export interface ItemOverride {
   readonly ac?: number;
   readonly damage?: Dice;
   readonly cost?: number;
+  /**
+   * A7b: the LPC art id this item is drawn with. **Content, not behaviour** — which is why it is here
+   * and `slot` is not. Choosing a sword's picture changes nothing about what the sword does.
+   */
+  readonly art?: string;
   /** When it was last written, so the panel can say how stale an item's authoring is. */
   readonly at?: string;
   /** Who or what wrote it — the same provenance rule the room overlay records. */
@@ -114,6 +119,9 @@ export function loadItemOverrides(file = ITEMS_FILE): ItemOverrides {
         : {}),
       ...(damage ? { damage } : {}),
       ...(typeof patch.cost === 'number' && Number.isInteger(patch.cost) && patch.cost >= 0 ? { cost: patch.cost } : {}),
+      // Checked against the generated index, not merely for being a string: an art id with no sheet
+      // behind it is a magenta box on somebody's body three systems away from this file.
+      ...(typeof patch.art === 'string' && LPC_ART_BY_ID.has(patch.art) ? { art: patch.art } : {}),
       ...(typeof patch.at === 'string' ? { at: patch.at } : {}),
       ...(typeof patch.by === 'string' ? { by: patch.by } : {}),
     };
@@ -145,6 +153,7 @@ export function applyItemOverride(template: ItemTemplate, override: ItemOverride
     ...(override.ac !== undefined ? { ac: override.ac } : {}),
     ...(override.damage !== undefined ? { damage: override.damage } : {}),
     ...(override.cost !== undefined ? { cost: override.cost } : {}),
+    ...(override.art !== undefined ? { art: override.art } : {}),
   };
 }
 

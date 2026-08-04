@@ -4344,11 +4344,21 @@ const adminLive: LiveOps = {
 };
 
 // **Protocol 14: what a worn thing *is*, for drawing it.** The catalogue is the only place that knows,
-// and `sim.ts` is the only place that builds an `EntityView`, so this is the seam between them. One
-// class today — a shield — because the pack has one shield sheet; weapon classes arrive with their art.
-// `DURIS_ITEM.shield` rather than a guess from the item's own fields: measured, the obvious heuristic
-// dresses 177 pairs of sleeves as shields.
-sim.artClassOf = (item) => (templateOf(item)?.type === DURIS_ITEM.shield ? 'shield' : undefined);
+// and `sim.ts` is the only place that builds an `EntityView`, so this is the seam between them.
+//
+// **A7b made this the whole mechanism rather than a special case.** It used to answer `'shield'` for
+// one Duris type and nothing for everything else, because the pack had one shield sheet and there was
+// nowhere to record any other choice. Now an item carries an authored `art` id and this hands it
+// straight out: 319 sheets are indexed, and which one an item wears is data rather than a branch here.
+//
+// The shield fallback survives underneath it, and earns its place — 419 shields are in the catalogue
+// and none of them has authored art yet, so without this every one of them would stop being drawn the
+// day this line changed. `DURIS_ITEM.shield` rather than a guess from the item's own fields: measured,
+// the obvious heuristic dresses 177 pairs of sleeves as shields.
+sim.artClassOf = (item) => {
+  const template = templateOf(item);
+  return template?.art ?? (template?.type === DURIS_ITEM.shield ? 'shield' : undefined);
+};
 
 const admin = new AdminApi({
   world,

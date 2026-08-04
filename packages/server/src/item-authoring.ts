@@ -43,6 +43,7 @@ import {
   CONTAINER_ACCEPTS,
   DURIS_ITEM_TYPES,
   EQUIP_SLOTS,
+  LPC_ART_BY_ID,
   MAX_ITEM_SIZE,
   stackLimitFor,
   type ContainerAccepts,
@@ -106,6 +107,7 @@ export interface ItemDraft {
   readonly cost?: unknown;
   readonly uses?: unknown;
   readonly container?: unknown;
+  readonly art?: unknown;
 }
 
 /** A whole number in range, or nothing. The shape every numeric field here is checked against. */
@@ -217,6 +219,17 @@ export function draftAuthoredItem(vnum: number, draft: ItemDraft): { item: ItemT
     if (!container) return { error: 'a container needs a capacity of at least one slot' };
   }
 
+  // Refused by name rather than dropped, because "I picked art and it did not take" is a bug report
+  // nobody can act on. The index is generated, so an id that is not in it is either a typo or a sheet
+  // somebody removed, and both want saying out loud.
+  let art: string | undefined;
+  if (draft.art !== undefined && draft.art !== null && draft.art !== '') {
+    if (typeof draft.art !== 'string' || !LPC_ART_BY_ID.has(draft.art)) {
+      return { error: `no such art: ${String(draft.art)} — run npm run artgen to see what is indexed` };
+    }
+    art = draft.art;
+  }
+
   const roomLine = typeof draft.roomLine === 'string' && draft.roomLine.trim()
     ? draft.roomLine.trim()
     : `${name} is lying here.`;
@@ -239,6 +252,7 @@ export function draftAuthoredItem(vnum: number, draft: ItemDraft): { item: ItemT
       ...(damroll ? { damroll } : {}),
       ...(uses !== undefined ? { uses } : {}),
       ...(container ? { container } : {}),
+      ...(art ? { art } : {}),
     },
   };
 }

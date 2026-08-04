@@ -1351,20 +1351,28 @@ order.
   **Two surfaces, routinely conflated and worth separating:** the *icon* (bag row, floor tile —
   today a procedurally drawn placeholder) and the *worn layer* (sheets on the body).
 
-  **And one caveat that is Phase 16's, not this one's:** ULPC ships weapons as attack animations —
-  the club's definition is `"custom_animation": "slash_reverse_oversize"` — with **no idle-hold
-  frame**. Assigning a sword sheet buys an icon and a combat animation, not a character standing
-  holding it. Shields are the exception, a foreground walk/idle layer, which is exactly why the one
-  art class already shipping is `offhand-shield`. See the visible-weapons row in §4.
+  **A caveat this row carried and the measurement disproved.** It said ULPC ships weapons as attack
+  animations with no idle-hold frame, so a sword could never be drawn on a standing character. That
+  generalised from one weapon: the club's `"custom_animation": "slash_reverse_oversize"`. Counted
+  across the pack, **461 sheets in 49 groups are already at LPC's 576×256 walk geometry** — every
+  shield family, and sword, dagger, rapier, saber, mace, waraxe, flail, halberd, scythe, spear and the
+  magic staves. A character walks around holding an arming sword today. What genuinely lacks a walk
+  cycle is the *oversize* weapons, 47 definitions, and those are the ones `artgen` skips.
 
   Split four ways because the costs are nothing alike:
-  - **A7a — index the pack.** An offline pass over the 769 definitions → a committed art catalogue;
-    stage only referenced sheets.
-  - **A7b — art as data.** `ITEM_LAYER` moves out of `scene.ts`; `art` becomes an authorable field on
-    any item. **The load-bearing slice** — after it, assigning art is a field edit.
-  - **A7c — the picker.** Browse by category with previews, assign, see it on a body.
+  - **A7a — index the pack** ✅ **done 2026-08-04.** `npm run artgen` reads the definitions, probes for
+    a real walk sheet, and emits `shared/src/lpc-art.ts` plus the staged PNGs and a generated
+    attribution file. **319 pieces of art** across every slot — 50 hats, 34 clothes, 26 weapons, 31
+    shield pieces, 18 legs, 12 shoes. 3.5 MB staged.
+  - **A7b — art as data** ✅ **done 2026-08-04.** `art` is an authorable field on any item, harvested
+    or created, validated against the index. `sim.artClassOf` hands the id straight to the wire, so
+    protocol 14's shield special case became the whole mechanism and needed no bump. `ITEM_LAYER` is
+    now `KIT_ART`, covering only the nine starter-kit ids that have no template to carry an `art`.
+    **Seen when:** a sword you chose art for is drawn in the hand of the character wielding it ✅.
+  - **A7c — the picker.** Browse by category with previews, assign, see it on a body. `GET /art`
+    already serves the index, filtered by slot; what is missing is the panel half.
   - **A7d — icons.** Bag and floor sprites from the catalogue's preview frame, retiring the
-    placeholder.
+    procedural placeholder. The definitions carry `preview_row`/`preview_column` for exactly this.
 - **A4c — Loot: assigning items to mobs** (owner, 2026-08-04). *"we also need to be able to assign
   items to mobs as loot."* Agreed, and it belongs with **A4** rather than with A6b: the item side is
   done — anything in the catalogue, created or harvested, can already be instantiated — and what is

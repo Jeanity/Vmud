@@ -9,6 +9,7 @@
 import Phaser from 'phaser';
 
 import {
+  LPC_ART_BY_ID,
   PLAYER_SPEED,
   ROOM_TILES,
   TILE_SIZE,
@@ -279,7 +280,7 @@ const LPC_SHEETS: readonly string[] = [
   'torso-chainmail',
   'legs-greaves-silver',
   // Phase 15a: the starter kit, one sheet per item the roll can produce. Staged from the LPC pack's
-  // own `idle.png` for each garment and colourway — see `ITEM_LAYER` for which is which.
+  // own `idle.png` for each garment and colourway — see `KIT_ART` for which is which.
   'torso-tunic-leather',
   'torso-jerkin-padded',
   'torso-vest-quilted',
@@ -307,7 +308,19 @@ const LPC_SHEETS: readonly string[] = [
  * art for: LPC ships exactly one hand garment (Gauntlets) and nothing resembling frayed wraps, so
  * hands are unlayered rather than drawn as something they are not.
  */
-const ITEM_LAYER: Readonly<Record<string, string>> = {
+/**
+ * The **starter kit's** art, and nothing else's — what used to be `ITEM_LAYER`.
+ *
+ * A7b retired this as *the* mechanism. It was ten hardcoded rows mapping an id to a sheet, which could
+ * hold neither the 16,421-entry catalogue nor anything an operator authored; art is now an item's own
+ * `art` field, indexed by `artgen` into `LPC_ART`, and {@link WorldScene.sheetFor} looks there first.
+ *
+ * What is left is the nine ids `equipment.ts` invents for the authored starter kit. Those are not
+ * catalogue items and have no template to carry an `art` field, so their mapping genuinely does live
+ * on the client — and `shield` stays as protocol 14's art *class*, the fallback for 419 catalogue
+ * shields that nobody has chosen a sheet for yet.
+ */
+const KIT_ART: Readonly<Record<string, string>> = {
   leather_tunic: 'torso-tunic-leather',
   padded_jerkin: 'torso-jerkin-padded',
   quilted_vest: 'torso-vest-quilted',
@@ -317,9 +330,6 @@ const ITEM_LAYER: Readonly<Record<string, string>> = {
   travel_boots: 'feet-boots-travel',
   leather_cap: 'head-cap-leather',
   cloth_hood: 'head-hood-cloth',
-  // Protocol 14's first art *class* rather than an item id: 419 shields in the catalogue, one sheet.
-  // Which sheet a shield is stays here, which is the whole reason the wire says "shield" and not
-  // "offhand-shield" — swapping the heater for a kite is an edit to this line and nothing else.
   shield: 'offhand-shield',
 };
 
@@ -338,7 +348,31 @@ const ITEM_LAYER: Readonly<Record<string, string>> = {
  * Drawing a dagger would need either an attack animation the combat system does not have (a swing is a
  * log line today, not a motion) or custom art. Recorded rather than bodged: see Phase 16.
  */
-const LAYER_ORDER: readonly string[] = ['feet', 'legs', 'chest', 'head', 'offHand'];
+/**
+ * Draw order for the **starter kit**, on the same scale as ULPC's own `zPos`.
+ *
+ * What used to be `LAYER_ORDER`, a list of slots in painting order — feet before legs before chest
+ * before head, because that is the order a person dresses and the order the overlaps have to resolve:
+ * a boot cuff under a trouser leg, a trouser waist under a shirt hem, a hood over everything.
+ *
+ * It is a *fallback* now rather than the mechanism. Indexed art carries the z its artist gave it, so
+ * this covers only the nine ids `equipment.ts` invents, which have no index entry. The numbers are
+ * ULPC's for the equivalent garment, so kit and indexed art interleave correctly on one body.
+ */
+const KIT_Z: Readonly<Record<string, number>> = {
+  feet: 25,
+  legs: 30,
+  chest: 35,
+  arms: 40,
+  hands: 45,
+  waist: 50,
+  about: 55,
+  head: 60,
+  back: 15,
+  // A held thing goes over the body it is held in front of. ULPC puts its own weapons at 140.
+  offHand: 135,
+  mainHand: 140,
+};
 
 const SPRITE_LAYERS: Readonly<Record<string, readonly string[]>> = {
   /** Every player. Phase 15 derives this list from what they are wearing instead of naming it here. */
@@ -1201,6 +1235,11 @@ export class WorldScene extends Phaser.Scene {
    */
   /** The last bag the server sent, so opening the drawer redraws rather than waiting for a heartbeat. */
   private lastBag: BagView | undefined;
+
+  /** Indexed sheets wanted but not yet asked for — drained by `pumpSheetQueue` from `update`. */
+  private readonly wantedSheets = new Set<string>();
+  /** Indexed sheets currently in flight, so a room of six wearing one hat asks the loader once. */
+  private readonly loadingSheets = new Set<string>();
 
   /** The arrow over the body you are fighting or chasing, and whose it is. */
   private marker: Phaser.GameObjects.Graphics | undefined;
@@ -2836,7 +2875,13 @@ export class WorldScene extends Phaser.Scene {
     for (const layer of entity.layers) {
       const walkSheet = layer.getData('sheet') as string | undefined;
       if (walkSheet) {
-        const wanted = standing ? walkSheet + IDLE_SUFFIX : walkSheet;
+        // **Only if there is one.** The starter kit ships an idle sheet beside every walk sheet, so
+        // this used to be a straight swap — and the day indexed art arrived, standing still turned
+        // every authored sword into Phaser's `__MISSING` box, because `artgen` stages one walk sheet
+        // per art id and nothing called `<id>-idle`. Standing on the walk sheet's own frame is a
+        // perfectly good still pose; a missing texture is not.
+        const idle = walkSheet + IDLE_SUFFIX;
+        const wanted = standing && this.textures.exists(idle) ? idle : walkSheet;
         if (layer.texture.key !== wanted) layer.setTexture(wanted);
       }
       layer.setFrame(layerFrame(layer.texture, facing, column));
@@ -2888,6 +2933,92 @@ export class WorldScene extends Phaser.Scene {
    * template's own, and any character the server has not dressed. So the fallback is not dead code,
    * it is the answer for bodies that wear nothing.
    */
+  /**
+   * The texture key for what the wire says is worn in a slot, or nothing if it is not drawn.
+   *
+   * **The index first, the starter kit second.** `artgen` stages every sheet under its own art id, so
+   * for indexed art the id the server sent *is* the texture key and there is no mapping at all — which
+   * is the point: the table that used to sit here could not have held 319 entries, let alone 16,421
+   * items' worth of choices, and every table like it in this project has eventually drifted.
+   *
+   * Anything unrecognised returns nothing and simply is not drawn. That is the correct answer for a
+   * ring, for an item nobody has chosen art for, and for a sheet that failed to load — a body missing
+   * a layer reads as unremarkable, where a magenta box reads as a crash.
+   */
+  private sheetFor(id: string): string | undefined {
+    if (LPC_ART_BY_ID.has(id)) {
+      // **Not yet loaded means not drawn, not drawn badly.** Handing Phaser a key it does not have
+      // gets the missing-texture placeholder — a green box with a diagonal through it, sitting over
+      // the character's head where their sword should be. Queue it and leave the layer out; the
+      // redress when it lands is what puts the sword on, a frame or two later and unnoticeably.
+      if (this.textures.exists(id)) return id;
+      this.ensureSheet(id);
+      return undefined;
+    }
+    return KIT_ART[id];
+  }
+
+  /**
+   * Notes that a sheet is wanted. **Queues only — the loader is kicked from `update`.**
+   *
+   * 319 sheets is not a preload: the starter kit's thirty go in up front because every character wears
+   * some of them, but the indexed art is a long tail where a session might touch five, and paying 319
+   * requests at boot to be ready for all of them is the wrong trade on any connection worse than
+   * localhost.
+   *
+   * **Why it queues rather than loading here, and this cost an hour.** `LoaderPlugin.start()` puts the
+   * scene back into its loading state, and the first bodies are built while `create` is still running —
+   * so starting the loader from this call wedged the scene before it ever subscribed to anything. The
+   * symptom was a client stuck on "connecting…" with the socket open, the server's whole join sequence
+   * sent, and **not one error in the console**: nothing had thrown, the scene had simply stopped.
+   * `update` cannot run until creation finishes, which makes it the one place a load is always safe.
+   */
+  private ensureSheet(key: string): void {
+    if (this.textures.exists(key) || this.loadingSheets.has(key) || this.wantedSheets.has(key)) return;
+    this.wantedSheets.add(key);
+  }
+
+  /**
+   * Starts any queued sheet loads. Called from `update`, so never during scene creation.
+   *
+   * A texture that arrives *after* a body was built is a layer nobody added, so whoever is wearing it
+   * is redressed on completion — cheap, because it only ever fires the first time a sheet is needed.
+   */
+  private pumpSheetQueue(): void {
+    if (this.wantedSheets.size === 0 || this.load.isLoading()) return;
+    for (const key of this.wantedSheets) {
+      this.loadingSheets.add(key);
+      this.load.spritesheet(key, `lpc/${key}.png`, { frameWidth: LPC_FRAME, frameHeight: LPC_FRAME });
+      this.load.once(`filecomplete-spritesheet-${key}`, () => {
+        this.loadingSheets.delete(key);
+        for (const entity of this.entities.values()) {
+          if (entity.view.wearing && Object.values(entity.view.wearing).includes(key)) this.redressEntity(entity);
+        }
+      });
+    }
+    this.wantedSheets.clear();
+    this.load.start();
+  }
+
+  /**
+   * Rebuilds one body's layers in place, for art that arrived after it was drawn.
+   *
+   * **The layers, not the entity.** Destroying and recreating the whole thing would be three lines
+   * shorter and would take the camera follow, the idle tween and the health bar with it — and for the
+   * local player, dropping the follow mid-session is a camera that stops moving for no visible reason.
+   * The container, its label and its bars are untouched; only the stack of images changes.
+   */
+  private redressEntity(entity: Entity): void {
+    for (const layer of entity.layers) layer.destroy();
+    const layers = this.characterLayers(entity.view.sprite, entity.view.facing, entity.view.wearing);
+    entity.layers = layers;
+    entity.container.add(layers);
+    // Back under the label and the bars: `add` appends, and a body drawn over its own name is exactly
+    // the sort of thing that looks like a z-order bug in the renderer rather than a load order here.
+    for (const [index, layer] of layers.entries()) entity.container.moveTo(layer, index);
+    this.faceEntity(entity, entity.view.facing);
+  }
+
   private characterLayers(sprite: string, facing: Direction, wearing?: Readonly<Record<string, string>>): Phaser.GameObjects.Image[] {
     const dressed = wearing && Object.keys(wearing).length > 0;
     const base = SPRITE_LAYERS[sprite] ?? SPRITE_LAYERS['human'] ?? [];
@@ -2897,13 +3028,26 @@ export class WorldScene extends Phaser.Scene {
 
     // The body always comes first and is never worn — it is what the clothes go on. Taking only the
     // first entry of the base stack rather than all of it is what drops the placeholder outfit.
+    //
+    // **Every worn slot, ordered by the pack's own `zPos`** — not a hand-kept list of slots. The list
+    // this replaced was `['feet', 'legs', 'chest', 'head', 'offHand']`, and what it says by omission is
+    // that a wielded weapon has never been drawable: `mainHand` was simply not in it, so a sword could
+    // be equipped, sent on the wire and resolved to a real sheet, and still never reach the screen.
+    // Sorting by the z the artist gave each layer is both the fix and the reason there is no list to
+    // forget a slot from again.
     const stack = dressed
       ? [
           base[0] ?? 'body-human-male',
-          ...LAYER_ORDER.flatMap((slot) => {
-            const sheet = wearing[slot] === undefined ? undefined : ITEM_LAYER[wearing[slot]];
-            return sheet ? [sheet] : [];
-          }),
+          ...Object.entries(wearing)
+            .flatMap(([slot, id]) => {
+              const sheet = this.sheetFor(id);
+              if (!sheet) return [];
+              // Indexed art brings its own z. The starter kit predates the index, so it keeps the
+              // painter's order 15a chose, expressed as z values on the same scale.
+              return [{ sheet, z: LPC_ART_BY_ID.get(id)?.z ?? KIT_Z[slot] ?? 50 }];
+            })
+            .sort((a, b) => a.z - b.z)
+            .map((layer) => layer.sheet),
         ]
       : base;
 
@@ -2924,6 +3068,9 @@ export class WorldScene extends Phaser.Scene {
     // the same kind of panel and count down against the same clock, so they run beside it.
     this.refreshLightHud(time);
     this.refreshAffectsHud(time);
+    // Art wanted by bodies drawn this frame or last. Here rather than at the point of need because
+    // starting the loader during scene creation stops the scene dead — see `ensureSheet`.
+    this.pumpSheetQueue();
 
     const grid = this.grid;
     if (!grid) return;

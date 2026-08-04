@@ -297,6 +297,17 @@ export interface ItemTemplate {
    */
   readonly hitroll?: number;
   readonly damroll?: number;
+  /**
+   * Which LPC sheet a body wearing this is drawn with — an **art id** from `lpc-art.ts`, never a path.
+   *
+   * A7b, and it replaces the client's `ITEM_LAYER`: ten hardcoded rows that could hold neither the
+   * 16,421-entry catalogue nor anything authored. An id rather than a filename because that is what
+   * keeps a re-skin out of the protocol — `artgen` can restage every sheet and nothing else moves.
+   *
+   * Absent on almost everything, and that is the honest default: a ring is not drawn, and neither is
+   * an item nobody has chosen art for. The renderer simply has no layer to add.
+   */
+  readonly art?: string;
   readonly size: number;
   /** Coins it is worth. Duris' own `cost`. */
   readonly cost: number;
