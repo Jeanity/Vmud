@@ -15,7 +15,8 @@
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "worldgen": "node --disable-warning=ExperimentalWarning packages/worldgen/src/index.ts"
+    "worldgen": "node --disable-warning=ExperimentalWarning packages/worldgen/src/index.ts",
+    "artgen": "node --disable-warning=ExperimentalWarning packages/worldgen/src/artgen.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
