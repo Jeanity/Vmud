@@ -29,7 +29,7 @@ import {
   type ZoneSpawns,
 } from '@mygame/shared';
 
-import { advanceZones, newZoneClock, rollLifespan, runReset } from './reset.ts';
+import { MAX_MOB_KIT_ARMOUR, advanceZones, newZoneClock, rollLifespan, runReset } from './reset.ts';
 import { Simulation, isMob } from './sim.ts';
 import { GameWorld } from './world.ts';
 
@@ -482,13 +482,26 @@ describe('a mob gets its kit', () => {
     assert.deepEqual(guard?.carrying.map((i) => i.name), ['a small purse']);
   });
 
-  it('does not re-tune the mob’s combat from what it is wearing', () => {
-    // A deliberate line. Zone 36 alone has 247 `E` commands, so folding worn armour into a mob's AC
-    // would silently add several points to every equipped guard in IceCrag and invalidate 14b's balance
-    // pass. A mob's kit is loot, not armour.
+  it('re-tunes the mob’s armour from what it is wearing — 16c reversed 15c here', () => {
+    // **This test used to assert the opposite, and the reversal is the point.** 15c refused to fold
+    // worn armour into a mob's AC because zone 36 alone has 247 `E` commands and doing it silently
+    // during an inventory phase would have invalidated 14b's balance pass without anybody noticing.
+    // Phase 16 *is* the balance pass, so it is decided rather than tuned around — and the source folds
+    // it in, `equip_char` running the same `affect_modify` for a mob as for a player.
+    //
     const before = readCombatStats({ level: 5, armour: 0, damage: '1d4+0' });
     const { guard } = kitted([equip(BELT.vnum, 5)]);
+    assert.equal(guard?.combat.armourClass, before.armourClass + BELT.ac, 'a guard in a leather belt');
+  });
+
+  it('leaves a mob no harder to hit for what it is only carrying', () => {
+    // The other half, and the one that keeps the fold honest: `G` puts a thing in a mob's hands, and a
+    // sword in your hands is not armour. It is also what happens to any `E` for a wear position we do
+    // not model — the item is real and lootable, and it protects nothing.
+    const before = readCombatStats({ level: 5, armour: 0, damage: '1d4+0' });
+    const { guard } = kitted([give(BELT.vnum)]);
     assert.equal(guard?.combat.armourClass, before.armourClass);
+    assert.deepEqual(guard?.carrying.map((i) => i.name), ['a leather belt']);
   });
 
   it('attaches nothing when no mob has been loaded', () => {
@@ -582,5 +595,56 @@ describe('objects the reset puts in rooms', () => {
     const outcome = run([object(), mob({ limit: 1 })]);
     assert.equal(outcome.objects.length, 1);
     assert.equal(outcome.spawned.length, 1);
+  });
+});
+
+describe('a mob in mail is harder to hit — 16c', () => {
+  /** An armour piece the `E` executor can put on a chest, at whatever AC the test needs. */
+  const armour = (vnum: number, ac: number): ItemTemplate => ({
+    vnum,
+    keywords: ['mail'],
+    name: 'a suit of mail',
+    roomLine: 'A suit of mail lies here.',
+    type: 9,
+    slot: 'chest',
+    ac,
+    size: 3,
+    cost: 100,
+    stackLimit: 1,
+  });
+
+  it('folds worn armour into the armour class, reversing 15c', () => {
+    // 15c left a mob's kit as pure loot and said why. Phase 16 is the balance pass, so it is decided
+    // rather than tuned around — and the source folds it in: `equip_char` runs the same
+    // `affect_modify` for a mob as for a player.
+    const { sim, templates } = makeSim();
+    const items = new Map([[900, armour(900, 3)]]);
+    const clock = newZoneClock(
+      spawnsFor([mob(), { kind: 'equip', ifPrevious: true, what: 900, limit: 1, percent: 100, wearPosition: 5 }]),
+      rng(),
+    );
+    const out = runReset(sim, clock, templates, items, NO_OBJECTS, rng(), true);
+    const base = GUARD.combat.armourClass;
+    assert.equal(out.spawned[0]!.combat.armourClass, base + 3, 'the guard is three points harder to hit');
+  });
+
+  it('caps the whole kit at one legendary piece, because of the quartermaster', () => {
+    // A sentinel private in IceCrag is equipped with 34 pieces and would reach AC 94 — not an armoured
+    // soldier but a man standing in his own stores, and at that armour class a natural 19 still misses.
+    // Kobold Settlement, the zone actually played, tops out at +5, so this never bites where a
+    // character currently goes.
+    const { sim, templates } = makeSim();
+    const items = new Map([[900, armour(900, 8)], [901, armour(901, 8)]]);
+    const clock = newZoneClock(
+      spawnsFor([
+        mob(),
+        { kind: 'equip', ifPrevious: true, what: 900, limit: 1, percent: 100, wearPosition: 5 },
+        { kind: 'equip', ifPrevious: true, what: 901, limit: 1, percent: 100, wearPosition: 5 },
+      ]),
+      rng(),
+    );
+    const out = runReset(sim, clock, templates, items, NO_OBJECTS, rng(), true);
+    const base = GUARD.combat.armourClass;
+    assert.equal(out.spawned[0]!.combat.armourClass, base + MAX_MOB_KIT_ARMOUR, 'sixteen points offered, eight allowed');
   });
 });

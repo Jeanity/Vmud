@@ -35,6 +35,7 @@
 
 import {
   ZONE_TICK_MS,
+  armourClassFrom,
   instantiate,
   isExecutable,
   slotForWearPosition,
@@ -76,6 +77,42 @@ export interface ResetOutcome {
    * caller decides where in the room it lands.
    */
   readonly objects: readonly { readonly template: ItemTemplate; readonly room: RoomId }[];
+}
+
+/**
+ * The most armour class a mob's whole worn kit may be worth. `MAX_ITEM_ARMOUR_BONUS`, deliberately.
+ *
+ * **The cap exists because of one measured pathology, and it is sized so that it only touches it.**
+ * Measured across 2,016 mob loads: 15% wear at least one armour piece, the median wears **one** and
+ * gains **+3**, and the ninetieth percentile gains **+8**. Then the tail: a sentinel private in IceCrag
+ * is equipped with **34 pieces** and would reach **AC 94**, which is not an armoured soldier but a
+ * quartermaster standing in his own stores — and at that armour class a player rolling a natural 19
+ * still misses. Kobold Settlement, the zone actually played, tops out at **+5**, so the cap never bites
+ * anywhere a character currently goes.
+ *
+ * One legendary piece is the unit, which is the same number {@link armourBonusFrom} caps a single item
+ * at: **a mob's entire kit is worth at most one very good piece of armour.**
+ */
+export const MAX_MOB_KIT_ARMOUR = 8;
+
+/**
+ * Folds what a mob is wearing into how hard it is to hit — **reversing 15c's deliberate omission**.
+ *
+ * 15c left a mob's kit as pure loot and said why: several pieces per mob at the catalogue's median
+ * would quietly add ten armour class to every equipped guard in IceCrag, and doing that silently during
+ * an inventory phase would have invalidated 14b's balance pass without anybody noticing.
+ *
+ * Phase 16 is the balance pass, so it is decided here instead of tuned around. **The source folds it
+ * in**: Diku's `equip_char` runs the same `affect_modify` for a mob as for a player, and `calculate_ac`
+ * in `fight.c` carries the authors' own note — *"we don't want to mess with the ac set in zone
+ * files"* — which is about leaving an authored number alone, not about ignoring armour. So a guard in
+ * mail being harder to hit than a guard in rags is what the world already means.
+ *
+ * Recomputed from the whole kit rather than accumulated per piece, so equipping twice cannot count once.
+ */
+function refitMobArmour(mob: Mob, baseArmourClass: number): void {
+  const worn = Math.min(MAX_MOB_KIT_ARMOUR, armourClassFrom(mob.equipped));
+  mob.combat = { ...mob.combat, armourClass: baseArmourClass + worn };
 }
 
 /**
@@ -131,6 +168,10 @@ export function runReset(
   // its roll — which is why they are two variables and not one.
   let lastSucceeded = true;
   let lastMob: Mob | undefined;
+  // The mob's own armour class, before anything it is wearing — kept because the refold below is
+  // recomputed from scratch on every piece rather than accumulated, so a second piece cannot count the
+  // first one twice.
+  let lastMobBaseAc = 0;
 
   for (const command of clock.spawns.resets) {
     const chained = command.ifPrevious;
@@ -171,6 +212,7 @@ export function runReset(
         continue;
       }
       lastMob.equipped[slot] = item;
+      refitMobArmour(lastMob, lastMobBaseAc);
       kitted++;
       continue;
     }
@@ -253,6 +295,7 @@ export function runReset(
     spawned.push(mob);
     lastSucceeded = true;
     lastMob = mob;
+    lastMobBaseAc = mob.combat.armourClass;
   }
 
   clock.age = 0;

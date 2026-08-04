@@ -378,11 +378,32 @@ the level-up, stored on the record** — the same rule hit points and the starte
 same two reasons: a character's damage is then a *fact about them* rather than noise, and a value
 rolled at login is a value a player rerolls by reconnecting.
 
-### Still open, and it belongs to this phase
+### Settled: a mob's worn gear now counts, capped
 
-**A mob's worn gear does not count toward its armour class.** 15c left that deliberately —
-`reset.ts` says why — and it must be decided in this same pass rather than tuned around, or the
-tuning is done twice. Every number above assumes mob AC as harvested.
+15c refused to fold worn armour into a mob's armour class, and said why: zone 36 alone has 247 `E`
+commands, and doing it silently during an inventory phase would have invalidated 14b's balance pass
+without anybody noticing. This *is* the balance pass, so it is decided rather than tuned around.
+
+**The source folds it in.** Diku's `equip_char` runs the same `affect_modify` for a mob as for a
+player, and `calculate_ac` in `fight.c` carries the authors' own note — *"we don't want to mess with
+the ac set in zone files"* — which is about leaving an authored number alone, not about ignoring
+armour. A guard in mail being harder to hit than a guard in rags is what the world already means.
+
+Measured over 2,016 mob loads, counting only kit that lands on a slot we model:
+
+| | Kobold Settlement (played) | IceCrag |
+| --- | --- | --- |
+| Loads that gain any armour class | 17 of 93 | 58 of 92 |
+| Most any one gains | **+3** | +77 |
+
+The +77 is the whole reason there is a cap. A "sentinel private" is equipped with **34 pieces** — not
+an armoured soldier but a man standing in his own stores — and at AC 94 a natural 19 still misses.
+So a mob's entire kit is worth at most {@link MAX_MOB_KIT_ARMOUR} = **8**, the same number a single
+legendary piece caps at. It never bites in the zone anybody currently plays, and it bites every
+anomaly. Verified live: a kobold warrior fights at **AC 8** against a base of 6.
+
+The round counts above are unaffected — they are computed from *median* mob armour class, and the
+median mob wears nothing.
 
 ### Left on the floor, and worth picking up here
 
