@@ -155,6 +155,45 @@ priority order:
 3. Door names, keys and flags from the exit records.
 4. `.mob` / `.obj` data for populating matched zones.
 
+## The two sources disagree about geometry, and the map is not griddable
+
+**Settled 2026-08-04, after a bug report that turned out not to be a bug.** The owner saw a mob
+"flee several rooms" and separately "flee east when there is only a north". Both are the same fact,
+and it is worth writing down once because it will be re-reported otherwise.
+
+We join **two independent sources**: the room *graph* comes from Duris' `.wld` exits, and the room
+*layout* comes from the zMUD map's own `x`/`y` coordinates. They are joined by name. They disagree.
+
+Measured across all 108,094 same-level exits in the shipped world:
+
+| What the exit does on the rendered grid | Exits | Share |
+| --- | --- | --- |
+| Moves exactly one cell in the named direction | 103,098 | **95.4%** |
+| Moves somewhere else — already marked `portal` | 4,996 | 4.6% |
+| …of those, **two or more cells** (worst: 35) | 4,100 | 3.8% |
+| …of those, **zero cells** — destination shares the source's grid square | 624 | 0.6% |
+
+**The 624 is the decisive number.** Two rooms occupying one grid square cannot both be drawn there,
+so the graph is *provably not embeddable* in the grid. Hand-laid MUD geography is not planar and was
+never meant to be: builders wrote exits, not coordinates, and a corridor may double back over itself
+or link two towers across a courtyard. There is therefore **no worldgen pass that reconciles the two
+sources**, only passes that reduce the disagreement — and the owner's call (2026-08-04) is to accept
+it rather than pay for a partial fix that would also invalidate every saved `seen` bitset.
+
+What follows from accepting it:
+
+- **The direction is always truthful.** `fleeExits` only offers exits that exist in the graph, so a
+  mob that "fled east" did go east. What is not truthful is the *picture* — the destination is drawn
+  north-east, or six cells south, or on top of the room it left.
+- **`portal` is the flag for exactly this**, and it is already set on all 4,996. The prose says
+  *"flees through a portal to the east"* rather than *"flees east"*, which is what turns an apparent
+  wall-clip into a piece of world.
+- **A one-room move can look like several.** Kobold Settlement — the zone most played — has four
+  exits of two-plus cells, and `41299 End of a Dark Tunnel --south--> 41297 A Dark Tunnel` moves
+  **six**. A body taking it flees one room and reappears six room-widths away, which is precisely the
+  report. Nothing in `flee.ts` moves an actor twice: `attemptFlee` does exactly one `relocate` and
+  then `clearEngagements` breaks every pointer, so re-engaging requires somebody to walk after it.
+
 ## Fallback sources, in preference order
 
 1. **Local Mudlet profile** — if NyyLIB is already installed, the map is on disk and current.
