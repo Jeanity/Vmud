@@ -700,8 +700,8 @@ interface Entity {
    * north-facing head on a south-facing body.
    */
   layers: readonly Phaser.GameObjects.Image[];
-  /** The "this one is you" pip. Only the local player has one — the art shows facing by itself. */
-  nose: Phaser.GameObjects.Rectangle | undefined;
+  /** The "this one is you" ring on the ground. Only the local player has one — the art shows facing by itself. */
+  footprint: Phaser.GameObjects.Ellipse | undefined;
   /**
    * The health bar's filled portion, or nothing for a ground item and for yourself.
    *
@@ -2677,10 +2677,23 @@ export class WorldScene extends Phaser.Scene {
       ? [this.add.image(0, 0, this.itemTexture(view.sprite))]
       : this.characterLayers(view.sprite, view.facing, view.wearing);
 
-    // A pip only where it adds something. The LPC sprite already *shows* its facing — that is what the
-    // four sheet rows are — so the pip's old job is done by the art, and it survives on the local player
-    // alone, where it doubles as "this one is you".
-    const nose = isItem || !isSelf ? undefined : this.add.rectangle(0, -46, 5, 5, 0xffe9a8);
+    // **"This one is you", on the floor rather than over the head.** The LPC sprite already *shows* its
+    // facing — that is what the four sheet rows are — so the old pip's first job was done by the art and
+    // it survived only as a self-marker. Owner's call (2026-08-04): it was a square hanging at y −46,
+    // which is exactly `MARKER_HEIGHT`, so the moment the target chevron arrived there were two small
+    // pale shapes floating at the same altitude in the same gold and the pip read as a marker for
+    // something. The airspace over a head now belongs to the chevron alone.
+    //
+    // Shaped *against* the click-to-move destination marker, which is the same `0xffe9a8` and also on the
+    // ground: that one is a **stroked true circle of radius 7 that pulses**. This is a wide flat filled
+    // ellipse that never moves. Colour is the one thing they share, and deliberately — gold already means
+    // "yours" on your name label, so keeping it is one fewer idiom to learn.
+    //
+    // The container's origin is the character's feet (`LPC_FOOT_OFFSET` lifts the art off it), so local
+    // (0, 0) *is* the ground the boots are standing on. No offset to keep in step with the sprite scale.
+    const footprint = isItem || !isSelf
+      ? undefined
+      : this.add.ellipse(0, 1, 26, 10, 0xffe9a8, 0.1).setStrokeStyle(1.5, 0xffe9a8, 0.8);
 
     // A health bar for every body that is not you: a dark trough with a filled bar over it, both
     // origin-left so the fill shrinks from the right rather than from its middle. Drawn above the head
@@ -2703,7 +2716,13 @@ export class WorldScene extends Phaser.Scene {
       .setOrigin(0.5, 0);
 
     const parts: Phaser.GameObjects.GameObject[] = [...layers];
-    if (nose) parts.push(nose);
+    // **Over the body, not under it.** Under looked right in principle — the boots standing *on* the
+    // ring — and was wrong on screen: the LPC figure is wider than the ring is deep, so the legs covered
+    // everything but a sliver at each end. Owner's report (2026-08-04): *"the ring is behind the player
+    // so not very visible."* Drawn over instead, with the fill kept at a tenth so the boots still read
+    // through it and only the stroke actually marks the ground. This is the ordinary selection-ring look
+    // and it survives standing on any floor colour.
+    if (footprint) parts.push(footprint);
     if (trough && health) parts.push(trough, health);
     parts.push(label);
     const container = this.add
@@ -2729,7 +2748,7 @@ export class WorldScene extends Phaser.Scene {
       view,
       container,
       layers: isItem ? [] : layers,
-      nose,
+      footprint,
       health,
       healthTrough: trough,
       idle,
