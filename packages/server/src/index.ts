@@ -2962,15 +2962,22 @@ function countInstances(vnum: number): number {
  * and nothing in the file says where, so inventing a position would be inventing content. A dropped
  * thing lands where you dropped it because that is a fact; a reset object has no such fact behind it.
  */
-function placeResetObjects(outcome: { readonly objects: readonly { readonly template: ItemTemplate; readonly room: RoomId }[] }): number {
+function placeResetObjects(outcome: {
+  readonly objects: readonly { readonly template: ItemTemplate; readonly room: RoomId }[];
+  readonly contents: readonly { readonly template: ItemTemplate; readonly container: number }[];
+}): number {
   let placed = 0;
   const rooms: RoomId[] = [];
+  // What each vnum's most recently placed instance is, so a `P` can find the chest its `O` just put
+  // down. Duris resolves against the last object loaded and this is that, kept per vnum because two
+  // chests of the same kind in one zone must each get their own contents rather than sharing one.
+  const lastPlaced = new Map<number, EntityId>();
   for (const { template, room } of outcome.objects) {
     const located = world.locate(room);
     const origin = located && world.grid(located.place)?.roomOrigins.get(room);
     if (!located || !origin) continue;
     const centre = roomCentre(origin);
-    dropItem(ground, instantiate(template), {
+    const entry = dropItem(ground, instantiate(template), {
       roomId: room,
       place: located.place,
       x: tileCentre(centre.tx),
@@ -2978,6 +2985,27 @@ function placeResetObjects(outcome: { readonly objects: readonly { readonly temp
     });
     placed++;
     rooms.push(room);
+    lastPlaced.set(template.vnum, entry.id);
+  }
+
+  // **The `P` half, resolved here because this is where the identities are.** `reset.ts` hands back the
+  // container's vnum; the ground store is the only thing that knows which body on which floor that
+  // vnum most recently became.
+  for (const { template, container } of outcome.contents) {
+    const id = lastPlaced.get(container);
+    const entry = id === undefined ? undefined : ground.get(id);
+    if (!entry) continue;
+    const rule = entry.held?.rule ?? templateOf(entry.item)?.container;
+    if (!rule) continue;
+    const item = instantiate(template);
+    const held: Held = { rule, contents: entry.held?.contents ?? [] };
+    // The same refusals `put` applies, so a builder's chest cannot hold what a player could not put in
+    // it — a full one stays full, and a quiver still takes only arrows.
+    if (putRefusal(held, item, template.type, template.container !== undefined)) continue;
+    const { held: _was, ...rest } = entry;
+    ground.set(entry.id, { ...rest, held: { rule, contents: intoContents(held, item) } });
+    placed++;
+    rooms.push(entry.roomId);
   }
   // **Every room that received something, not just the first.** A repop scatters objects across a
   // whole zone, and syncing only `objects[0].room` left anyone standing in the other rooms unable to

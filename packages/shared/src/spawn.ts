@@ -223,3 +223,20 @@ export const ZONE_TICK_MS = 75_000;
 export function isExecutable(command: ResetCommand): boolean {
   return command.kind === 'mob' || command.kind === 'door';
 }
+
+/**
+ * Reset letters that now have an executor, for the boot report to count.
+ *
+ * `isExecutable` is the *fall-through* gate inside `runReset` — the kinds handled after the early
+ * returns — and it is deliberately not this list. `give`, `equip`, `object` and `put` are each handled
+ * and then `continue`, so they never reach it. Two names because they answer two questions, and
+ * collapsing them is how a report starts claiming a letter is unimplemented while it is running.
+ */
+export const IMPLEMENTED_RESET_KINDS: readonly ResetCommand['kind'][] = [
+  'mob',
+  'door',
+  'give',
+  'equip',
+  'object',
+  'put',
+];

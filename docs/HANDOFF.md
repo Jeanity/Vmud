@@ -135,10 +135,7 @@ and restarting is the whole of "installing" a zone.
 
 Quests, classes, races, skills, spells, grouping, shops, chat beyond room-scoped `say`.
 
-**`P` — put an object inside another object.** 329 commands, harvested, no executor. `O` has one now
-(see above); `P` is the harder half, because it needs the *instance* just placed rather than the type,
-so the executor has to hand back identities rather than intentions. It must not break the reset chain
-either: an unexecuted `P` between two `M`s is not a failure of either.
+**Every reset letter now has an executor.** `M`, `D`, `G`, `E`, `O` and `P` all run.
 
 **A mob's worn kit does not make it harder to hit.** Its combat profile is the harvested one 14b tuned
 against player capability, and folding worn armour in would quietly add several points of AC to every

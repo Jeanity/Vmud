@@ -658,3 +658,48 @@ describe('a mob in mail is harder to hit — 16c', () => {
     assert.equal(out.spawned[0]!.combat.armourClass, base + MAX_MOB_KIT_ARMOUR, 'sixteen points offered, eight allowed');
   });
 });
+
+describe('P puts things inside the things O put down', () => {
+  const chest: ItemTemplate = {
+    vnum: 92_001, keywords: ['chest'], name: 'a wooden chest', roomLine: 'A chest sits here.',
+    type: 15, ac: 0, size: 8, cost: 20, stackLimit: 1, container: { capacity: 20, accepts: 'any' },
+  };
+  const gem: ItemTemplate = {
+    vnum: 92_002, keywords: ['gem'], name: 'a green gem', roomLine: 'A gem lies here.',
+    type: 8, ac: 0, size: 1, cost: 500, stackLimit: 1,
+  };
+  const ITEMS2: ReadonlyMap<number, ItemTemplate> = new Map([[chest.vnum, chest], [gem.vnum, gem]]);
+  const object = (what: number, room: number): ResetCommand =>
+    ({ kind: 'object', ifPrevious: false, what, limit: 1, room: room as never, percent: 100 });
+  const put = (what: number, container: number): ResetCommand =>
+    ({ kind: 'put', ifPrevious: true, what, limit: 1, container, percent: 100 });
+
+  it('hands back the contents as intentions, naming the container by vnum', () => {
+    // `reset.ts` cannot name an instance — the ground store is not its business — so it reports the
+    // container's vnum and lets the caller match it against what it has just placed. The same split
+    // `objects` already makes, one level up.
+    const { sim, templates } = makeSim();
+    const clock = newZoneClock(spawnsFor([object(chest.vnum, 7000), put(gem.vnum, chest.vnum)]), rng());
+    const out = runReset(sim, clock, templates, ITEMS2, NO_OBJECTS, rng(), true);
+    assert.deepEqual(out.objects.map((o) => o.template.vnum), [chest.vnum]);
+    assert.deepEqual(out.contents.map((c) => [c.template.vnum, c.container]), [[gem.vnum, chest.vnum]]);
+  });
+
+  it('refuses a container inside a container, wherever it is attempted', () => {
+    // §4's depth rule is not only `put`'s. A zone file is authored by hand and this is the same refusal
+    // `putRefusal` gives a player — a builder gets no exemption from a rule the game enforces.
+    const { sim, templates } = makeSim();
+    const clock = newZoneClock(spawnsFor([object(chest.vnum, 7000), put(chest.vnum, chest.vnum)]), rng());
+    const out = runReset(sim, clock, templates, ITEMS2, NO_OBJECTS, rng(), true);
+    assert.deepEqual(out.contents, []);
+  });
+
+  it('honours the world-wide instance limit, exactly as O does', () => {
+    // Without this a chest gains another gem every repop and a zone left running overnight is a vault.
+    const { sim, templates } = makeSim();
+    const clock = newZoneClock(spawnsFor([object(chest.vnum, 7000), put(gem.vnum, chest.vnum)]), rng());
+    const out = runReset(sim, clock, templates, ITEMS2, (vnum) => (vnum === gem.vnum ? 1 : 0), rng(), true);
+    assert.deepEqual(out.contents, [], 'the one gem in the world is already somewhere');
+    assert.ok(out.atLimit >= 1);
+  });
+});

@@ -77,6 +77,15 @@ export interface ResetOutcome {
    * caller decides where in the room it lands.
    */
   readonly objects: readonly { readonly template: ItemTemplate; readonly room: RoomId }[];
+  /**
+   * Objects a `P` command wants **inside another object** — intentions again, and for a harder reason
+   * than `O`'s.
+   *
+   * `O` needs a room, which this file has. `P` needs the *particular container instance* just placed,
+   * which lives in a store this file has no reference to. So it hands back the container's **vnum** and
+   * lets the caller match it against the objects it has just put down — the same split, one level up.
+   */
+  readonly contents: readonly { readonly template: ItemTemplate; readonly container: number }[];
 }
 
 /**
@@ -160,6 +169,7 @@ export function runReset(
   let atLimit = 0;
   let kitted = 0;
   const objects: { template: ItemTemplate; room: RoomId }[] = [];
+  const contents: { template: ItemTemplate; container: number }[] = [];
   const placedThisPass = new Map<number, number>();
   let doors = 0;
 
@@ -243,6 +253,34 @@ export function runReset(
       continue;
     }
 
+    // ---- `P`: put an object inside another object ----
+    //
+    // **The chain is the whole mechanic.** A `P` follows the `O` that placed its container, and Duris
+    // resolves it against the last object loaded — which is why this hands the caller a vnum rather
+    // than trying to name an instance it cannot see. The limit is `O`'s, counted the same way and from
+    // the same census, so a chest's contents cannot silt up either.
+    if (command.kind === 'put') {
+      if (command.container === undefined) continue;
+      const template = items.get(command.what);
+      if (!template) continue;
+      // §4's depth rule, enforced here as well as in `put`: a container inside a container is refused
+      // wherever it is attempted, including by a builder's zone file.
+      if (template.container) {
+        lastSucceeded = false;
+        continue;
+      }
+      const already = census(command.what) + (placedThisPass.get(command.what) ?? 0);
+      if (already >= Math.max(1, command.limit)) {
+        atLimit++;
+        lastSucceeded = false;
+        continue;
+      }
+      contents.push({ template, container: command.container });
+      placedThisPass.set(command.what, (placedThisPass.get(command.what) ?? 0) + 1);
+      lastSucceeded = true;
+      continue;
+    }
+
     if (!isExecutable(command)) {
       // Parsed and carried, with no executor yet. `P` — put an object inside another object — still
       // waits, and on a harder problem than `O`'s: it needs the *instance* just placed rather than the
@@ -300,7 +338,7 @@ export function runReset(
 
   clock.age = 0;
   clock.lifespan = rollLifespan(clock.spawns, rng);
-  return { zone: clock.spawns.zone, spawned, atLimit, doors, kitted, objects };
+  return { zone: clock.spawns.zone, spawned, atLimit, doors, kitted, objects, contents };
 }
 
 /**
