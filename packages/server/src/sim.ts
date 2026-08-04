@@ -1888,6 +1888,40 @@ function facingOf(dx: number, dy: number, previous: Direction): Direction {
  * armour value has no business riding along on a heartbeat.
  */
 function bagViewOf(player: Player): BagView {
+  /**
+   * Folds identical rows together **for display only** — owner's ask (2026-08-04): *"instead of seeing
+   * a shard of silver 4 times it should just say a shard of silver x4… if they use a slot each then it
+   * can say 4 slots."*
+   *
+   * **This is not §3's stacking and must not be confused with it.** A `Stack` is items sharing one
+   * slot, which only things with a `stackLimit` do; four shards of silver are four separate stacks
+   * costing four slots, and that is correct — the bag really is that full. What was wrong was printing
+   * the same line four times. So count *and* slots are summed: the row says four of these, costing
+   * four slots, which is true of the bag and readable at a glance.
+   *
+   * Keyed on everything that makes two rows the same thing. Charges are in the key because §3 already
+   * refuses to merge a part-used potion into a stack of full ones, and a listing that merged them would
+   * claim four full bottles when one is nearly empty. A container holding anything never folds: its
+   * contents are what distinguish it, and two quivers of different arrows are two quivers.
+   */
+  const fold = (rows: readonly BagRow[]): BagRow[] => {
+    const out: BagRow[] = [];
+    const at = new Map<string, number>();
+    for (const row of rows) {
+      const foldable = row.contents === undefined;
+      const key = `${row.name} ${row.remaining ?? ''} ${row.holds?.join('/') ?? ''}`;
+      const seen = foldable ? at.get(key) : undefined;
+      if (seen === undefined) {
+        if (foldable) at.set(key, out.length);
+        out.push(row);
+        continue;
+      }
+      const first = out[seen]!;
+      out[seen] = { ...first, count: (first.count ?? 1) + (row.count ?? 1), slots: first.slots + row.slots };
+    }
+    return out;
+  };
+
   const rowOf = (stack: Stack, rule?: ContainerRule): BagRow => ({
     name: stack.item.name,
     ...(stack.count > 1 ? { count: stack.count } : {}),
@@ -1897,13 +1931,13 @@ function bagViewOf(player: Player): BagView {
     slots: stackSlots(stack, limitOf(stack.item)),
     ...(rule ? { holds: [usedInside({ rule, contents: stack.held?.contents ?? [] }), rule.capacity] as const } : {}),
     ...(stack.held && stack.held.contents.length > 0
-      ? { contents: stack.held.contents.map((inside) => rowOf(inside)) }
+      ? { contents: fold(stack.held.contents.map((inside) => rowOf(inside))) }
       : {}),
   });
 
   const purse = Object.fromEntries(Object.entries(player.purse).filter(([, n]) => n > 0));
   return {
-    rows: player.inventory.stacks.map((stack) => rowOf(stack, stack.held?.rule)),
+    rows: fold(player.inventory.stacks.map((stack) => rowOf(stack, stack.held?.rule))),
     used: slotsUsed(player.inventory),
     capacity: player.inventory.capacity,
     ...(Object.keys(purse).length > 0 ? { purse } : {}),

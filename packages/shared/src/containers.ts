@@ -201,11 +201,34 @@ export function purseIsEmpty(purse: Purse): boolean {
  * buries the one number that matters. Thousands are separated: five figures of gold is otherwise
  * unreadable, and the catalogue has piles of fifteen thousand.
  */
+export const COIN_COLOUR: Readonly<Record<Currency, string>> = {
+  platinum: '&+W', // bright white — the coldest and brightest of the four
+  gold: '&+Y',
+  silver: '&+w', // plain white rather than bright, so it reads under platinum
+  copper: '&+y', // dark yellow, which is the palette's nearest to a warm brown
+};
+
+/**
+ * How a purse reads.
+ *
+ * **Richest first and zeroes omitted**, because a line reading "0 copper, 0 silver, 3 gold, 0 platinum"
+ * buries the one number that matters. Thousands are separated: five figures of gold is otherwise
+ * unreadable, and the catalogue has piles of fifteen thousand.
+ *
+ * **Each metal in its own colour** (owner, 2026-08-04), in the MUD's own `&+` notation rather than in
+ * anything this module invents — so the one function serves the log, the character sheet's drawer and
+ * anything later, and all three get it from here. `&N` closes each run: an unterminated code bleeds
+ * into whatever the caller appends, which is how a colour bug becomes somebody else's line.
+ *
+ * The four are chosen to stay apart at a glance, which is the whole job: platinum bright white, gold
+ * bright yellow, silver plain white so it sits *under* platinum rather than beside it, and copper the
+ * palette's dark yellow, its nearest thing to a warm brown.
+ */
 export function describePurse(purse: Purse): string {
   const parts: string[] = [];
   for (const kind of [...CURRENCIES].reverse()) {
     const n = purse[kind] ?? 0;
-    if (n > 0) parts.push(`${n.toLocaleString('en-GB')} ${kind}`);
+    if (n > 0) parts.push(`${COIN_COLOUR[kind]}${n.toLocaleString('en-GB')} ${kind}&N`);
   }
   return parts.length > 0 ? parts.join(', ') : 'no coin';
 }

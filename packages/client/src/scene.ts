@@ -38,6 +38,7 @@ import {
   type Zone,
   stripColour,
   EQUIP_SLOTS,
+  describePurse,
   type BagRow,
   type BagView,
 } from '@mygame/shared';
@@ -1250,15 +1251,18 @@ export class WorldScene extends Phaser.Scene {
     if (bag.purse) panel.append(this.purseLine(bag.purse));
   }
 
-  /** Coin, in the order `DESIGN-inventory.md` §8 reads it — the largest metal first. */
+  /**
+   * Coin, richest metal first and **each in its own colour**.
+   *
+   * Built through `describePurse` rather than formatted here, so the drawer and the game's own log
+   * cannot come to write a purse two different ways — the same argument the bag's row shape makes
+   * against the `inventory` command. The colours are the MUD's `&+` codes, so they go through
+   * `parseColour` exactly as a builder's item name does and the palette stays in one place.
+   */
   private purseLine(purse: Readonly<Record<string, number>>): HTMLElement {
     const node = document.createElement('div');
     node.className = 'bag-purse';
-    const order = ['platinum', 'gold', 'silver', 'copper'];
-    node.textContent = order
-      .filter((metal) => (purse[metal] ?? 0) > 0)
-      .map((metal) => `${purse[metal]} ${metal}`)
-      .join(', ');
+    paint(node, describePurse(purse));
     return node;
   }
 

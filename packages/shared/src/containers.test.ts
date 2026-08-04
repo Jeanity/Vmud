@@ -24,6 +24,7 @@ import {
   usedInside,
   type Held,
 } from './containers.ts';
+import { stripColour } from './colour.ts';
 import type { Item } from './equipment.ts';
 import { DURIS_ITEM } from './items.ts';
 import type { Stack } from './stacks.ts';
@@ -137,10 +138,24 @@ describe('coin — all four of Duris currencies', () => {
   });
 
   it('reads richest first, omitting what you do not have', () => {
-    // "0 copper, 0 silver, 3 gold, 0 platinum" buries the one number that matters.
-    assert.equal(describePurse({ copper: 5, gold: 3 }), '3 gold, 5 copper');
-    assert.equal(describePurse({ platinum: 7500, gold: 15000 }), '7,500 platinum, 15,000 gold');
-    assert.equal(describePurse({}), 'no coin');
+    // "0 copper, 0 silver, 3 gold, 0 platinum" buries the one number that matters. Asserted with the
+    // colour stripped, because the words are this test's subject and the palette is the next one's.
+    assert.equal(stripColour(describePurse({ copper: 5, gold: 3 })), '3 gold, 5 copper');
+    assert.equal(stripColour(describePurse({ platinum: 7500, gold: 15000 })), '7,500 platinum, 15,000 gold');
+    assert.equal(describePurse({}), 'no coin', 'and an empty purse carries no codes at all');
+  });
+
+  it('gives each metal its own colour, and closes every run', () => {
+    // Owner's ask (2026-08-04). In the MUD's own notation so the log and the character sheet's drawer
+    // get it from this one function — two places formatting a purse is two places to disagree.
+    // **`&N` after each**: an unterminated code bleeds into whatever the caller appends next, which is
+    // how a colour bug becomes somebody else's line.
+    const line = describePurse({ platinum: 1, gold: 2, silver: 3, copper: 4 });
+    assert.match(line, /&\+W1 platinum&N/);
+    assert.match(line, /&\+Y2 gold&N/);
+    assert.match(line, /&\+w3 silver&N/);
+    assert.match(line, /&\+y4 copper&N/);
+    assert.equal(line.split('&N').length - 1, 4, 'one close per metal');
   });
 });
 
