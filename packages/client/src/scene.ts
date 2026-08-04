@@ -2691,9 +2691,13 @@ export class WorldScene extends Phaser.Scene {
     //
     // The container's origin is the character's feet (`LPC_FOOT_OFFSET` lifts the art off it), so local
     // (0, 0) *is* the ground the boots are standing on. No offset to keep in step with the sprite scale.
+    // **Not at local y 0, despite that being the container's own origin.** An LPC frame is 64 tall with
+    // the figure standing near its last row, so with the art hung at `LPC_FOOT_OFFSET` the boots land
+    // around y +8 — a ring on the origin cuts the character across the thighs. This is the one place
+    // that wants where the boots *are* rather than where the entity is said to be.
     const footprint = isItem || !isSelf
       ? undefined
-      : this.add.ellipse(0, 1, 26, 10, 0xffe9a8, 0.1).setStrokeStyle(1.5, 0xffe9a8, 0.8);
+      : this.add.ellipse(0, 8, 26, 10, 0xffe9a8, 0.1).setStrokeStyle(1.5, 0xffe9a8, 0.8);
 
     // A health bar for every body that is not you: a dark trough with a filled bar over it, both
     // origin-left so the fill shrinks from the right rather than from its middle. Drawn above the head
@@ -2715,14 +2719,14 @@ export class WorldScene extends Phaser.Scene {
       })
       .setOrigin(0.5, 0);
 
-    const parts: Phaser.GameObjects.GameObject[] = [...layers];
-    // **Over the body, not under it.** Under looked right in principle — the boots standing *on* the
-    // ring — and was wrong on screen: the LPC figure is wider than the ring is deep, so the legs covered
-    // everything but a sliver at each end. Owner's report (2026-08-04): *"the ring is behind the player
-    // so not very visible."* Drawn over instead, with the fill kept at a tenth so the boots still read
-    // through it and only the stroke actually marks the ground. This is the ordinary selection-ring look
-    // and it survives standing on any floor colour.
-    if (footprint) parts.push(footprint);
+    // **Behind the body, and it took two goes to land there.** Under it first, on the container origin:
+    // the legs covered all but a sliver at each end, because the ring sat at the figure's *thighs* rather
+    // than its feet — the origin is where the entity is, `LPC_FOOT_OFFSET` is where the art hangs, and the
+    // boots are neither. Over it next, which showed the whole ellipse and drew a line straight across the
+    // character. Owner's call (2026-08-04): behind, and lower. Dropped to the boot line it now reads as a
+    // ring the character is standing *in* — the near arc in front of the feet, the far arc hidden by them,
+    // which is the only arrangement of the two that looks like ground rather than paint.
+    const parts: Phaser.GameObjects.GameObject[] = footprint ? [footprint, ...layers] : [...layers];
     if (trough && health) parts.push(trough, health);
     parts.push(label);
     const container = this.add
