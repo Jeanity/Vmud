@@ -275,3 +275,119 @@ numbers that modify nothing would be ceremony. They land with the first thing th
 **Classes and races.** Duris' hit points multiply by both. Until there is a class system, one curve
 serves everybody, and the curve above is deliberately the shape a class system would later scale
 rather than replace.
+
+## 8. Phase 16: damage that rises with level — settled 2026-08-04
+
+Owner's ask (2026-08-03): *"a level 50 should be able to kill a lvl 10 in a hit or 2 even without any
+equipment… so maybe a +damage per level gained with a randomness to it… we will need to work on the
+math so higher levels are still challenged though."*
+
+### This is a divergence from Duris, and it is the second one taken on purpose
+
+Duris has **no per-level damage bonus.** Its melee damage is weapon dice plus `damroll` from gear,
+scaled by multipliers; `specials.damage_mod` looks like the missing level term and is not — it is
+`combat_by_race[race][1]`, a *race* multiplier scaled by zone difficulty. §2 above already found the
+same thing from the other end: `advance_level` grants a startlingly flat gain, because in the real MUD
+**high-level power lives in equipment**.
+
+So a per-level bonus is ours, like the threat table in `DESIGN-mobs-and-movement.md` §2.7. The
+justification is the owner's own test, and it is a test about *level* rather than about kit: an
+unequipped level 50 should flatten a level 10. Nothing that lives in gear can answer that.
+
+### What the world actually demands
+
+Measured over the shipped world's mob templates — median hit points and armour class per level, and
+what a 2d6 weapon at that level currently does against them:
+
+| Level | Median hp | Median AC | Rounds to kill, today | Flat bonus a 7-round fight needs |
+| --- | --- | --- | --- | --- |
+| 1 | 12 | 1 | 1.7 | — |
+| 5 | 57 | 2 | 8.1 | +1 |
+| 10 | 130 | 3 | 18.6 | +12 |
+| 15 | 203 | 5 | 28.9 | +23 |
+| 20 | 500 | 7 | 71.4 | +68 |
+| 30 | 1,170 | 10 | 167 | +169 |
+| 40 | 2,660 | 12 | 380 | +393 |
+| 50 | 5,175 | 20 | 739 | +771 |
+| 60 | 10,005 | 22 | 1,429 | +1,497 |
+
+### The number that decides the design: +771
+
+**A bonus large enough to make a level-50 same-level fight last seven rounds would make gear
+irrelevant.** At +771 the weapon's seven average damage is **0.9% of a swing** — and Phase 16 is the
+gear phase. Sizing the bands to close the whole gap would spend this phase destroying its own subject.
+
+The owner had already supplied the way out (2026-08-03): *"the slog fights would be offset by teaming
+up along with other modifiers such as buffs."* That is right, and Duris agrees in its own formula
+(`fight.c:4681`):
+
+```c
+dam = (base + BOUNDEDF(-100, added, 100)) * BOUNDEDF(0.05, increased, 4.0) * BOUNDEDF(0.1, more, 2.0);
+```
+
+The *added* term — the flat one, the kind a level bonus is — is bounded at **±100**. Everything past
+that is **multiplicative**, and multipliers come from skills, buffs and numbers. So the flat lever is
+small by design in the source too, and the closing factor at high level is not a bigger flat bonus. It
+is Phase 19's skills, Phase 20's buffs, and a group.
+
+### The bands
+
+Rolled per level within its band and **accumulated**, so the bonus is a running total:
+
+| Levels | Per level | Total by the top of the band |
+| --- | --- | --- |
+| 1–5 | nothing | 0 |
+| 6–15 | 2–3 | ~25 |
+| 16–20 | 8–10 | ~70 |
+| 21–60 | 3–5 | ~230 |
+
+**Nothing below level 6**, because 14b already calibrated the newbie band and it is correct: a level-5
+fight is 8.1 rounds today, and any bonus there drops it under the target. This phase must not re-tune
+what 14b got right.
+
+**The 16–20 spike is the world's, not ours.** Median mob hit points go 203 → 500 between level 15 and
+20 — a 2.5× jump in five levels, the sharpest in the game. A smooth curve through it would leave
+level 20 at fourteen rounds. The band tracks the content.
+
+What it produces:
+
+| Level | Bonus | Rounds vs a same-level mob |
+| --- | --- | --- |
+| 5 | 0 | 8.1 |
+| 10 | +13 | 6.7 |
+| 15 | +25 | 6.6 |
+| 20 | +70 | 6.8 |
+| 25 | +90 | 7.6 |
+| 30 | +110 | 10.5 |
+| 40 | +150 | 17.8 |
+| 50 | +190 | 27.6 |
+| 60 | +230 | 44.4 |
+
+**The six-to-eight target now holds to level 25** — 14b's honest band was 1–15, so this phase roughly
+doubles it. Above 25 fights lengthen, deliberately and visibly, and that is the same posture 14b took
+when it calibrated 1–15 and left the rest unfinished rather than inventing a fake curve.
+
+And the owner's test passes on its own terms: an **unequipped level 50 kills a level 10 in 0.69
+rounds** — one blow — and a level 30 in 1.17. A level 10 attacking a level 50 needs 778 rounds, which
+is the "level 200 bunny" asymmetry arriving for free.
+
+### Rolled once and stored, not per swing
+
+The roadmap asked whether the per-level roll is a progression mechanic or a variance one. **Once, at
+the level-up, stored on the record** — the same rule hit points and the starter kit follow, for the
+same two reasons: a character's damage is then a *fact about them* rather than noise, and a value
+rolled at login is a value a player rerolls by reconnecting.
+
+### Still open, and it belongs to this phase
+
+**A mob's worn gear does not count toward its armour class.** 15c left that deliberately —
+`reset.ts` says why — and it must be decided in this same pass rather than tuned around, or the
+tuning is done twice. Every number above assumes mob AC as harvested.
+
+### Left on the floor, and worth picking up here
+
+The `.obj` parser already reads Duris' `A <location> <modifier>` affect blocks into `RawObject.affects`,
+and **`toTemplate` drops every one**. Measured: `APPLY_HITROLL` on 3,207 objects, `APPLY_DAMROLL` on
+3,187 (median +2, p90 +4, max +100) and `APPLY_HIT` on 2,458 (median +15). That is the whole of Duris'
+gear-side power curve sitting parsed and discarded — and it is what makes a level-40 sword better than
+a level-10 one by something other than its dice.
