@@ -1792,6 +1792,15 @@ function runFlee(actor: Actor): FleeOutcome {
       markPursuers(actor, outcome.changed);
       // Fleeing is an escape, not a reposition: a player who runs gives up any chase of their own.
       if (self) self.pursuing = undefined;
+      // Both pointers a player holds just moved — `fighting` was cleared by the escape and `pursuing`
+      // was set by `markPursuers` — and both feed `SelfView.target`. Sent last so it reflects the
+      // clear above rather than racing it, and to everyone the flight touched rather than the fleer
+      // alone: the chevron has to come off a body that is no longer there in the same beat the prose
+      // says it ran.
+      for (const other of outcome.changed) {
+        if (isPlayer(other)) send(other.id, { t: 'self', view: sim.selfViewOf(other) });
+      }
+      if (self) send(self.id, { t: 'self', view: sim.selfViewOf(self) });
       break;
     }
   }
@@ -2828,6 +2837,13 @@ function startFight(player: Player, id: EntityId): void {
   send(player.id, { t: 'log', channel: 'combat', text: `You attack ${target.name}!` });
   actToRoom(player, 'combat', (who) => `${who} attacks ${target.name}!`);
   syncEntityState(player);
+  // **The target goes out with the swing, not with the first blow.** `SelfView.target` is what the
+  // client's chevron is drawn from, and `syncEntityState` carries the *entity* diff, not this. Without
+  // this line the only `self` a fight produced was the one the damage sent on the round boundary, so
+  // the marker appeared up to a full round after the attack — owner's report (2026-08-04): "it takes a
+  // round of combat to appear. it should appear instantly." Pointing at something is the player's own
+  // act and lands on their own screen immediately.
+  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
 }
 
 /**

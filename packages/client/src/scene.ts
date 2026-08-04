@@ -1215,14 +1215,15 @@ export class WorldScene extends Phaser.Scene {
    */
   private setTarget(id: EntityId | undefined): void {
     this.markerId = id;
-    const entity = id === undefined ? undefined : this.entities.get(id);
-    if (!entity) {
-      this.marker?.setVisible(false);
-      return;
-    }
     if (!this.marker) {
       // A downward chevron rather than a ring: it sits *above* the body without covering it, and it
       // reads at this sprite scale where a reticle turns into a smudge.
+      //
+      // **Built before the body is looked up**, not after. It used to be created inside the branch
+      // that had an entity in hand, so the first target a player ever pointed at from outside the
+      // room — the quarry they are chasing — created nothing, and `update` had no object to show when
+      // that body finally walked into view. A chevron that only exists once it has been seen cannot
+      // be the thing that tells you where your quarry went.
       const g = this.add.graphics();
       g.fillStyle(0xe0c46a, 1);
       g.fillTriangle(-5, -5, 5, -5, 0, 3);
@@ -1230,6 +1231,11 @@ export class WorldScene extends Phaser.Scene {
       g.strokeTriangle(-5, -5, 5, -5, 0, 3);
       g.setDepth(DEPTH_MARKER);
       this.marker = g;
+    }
+    const entity = id === undefined ? undefined : this.entities.get(id);
+    if (!entity) {
+      this.marker.setVisible(false);
+      return;
     }
     this.marker.setVisible(true);
     this.marker.setPosition(Math.round(entity.x), Math.round(entity.y) - MARKER_HEIGHT);
@@ -2764,6 +2770,11 @@ export class WorldScene extends Phaser.Scene {
   private disposeEntity(entity: Entity): void {
     entity.idle?.remove();
     this.forgetFollow(entity.container);
+    // The chevron is positioned in world space rather than parented to the body, so destroying the
+    // body leaves it hanging over empty floor. Hidden rather than cleared: `markerId` is still the
+    // right answer — the quarry exists, it is simply somewhere this client cannot see — and `update`
+    // brings it back the moment that body is rendered again.
+    if (this.markerId === entity.view.id) this.marker?.setVisible(false);
     entity.container.destroy(true);
   }
 
@@ -3035,8 +3046,13 @@ export class WorldScene extends Phaser.Scene {
       // you are focused on, and know when that changed. Positioned here rather than parented to the
       // entity's container so it is never scaled or flipped by the sprite's own transforms — an arrow
       // that mirrors when the body turns west reads as a bug.
+      //
+      // Shown here as well as moved, because a target can *arrive*: follow a mob that fled and the
+      // pointer at it outlives the room it left, so the frame the body reappears in is the frame the
+      // chevron has to come back. `setTarget` cannot do that job — it fires on the `self` message,
+      // which can land before the entity does.
       if (this.marker && this.markerId === entity.view.id) {
-        this.marker.setPosition(Math.round(entity.x), Math.round(entity.y) - MARKER_HEIGHT);
+        this.marker.setPosition(Math.round(entity.x), Math.round(entity.y) - MARKER_HEIGHT).setVisible(true);
       }
     }
 
