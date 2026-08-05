@@ -131,9 +131,15 @@ describe('COMMAND_REQUIREMENTS', () => {
     // `sleep` passes the gate and is then refused by its own handler with "you are already fast
     // asleep", which is how `do_sleep` reads too — the gate is about the body, not about whether the
     // action is redundant.
+    // The four shop verbs are here for a reason that is not laziness: `interp.c` registers them with
+    // `CMD_TRIG`, the macro for *"reserved keywords that don't DO anything, but are used to trigger
+    // specials"*, which sets `minimum_position = STAT_DEAD + POS_PRONE` on every one. The table
+    // genuinely imposes nothing — the shopkeeper's own routine is the gate, and `keeperFor` in
+    // `index.ts` is where ours lives ("you will have to be awake and on your feet"). Transcribed
+    // rather than tidied, because moving the check into this table would put it a layer too low.
     const asleep = { posture: 'prone', status: 'sleeping' } as const;
     const allowed = COMMANDS.filter((c) => meets(asleep, COMMAND_REQUIREMENTS[c]));
-    assert.deepEqual([...allowed].sort(), ['affects', 'help', 'sleep', 'stop', 'wake', 'who']);
+    assert.deepEqual([...allowed].sort(), ['affects', 'buy', 'help', 'list', 'sell', 'sleep', 'stop', 'value', 'wake', 'who']);
   });
 
   it('lets someone flat on their back look and talk', () => {

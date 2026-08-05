@@ -96,6 +96,16 @@ export const COMMANDS = [
   // 15c, and it costs no prefix anybody was using: `w` is west and `wea` is wear, both above, so
   // `wie` is the shortest thing that reaches this — which is what Diku gives it as well.
   'wield',
+  // Phase 17. Four appended, and each lands where a Diku player's fingers already are — which falls
+  // out of what is above rather than being arranged:
+  //   `b`   → buy       (nothing above starts with b)
+  //   `li`  → list      (`l` and `lo` stay look, which is the most-used command in the game)
+  //   `se`  → sell      (south, say, sit, sleep, stand and stop are all above; none is `se`)
+  //   `v`   → value     (nothing above starts with v)
+  'buy',
+  'list',
+  'sell',
+  'value',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -243,6 +253,22 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // read `interp.c` for exactly this), so a two-hander displacing a shield in combat is a thing the
   // player could have done in two commands anyway.
   wield: { status: 'resting', posture: 'prone' },
+
+  // Phase 17, and the transcription is more interesting than it looks. All four are `CMD_TRIG` in
+  // `interp.c`, which is the macro for *"reserved keywords that don't DO anything, but are used to
+  // trigger specials"* — their default handler is `do_not_here` and the shopkeeper's own routine is
+  // what intercepts them. That macro sets `minimum_position = STAT_DEAD + POS_PRONE` and
+  // `in_battle = TRUE` on every one, so the **command table imposes nothing at all**: it is the
+  // keeper who refuses, not the parser.
+  //
+  // Followed rather than tidied. The temptation is to write `inCombat: false` because shopping
+  // mid-swing sounds absurd — but that would be inventing a rule at the wrong layer, and the right
+  // one is a keeper declining to serve somebody who is fighting *it*, which is a fact about the
+  // keeper and lives in `shops.ts`.
+  buy: { status: 'dead', posture: 'prone' },
+  list: { status: 'dead', posture: 'prone' },
+  sell: { status: 'dead', posture: 'prone' },
+  value: { status: 'dead', posture: 'prone' },
 };
 
 /* -------------------------------------------------------------------------- */

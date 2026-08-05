@@ -194,6 +194,80 @@ export function purseIsEmpty(purse: Purse): boolean {
   return CURRENCIES.every((kind) => !purse[kind]);
 }
 
+/* -------------------------------------------------------------------------- */
+/* What coins are worth — Phase 17                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Duris' own ladder, from `utils.h`:
+ *
+ * ```c
+ * #define GET_MONEY(ch) ((ch)->points.cash[0] + 10 * cash[1] + 100 * cash[2] + 1000 * cash[3])
+ * ```
+ *
+ * Copper is the unit, and **an item's `cost` is in copper** — which is why the admin panel has been
+ * printing `63185c` on the catalogue since 15c without anybody having to decide what the `c` meant.
+ *
+ * Decimal, so re-denominating a purse is exactly lossless: any number of copper is one arrangement of
+ * these four and back again. That is what lets {@link spendCoins} take payment out of a mixed purse
+ * without inventing a rule about which coins a shopkeeper prefers.
+ */
+export const COIN_VALUE: Readonly<Record<Currency, number>> = {
+  copper: 1,
+  silver: 10,
+  gold: 100,
+  platinum: 1000,
+};
+
+/** What a purse is worth, in copper. */
+export function purseValue(purse: Purse): number {
+  let total = 0;
+  for (const kind of CURRENCIES) {
+    const n = purse[kind];
+    if (Number.isFinite(n) && (n ?? 0) > 0) total += Math.floor(n!) * COIN_VALUE[kind];
+  }
+  return total;
+}
+
+/**
+ * A number of copper, expressed in the fewest coins.
+ *
+ * Largest denomination first, which is both what a person would hand over and what keeps a purse
+ * readable — a thousand copper is one platinum, not a line of four figures.
+ */
+export function purseFromValue(copper: number): Purse {
+  let left = Number.isFinite(copper) && copper > 0 ? Math.floor(copper) : 0;
+  const out: Record<string, number> = {};
+  // Richest first; `CURRENCIES` is ordered cheapest-first, so this walks it backwards.
+  for (const kind of [...CURRENCIES].reverse()) {
+    const worth = COIN_VALUE[kind];
+    const n = Math.floor(left / worth);
+    if (n > 0) {
+      out[kind] = n;
+      left -= n * worth;
+    }
+  }
+  return out;
+}
+
+/**
+ * Takes a price out of a purse, or nothing at all if it will not cover it.
+ *
+ * **The whole purse is re-denominated**, which is the honest model of paying: you hand over coins and
+ * take change, so the mix you walk away with is the change's and not the one you arrived with. The
+ * decimal ladder makes that lossless, so nobody is quietly charged a rounding error for breaking a
+ * platinum piece.
+ *
+ * `undefined` for "cannot afford" rather than a clamped purse — a caller that ignored a partial
+ * payment would hand over the goods for whatever happened to be in the pocket.
+ */
+export function spendCoins(purse: Purse, copper: number): Purse | undefined {
+  const price = Number.isFinite(copper) && copper > 0 ? Math.floor(copper) : 0;
+  const have = purseValue(purse);
+  if (have < price) return undefined;
+  return purseFromValue(have - price);
+}
+
 /**
  * How a purse reads.
  *

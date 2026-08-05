@@ -17,6 +17,9 @@ import {
   containerBulk,
   describePurse,
   purseIsEmpty,
+  purseValue,
+  purseFromValue,
+  spendCoins,
   describeContainer,
   freeInside,
   isMoney,
@@ -226,5 +229,49 @@ describe('splitting coin loses none of it', () => {
   it('never pays anyone a negative amount, however odd the weights', () => {
     for (const cut of apportion(7, [-5, 3, 2])) assert.ok(cut >= 0, `${cut} is not negative`);
     assert.equal(sum(apportion(7, [-5, 3, 2])), 7);
+  });
+});
+
+describe('what coins are worth — Phase 17', () => {
+  it('uses Duris’ own ladder', () => {
+    // `utils.h`: GET_MONEY = cash[0] + 10*cash[1] + 100*cash[2] + 1000*cash[3].
+    assert.equal(purseValue({ copper: 1 }), 1);
+    assert.equal(purseValue({ silver: 1 }), 10);
+    assert.equal(purseValue({ gold: 1 }), 100);
+    assert.equal(purseValue({ platinum: 1 }), 1000);
+    assert.equal(purseValue({ copper: 5, silver: 4, gold: 3, platinum: 2 }), 5 + 40 + 300 + 2000);
+  });
+
+  it('round-trips any amount exactly, which is what makes paying lossless', () => {
+    // The ladder is decimal, so re-denominating cannot lose a coin — and that is the property
+    // `spendCoins` leans on when it takes payment out of a mixed purse and hands back change.
+    for (const n of [0, 1, 9, 10, 99, 100, 999, 1000, 1001, 63185, 1234567]) {
+      assert.equal(purseValue(purseFromValue(n)), n, `${n} did not survive`);
+    }
+  });
+
+  it('makes change in the fewest coins, richest first', () => {
+    assert.deepEqual(purseFromValue(1234), { platinum: 1, gold: 2, silver: 3, copper: 4 });
+    assert.deepEqual(purseFromValue(1000), { platinum: 1 }, 'and does not leave a thousand copper');
+    assert.deepEqual(purseFromValue(0), {});
+  });
+
+  it('refuses a payment it cannot cover rather than part-paying', () => {
+    // `undefined`, not a clamped purse: a caller that ignored a partial payment would hand over the
+    // goods for whatever happened to be in the pocket.
+    assert.equal(spendCoins({ copper: 5 }, 6), undefined);
+    assert.deepEqual(spendCoins({ copper: 5 }, 5), {});
+  });
+
+  it('breaks a large coin to pay a small price', () => {
+    // The case the re-denomination exists for: one platinum and a one-copper price. Nobody is
+    // charged a rounding error for not having exact change.
+    assert.deepEqual(spendCoins({ platinum: 1 }, 1), { gold: 9, silver: 9, copper: 9 });
+    assert.equal(purseValue(spendCoins({ platinum: 1 }, 1)!), 999);
+  });
+
+  it('treats a corrupt purse as empty rather than as debt', () => {
+    assert.equal(purseValue({ copper: -5 } as never), 0);
+    assert.equal(purseValue({ gold: Number.NaN } as never), 0);
   });
 });

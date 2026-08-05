@@ -63,6 +63,9 @@ import {
   carryStack,
   describeContainer,
   describePurse,
+  purseFromValue,
+  spendCoins,
+  stripColour,
   instantiate,
   roomCentre,
   tileCentre,
@@ -77,6 +80,7 @@ import {
   stackOf,
   type Held,
   isMoney,
+  coinsOf,
   purseIsEmpty,
   vnumOf,
   wordsFromName,
@@ -125,6 +129,15 @@ import { bitsToBase64, bitsetToSet } from '@mygame/shared/vision.ts';
 import { UNSEEN_NAME, actLines } from './act.ts';
 import { AdminApi, serveAdmin, type LiveOps } from './admin.ts';
 import { artIdFromPath, artSheetPath } from './art.ts';
+import {
+  findInStock,
+  loadShops,
+  priceToBuy,
+  priceToSell,
+  stockOf,
+  willBuy,
+  type Shop,
+} from './shops.ts';
 import {
   COMMANDS,
   COMMAND_REQUIREMENTS,
@@ -213,7 +226,7 @@ import {
   type NoticeEvent,
 } from './perception.ts';
 import { advanceZones, newZoneClock, runReset, type ZoneClock } from './reset.ts';
-import { Simulation, isMob, isPlayer, type Actor, type AffectEvent, type Player } from './sim.ts';
+import { Simulation, isMob, isPlayer, type Actor, type AffectEvent, type Mob, type Player } from './sim.ts';
 import { indexTemplates, loadItemCatalogue, loadZoneSpawns } from './spawns.ts';
 import {
   ITEMS_FILE,
@@ -297,6 +310,10 @@ const mobTemplates = indexTemplates(loadedSpawns);
  * is no per-zone answer to "what is object 91000".
  */
 const itemCatalogue = loadItemCatalogue();
+
+// Phase 17. Keyed by keeper mob vnum — a shopkeeper is a mob vnum and nothing else, so this map is
+// the whole of "is the thing in front of me a merchant". Empty when the harvest has not been run.
+const shopsByKeeper = loadShops();
 
 /**
  * A6: the authored overlay, composed over the harvest — and the pristine copies that make a revert
@@ -2912,6 +2929,12 @@ function runCommand(player: Player, line: string): void {
     case 'wield': return wieldFromBag(player, rest);
     case 'remove': return removeWorn(player, rest);
     case 'inventory': return listInventory(player);
+    // Phase 17. All four resolve the keeper the same way, so the refusal for "there is nobody here
+    // to trade with" is written once in `keeperFor` rather than four times.
+    case 'list': return listShopStock(player);
+    case 'buy': return buyFromShop(player, rest);
+    case 'sell': return sellToShop(player, rest);
+    case 'value': return valueAtShop(player, rest);
     case 'kill': {
       // Resolves the target and then refuses, rather than refusing first — "you see no orc here" is
       // the more useful of the two answers, and it keeps target resolution exercised.
@@ -4057,6 +4080,207 @@ function removeWorn(player: Player, rest: string): void {
  * (`inventory` and `equipment`) and every player types both in sequence; there is no reason to make
  * them.
  */
+/* -------------------------------------------------------------------------- */
+/* Shops — Phase 17                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The shopkeeper standing in this room, or a refusal saying why not.
+ *
+ * **One resolver for all four verbs**, so *"there is nobody here to trade with"* is written once and
+ * the four commands cannot drift into four different sentences for the same situation.
+ *
+ * Sight-gated like everything else: `canSee` decides, so a keeper standing in the dark is somebody
+ * you cannot do business with — which is the same answer `kill` and `look` give, and it falls out of
+ * the existing gate rather than being a rule shops invented.
+ *
+ * **A keeper you are fighting will not serve you, and that rule is ours.** `interp.c` puts all four
+ * verbs at `in_battle = TRUE`, so the parser lets them through — the refusal belongs to the keeper,
+ * and a merchant taking your coin while you swing at them is the kind of thing that reads as the game
+ * not noticing.
+ */
+function keeperFor(player: Player): { mob: Mob; shop: Shop } | undefined {
+  // **Awake and on your feet, and this is the keeper's rule rather than the parser's.** `CMD_TRIG`
+  // puts all four verbs at the table's floor, so a sleeping character can *type* `buy` — the source
+  // leaves that to the shopkeeper's own routine, and so does this. Checked before the room is
+  // searched, because "you are asleep" is a better answer than "there is nobody here" to somebody
+  // whose eyes are shut.
+  if (player.status !== 'normal' || player.posture !== 'standing') {
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text: 'You will have to be awake and on your feet to do business.',
+    });
+    return undefined;
+  }
+  for (const actor of sim.actorsIn(player.roomId)) {
+    if (!isMob(actor) || !canSee(player, actor)) continue;
+    const shop = shopsByKeeper.get(actor.vnum);
+    if (!shop) continue;
+    if (actor.fighting === player.id || player.fighting === actor.id) {
+      send(player.id, {
+        t: 'log',
+        channel: 'error',
+        text: `${capitalise(actor.name)} is rather busy fighting you.`,
+      });
+      return undefined;
+    }
+    return { mob: actor, shop };
+  }
+  send(player.id, { t: 'log', channel: 'error', text: 'There is nobody here to trade with.' });
+  return undefined;
+}
+
+/**
+ * The words a shelf entry answers to.
+ *
+ * `wordsForItem` wants an instantiated `Item` and a shelf holds `ItemTemplate`s — nothing has been
+ * made yet, which is the whole point of unlimited stock. So the same union is built from the template
+ * directly: authored keywords plus the name split, which is what `wordsForItem` does once there is an
+ * item to ask about. One rule, reached two ways, rather than two rules.
+ */
+function stockWords(template: ItemTemplate): readonly string[] {
+  return [...new Set([...template.keywords, ...wordsFromName(template.name)])];
+}
+
+/** What the keeper says, in the keeper's voice — the same shape `say` uses so it reads as a person. */
+function keeperSays(player: Player, mob: Mob, text: string): void {
+  send(player.id, { t: 'log', channel: 'say', text: `${capitalise(mob.name)} says, '${text}'` });
+}
+
+/** `list` — what is on the shelf, and what each costs *you*. */
+function listShopStock(player: Player): void {
+  const here = keeperFor(player);
+  if (!here) return;
+  const stock = stockOf(here.shop, itemCatalogue);
+  if (stock.length === 0) {
+    keeperSays(player, here.mob, 'I have nothing to sell just now.');
+    return;
+  }
+  send(player.id, { t: 'log', channel: 'system', text: `&+c${capitalise(here.mob.name)} is selling:&N` });
+  stock.forEach((template, index) => {
+    // Numbered, because `buy 2` is what a player reads off this list — and `findInStock` accepts it
+    // for that reason. The price is what *you* pay, not the item's cost: a shelf that quoted the
+    // world's price and charged another would be a lie in the one place a player is counting.
+    send(player.id, {
+      t: 'log',
+      channel: 'system',
+      text: `  ${String(index + 1).padStart(2)}. ${template.name}&N — ${describePurse(purseFromValue(priceToBuy(template, here.shop)))}`,
+    });
+  });
+}
+
+/** `buy <keyword|number>` — the coin leaves, the item arrives, and the bag has to have room. */
+function buyFromShop(player: Player, rest: string): void {
+  const here = keeperFor(player);
+  if (!here) return;
+  const stock = stockOf(here.shop, itemCatalogue);
+  if (!rest.trim()) {
+    keeperSays(player, here.mob, 'Buy what? Try "list".');
+    return;
+  }
+  const template = findInStock(stock, rest, stockWords);
+  if (!template) {
+    keeperSays(player, here.mob, "I do not sell that.");
+    return;
+  }
+
+  const price = priceToBuy(template, here.shop);
+  const paid = spendCoins(player.purse, price);
+  if (!paid) {
+    keeperSays(player, here.mob, `That costs ${stripColour(describePurse(purseFromValue(price)))}. You do not have it.`);
+    return;
+  }
+
+  // **Room in the bag is checked before the coin moves**, or a full bag costs you the price of
+  // something you never received. `carry` answers both questions at once, which is why it is asked
+  // first and the purse is only written after it succeeds.
+  const item = instantiate(template);
+  const stowed = carry(player.inventory, item);
+  if (!('stacks' in stowed)) {
+    keeperSays(player, here.mob, `You have nowhere to put that — ${stowed.free} slot${stowed.free === 1 ? '' : 's'} free.`);
+    return;
+  }
+  player.inventory = stowed;
+  player.purse = paid;
+
+  keeperSays(player, here.mob, `Thank you, that will be ${stripColour(describePurse(purseFromValue(price)))}.`);
+  send(player.id, { t: 'log', channel: 'system', text: `You buy ${item.name}&N.` });
+  afterKitChange(player);
+}
+
+/** `value <keyword>` — what the keeper would pay, committing to nothing. */
+function valueAtShop(player: Player, rest: string): void {
+  const here = keeperFor(player);
+  if (!here) return;
+  const found = offered(player, here, rest);
+  if (!found) return;
+  keeperSays(
+    player,
+    here.mob,
+    `I will give you ${stripColour(describePurse(purseFromValue(priceToSell(found.template, here.shop))))} for ${stripColour(found.item.name)}.`,
+  );
+}
+
+/** `sell <keyword>` — the item leaves the bag, the coin arrives. */
+function sellToShop(player: Player, rest: string): void {
+  const here = keeperFor(player);
+  if (!here) return;
+  const found = offered(player, here, rest);
+  if (!found) return;
+
+  const paid = priceToSell(found.template, here.shop);
+  const taken = removeAt(player.inventory, found.at);
+  if (!taken) {
+    // Re-read rather than trusting the resolution above, the same discipline `pickUp` keeps: two
+    // things can happen to a bag between one line and the next.
+    send(player.id, { t: 'log', channel: 'error', text: 'You no longer have that.' });
+    return;
+  }
+  player.inventory = taken.inventory;
+  player.purse = addCoins(player.purse, purseFromValue(paid));
+
+  keeperSays(player, here.mob, `I will give you ${stripColour(describePurse(purseFromValue(paid)))} for that.`);
+  send(player.id, { t: 'log', channel: 'system', text: `You sell ${found.item.name}&N.` });
+  afterKitChange(player);
+}
+
+/**
+ * The thing in your bag you are offering, with the refusals a keeper actually makes.
+ *
+ * Shared by `sell` and `value` because they ask the same question and only differ in what they do
+ * with the answer — and because "I won't buy that" has to mean the same thing in both, or a player
+ * gets a price for something that is then refused.
+ */
+function offered(
+  player: Player,
+  here: { mob: Mob; shop: Shop },
+  rest: string,
+): { at: number; item: Item; template: ItemTemplate } | undefined {
+  if (!rest.trim()) {
+    keeperSays(player, here.mob, 'Sell what?');
+    return undefined;
+  }
+  const at = matchInventory(player.inventory, rest, wordsFor);
+  if (at < 0) {
+    send(player.id, { t: 'log', channel: 'error', text: `You are not carrying ${rest}.` });
+    return undefined;
+  }
+  const item = player.inventory.stacks[at]!.item;
+  const template = templateOf(item);
+  if (!template) {
+    // A starter-kit piece has no catalogue entry and therefore no cost the world agrees on. Refused
+    // by name rather than priced at zero, which would read as the keeper being insulting.
+    keeperSays(player, here.mob, 'I deal in ordinary goods, not that.');
+    return undefined;
+  }
+  if (!willBuy(here.shop, template)) {
+    keeperSays(player, here.mob, 'I will not buy that.');
+    return undefined;
+  }
+  return { at, item, template };
+}
+
 function listInventory(player: Player): void {
   const used = slotsUsed(player.inventory);
   send(player.id, {
@@ -4385,6 +4609,21 @@ const adminLive: LiveOps = {
   giveItem(player, vnum) {
     const template = itemCatalogue.get(vnum);
     if (!template) return { error: `no item ${vnum} in the catalogue` };
+
+    // **A money pile is converted, never carried** — `DESIGN-inventory.md` §8, and `isMoney` exists
+    // so that a pile never reaches a `Stack` at all. A6b's `give` never learned it, so handing
+    // somebody an amethyst put a 50-platinum *object* in their bag: it cost them slots, it could not
+    // be spent, and Phase 17 found it the first time a shop asked for payment. The ground pickup path
+    // has always done this; this is the second caller it should have had.
+    if (isMoney(template.type)) {
+      const gained = coinsOf(template);
+      player.purse = addCoins(player.purse, gained);
+      send(player.id, { t: 'log', channel: 'system', text: `You receive &+Y${describePurse(gained)}&N.` });
+      send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+      persistAdminEdit(player);
+      return { name: template.name };
+    }
+
     const item = instantiate(template);
     const stowed = carry(player.inventory, item);
     if (!('stacks' in stowed)) {
