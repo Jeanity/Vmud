@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 
 import { AnnounceBanner } from './announce.ts';
+import { ArrivalCard } from './arrival.ts';
 import { PlaceMap } from './placemap.ts';
 import { CombatFeed } from './combatfeed.ts';
 import { LogPanel } from './log.ts';
@@ -93,6 +94,11 @@ const placeMap = new PlaceMap();
 net.on('places', (message) => placeMap.update(message.nodes, message.edges, message.here));
 placeMap.onOpen = () => net.send({ t: 'places' });
 scene.setPlaceMap(placeMap);
+
+// V5. Nothing listens on the socket for this one — the scene already knows when a Place changed,
+// because it is the thing that redraws the map, so the card is handed to it rather than wired to a
+// message of its own.
+scene.setArrivalCard(new ArrivalCard());
 
 // The line goes to the server unparsed: which command an abbreviation means, and which orc `2.orc`
 // is, are both game rules, and the second needs room contents gated on what this character can see.

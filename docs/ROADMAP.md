@@ -94,7 +94,7 @@ a new idea still answers the three questions; its second question now also picks
 | **6 — under way** | A7c — the art picker ✅, then A7d — bag and floor icons | Phase 16 ✅ — light from what you hold, craftsmanship on AC, encumbrance, water you cannot wade | A4 ✅ — mobs live, then A4c — their loot |
 | **7 — closed** | V3 — speech in the world ✅ | Phase 17 — shops ✅ | A8 — zone geometry ✅ (infill, deletion, extent changes) |
 | **8 — closed** | V4 — Places as a graph ✅ | dropped-item decay ✅ and `junk` ✅ | A4c — loot on a mob ✅ |
-| **9 — under way** | V5 — arrival cards | Phase 18 — following ✅, grouping to go | A7e/A7f — recolour, or A7d-bag |
+| **9 — under way** | V5 — arrival cards ✅ | Phase 18 — following ✅, grouping to go | A7e/A7f — recolour, or A7d-bag |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
 A5, because A5's prose editor is a colour editor and building the palette before the renderer would
@@ -1281,10 +1281,17 @@ One per round (§2b). Each entry is small on purpose — a V item that grows a m
   Two smaller decisions worth keeping: a node reports **rooms explored, never rooms that exist**, and
   the layout is **rings by boundary-distance** rather than a force simulation, so the same graph always
   draws the same picture.
-- **V5 — Arrival cards.** Crossing into a new Place is currently a change of floor tiles. A brief
-  title card — zone name, level — gives travel the sense of arrival every MUD gets from its room
-  header line. **Seen when:** you climb the stairs and the game tells you where you have arrived,
-  then gets out of the way.
+- **V5 — Arrival cards** ✅ **done 2026-08-05.** Crossing into a new Place was a change of floor tiles.
+  A brief title card — zone name, and the level under it — gives travel the sense of arrival every MUD
+  gets from its room header line. **Seen when:** you climb the stairs and the game tells you where you
+  have arrived, then gets out of the way ✅.
+
+  **No protocol change and no new rules**, which is what kept it a V item: `announceArrival` already
+  held every fact needed, so the card fires on exactly the two occasions that already write a log line
+  and never on a **resync** — a `zone` for the Place you are standing in is A5's terrain edit or A8's
+  regrid, not travel. The level is omitted for a one-level zone, answered from the `Zone` the client
+  already holds. Positioned a third of the way down after the first attempt collided with the vitals
+  HUD, which is the one readout that must never be covered.
 - **V6 — The world in its own colours** ✅ **done 2026-08-02, owner-requested.**
   `shared/src/colour.ts` parses the MUD's own `&+R` / `&n` notation into spans, and the client
   renders them.

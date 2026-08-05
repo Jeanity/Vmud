@@ -907,6 +907,11 @@ export class WorldScene extends Phaser.Scene {
    */
   private placeMap: { toggle(): void; hide(): void; readonly isOpen: boolean } | undefined;
   /**
+   * V5's arrival caption. Injected like {@link placeMap} and for the same reason: it is plain DOM
+   * built in , and the scene is only the thing that knows an arrival happened.
+   */
+  private arrival: { show(zoneName: string, level: number, levels: number): void } | undefined;
+  /**
    * What the camera is following, mirrored because Phaser exposes no public accessor for it.
    *
    * Needed because `startFollow` hard-sets the scroll: calling it while already following is a jump
@@ -2426,8 +2431,19 @@ export class WorldScene extends Phaser.Scene {
           ? `You pass onto another level of ${zone.name}`
           : `You cross into ${zone.name}`;
       this.log.write('system', `${how} — ${roomsHere} rooms on this level.`);
+    } else {
+      // A `zone` for the Place already drawn is a resync, not travel. Redraw, but say nothing — and
+      // in particular do not flash a card, which is the case V5 most obviously must not fire on:
+      // A5's terrain edit and A8's regrid both resend the Place you are standing in.
+      return;
     }
-    // A `zone` for the Place already drawn is a resync, not travel. Redraw, but say nothing.
+
+    // **V5, on exactly the two occasions the log line is written and no others.** Both are arrivals:
+    // one is walking into somewhere new, and the other is logging in, which is arriving as far as the
+    // player is concerned. The level count comes from the `Zone` the client already holds, so a
+    // one-level place says its name and nothing else.
+    const levels = new Set(zone.rooms.map((room) => room.pos.z)).size;
+    this.arrival?.show(zone.name, place.level, levels);
   }
 
   /* ------------------------------------------------------------- fog of war */
@@ -3507,6 +3523,11 @@ export class WorldScene extends Phaser.Scene {
    */
   setPlaceMap(map: { toggle(): void; hide(): void; readonly isOpen: boolean }): void {
     this.placeMap = map;
+  }
+
+  /** Hands the scene V5's caption. Structural, like {@link setPlaceMap} — one verb is all it needs. */
+  setArrivalCard(card: { show(zoneName: string, level: number, levels: number): void }): void {
+    this.arrival = card;
   }
 
   setTyping(typing: boolean): void {

@@ -164,6 +164,39 @@
       }
       #announce[hidden] { display: none; }
 
+      /* V5. The arrival caption, and its position is the one thing here that was got wrong first.
+         Top-centre collides with `#status` — the vitals are pinned top-left but run most of a narrow
+         map column, and they are the one readout that must never be covered. The bottom is the
+         announce banner's. So it sits a third of the way down, which is where a title card belongs
+         anyway, clear of both. `pointer-events: none` for the reason `#announce` has it: this floats
+         over the ground somebody is trying to click, and a caption that has to be waited out is
+         worse than no caption. */
+      #arrival {
+        position: absolute;
+        top: 34%; left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1px;
+        padding: 5px 18px;
+        border-top: 1px solid #6d7a60;
+        border-bottom: 1px solid #6d7a60;
+        background: linear-gradient(rgba(14, 17, 13, 0), rgba(14, 17, 13, 0.86) 22%, rgba(14, 17, 13, 0.86) 78%, rgba(14, 17, 13, 0));
+        text-align: center;
+        pointer-events: none;
+        text-shadow: 0 1px 3px #0b0d0a;
+        /* Fades in and out rather than appearing: an arrival is a moment, and a caption that snaps
+           reads as an error message. */
+        opacity: 0;
+        transition: opacity 380ms ease;
+      }
+      #arrival.showing { opacity: 1; }
+      #arrival[hidden] { display: none; }
+      #arrival strong { color: #e8dcc0; font-size: 15px; font-weight: 600; letter-spacing: 0.4px; }
+      #arrival span { color: #9aa88c; font-size: 11px; }
+      #arrival span:empty { display: none; }
+
       /* V4. Covers the map rather than sitting beside it: it answers "where have I been", the map
          answers "what is around me", and reading both at once is reading neither. */
       #placemap {
@@ -675,6 +708,10 @@
         <!-- V4. Where you have been, as a graph of Places. Covers the map while it is open, because
              it answers a different question and reading both at once is reading neither. -->
         <div id="placemap" hidden></div>
+
+        <!-- V5. The caption on arriving somewhere new. Above the map and out of the way: it is a
+             thing you caused by walking, so it says where you are and then stops. -->
+        <div id="arrival" hidden></div>
 
         <!-- Always on screen, whatever the panes are doing. Name, the three pools, your light, your
              stance, what is affecting you, and where you are standing — pinned to the map so it
