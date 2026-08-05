@@ -294,6 +294,7 @@ See `CLAUDE.md` for the full list. The ones that bite hardest:
 | `DESIGN-visibility-and-light.md` | The visibility model, light as progression, pointer movement |
 | `DESIGN-admin-panel.md` | The admin suite: architecture, auth, the section-by-section plan, and what the built players slice proves |
 | `RESEARCH-map-data.md` | Where the world data comes from, and the traps in it |
+| `DESIGN-zone-geometry.md` | **Read before starting A8.** Adding and removing rooms: the id space, the `seen`-invalidation edge, two-sided exits, orphaned resets, and the build order whose first slice is safe |
 | `PLAN-3d-migration.md` | If the 3D question returns: engine choice, costs, milestones, go/no-go |
 
 **The single best reference is on disk, not on the web:** the complete Duris MUD C source at
@@ -352,8 +353,13 @@ instances, slay, spawn). Round 7 has since landed **V3, speech in the world** an
 shops** — which closes **Act V**, and with it every numbered phase up to Act VI.
 
 What is left in round 7: **A8, zone geometry** — the last big piece of Track A, and the one A5
-deliberately refuses, because id, position and exits are the join key and the grid. Then **V4, Places
-as a graph** opens round 8, and **Phase 18, following and grouping** opens Act VI.
+deliberately refuses because id, position and exits are the join key and the grid. **Its design note
+is written and is the thing to read first**: [DESIGN-zone-geometry.md](DESIGN-zone-geometry.md),
+2026-08-05, all five of its problems decided and measured. It also picks a build order whose **first
+slice cannot invalidate anybody's explored map** — authored rooms *inside* a Place's current extent,
+which reaches A8's own completion test without touching the sharp edge. Start there.
+
+Then **V4, Places as a graph** opens round 8, and **Phase 18, following and grouping** opens Act VI.
 
 Four smaller things are unblocked and cheaper than any of those:
 

@@ -1393,8 +1393,16 @@ order.
   **Still to come on this line:** mob template overrides — name, level, combat numbers, aggression —
   which wait on the Mobs tab (A4) rather than on anything here.
 - **A8 — Zone geometry: adding and removing rooms.** The rest of what "a complete zone editor" means,
-  and the largest thing in this track. **It needs a design note before any code**, because four of
-  its five problems are decisions rather than work:
+  and the largest thing in this track. **The design note it asked for is written**:
+  [DESIGN-zone-geometry.md](DESIGN-zone-geometry.md), 2026-08-05, all five decided and measured.
+  The headlines: authored rooms are numbered **from 1,000,000** in a second overlay (the highest real
+  id is 97,271 and nothing is above a million); a grid resize **clears that Place's `seen` explicitly**
+  rather than silently shifting every row-major index; orphaned exits are **reported, not forbidden**,
+  because the shipped world already has 5 of them and the engine handles it. It also picks a build
+  order whose **first slice cannot invalidate anybody's map** — infill inside the current extent,
+  which reaches A8's own completion test without touching the sharp edge.
+
+  The five problems, four of which were decisions rather than work:
 
   1. **A new room has no vnum.** `CLAUDE.md`: ids are the MUD's own and are never renumbered, because
      they are the join key between every data source we have. Authored rooms therefore need an id
