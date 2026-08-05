@@ -94,6 +94,7 @@ a new idea still answers the three questions; its second question now also picks
 | **6 — under way** | A7c — the art picker ✅, then A7d — bag and floor icons | Phase 16 ✅ — light from what you hold, craftsmanship on AC, encumbrance, water you cannot wade | A4 ✅ — mobs live, then A4c — their loot |
 | **7 — closed** | V3 — speech in the world ✅ | Phase 17 — shops ✅ | A8 — zone geometry ✅ (infill, deletion, extent changes) |
 | **8 — closed** | V4 — Places as a graph ✅ | dropped-item decay ✅ and `junk` ✅ | A4c — loot on a mob ✅ |
+| **9 — under way** | V5 — arrival cards | Phase 18 — following ✅, grouping to go | A7e/A7f — recolour, or A7d-bag |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
 A5, because A5's prose editor is a colour editor and building the palette before the renderer would
@@ -1154,11 +1155,21 @@ turn every one of them into a fence for the whole catalogue. And `shop.c`'s inve
 
 Everything from here is content or depth, and the acts above are what made it cheap.
 
-#### Phase 18 — Following and grouping
+#### Phase 18 — Following and grouping — **half done 2026-08-05**
 
 Consent, a shared list, the **superlinear** exp split (§4.4 — dividing by group size is the mistake).
 Followers move by re-issuing the movement intent, never by teleporting.
 **Seen when.** Two clients walk the map as one train and share a kill.
+
+**Following is built** — `server/src/following.ts`, and the re-issued intent is what keeps it small:
+each follower goes through the whole of `stepRoom`, so a closed door, an empty stamina pool or a
+fight of their own breaks the train with no rule of its own. Transcribed from `do_follow`, including
+`follow stop` being the *leader's* command and scoped to the room. Rings are refused and the refusal
+costs the character nothing. **Driven with two sockets: they walked as one train.**
+
+**Grouping is the other half and is not started** — consent, the shared list and the superlinear
+split, with whisper-to-group carrying on it. The split's function already exists and still has no
+callers: `groupDivisor`, kept there since Phase 14b precisely so nobody reaches for `exp / N`.
 
 #### Phase 19 — Skills
 

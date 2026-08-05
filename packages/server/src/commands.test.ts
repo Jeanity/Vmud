@@ -426,3 +426,21 @@ describe('junk — owner-requested 2026-08-05', () => {
     assert.ok(meets(sitting, COMMAND_REQUIREMENTS.junk));
   });
 });
+
+describe('follow — Phase 18', () => {
+  it('lands on `fo`, leaving flee on the letter a cornered player reaches for', () => {
+    assert.equal(lookupCommand('f'), 'flee');
+    assert.equal(lookupCommand('fl'), 'flee');
+    assert.equal(lookupCommand('fo'), 'follow');
+    assert.equal(lookupCommand('follow'), 'follow');
+  });
+
+  it('may be typed mid-fight, which is the source’s own call', () => {
+    // `CMD_Y(CMD_FOLLOW, STAT_RESTING + POS_SITTING, …)`. Deciding who to walk behind is allowed
+    // while fighting — it is the only way to arrange a retreat with somebody while the fight that
+    // makes you want one is still going on. Walking is still refused; `flee` is still the way out.
+    assert.equal(COMMAND_REQUIREMENTS.follow?.inCombat, undefined);
+    const floored = { posture: 'prone', status: 'resting' } as const;
+    assert.equal(meets(floored, COMMAND_REQUIREMENTS.follow), false, 'but not flat on your back');
+  });
+});

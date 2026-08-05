@@ -249,6 +249,15 @@ import {
 } from './item-authoring.ts';
 import { ROOMS_FILE } from './overrides.ts';
 import { MOBS_FILE, applyOutfit, loadMobOverrides, outfitFor, type MobOverride, type Outfit } from './mob-overrides.ts';
+import {
+  followersOf,
+  forgetFollower,
+  leaderOf,
+  newFollowing,
+  startFollowing,
+  stopFollowing,
+  wouldLoop,
+} from './following.ts';
 import { buildPlaceGraph } from './placegraph.ts';
 import { AUTHORED_ROOMS_FILE, saveAuthoredRooms } from './room-authoring.ts';
 import { GameWorld, placeOf } from './world.ts';
@@ -734,6 +743,14 @@ if (world.staleExtents.length > 0) {
  * the protocol needs no new message.
  */
 const watching = new Map<EntityId, Set<EntityId>>();
+
+/**
+ * Who is walking behind whom — Phase 18. See `following.ts`.
+ *
+ * Live state with no save file behind it, deliberately: a train is a thing two people are doing right
+ * now, and restoring one on login would put somebody behind a leader who logged off yesterday.
+ */
+const following = newFollowing();
 
 /**
  * Per-connection command allowance. See {@link newCommandBudget}.
@@ -2202,6 +2219,113 @@ function refuseIfFighting(player: Player): boolean {
 }
 
 /** Classic MUD single-step movement: walk one room and land in its centre. */
+/**
+ * `follow <name>`, `follow stop`, `follow me` — Phase 18's first half.
+ *
+ * Transcribed from `do_follow` (`actmove.c:3116`), including the two forms that read oddly and are
+ * worth keeping because a Diku player's fingers already know them: **`follow` with your own name
+ * stops**, and **`follow stop` is the *leader's* command**, throwing off everybody in the room rather
+ * than clearing your own leader.
+ *
+ * The target is resolved through the same visible-set gate a `kill` passes, so you cannot fall in
+ * behind somebody standing in the dark — and the refusal says the source's own sentence.
+ */
+function followCommand(player: Player, rest: string): void {
+  const term = rest.trim();
+  if (!term) {
+    const leader = leaderOf(following, player.id);
+    const who = leader === undefined ? undefined : sim.get(leader);
+    send(player.id, {
+      t: 'log',
+      channel: 'system',
+      text: who ? `You are following ${who.name}.` : 'You are following no one.',
+    });
+    return;
+  }
+
+  // **The leader's remedy, and it is scoped to the room on purpose.** Somebody trailing you from
+  // three rooms back keeps following — the source is explicit about it, and the reason is that you
+  // can only shake off what you can see.
+  if (term.toLowerCase() === 'stop') {
+    let thrown = 0;
+    for (const id of followersOf(following, player.id)) {
+      const follower = sim.get(id);
+      if (!follower || follower.roomId !== player.roomId) continue;
+      stopFollowing(following, id);
+      thrown++;
+      send(id, { t: 'log', channel: 'system', text: `${player.name} no longer wants you to follow.` });
+    }
+    send(player.id, {
+      t: 'log',
+      channel: 'system',
+      text: thrown === 0 ? 'Nobody here is following you.' : `You shake off ${thrown} follower(s).`,
+    });
+    return;
+  }
+
+  const view = resolveTarget(player, term);
+  if (!view) return;
+  const target = sim.get(view.id);
+  if (!target) return;
+
+  // Following yourself is how you stop, which is the source's own shape.
+  if (target.id === player.id) {
+    const was = stopFollowing(following, player.id);
+    const leader = was === undefined ? undefined : sim.get(was);
+    send(player.id, {
+      t: 'log',
+      channel: 'system',
+      text: leader ? `You stop following ${leader.name}.` : 'You are already following yourself.',
+    });
+    if (leader && isPlayer(leader)) {
+      send(leader.id, { t: 'log', channel: 'system', text: `${player.name} stops following you.` });
+    }
+    return;
+  }
+
+  if (wouldLoop(following, player.id, target.id)) {
+    // Refused rather than silently dropping what they already had: a request that cannot be honoured
+    // must not also cost the character the relationship they were in.
+    send(player.id, { t: 'log', channel: 'error', text: "Sorry, but following in 'loops' is not allowed." });
+    return;
+  }
+
+  if (!startFollowing(following, player.id, target.id)) {
+    send(player.id, { t: 'log', channel: 'system', text: `You are already following ${target.name}.` });
+    return;
+  }
+
+  send(player.id, { t: 'log', channel: 'system', text: `You now follow ${target.name}.` });
+  if (isPlayer(target)) {
+    send(target.id, { t: 'log', channel: 'system', text: `${player.name} starts following you.` });
+  }
+}
+
+/**
+ * Walks everybody who is following this character the same way they just went.
+ *
+ * **The intent is re-issued, never the position copied** — `ROADMAP.md`'s rule for the phase, and the
+ * reason a train behaves itself with no code of its own. Each follower goes through the whole of
+ * `stepRoom`: their own engagement check, their own closed door, their own deep water, their own
+ * stamina. A member too tired to keep up simply stops, is told why by the ordinary refusal, and the
+ * rest of the train carries on. Nothing here has to know that any of those rules exist.
+ *
+ * Recursive by construction, because the followers' own followers are picked up when each of them
+ * steps. `wouldLoop` is what makes that terminate.
+ *
+ * Only followers who were **in the room the leader left** move. Somebody who fell behind is still
+ * following — they simply did not see which way you went, which is the same rule `follow stop` uses
+ * and for the same reason.
+ */
+function walkFollowers(leader: Player, from: RoomId, dir: Direction): void {
+  for (const id of followersOf(following, leader.id)) {
+    const follower = sim.get(id);
+    if (!follower || !isPlayer(follower) || follower.roomId !== from) continue;
+    send(follower.id, { t: 'log', channel: 'system', text: `You follow ${leader.name} ${dir}.` });
+    stepRoom(follower, dir);
+  }
+}
+
 function stepRoom(player: Player, dir: Direction): void {
   // Reached by the `move` intent as well as the typed command, and only the latter has been through
   // the table's gate. §5: `flee` is the one way out, and it is named in the refusal.
@@ -2295,6 +2419,13 @@ function stepRoom(player: Player, dir: Direction): void {
   if (hadPath && samePlace(fromPlace, player.place)) send(player.id, { t: 'path', points: [] });
 
   announceArrival(player, from, fromPlace, dir);
+
+  // **Phase 18: the train.** After the leader has actually arrived, so a follower who steps into the
+  // room behind them finds them already there — and after `announceArrival`, so the order in
+  // everybody's log is the order it happened in. Each follower is *asked* to make the same step
+  // rather than moved, which is what makes a closed door, an empty stamina pool or a fight of their
+  // own break the train correctly and with no rule of its own here.
+  walkFollowers(player, from, dir);
 }
 
 /**
@@ -3121,6 +3252,7 @@ function runCommand(player: Player, line: string): void {
     }
     case 'put': return putInContainer(player, rest);
     case 'drop': return dropFromBag(player, rest);
+    case 'follow': return followCommand(player, rest);
     // Never destroys on this pass: an unconfirmed junk arms the question and returns.
     case 'junk': return junkFromBag(player, rest, false);
     case 'wear': return wearFromBag(player, rest);
@@ -5393,6 +5525,12 @@ wss.on('connection', (socket) => {
     // reissued, so an armed junk left here would be inherited by whoever is handed this id next — and
     // their first `y` would destroy something of theirs.
     pendingConfirm.delete(player.id);
+    // Phase 18, and the same reissued-id argument in its other form: a leftover link would drag the
+    // next character handed this id along behind a stranger. Whoever was following them is told, so
+    // a train that loses its leader knows it rather than quietly walking on alone.
+    for (const orphan of forgetFollower(following, player.id)) {
+      send(orphan, { t: 'log', channel: 'system', text: `${player.name} is no longer here to follow.` });
+    }
     sim.remove(player.id);
     // Every mob forgets them. `noticed` as well as the dwell timer, and that is not tidiness: entity ids are
     // reissued, so a mob that remembered id 7 would silently already know the next character handed it.

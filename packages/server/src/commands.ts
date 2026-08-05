@@ -117,6 +117,9 @@ export const COMMANDS = [
   // would be alarming anywhere else; here it is safe by construction, because `junk` never destroys
   // anything on its own. It asks, and the answer is a second line.
   'junk',
+  // Phase 18. Appended, and it costs no prefix anybody was using: `f` is flee and `fl` is flee, both
+  // above, so `fo` is the shortest thing that reaches this — which is what Diku gives it too.
+  'follow',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -296,6 +299,12 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // absence), and whatever that resolves to in Duris, a verb whose whole purpose is letting a player
   // tidy their own bag has no business being restricted here. Ours is available to everybody.
   junk: { status: 'resting', posture: 'sitting', inCombat: false },
+  // `CMD_Y(CMD_FOLLOW, STAT_RESTING + POS_SITTING, do_follow, 0, TRUE)` — transcribed, and the `_Y`
+  // is the interesting half: **deciding who to walk behind is allowed mid-fight.** That reads
+  // permissive until you notice it is the only way to arrange a retreat with somebody while the
+  // fight that makes you want one is still going on. Walking is still refused — `stepRoom` gates on
+  // the engagement, and `flee` is still the way out.
+  follow: { status: 'resting', posture: 'sitting' },
 };
 
 /* -------------------------------------------------------------------------- */
