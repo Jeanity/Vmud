@@ -140,6 +140,7 @@ and restarting is the whole of "installing" a zone.
 | What you are hauling slows you down | **Phase 16.** `load_modifier` (`actmove.c:79`) transcribed: ten bands from **75** under a tenth full to **300** past 95%, widening as they climb so the *last* thing you pick up costs far more than the first. The bottom band being *below* 100 is Duris' and is the good part — travelling light is a choice, not the absence of a penalty. **Where it is applied is ours and the source says so**: Duris uses this for combat (`fight.c:6414`) and for the prose that makes somebody *"stagger in"*, and charges movement flat. Load counts **worn bulk as well as bag bulk** against the bag's capacity, which looks lopsided and is the point — `DESIGN-inventory.md` §6 puts worn gear outside *capacity* because what you have on is not luggage, and says nothing about *effort*. Mobs are never encumbered: their kit is loot they never chose. Driven: the same field step cost **3 unburdened and 6 loaded** |
 | Water you cannot wade into | **Phase 16**, and `SECTOR_REQUIRES_MOVEMENT`'s first caller after five phases on the inert list. Deep water and underwater want `swim`, air and astral want `fly`, and nothing grants either yet — both are Phase 19/20 — so today it is a wall that **says which wall it is** rather than an exit that silently fails. Refused **before stamina is charged**, because being unable to enter deep water is a different no from being too tired and paying for a step you were never going to take would drain the pool of somebody standing on a riverbank pressing east. Driven by making a room deep water through **A5's own authoring**, with no restart: the step was refused, the pool did not move, and every other exit still worked |
 | Setting the world up without restarting it | **A4**, and the mob-testing loop every later phase wants. **Live instances, not templates** — Zones says what a zone is *authored* to hold, the Mobs section says what is standing in it, and two sentinel privates of one vnum carry 1,182 and 1,274 hit points because the roll is per instance. Every row has an **entity id**, protocol 11's argument again: a keyword cannot say *which*. **Slay runs `resolveDeath`**, so the body leaves a corpse holding what it carried and the room is told — an admin kill that made a mob vanish would exercise a path the game does not have, and watching the real one is the whole point; nobody is paid experience or coin because nobody hurt it. **Repop passes `runReset`'s `force` flag**, which had existed since Phase 8 with boot as its only caller, and stays additive: the first press reported *+5 mobs, 97 at limit*, the second *+0, 98* — the per-vnum world-wide limit doing its job, which is what makes the button safe to hand somebody. **A door is worked at both ends** through `world.doorway`, since a doorway shut from one side only is a wall from the other, with `closed` and `locked` set independently because `LOCKS_HOLD` is off and testing the day it bites needs them apart. `admin/src/sections/mobs.ts`; doors and Repop live on the Zones page beside what they act on |
+| A sword on the ground looks like a sword | **A7d.** An item with authored art draws that art on the floor instead of one of nine category glyphs shared between 16,421 entries; the placeholder is **demoted, not retired**, so an undressed item still reads as the *kind* of thing it is. No protocol change — `sprite` was already a client-resolved string and A7b made the art id the texture key. **Not** from the pack's `preview_row`/`preview_column`, which only **24 of 657** definitions carry. Two owner rules landed with it: **no name label over a dropped thing** (the picture identifies it; `look` is the verb for the detail, and three items on one tile had smeared their names together), and **drops land 1–2 tiles away in a seeded random direction**, bounded by the three-tile pickup reach so nothing lands somewhere you must walk to. Then a third: **icons are cropped to their content's bounding box**, because an LPC frame is person-shaped and a cloak fills only its lower half, so a centred frame put the object low under a void. The crop needed **no PNG decoder in `artgen`** — the client measures a texture it has already loaded, once per sheet-set, cached. Two traps in that: the box must be the **union** across an art's layers or a cloak's halves slide apart, and **`setCrop` does not move the object**, so each image is shifted by the crop's offset from the frame centre |
 | Whisper, so a room is not everyone shouting | Owner's ask (2026-08-05) the moment V3's first bubble went up: *"so we aren't all just talking over each other and filling the room with speech bubbles."* **The privacy needed no new mechanism, and that is V3's design paying off**: `from`/`speech` ride the log line itself, so the recipient's line carries them and their client draws a bubble, while the room's line — *"X whispers something to Y"* — carries neither and draws nothing. Nobody wrote a rule saying a whisper is private; it falls out of who receives which sentence. **The room learning *that* it happened is Duris' call**, transcribed: `do_whisper` sends `"$n whispers something to $N."` `TO_NOTVICT`, because whispering in company is itself a visible act. The requirement row is **stricter than `say` on both axes** and that is the source's too — `CMD_N(CMD_WHISPER, STAT_RESTING + POS_SITTING)`: speaking aloud works flat on your back and mid-swing, leaning in to murmur does not. Driven with three sockets: the speaker got their echo, the listener got the words *with* the bubble fields, the bystander got the fact *without* them |
 | You watch somebody say it | **V3**, and **protocol 17** — `log` gains `from` and `speech`, set only on the `say` channel. **Additive on the message that already exists, and that is the design rather than thrift**: the speech line is already rendered per recipient and already passes the `act()` gate, so a second send path would be a second answer to *"who may hear this"* and two answers drift. **The sight gate is applied once and the renderer cannot disobey it** — the client draws on an entity it holds, so a speaker outside your light has nothing to attach a bubble to, while the log line they do get still reads *"someone says"*. Same fall-out protocol 16 uses for the chevron. Two things the drive corrected: the bubble is **counter-scaled against the camera** (`setScale(1 / zoom)`), because world space is scaled by a ladder running 0.25 to 2 and one sentence covered a quarter of the map at close zoom; and it draws **above the fog** at depth 60 — owner's rule, *"darkness doesn't affect what can be heard"* — since a bubble beneath the depth-50 fog was dimmed by the unlit air above the speaker's head rather than by anything about the speaker. `sayInWorld` / `advanceBubbles` in `scene.ts` |
 | The operator's voice, on screen | **V3's other half**: A2 took the protocol to 10 to give an administrator a channel of their own, and until now this client could tell it from `system` and did nothing with the difference. A banner along the **bottom** of the map — top-centre collided with `#status`, which is pinned top-left, runs most of a narrow map column and comes later in the document so it painted straight through. **A mirror where V1's combat feed is a split**, deliberately: combat lands in the feed and nowhere else because a fight is a stream and duplicating it doubles the noise, while a banner is transient by necessity and an announcement you were looking away for must still be findable — so it shows *and* stays in the log. One at a time, replaced rather than queued, because *"restarts in one minute"* after *"in five minutes"* is exactly where a queue shows the wrong number. `client/src/announce.ts` |
@@ -346,12 +347,13 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-### Start here — round 7, V and M slots done (2026-08-05)
+### Start here — round 7, only A8 left (2026-08-05)
 
 Round 6 closed on all three tracks — A7c the art picker, **Phase 16** (light from what you hold,
 craftsmanship on AC, encumbrance, water you cannot wade into), and **A4** (repop, doors, live mob
 instances, slay, spawn). Round 7 has since landed **V3, speech in the world** and **Phase 17,
-shops** — which closes **Act V**, and with it every numbered phase up to Act VI.
+shops** — which closes **Act V**, and with it every numbered phase up to Act VI. Three smaller pieces
+went with them: **whisper**, **A7d floor icons**, and the **icon crop** that followed from it.
 
 What is left in round 7: **A8, zone geometry** — the last big piece of Track A, and the one A5
 deliberately refuses because id, position and exits are the join key and the grid. **Its design note
@@ -362,16 +364,14 @@ which reaches A8's own completion test without touching the sharp edge. Start th
 
 Then **V4, Places as a graph** opens round 8, and **Phase 18, following and grouping** opens Act VI.
 
-Four smaller things are unblocked and cheaper than any of those:
+Three smaller things are unblocked and cheaper than any of those:
 
-0. **The multi-layer art fix is done but A7e is not.** Recolouring (A7e) and Ollama choosing the ramp
-   (A7f) are specified in the parking lot with the measurements — 424 of 657 definitions declare
-   `palettes` and cloth alone has 24 named ramps, so it is a generator step rather than a paint
-   program.
-
-1. **A7d — bag and floor icons**, the other half of A7 and the cheapest thing on the board:
-   `artThumb` in `admin/src/artpicker.ts` already crops a frame out of a staged sheet, and the ULPC
-   definitions carry `preview_row`/`preview_column` for exactly this.
+1. **A7e — recolour, then A7f — Ollama picking the ramp.** Both specified in the parking lot **with
+   the measurements**, so they start cold: ULPC ships the whole palette system, **424 of 657**
+   definitions declare `palettes`, and cloth alone has **24 named ramps** — so *"a fiery red cloak"*
+   is `cape-solid` plus ramp `red`, a generator step rather than a paint program. A7f is
+   classification over a closed vocabulary, which is what a small local model is good at, and it is
+   §8's rule again: the model drafts, the human commits.
 2. **A4c — loot on a mob** (owner, 2026-08-04: *"assign items to mobs as loot"*). A4 built the live
    half; this is the authoring half and needs a **mob overlay** first, the same shape
    `items-authored.json` gave items. Note the thing to say out loud before building it: kit is per
@@ -389,7 +389,8 @@ test — and it deserves that pass rather than a line here.
 
 **Twenty of 25 phases done — Acts I–V complete.** Act VI is following and grouping, skills, spells, and the content layer. Track A
 has landed A2, A3, A4, A4b, A5, A6, A6b, A7a, A7b and A7c; what is left there is A4c, A7d and A8.
-Track V has V1, V2, V3 and V6, with V4 and V5 outstanding. Round 1 is complete: **V1 the combat feed** (the `combat` channel now
+Track V has V1, V2, V3 and V6, with V4 and V5 outstanding. Track A has landed A2, A3, A4, A4b, A5,
+A6, A6b, A7a, A7b, A7c and A7d; what is left there is A4c, A7e, A7f, A7d-bag and A8. Round 1 is complete: **V1 the combat feed** (the `combat` channel now
 renders *only* in its own section of the character pane — the owner's split: prose and speech on the
 left, violence on the right) and **Phase 14, mercy and fear**.
 
