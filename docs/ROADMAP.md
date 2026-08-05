@@ -1520,17 +1520,30 @@ order.
     tiles away in a seeded random direction**, bounded by the three-tile pickup reach so nothing can
     land somewhere you have to walk to.
 
-    **The known flaw: south is the wrong frame for a garment** (owner, 2026-08-05, on seeing a cloak
-    on the floor). The icon crops column 0 of row 2 — the south-facing standing pose — which is right
-    for a held object and wrong for anything worn on the back. Measured on `cape-solid`: **526** opaque
-    pixels in the north row against **62** in south, because facing the viewer a cloak hangs *behind*
-    you and the front view is only the lower hem. Neither cape layer has anything in the top half of
-    its south frame at all, so the icon reads as two nubs with an empty space above them.
+    **The known flaw: an icon is a body-shaped frame with an empty top half** (owner, 2026-08-05, on
+    seeing a cloak on the floor: *"it had the shoulder part at the bottom of the image instead of the
+    top"*).
 
-    **The fix is to pick the facing with the most content, per sheet, and it belongs in `artgen`** —
-    which already probes every sheet's geometry, so it is the right place to also measure it once and
-    record it, rather than having the client decide per frame. It needs a PNG *decoder* there, which
-    is the only new machinery: `artgen` reads IHDR width and height today and no pixels.
+    Measured, and the first diagnosis — *"south is the wrong facing"* — was wrong. The two cape layers
+    are complementary **by facing**, because `fg`/`bg` is foreground/background *relative to the body*
+    and which one holds the art depends on which way the figure turns:
+
+    | | north (back to camera) | south (facing camera) |
+    | --- | --- | --- |
+    | `cape-solid` (fg, z 85) | 0,0,0,0,108,156,184,78 | 0,0,0,0,0,0,40,22 |
+    | `cape-solid-l2` (bg, z 5) | all zeros | 0,0,0,0,108,156,184,34 |
+
+    So south already shows the whole cloak. What both facings share is the real fault: **nothing in
+    bands 0–3**. A cloak hangs from the shoulders *down*, so it occupies the lower half of a 64×64
+    frame sized for a whole person — and centred as an icon it sits low with a void above it, reading
+    as sunken rather than as an object. The nubs the owner saw at the bottom are the hem, drawn by the
+    fg layer over the bg one.
+
+    **The fix is to crop each icon to its content's bounding box**, not to change the facing. And it
+    is cheaper than it first looked: it needs **no PNG decoder in `artgen`**, because the client can
+    measure the alpha bounds of a texture it has already loaded, once, and cache it — the same canvas
+    readback the measurements above were taken with. Phaser's `setCrop` plus an origin adjustment is
+    the whole of the rendering change.
   - **A7d-bag — icons in the drawer.** Still open, and a different job: it wants an art id per
     `BagRow`, which is a protocol addition rather than a rendering change.
   - **A7e — recolour** (owner, 2026-08-05). Pick a sheet and a named colour ramp, and stage the
