@@ -3187,6 +3187,16 @@ export class WorldScene extends Phaser.Scene {
     // Back under the label and the bars: `add` appends, and a body drawn over its own name is exactly
     // the sort of thing that looks like a z-order bug in the renderer rather than a load order here.
     for (const [index, layer] of layers.entries()) entity.container.moveTo(layer, index);
+    // **And the footprint back to the very bottom, which that loop just took it off.** Owner report,
+    // 2026-08-05: *"the ring around the feet has moved forward over the legs again"* — and the "again"
+    // is the tell. The ring is built at index 0 and `moveTo(layer, 0…n)` walks the new stack into
+    // those exact slots, pushing it up in front of the body every time a character's kit changes.
+    // Which is precisely when it was noticed: putting on a shield and a cloak.
+    //
+    // Owner's rule for it, same day: *"the ring around the feet also needs to be moved to the bottom
+    // layer so it is never over the legs."* So it is asserted here rather than left to fall out of
+    // insertion order — a ring that is only behind the body until the next `wear` is not behind it.
+    if (entity.footprint) entity.container.sendToBack(entity.footprint);
     this.faceEntity(entity, entity.view.facing);
   }
 
