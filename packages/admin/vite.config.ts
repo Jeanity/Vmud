@@ -14,6 +14,13 @@ export default defineConfig({
         target: 'http://127.0.0.1:8787',
         changeOrigin: false,
       },
+      // A7c: the staged LPC sheets the art picker draws thumbnails from. Pointed at the **game
+      // server**, not at the client's 5273, so the panel needs nothing but the server running — the
+      // same reason `/admin` goes there. See `server/src/art.ts`.
+      '/lpc': {
+        target: 'http://127.0.0.1:8787',
+        changeOrigin: false,
+      },
     },
   },
 });

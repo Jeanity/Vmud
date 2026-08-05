@@ -1807,6 +1807,10 @@ function itemRow(template: ItemTemplate): Record<string, unknown> {
     ...(template.uses === undefined ? {} : { uses: template.uses }),
     ...(template.container ? { container: template.container } : {}),
     ...(template.coins ? { coins: template.coins } : {}),
+    // A7c. Absent for the great majority — 319 sheets against 16,421 items — which is exactly why it
+    // belongs on the row: what the search shows is *which* of these have been given a picture, and a
+    // row that could not say so made the picker's own work invisible the moment it was saved.
+    ...(template.art ? { art: template.art } : {}),
   };
 }
 

@@ -91,7 +91,7 @@ a new idea still answers the three questions; its second question now also picks
 | **3 ✅** | V6 — the world in its own colours ✅ | Phase 14b — a character worth keeping ✅ | A4b — the zone map ✅, then A5 — authoring ✅ |
 | 4 | V3 — speech in the world | Phase 15 — inventory and worn equipment ✅ | A4 — zones and mobs, live ops |
 | **5 ✅** | A7a/A7b — item art becomes data ✅ *(took the V slot: it is presentation of things that already exist)* | Phase 16 — gear that matters (16a bands ✅, 16c mob armour ✅) | A6 — items ✅, A6b — items you make yourself ✅ |
-| **6 — next** | A7c — the art picker, then A7d — bag and floor icons | Phase 16 proper — light as an equipped item, AC from material, encumbrance | A4 — mobs live, then A4c — their loot |
+| **6 — under way** | A7c — the art picker ✅, then A7d — bag and floor icons | Phase 16 proper — light as an equipped item, AC from material, encumbrance | A4 — mobs live, then A4c — their loot |
 | 7 | V3 — speech in the world, then V4 — Places as a graph | Phase 17 — containers, money and shops | A8 — zone geometry |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
@@ -1372,8 +1372,25 @@ order.
     protocol 14's shield special case became the whole mechanism and needed no bump. `ITEM_LAYER` is
     now `KIT_ART`, covering only the nine starter-kit ids that have no template to carry an `art`.
     **Seen when:** a sword you chose art for is drawn in the hand of the character wielding it ✅.
-  - **A7c — the picker.** Browse by category with previews, assign, see it on a body. `GET /art`
-    already serves the index, filtered by slot; what is missing is the panel half.
+  - **A7c — the picker** ✅ **done 2026-08-05.** A grid of thumbnails beside the item editor's `art`
+    field, filtered to the item's own slot and openable onto all 319. The tile is a 64×64 window onto
+    the staged sheet at column 0 of row 2 — LPC's south-facing standing frame — drawn with
+    `background-position`, so there is no canvas and no fetch and the browser caches one image per
+    sheet however often it is drawn. `itemRow` carries `art` now, which is what lets the search list
+    say **which** of 16,421 items have been given a picture.
+
+    **The sheets had to be reachable from the panel's origin at all**, and that was the real work:
+    `artgen` stages them into `packages/client/public/lpc/`, served by the *client's* 5273, while the
+    panel is 5274 proxying only `/admin`. A picker pointed at the client's port would break whenever
+    somebody ran the server and the panel without the game — the exact case the admin suite exists
+    for. So the **game server** serves them, from the same files rather than a copy, and the path is
+    closed by looking the id up in `LPC_ART_BY_ID` rather than joining it: traversal is refused for
+    the same reason a typo is, and there is no filter to get wrong. Ungated, deliberately — the gate's
+    defence is that `x-admin-token` must be *present*, an `<img>` cannot send a header, and these are
+    CC-BY-SA sheets of boots the game already serves unauthenticated to every player. `server/src/art.ts`.
+    **Seen when:** an operator picks boots from pictures and a body walks around in them ✅ — chose
+    `feet-boots-fold` for vnum 246, gave it to a character, and an observer's `EntityView.wearing`
+    carried `feet: "feet-boots-fold"` beside the starter kit's own classes.
   - **A7d — icons.** Bag and floor sprites from the catalogue's preview frame, retiring the
     procedural placeholder. The definitions carry `preview_row`/`preview_column` for exactly this.
 - **A4c — Loot: assigning items to mobs** (owner, 2026-08-04). *"we also need to be able to assign

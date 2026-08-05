@@ -16,6 +16,7 @@
  * Both gates apply, and they apply to different things, which is why they are computed separately.
  */
 
+import { createReadStream, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -122,6 +123,7 @@ import { bitsToBase64, bitsetToSet } from '@mygame/shared/vision.ts';
 
 import { UNSEEN_NAME, actLines } from './act.ts';
 import { AdminApi, serveAdmin, type LiveOps } from './admin.ts';
+import { artIdFromPath, artSheetPath } from './art.ts';
 import {
   COMMANDS,
   COMMAND_REQUIREMENTS,
@@ -4406,6 +4408,39 @@ console.log(
 const http = createServer((req, res) => {
   if (req.url?.startsWith('/admin/api')) {
     serveAdmin(admin, req, res);
+    return;
+  }
+  // A7c. One staged LPC sheet, for the admin panel's art picker.
+  //
+  // **Deliberately outside the admin gate, and the reason is mechanical rather than a relaxation.**
+  // The gate's first line of defence is that `x-admin-token` must be *present* — a custom header
+  // forces any cross-origin request into a CORS preflight this server never answers. An `<img>` tag
+  // cannot send a header at all, so a gated route would have to be fetched as a blob and drawn onto
+  // a canvas: several hundred requests and a great deal of machinery to protect bytes the game
+  // client already serves unauthenticated to every player who loads it. These are CC-BY-SA sheets of
+  // boots and helmets; there is no secret in one. The path is closed by lookup rather than by
+  // sanitising — see `art.ts`.
+  const artId = req.url ? artIdFromPath(req.url) : undefined;
+  if (artId) {
+    const file = artSheetPath(artId);
+    if (!file || !existsSync(file)) {
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: `no staged sheet for art "${artId}" — run npm run artgen` }));
+      return;
+    }
+    // Immutable: an id names one file for the life of a stage, and a picker that re-fetched 319
+    // sheets on every keystroke would be unusable on the first scroll.
+    res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'public, max-age=3600' });
+    const sheet = createReadStream(file);
+    // **The handler is not optional.** An unhandled `error` on a stream throws, and a throw out here
+    // takes the whole game server down with it — the header is already written by this point, so all
+    // that can be done is to end the response and let the picker show a broken tile. `npm run artgen`
+    // restaging while the panel is open is enough to reach this.
+    sheet.on('error', (err) => {
+      console.error(`[art] could not read ${file}:`, err);
+      res.end();
+    });
+    sheet.pipe(res);
     return;
   }
   if (req.url === '/health') {

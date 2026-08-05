@@ -32,7 +32,9 @@ and restarting is the whole of "installing" a zone.
 
 ## State: green
 
-- **921 tests** (501 server, 347 shared, 73 worldgen), typecheck clean across all five packages.
+- **1,168 tests** (629 server, 454 shared, 85 worldgen), typecheck clean across all five packages.
+  Four of the server's are `world.test.ts`'s, which **skip themselves when `data/world` is absent** —
+  a fresh clone or a new worktree reports 1,164 until `npm run worldgen` has run.
 - `data/` is git-ignored and reproducible by `npm run worldgen` — **except `data/world/overrides/`**,
   which is hand-authored content no command can regenerate and is therefore the one thing under
   `data/` that git tracks. See `server/src/overrides.ts`.
@@ -131,6 +133,8 @@ and restarting is the whole of "installing" a zone.
 | Never show a generator its own output | A per-room pass over The Stump Bog produced **one description for all 37 rooms sharing a title** — a copy cascade, not sampling convergence. The prompt showed each room neighbours the same model had written minutes earlier, and the style samples were picked by nearest sector across the world, so once The Stag Forest was filled its swamp rooms became the bog's swamp *exemplars*. Both now turn on `by`, the model name recorded in the overlay: style samples exclude machine-written rooms outright, and neighbours are **named always but quoted only when a human wrote them** — the linkage was always carried by the neighbour's name, never its prose. The panel is deliberately unfiltered, because an author must read their own zone back. Result: 93 distinct descriptions for 93 rooms, adjacent same-title overlap **84% → 18%**, effectively-identical pairs **46 → 0**. `DESIGN-admin-panel.md` §8 |
 | A zone filled in one pass | `tools/describe-zone.ts` writes a whole zone's missing prose — **one draft per distinct title**, because of 51 repeated titles in the shipped world, 51 share exactly one description and 0 differ. The Stag Forest went from 0 of 98 described to 98 of 98 in 17 minutes over 25 titles, at a mean of 106 words against the house median of 115. Resumable: a title already written is skipped, and failures get a second pass. It **saves**, unlike the panel — named in the file as a departure, because the alternative is not "a human writes it" but "the room stays blank forever" |
 | Undescribed rooms say so | A room with no prose logs a dim `[ No description yet. ]`. **Rendered, never stored**: writing it into 40,619 override entries would mark every room authored and destroy the ✎ mark's meaning. The panel has the matching **"needs prose"** filter, which is the authoring queue — 3 rooms in IceCrag, all 98 in The Stag Forest. Giving them prose from a short prompt via a local model is the next A slice |
+| Picking art from pictures, not ids | A7c, and the half of A7b that made the field usable. `torso-tunic-brown` and `torso-shirt-brown` are one word apart and look nothing alike — **the id does not describe the picture**, so a dropdown of 319 ids is a list of guesses and the control shows images. The tile is a 64×64 window onto the staged sheet at **column 0 of row 2** (LPC's south-facing standing frame, `scene.ts`'s own row order) done with `background-position`: no canvas, no fetch, one cached image per sheet however often it is drawn, and `pixelated` because 64 px art smoothed at any scale but 1:1 is a smudge. Opens on the item's own slot — 17 sheets for `feet` rather than 319 — with a tick to see everything, since `artgen`'s slot mapping is a hint the server enforces nowhere. `itemRow` carries `art` now, so the search list shows **which** of 16,421 items have a picture; that was a recorded loose end and it is what makes the picker's work visible after Save. `admin/src/artpicker.ts` |
+| Getting a sheet to the panel at all | The real work behind A7c. `artgen` stages the PNGs into `packages/client/public/lpc/`, which the **client's** 5273 serves; the panel is 5274 and proxies only `/admin`. A picker pointed at the client's port would break whenever somebody ran the server and the panel without the game — the exact case the admin suite exists for. So the **game server** serves them, from the same files rather than a copy, so a re-stage cannot leave the picker offering art the game no longer has. **Ungated, and mechanically rather than as a relaxation**: the admin gate's first defence is that `x-admin-token` must be *present* (a custom header forces a CORS preflight nothing here answers), an `<img>` cannot send a header, and gating would mean fetching several hundred blobs onto a canvas to protect CC-BY-SA sheets of boots the game already serves unauthenticated to every player. The path is closed by **looking the id up in `LPC_ART_BY_ID`**, never by joining it — traversal is refused for the same reason a typo is, so there is no filter to get wrong. `server/src/art.ts`, whose two halves are split out of `index.ts` precisely so they have a test |
 | Operator messaging | World, a Place, or one room — one endpoint with an optional target, reporting how many heard it. On the **`announce`** channel (protocol 10), a person's voice styled apart from the machine's. A room line is **not** sight-gated: it comes from outside the world |
 
 ### Not built
@@ -164,7 +168,8 @@ authorable field on any item. Three things worth not rediscovering:
    does not, so standing still turned an authored sword into Phaser's `__MISSING` box. It falls back
    to the walk sheet now.
 
-Still to do on art: **A7c** the picker (the `GET /art` half exists) and **A7d** bag and floor icons.
+Still to do on art: **A7d**, bag and floor icons. **A7c, the picker, landed 2026-08-05** — see the
+table row below.
 
 **Be aware of the inert surface.** `SECTOR_REQUIRES_MOVEMENT` and `proficiencyBonus` still have **zero
 non-test callers**. `resolveAttack` and `rollDamage` came off this list in Phase 11 — they had been
@@ -307,30 +312,28 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-### Start here — round 6, in cadence order (paused 2026-08-04)
+### Start here — round 6, in cadence order (A7c landed 2026-08-05)
 
-Round 5 closed with item authoring and item art. Nothing is half-finished; the tree is clean and
-`main` is level with the branch. Three jobs, and any of them can go first:
+Round 5 closed with item authoring and item art. **Round 6's V slot is done — A7c, the art picker.**
+Two jobs left in the round, and either can go first:
 
-1. **A7c — the art picker.** The smallest and most visible. `GET /admin/api/art` already serves the
-   319-entry index and filters by `slot`, so the server half exists; what is missing is the panel
-   half — a browser with previews beside the item editor's `art` field, which is currently a field
-   with no way to discover a legal value. Sheets are 576×256 with the south-facing standing frame at
-   **column 0 of row 2**, which is the thumbnail to draw.
-2. **Phase 16 proper.** The balance half landed (16a bands, 16c mob armour); the phase itself is
+1. **Phase 16 proper.** The balance half landed (16a bands, 16c mob armour); the phase itself is
    still open — light as an equipped-item property (collapsing the interim `carriedLight` field the
    design docs already say *should* collapse), AC derived from material × slot × condition, and
    movement/encumbrance. `SECTOR_MOVE_COST` and `SECTOR_REQUIRES_MOVEMENT` are **written with zero
    callers** and this is the phase that calls them.
-3. **A4, then A4c.** Force a repop, work a door, list live mob instances, slay one, spawn one — the
+2. **A4, then A4c.** Force a repop, work a door, list live mob instances, slay one, spawn one — the
    mob-testing loop. `POST /players/:slug/give` was written with A4 in mind and is reusable as-is.
    **A4c** (owner, 2026-08-04: *"assign items to mobs as loot"*) needs a mob overlay first, the same
    shape `items-authored.json` gave items.
 
-**Two loose ends worth a few minutes each, neither blocking.** `itemRow` does not include `art`, so
-the panel's editor cannot show what an item currently wears — A7c will want that. And the newbie
-spawn room (41260) still holds a level-23 kobold shaman that answers to `kobold`; it is passive, so
-the hazard is a level-1's first `kill kobold`, not aggro.
+**A7d** — bag and floor icons, retiring the procedural placeholder — is the other half of A7 and is
+now the cheapest thing on the board: `artThumb` in `admin/src/artpicker.ts` already crops a frame out
+of a staged sheet, and the ULPC definitions carry `preview_row`/`preview_column` for exactly this.
+
+**One loose end left, neither blocking.** The newbie spawn room (41260) still holds a level-23 kobold
+shaman that answers to `kobold`; it is passive, so the hazard is a level-1's first `kill kobold`, not
+aggro. (`itemRow` omitting `art` was the other, and A7c closed it.)
 
 **Eighteen of 25 phases done — Acts I–IV complete, Act V under way (15 ✅, 16 part-done).** Track A
 has landed A2, A3, A4b, A5, A6, A6b, A7a and A7b; what is left there is A4, A4c, A7c, A7d and A8.

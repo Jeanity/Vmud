@@ -304,6 +304,64 @@
       .item-editor label { color: var(--dim); font-size: 11px; text-transform: uppercase; }
       .item-editor input[type='number'] { width: 64px; }
       .item-editor .flash { margin: 0; font-size: 11px; }
+
+      /*
+       * A7c — the art picker. `image-rendering: pixelated` is not a preference here: LPC is 64 px
+       * art and a browser's default smoothing turns a helmet into a smudge at any scale but 1:1,
+       * which would defeat the whole point of showing the picture instead of the id.
+       */
+      .art-thumb {
+        flex: none;
+        image-rendering: pixelated;
+        background-repeat: no-repeat;
+        /* A chequer under the tile, because every one of these sheets is a transparent layer: a
+           bare pale glove on the panel's dark background is invisible, and so is a black boot. */
+        background-color: rgba(157, 176, 138, 0.06);
+        border: 1px solid var(--edge);
+        border-radius: 2px;
+      }
+      .art-picker { flex: 1; min-width: 0; }
+      .art-current { display: flex; align-items: center; gap: 8px; }
+      .art-name { display: flex; flex-direction: column; font-size: 12px; }
+      .art-name .muted { font-size: 10px; }
+      .art-browser { margin-top: 6px; padding: 6px; border: 1px solid var(--edge); border-radius: 3px; }
+      .art-browser input[type='search'] { flex: 1; min-width: 0; }
+      .art-all { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--dim); }
+      /*
+       * Auto-fill rather than a fixed count: the browser sits inside an editor that is itself inside
+       * a column whose width depends on which panes are open, and a grid pinned to six columns
+       * either overflows or wastes half the row.
+       */
+      .art-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+        gap: 4px;
+        max-height: 40vh;
+        overflow-y: auto;
+        margin-top: 6px;
+      }
+      .art-tile {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        padding: 3px;
+        background: none;
+        border: 1px solid transparent;
+        border-radius: 3px;
+        cursor: pointer;
+        color: var(--dim);
+      }
+      .art-tile:hover { border-color: var(--edge); background: rgba(157, 176, 138, 0.07); }
+      .art-tile.chosen { border-color: var(--accent); background: rgba(157, 176, 138, 0.14); }
+      /* One line, clipped. A three-line label under a 64 px tile makes the grid ragged and unscannable. */
+      .art-label {
+        max-width: 66px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 10px;
+      }
     </style>
   </head>
   <body>

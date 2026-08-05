@@ -28,6 +28,7 @@
 import { parseColour } from '@mygame/shared';
 
 import { call } from '../api.ts';
+import { artPicker, artThumb } from '../artpicker.ts';
 import { colourBox } from '../colourbox.ts';
 import { el, render } from '../dom.ts';
 
@@ -50,6 +51,8 @@ interface ItemRow {
   readonly uses?: number;
   readonly container?: { readonly capacity: number; readonly accepts: string };
   readonly coins?: Readonly<Record<string, number>>;
+  /** A7c: the sheet this item is drawn with, when somebody has chosen one. */
+  readonly art?: string;
 }
 
 interface SearchBody {
@@ -70,6 +73,7 @@ interface ItemBody {
     readonly size: number;
     readonly cost: number;
     readonly damage?: { readonly count: number; readonly sides: number; readonly bonus: number };
+    readonly art?: string;
   };
   readonly authored: Record<string, unknown> | null;
   /** Present when there is no harvest under this item: a Delete rather than a Restore. */
@@ -188,6 +192,11 @@ export const itemsSection = {
           // offers Delete. An operator who cannot tell them apart from the row will eventually click
           // Restore expecting the first and get the second's nothing.
           el('span', { class: 'vnum' }, `${row.vnum}${row.created ? ' ✦' : row.edited ? ' ✎' : ''}`),
+          // A7c. Half-size, because the question a list answers is *which of these have a picture* and
+          // a 64 px tile on fifty rows is a page you scroll rather than scan. The item's own sheet, so
+          // it also answers "which one" at a glance — two boots apart is visible at 32 px even when
+          // the ids are not. Only when there is art: an empty tile would imply a missing file.
+          row.art ? artThumb(row.art, 0.5) : null,
           coloured(row.name),
           el('span', { class: 'note' }, traits(row).join(' · ')),
           // The authored keyword list, which is what a player types and what `isName` matches. Worth
@@ -243,6 +252,12 @@ export const itemsSection = {
       const dSides = el('input', { type: 'number', value: item.damage ? String(item.damage.sides) : '', placeholder: '—' }) as HTMLInputElement;
       const dBonus = el('input', { type: 'number', value: item.damage ? String(item.damage.bonus) : '', placeholder: '0' }) as HTMLInputElement;
 
+      // A7c. Offered on **every** item, harvested or created: `art` is content in the same sense the
+      // name is — choosing a sword's picture changes nothing about what the sword does — which is why
+      // `ITEM_PATCH_KEYS` has it beside `name` rather than among the refused behaviour fields. Opens
+      // on the item's own slot, so editing boots shows boots.
+      const art = artPicker({ value: item.art, slot: item.slot });
+
       // **Only a created item gets these.** On a harvested one `slot`, `type` and `size` come from the
       // source's own bits and the server refuses to author them — offering boxes the save would reject
       // is worse than not offering them.
@@ -288,6 +303,11 @@ export const itemsSection = {
           // own dice are the thing being cleared and the record is what to ask.
           patch.damage = null;
         }
+
+        // **`null` clears, `undefined` means untouched** — the same rule every other field here
+        // follows, and the picker distinguishes them for free because "no art" is a state an operator
+        // chooses with the None button rather than a box they blank.
+        if (art.value() !== item.art) patch.art = art.value() ?? null;
 
         // The whole-record fields, and only where they exist to edit.
         if (madeHere) {
@@ -407,6 +427,7 @@ export const itemsSection = {
         ...(madeHere
           ? [el('div', { class: 'row' }, el('label', {}, 'type'), type, el('label', {}, 'slot'), slot, el('label', {}, 'size'), size)]
           : []),
+        el('div', { class: 'row' }, el('label', {}, 'art'), art.node),
         el('div', { class: 'row' }, save, madeHere ? destroy : revert, who, give, flash),
         el('p', { class: 'note' }, authoredNote),
       );
@@ -458,6 +479,12 @@ export const itemsSection = {
     const newDCount = el('input', { type: 'number', placeholder: '—' }) as HTMLInputElement;
     const newDSides = el('input', { type: 'number', placeholder: '—' }) as HTMLInputElement;
     const newDBonus = el('input', { type: 'number', placeholder: '0' }) as HTMLInputElement;
+    // A7c. `draftAuthoredItem` has accepted `art` since A7b and no form ever offered it, so an item
+    // made here could only be given a picture by creating it, finding it again and editing it.
+    const newArt = artPicker({ value: undefined, slot: undefined });
+    // The slot is being chosen a few centimetres away; the picker follows it rather than opening on
+    // all 319 sheets for an item whose slot the form already knows.
+    newSlot.addEventListener('change', () => newArt.setSlot(newSlot.value || undefined));
     const create = el('button', {}, 'Create') as HTMLButtonElement;
     const newForm = el('div', { class: 'item-editor', style: 'display:none' });
 
@@ -471,6 +498,7 @@ export const itemsSection = {
         size: Number(newSize.value || 1),
         cost: Number(newCost.value || 0),
         ...(newSlot.value ? { slot: newSlot.value } : {}),
+        ...(newArt.value() ? { art: newArt.value() } : {}),
         ...(newDCount.value.trim() || newDSides.value.trim()
           ? { damage: { count: Number(newDCount.value), sides: Number(newDSides.value), bonus: Number(newDBonus.value || 0) } }
           : {}),
@@ -493,6 +521,7 @@ export const itemsSection = {
         newName.set('');
         newKeywords.value = '';
         newDCount.value = newDSides.value = newDBonus.value = '';
+        newArt.set(undefined);
         search();
       })();
     });
@@ -514,6 +543,7 @@ export const itemsSection = {
         el('label', {}, 'damage'), newDCount, el('span', { class: 'muted' }, 'd'), newDSides, el('span', { class: 'muted' }, '+'), newDBonus,
         el('label', {}, 'cost'), newCost,
       ),
+      el('div', { class: 'row' }, el('label', {}, 'art'), newArt.node),
       el('div', { class: 'row' }, create, newFlash),
       el('p', { class: 'note' }, 'The vnum is allocated at nine million and up, where no Duris item reaches.'),
     );

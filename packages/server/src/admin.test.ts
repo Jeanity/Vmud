@@ -16,6 +16,7 @@ import { describe, it } from 'node:test';
 import {
   AUTHORED_VNUM_BASE,
   DURIS_ITEM,
+  LPC_ART,
   boundsOf,
   type ItemTemplate,
   type Room,
@@ -879,6 +880,33 @@ describe('the item catalogue', () => {
     assert.equal(one.status, 200);
     assert.equal((one.body as { item: { twoHanded?: boolean } }).item.twoHanded, true);
     assert.equal(api.route(req('GET', '/items/9999')).status, 404);
+  });
+
+  it('carries the chosen art on the row, and drops the field when there is none — A7c', () => {
+    // The recorded loose end: `itemRow` omitted `art`, so the picker's own work was invisible the
+    // moment it was saved and the panel could not mark which of 16,421 items have a picture.
+    //
+    // The id comes from the generated index rather than being typed in, because a hardcoded sheet
+    // name would turn a re-stage of the art pack into a failing admin test.
+    const { api } = makeRig();
+    const sheet = LPC_ART[0]!.id;
+
+    assert.equal('art' in search(api, { q: '100' }).items[0]!, false, 'absent, not null, before anything is chosen');
+
+    const patched = api.route(req('PATCH', '/items/100', { art: sheet }));
+    assert.equal(patched.status, 200);
+    assert.equal((patched.body as { item: Record<string, unknown> }).item['art'], sheet, 'and on the save response');
+    assert.equal(search(api, { q: '100' }).items[0]!['art'], sheet);
+
+    api.route(req('PATCH', '/items/100', { art: null }));
+    assert.equal('art' in search(api, { q: '100' }).items[0]!, false, 'cleared back to absent');
+  });
+
+  it('refuses art the index does not have, and names it', () => {
+    const { api } = makeRig();
+    const refused = api.route(req('PATCH', '/items/100', { art: '../../../etc/passwd' }));
+    assert.equal(refused.status, 400);
+    assert.match(String((refused.body as { error: string }).error), /no such art/);
   });
 });
 
