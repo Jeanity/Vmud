@@ -92,7 +92,7 @@ a new idea still answers the three questions; its second question now also picks
 | 4 | V3 — speech in the world | Phase 15 — inventory and worn equipment ✅ | A4 — zones and mobs, live ops |
 | **5 ✅** | A7a/A7b — item art becomes data ✅ *(took the V slot: it is presentation of things that already exist)* | Phase 16 — gear that matters (16a bands ✅, 16c mob armour ✅) | A6 — items ✅, A6b — items you make yourself ✅ |
 | **6 — under way** | A7c — the art picker ✅, then A7d — bag and floor icons | Phase 16 ✅ — light from what you hold, craftsmanship on AC, encumbrance, water you cannot wade | A4 ✅ — mobs live, then A4c — their loot |
-| **7 — under way** | V3 — speech in the world ✅, then V4 — Places as a graph | Phase 17 — shops (containers and money landed in 15c) | A8 — zone geometry |
+| **7 — under way** | V3 — speech in the world ✅, then V4 — Places as a graph | Phase 17 — shops ✅ | A8 — zone geometry |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
 A5, because A5's prose editor is a colour editor and building the palette before the renderer would
@@ -1121,12 +1121,31 @@ gear outside *capacity* because what you have on is not luggage, and says nothin
 charged: being unable to enter deep water is a different no from being too tired, and paying for a
 step you were never going to take would drain the pool of somebody standing on a riverbank.
 
-#### Phase 17 — Containers, money and shops
+#### Phase 17 — Containers, money and shops ✅ **done 2026-08-05**
 
 - **Mechanic.** Containers with nesting depth and type restriction, money as both scalar and object,
   shopkeepers.
-- **Seen when.** You put a thing in a bag, and buy a thing from someone.
-- **Open question.** Container nesting depth — proposed max 2, not agreed. See `HANDOFF.md`.
+- **Seen when.** You put a thing in a bag ✅ (15c), and buy a thing from someone ✅.
+- **Open question — settled.** Container nesting depth is 2, owner-confirmed 2026-08-03.
+
+Containers and money landed early, in 15c, so what this phase actually had left was **shopkeepers**.
+Harvested **694** of them out of Duris' `.shp` files, and a keeper is a **mob vnum and nothing else** —
+which is why A4's spawn endpoint could place a working shop without knowing shops exist, and is how
+this was driven. `list`, `buy`, `sell` and `value`, priced off `utils.h`'s own coin ladder: copper,
+then ten, a hundred, a thousand, with an item's `cost` in copper.
+
+**The command table imposes nothing, and that is transcribed rather than tidied.** All four verbs are
+`CMD_TRIG` in `interp.c` — *"reserved keywords that don't DO anything, but are used to trigger
+specials"* — which sets `minimum_position = STAT_DEAD + POS_PRONE` and `in_battle = TRUE` on each. The
+shopkeeper is the gate, so the two rules that matter live in `keeperFor` where a keeper can own them:
+**awake and on your feet**, and **a keeper you are fighting will not serve you**.
+
+Three numbers worth keeping. Rounding goes the keeper's way on both sides, but the floors differ on
+purpose — a sale floors at 1 because free is not a price, a purchase floors at **0** because inventing
+a penny for worthless goods would make every piece of trash in the world a slow income. An empty
+`buysTypes` means the keeper buys **nothing**, which is 261 of the 694; reading it as "anything" would
+turn every one of them into a fence for the whole catalogue. And `shop.c`'s inverted-spread repair is
+**unreachable** — its own clamps guarantee the spread — which is asserted rather than exercised.
 
 ---
 

@@ -32,9 +32,9 @@ and restarting is the whole of "installing" a zone.
 
 ## State: green
 
-- **1,189 tests** (642 server, 462 shared, 85 worldgen), typecheck clean across all five packages.
+- **1,212 tests** (649 server, 468 shared, 95 worldgen), typecheck clean across all five packages.
   Four of the server's are `world.test.ts`'s, which **skip themselves when `data/world` is absent** —
-  a fresh clone or a new worktree reports 1,185 until `npm run worldgen` has run.
+  a fresh clone or a new worktree reports 1,208 until `npm run worldgen` has run.
 - `data/` is git-ignored and reproducible by `npm run worldgen` — **except `data/world/overrides/`**,
   which is hand-authored content no command can regenerate and is therefore the one thing under
   `data/` that git tracks. See `server/src/overrides.ts`.
@@ -142,6 +142,7 @@ and restarting is the whole of "installing" a zone.
 | Setting the world up without restarting it | **A4**, and the mob-testing loop every later phase wants. **Live instances, not templates** — Zones says what a zone is *authored* to hold, the Mobs section says what is standing in it, and two sentinel privates of one vnum carry 1,182 and 1,274 hit points because the roll is per instance. Every row has an **entity id**, protocol 11's argument again: a keyword cannot say *which*. **Slay runs `resolveDeath`**, so the body leaves a corpse holding what it carried and the room is told — an admin kill that made a mob vanish would exercise a path the game does not have, and watching the real one is the whole point; nobody is paid experience or coin because nobody hurt it. **Repop passes `runReset`'s `force` flag**, which had existed since Phase 8 with boot as its only caller, and stays additive: the first press reported *+5 mobs, 97 at limit*, the second *+0, 98* — the per-vnum world-wide limit doing its job, which is what makes the button safe to hand somebody. **A door is worked at both ends** through `world.doorway`, since a doorway shut from one side only is a wall from the other, with `closed` and `locked` set independently because `LOCKS_HOLD` is off and testing the day it bites needs them apart. `admin/src/sections/mobs.ts`; doors and Repop live on the Zones page beside what they act on |
 | You watch somebody say it | **V3**, and **protocol 17** — `log` gains `from` and `speech`, set only on the `say` channel. **Additive on the message that already exists, and that is the design rather than thrift**: the speech line is already rendered per recipient and already passes the `act()` gate, so a second send path would be a second answer to *"who may hear this"* and two answers drift. **The sight gate is applied once and the renderer cannot disobey it** — the client draws on an entity it holds, so a speaker outside your light has nothing to attach a bubble to, while the log line they do get still reads *"someone says"*. Same fall-out protocol 16 uses for the chevron. Two things the drive corrected: the bubble is **counter-scaled against the camera** (`setScale(1 / zoom)`), because world space is scaled by a ladder running 0.25 to 2 and one sentence covered a quarter of the map at close zoom; and it draws **above the fog** at depth 60 — owner's rule, *"darkness doesn't affect what can be heard"* — since a bubble beneath the depth-50 fog was dimmed by the unlit air above the speaker's head rather than by anything about the speaker. `sayInWorld` / `advanceBubbles` in `scene.ts` |
 | The operator's voice, on screen | **V3's other half**: A2 took the protocol to 10 to give an administrator a channel of their own, and until now this client could tell it from `system` and did nothing with the difference. A banner along the **bottom** of the map — top-centre collided with `#status`, which is pinned top-left, runs most of a narrow map column and comes later in the document so it painted straight through. **A mirror where V1's combat feed is a split**, deliberately: combat lands in the feed and nowhere else because a fight is a stream and duplicating it doubles the noise, while a banner is transient by necessity and an announcement you were looking away for must still be findable — so it shows *and* stays in the log. One at a time, replaced rather than queued, because *"restarts in one minute"* after *"in five minutes"* is exactly where a queue shows the wrong number. `client/src/announce.ts` |
+| You can buy a thing from someone | **Phase 17**, and Act V's last. Containers and money landed early in 15c, so what the phase had left was shopkeepers: **694 harvested** from Duris' `.shp` files. **A keeper is a mob vnum and nothing else** — no flag on the instance, no second kind of actor — so a keeper that wanders is still a keeper, one killed and repopped still trades, and **A4's spawn endpoint placed a working shop without knowing shops exist**, which is how it was driven. `list`, `buy`, `sell`, `value`. Coin comes from `utils.h`'s ladder (copper, ×10, ×100, ×1000) and an item's `cost` is in copper, which is why the panel has printed `63185c` since 15c without anyone deciding what the `c` meant; the ladder being decimal makes re-denomination lossless, so `spendCoins` breaks a platinum piece for a one-copper price without charging a rounding error. **The command table imposes nothing** — all four verbs are `CMD_TRIG` in `interp.c`, at `STAT_DEAD + POS_PRONE` and `in_battle = TRUE` — so the two rules that matter live on the keeper: awake and on your feet, and a merchant you are fighting will not serve you. Driven: listed six items, bought a chicken egg for 2 silver 6 copper, and was told *"I will not buy that"* offering it back — because an empty `buysTypes` means **buys nothing**, which is 261 of the 694 |
 | Operator messaging | World, a Place, or one room — one endpoint with an optional target, reporting how many heard it. On the **`announce`** channel (protocol 10), a person's voice styled apart from the machine's. A room line is **not** sight-gated: it comes from outside the world |
 
 ### Not built
@@ -343,15 +344,23 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-### Start here — round 7, V slot done (2026-08-05)
+### Start here — round 7, V and M slots done (2026-08-05)
 
 Round 6 closed on all three tracks — A7c the art picker, **Phase 16** (light from what you hold,
 craftsmanship on AC, encumbrance, water you cannot wade into), and **A4** (repop, doors, live mob
-instances, slay, spawn). **Round 7's V slot has landed too: V3, speech in the world.**
+instances, slay, spawn). Round 7 has since landed **V3, speech in the world** and **Phase 17,
+shops** — which closes **Act V**, and with it every numbered phase up to Act VI.
 
-What is left in round 7: **Phase 17** — which is really just **shops**, since containers and money
-both landed in 15c — and **A8, zone geometry**. Then **V4, Places as a graph**, for the V slot of
-round 8. Two smaller things are unblocked and cheaper than any of them:
+What is left in round 7: **A8, zone geometry** — the last big piece of Track A, and the one A5
+deliberately refuses, because id, position and exits are the join key and the grid. Then **V4, Places
+as a graph** opens round 8, and **Phase 18, following and grouping** opens Act VI.
+
+Four smaller things are unblocked and cheaper than any of those:
+
+0. **The multi-layer art fix is done but A7e is not.** Recolouring (A7e) and Ollama choosing the ramp
+   (A7f) are specified in the parking lot with the measurements — 424 of 657 definitions declare
+   `palettes` and cloth alone has 24 named ramps, so it is a generator step rather than a paint
+   program.
 
 1. **A7d — bag and floor icons**, the other half of A7 and the cheapest thing on the board:
    `artThumb` in `admin/src/artpicker.ts` already crops a frame out of a staged sheet, and the ULPC
@@ -371,7 +380,7 @@ clock restarts. Fixing it means a `burnMs` on the persisted `Item`, which is the
 the gotchas below — every field of a persisted shape needs a reader line and a whole-value round-trip
 test — and it deserves that pass rather than a line here.
 
-**Nineteen of 25 phases done — Acts I–IV complete, Act V under way (15 ✅, 16 ✅).** Track A
+**Twenty of 25 phases done — Acts I–V complete.** Act VI is following and grouping, skills, spells, and the content layer. Track A
 has landed A2, A3, A4, A4b, A5, A6, A6b, A7a, A7b and A7c; what is left there is A4c, A7d and A8.
 Track V has V1, V2, V3 and V6, with V4 and V5 outstanding. Round 1 is complete: **V1 the combat feed** (the `combat` channel now
 renders *only* in its own section of the character pane — the owner's split: prose and speech on the
