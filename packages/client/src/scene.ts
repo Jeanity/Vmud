@@ -899,6 +899,14 @@ export class WorldScene extends Phaser.Scene {
   /** Whole-map overview, toggled by <kbd>M</kbd>. Not a rung of the wheel ladder — see {@link ZoomStep}. */
   private fitMode = false;
   /**
+   * V4's graph of Places, toggled by <kbd>Shift</kbd>+<kbd>M</kbd>.
+   *
+   * Held rather than constructed here because it is plain DOM with no dependency on the renderer, and
+   * because `main.ts` is where the socket fan-out lives — the scene owns only the *key*, which is the
+   * one part that has to be gated on whether the caret is in the command line.
+   */
+  private placeMap: { toggle(): void; hide(): void; readonly isOpen: boolean } | undefined;
+  /**
    * What the camera is following, mirrored because Phaser exposes no public accessor for it.
    *
    * Needed because `startFollow` hard-sets the scroll: calling it while already following is a jump
@@ -1133,7 +1141,21 @@ export class WorldScene extends Phaser.Scene {
 
       // Backquote toggles the log. Bound on the document so it works while the canvas has focus.
       keyboard.on('keydown-BACKTICK', () => this.log.toggle());
-      keyboard.on('keydown-M', () => { if (!this.typing) this.toggleZoom(); });
+      // **One key, two views, and the modifier is read off the event.** `CLAUDE.md` gotcha 5b: polling
+      // `Shift` in `update` after taking M's edge throws the chord away when the two land in different
+      // frames, and the state at the moment of the press is what the player meant. Sharing `M` also
+      // means no new key is registered for *capture* — gotcha 5a — so no additional letter can vanish
+      // out of the command line.
+      keyboard.on('keydown-M', (event: KeyboardEvent) => {
+        if (this.typing) return;
+        if (event.shiftKey) this.placeMap?.toggle();
+        else this.toggleZoom();
+      });
+      // Escape closes it, which is what everybody tries. Handled before the log's own Escape, and
+      // only when the overlay is actually up, so it cannot swallow the way out of the command line.
+      keyboard.on('keydown-ESC', () => {
+        if (this.placeMap?.isOpen) this.placeMap.hide();
+      });
 
       // Doors. No direction is sent: the server holds the authoritative facing and resolves "the one
       // I am facing" itself, so walking up to a door and pressing O is the whole interaction. The
@@ -3476,6 +3498,17 @@ export class WorldScene extends Phaser.Scene {
    * `down` starts answering false, but the last steer the server was sent is still a push. Zeroing
    * the intent here sends the release the player can no longer send themselves.
    */
+  /**
+   * Hands the scene V4's overlay, so <kbd>Shift</kbd>+<kbd>M</kbd> and <kbd>Escape</kbd> can reach it.
+   *
+   * Injected rather than imported: the overlay is DOM built in `main.ts` beside the socket that feeds
+   * it, and the scene needs exactly two verbs off it. Typed structurally for the same reason — this
+   * file has no business knowing what else a `PlaceMap` can do.
+   */
+  setPlaceMap(map: { toggle(): void; hide(): void; readonly isOpen: boolean }): void {
+    this.placeMap = map;
+  }
+
   setTyping(typing: boolean): void {
     if (typing === this.typing) return;
     this.typing = typing;

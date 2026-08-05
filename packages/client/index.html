@@ -164,6 +164,40 @@
       }
       #announce[hidden] { display: none; }
 
+      /* V4. Covers the map rather than sitting beside it: it answers "where have I been", the map
+         answers "what is around me", and reading both at once is reading neither. */
+      #placemap {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(8, 10, 8, 0.9);
+        z-index: 40;
+        overflow: auto;
+      }
+      #placemap[hidden] { display: none; }
+      .placemap-frame {
+        max-width: min(900px, calc(100% - 32px));
+        max-height: calc(100% - 32px);
+        padding: 14px 18px 10px;
+        border: 1px solid var(--edge);
+        border-radius: 4px;
+        background: rgba(20, 23, 19, 0.97);
+        text-align: center;
+      }
+      .placemap-frame h2 { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: #e8dcc0; }
+      .placemap-frame p { margin: 6px 0 0; font-size: 11px; color: var(--dim); line-height: 1.5; }
+      .placemap-svg { display: block; width: 100%; max-height: 62vh; }
+      .placemap-link { stroke: #56604c; stroke-width: 2; }
+      .placemap-via { fill: var(--dim); font-size: 9px; text-anchor: middle; }
+      .placemap-node circle { fill: #2e3529; stroke: #6d7a60; stroke-width: 2; }
+      /* Where you are standing, in the accent the rest of the UI uses for "picked". */
+      .placemap-node.here circle { fill: #3b4a33; stroke: var(--accent); stroke-width: 3; }
+      .placemap-name { fill: #cfd6c2; font-size: 10px; text-anchor: middle; }
+      .placemap-level { fill: #9aa88c; font-size: 11px; text-anchor: middle; font-weight: 600; }
+      .placemap-node.here .placemap-level { fill: #e8dcc0; }
+
       #status .name { color: #e8dcc0; font-weight: 600; font-size: 13px; }
       #status .zone { color: #a8b596; font-size: 11px; }
       #status .where { color: var(--dim); font-size: 11px; }
@@ -638,6 +672,10 @@
              empty banner cannot eat a click on the ground beneath it. -->
         <div id="announce" hidden></div>
 
+        <!-- V4. Where you have been, as a graph of Places. Covers the map while it is open, because
+             it answers a different question and reading both at once is reading neither. -->
+        <div id="placemap" hidden></div>
+
         <!-- Always on screen, whatever the panes are doing. Name, the three pools, your light, your
              stance, what is affecting you, and where you are standing — pinned to the map so it
              survives the character sheet collapsing to a rail. -->
@@ -707,6 +745,9 @@
                the character while you pan and comes back the moment you drive again. -->
           <div><kbd>Right</kbd>-drag pan the map</div>
           <div><kbd>Wheel</kbd> zoom &nbsp; <kbd>M</kbd> whole map</div>
+          <!-- V4. The other map question: not "what is around me" but "where have I been". Shares M
+               because the two are the same gesture at two scales. -->
+          <div><kbd>Shift</kbd>+<kbd>M</kbd> where you have been</div>
           <!-- The MUD half. While the caret is in the prompt the game is deaf to the keyboard, so
                `west` is a command and not four steps; Esc hands the keys back. -->
           <div><kbd>Enter</kbd> type a command &nbsp; <kbd>Esc</kbd> back to the game</div>

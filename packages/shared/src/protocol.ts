@@ -15,7 +15,34 @@ import type { Posture, Status } from './position.ts';
 import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
 
 /**
- * Bumped to 17: you can watch somebody say it.
+ * Bumped to 18: the world as a graph of Places.
+ *
+ * One new server message — **`places`** — carrying the Places this character has been and the links
+ * between them they have actually walked.
+ *
+ * **It has to come from the server, and that is decision 1 in `HANDOFF.md` rather than a preference.**
+ * A client holds one `Zone` at a time and nothing about the shape of the world beyond it, so it
+ * cannot draw a wider map from what it has. It must also not be *given* the whole world: that would
+ * hand every player the location of every zone they have never found.
+ *
+ * **A graph, never a map**, for the same reason `Place` exists at all: worldgen normalises
+ * coordinates per zone and per level, so two Places share no coordinate space and 0 of 991 cross-zone
+ * exits are geometric neighbours. There is no plane to lay these on. Nodes are Places, edges are
+ * links, and the layout is a *diagram* the client draws — asserting a geography would be inventing
+ * one.
+ *
+ * **Derived from `seen` rather than stored, which is why this needs no new persisted field.** A Place
+ * you have been to is one your `seen` bitset has a bit in; an edge is one whose source room you have
+ * seen *and* whose far Place you have stood in. That second condition is the honest half: without it
+ * a character who reached two areas by separate routes would be shown a passage between them they
+ * have never found.
+ *
+ * Pushed on joining and on every Place change, which is exactly when a node or a link can appear, and
+ * **also answered on request** — a node carries how much of its Place you have explored, and that
+ * number climbs with every step, so the push alone would go stale inside a Place. The client asks when
+ * the view opens.
+ *
+ * Was 17: you can watch somebody say it.
  *
  * The `log` message gains **`from`** and **`speech`**, set only on the `say` channel — whose mouth the
  * line came out of, and the words without the *"Bob says,"* wrapper.
@@ -182,7 +209,37 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * Was 6: doors have live state — the `door` message, and `open`/`close` losing their required `dir`.
  * Was 5: carried light sources — `SelfView` gained `light`.
  */
-export const PROTOCOL_VERSION = 17;
+export const PROTOCOL_VERSION = 18;
+
+/**
+ * One Place on the map of where you have been — V4.
+ *
+ * `zone` and `level` are the {@link Place} itself; the rest is what a diagram needs to label a node.
+ * `rooms` is **how many of that Place's rooms you have seen**, not how many it has: telling a player
+ * there are ninety rooms on a level they have found four of is handing them the answer to the
+ * exploring.
+ */
+export interface PlaceNode {
+  readonly zone: ZoneId;
+  readonly level: number;
+  readonly zoneName: string;
+  /** Rooms of this Place this character has seen. */
+  readonly rooms: number;
+}
+
+/**
+ * A link between two Places, as an undirected pair.
+ *
+ * Direction is deliberately dropped. On the wire a link is one exit out of one room, but on a
+ * diagram *"the castle joins the bog"* is the fact, and drawing an arrow each way would double every
+ * line for no reading. `via` names the direction travelled from `a`, which is the one thing an arrow
+ * would have carried that a player actually uses — you climb *up* into the castle.
+ */
+export interface PlaceEdge {
+  readonly a: Place;
+  readonly b: Place;
+  readonly via: Direction;
+}
 
 /**
  * One timed effect on your own character, as the HUD reads it.
@@ -492,6 +549,19 @@ export type ClientMessage =
    * must not be handed. See `server/src/commands.ts`.
    */
   | { readonly t: 'command'; readonly text: string }
+  /**
+   * "Send me the map of where I have been" — V4, raised when the player opens the view.
+   *
+   * **A request as well as a push, because the push alone goes stale in one specific way.** The graph
+   * is sent on every Place change, which is when a node or a link can appear. But a node also carries
+   * *how many of that Place's rooms you have seen*, and that number climbs with every step you take
+   * inside a Place — so a pushed graph would say "1 room" to somebody who has since explored fifty.
+   * Pushing on every step instead would be a message a second for a number nobody is looking at.
+   *
+   * Asking on open costs one message per keypress and is always current. It is also cheap enough not
+   * to need a rate limit: the answer is a few dozen comparisons over the 23 loaded Places.
+   */
+  | { readonly t: 'places' }
   /** Round-trip timing probe; the server echoes `ts` back untouched. */
   | { readonly t: 'ping'; readonly ts: number };
 
@@ -568,6 +638,13 @@ export type ServerMessage =
    * browser clear, and it gates click-to-move, so a client must not be able to forge it.
    */
   | { readonly t: 'seen'; readonly place: Place; readonly bits: string }
+  /**
+   * Where you have been, as a graph — V4, and the only view of the world wider than one Place.
+   *
+   * `here` is the node to centre the diagram on. It is always present in `nodes`: you are standing
+   * in it, so you have seen it by construction.
+   */
+  | { readonly t: 'places'; readonly nodes: readonly PlaceNode[]; readonly edges: readonly PlaceEdge[]; readonly here: Place }
   /**
    * Tiles seen for the first time since the last message, for the Place the player is currently on.
    *

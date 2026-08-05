@@ -246,6 +246,7 @@ import {
   type ItemDraft,
 } from './item-authoring.ts';
 import { ROOMS_FILE } from './overrides.ts';
+import { buildPlaceGraph } from './placegraph.ts';
 import { AUTHORED_ROOMS_FILE, saveAuthoredRooms } from './room-authoring.ts';
 import { GameWorld, placeOf } from './world.ts';
 
@@ -976,6 +977,24 @@ function foldSeen(player: Player): number[] {
   if (!record || !grid) return [];
   if (!sim.refreshVisible(player)) return [];
   return store.markSeen(record, player.place, grid.width * grid.height, player.visible);
+}
+
+/**
+ * Ships the map of where this character has been — V4.
+ *
+ * **On arrival rather than on request**, and it is small enough that the choice is free: the loaded
+ * world is 23 Places, so even a character who has walked all of it is a few hundred bytes. Pushing it
+ * means the client can open the view instantly instead of waiting a round trip, and there is no
+ * request message for a hostile client to spam.
+ *
+ * Arrival is also exactly when the answer can change. An edge needs both of its Places visited, and
+ * visiting one is a Place change — so nothing that happens *within* a Place can add a node or a line.
+ */
+function sendPlaces(player: Player): void {
+  const record = records.get(player.id);
+  if (!record) return;
+  const graph = buildPlaceGraph(world, record, player.place);
+  send(player.id, { t: 'places', nodes: graph.nodes, edges: graph.edges, here: player.place });
 }
 
 /** Ships a Place's whole seen bitset. Sent on arriving at a Place; deltas carry it from there. */
@@ -2076,6 +2095,7 @@ function announceArrival(player: Player, from: RoomId, fromPlace: Place, via?: D
     // A new Place means a new grid, so tile indices from the old one mean nothing: the whole bitset
     // for this Place goes out, and deltas take over again from here.
     sendSeen(player);
+    sendPlaces(player);
   } else if (delta.length > 0) {
     send(player.id, { t: 'seenDelta', tiles: delta });
   }
@@ -4550,6 +4570,13 @@ function handle(player: Player, message: ClientMessage): void {
       if (typeof message.text === 'string') runCommand(player, message.text.slice(0, 400));
       break;
 
+    // V4. A read, and the only client message that asks for something rather than intending it — the
+    // graph is pushed on every Place change, but the *rooms explored* on each node climbs with every
+    // step, so a view opened mid-exploration wants a fresh answer rather than the last push.
+    case 'places':
+      sendPlaces(player);
+      break;
+
     case 'open':
     case 'close':
       // No direction means the one the character is facing. Facing is server-owned, and the client
@@ -4902,6 +4929,7 @@ const adminLive: LiveOps = {
       // The `zone` message only resets a client's fog when the Place *changes*, and this is the same
       // Place — so the empty map has to be sent explicitly or the client keeps drawing the old one.
       sendSeen(player);
+      sendPlaces(player);
       describeRoom(player);
       send(player.id, {
         t: 'log',
@@ -5121,6 +5149,7 @@ wss.on('connection', (socket) => {
       // After `zone` and before the first room description: the client needs the grid built to index
       // the bitset against, and needs the shading in place before it draws the room.
       sendSeen(player);
+      sendPlaces(player);
       // A testing light, when one is asked for. **Off unless `GAME_DEV_LIGHT` names a catalogue id**, so
       // it cannot reach a real server by accident — the same shape as `LOCKS_HOLD`, a switch that is
       // named, explained and default-off rather than a commented-out line somebody re-enables.
@@ -5133,6 +5162,7 @@ wss.on('connection', (socket) => {
         sim.setCarriedLight(player, DEV_LIGHT);
         foldSeen(player);
         sendSeen(player);
+        sendPlaces(player);
       }
       // Level first, then the weapon override, so `GAME_DEV_DAMAGE` can still tune one number of a
       // profile rather than having to replace the whole thing. **A saved level wins over the rig**:

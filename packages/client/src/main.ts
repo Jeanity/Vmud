@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 
 import { AnnounceBanner } from './announce.ts';
+import { PlaceMap } from './placemap.ts';
 import { CombatFeed } from './combatfeed.ts';
 import { LogPanel } from './log.ts';
 import { Net } from './net.ts';
@@ -83,6 +84,15 @@ net.on('log', (message) => {
   if (message.channel === 'combat') combatFeed.push(message.text);
   if (message.channel === 'announce') announce.show(message.text);
 });
+
+// V4. On the same fan-out, and for the third time the reason is that this is DOM which owes the
+// renderer nothing: a graph of a dozen labelled discs is the browser's job, and it stays legible if
+// anything goes wrong inside the canvas. The scene owns the *key*, because Phaser is what holds the
+// keyboard and because the toggle has to be gated on whether the caret is in the command line.
+const placeMap = new PlaceMap();
+net.on('places', (message) => placeMap.update(message.nodes, message.edges, message.here));
+placeMap.onOpen = () => net.send({ t: 'places' });
+scene.setPlaceMap(placeMap);
 
 // The line goes to the server unparsed: which command an abbreviation means, and which orc `2.orc`
 // is, are both game rules, and the second needs room contents gated on what this character can see.

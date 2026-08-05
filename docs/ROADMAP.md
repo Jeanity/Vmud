@@ -93,6 +93,7 @@ a new idea still answers the three questions; its second question now also picks
 | **5 ✅** | A7a/A7b — item art becomes data ✅ *(took the V slot: it is presentation of things that already exist)* | Phase 16 — gear that matters (16a bands ✅, 16c mob armour ✅) | A6 — items ✅, A6b — items you make yourself ✅ |
 | **6 — under way** | A7c — the art picker ✅, then A7d — bag and floor icons | Phase 16 ✅ — light from what you hold, craftsmanship on AC, encumbrance, water you cannot wade | A4 ✅ — mobs live, then A4c — their loot |
 | **7 — closed** | V3 — speech in the world ✅ | Phase 17 — shops ✅ | A8 — zone geometry ✅ (infill, deletion, extent changes) |
+| **8 — under way** | V4 — Places as a graph ✅ | dropped-item decay and `junk` (§4, placed 2026-08-05) | A4c — loot on a mob, or A7e/A7f — recolour |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
 A5, because A5's prose editor is a colour editor and building the palette before the renderer would
@@ -1249,12 +1250,26 @@ One per round (§2b). Each entry is small on purpose — a V item that grows a m
   doubles the noise exactly when there is most of it. A banner is transient by necessity, and an
   announcement you happened to be looking away for must still be findable — so it shows *and* stays
   in the log, and the log is the record. `client/src/announce.ts`.
-- **V4 — The world as a graph of Places.** The `M` overview shows the Place you are on; there is no
-  view of anywhere else. Decision 1 in `HANDOFF.md` constrains this hard: zones overlap and share no
-  coordinate space, so any wider map **must be a graph of Places, not a map of them** — nodes you
-  have visited, edges you have walked, laid out as a diagram rather than geography.
+- **V4 — The world as a graph of Places** ✅ **done 2026-08-05.** The `M` overview shows the Place you
+  are on; there was no view of anywhere else. Decision 1 in `HANDOFF.md` constrains this hard: zones
+  overlap and share no coordinate space, so any wider map **must be a graph of Places, not a map of
+  them** — nodes you have visited, edges you have walked, laid out as a diagram rather than geography.
   **Seen when:** you open the map and see where you have been as a web, and how the castle joins
-  the bog.
+  the bog ✅ — `Shift`+`M`, four Places on two rings with the current one picked out.
+
+  **Protocol 18, and it persists nothing.** A character's `seen` bitsets already record which Places
+  they have stood in, so the graph is derived rather than stored — no new saved field, and so none of
+  the reader-line and round-trip work every persisted field costs.
+
+  **The edge rule is the part that needed care, and the first version of it leaked.** "Source room
+  seen, far Place visited" reads as sufficient: it is not. A character who has stood in the marsh and,
+  separately, in the keep would be shown the passage joining them, because the marsh room they *did*
+  see has an exit into a Place they *have* been — a passage they never found. An edge now needs
+  **both** of its rooms seen, which says exactly *you have stood on this side and on that side*.
+
+  Two smaller decisions worth keeping: a node reports **rooms explored, never rooms that exist**, and
+  the layout is **rings by boundary-distance** rather than a force simulation, so the same graph always
+  draws the same picture.
 - **V5 — Arrival cards.** Crossing into a new Place is currently a change of floor tiles. A brief
   title card — zone name, level — gives travel the sense of arrival every MUD gets from its room
   header line. **Seen when:** you climb the stairs and the game tells you where you have arrived,
