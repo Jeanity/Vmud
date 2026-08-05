@@ -1811,6 +1811,11 @@ function itemRow(template: ItemTemplate): Record<string, unknown> {
     // belongs on the row: what the search shows is *which* of these have been given a picture, and a
     // row that could not say so made the picker's own work invisible the moment it was saved.
     ...(template.art ? { art: template.art } : {}),
+    // Phase 16. Absent at average, which is two thirds of the catalogue — so a row that carries one
+    // is saying something. **This is the reader that earns the field its place on the template**: the
+    // bonus is already folded into `ac`, and without this nothing could answer "why is this steel
+    // helm better than that one".
+    ...(template.craftsmanship === undefined ? {} : { craftsmanship: template.craftsmanship }),
   };
 }
 

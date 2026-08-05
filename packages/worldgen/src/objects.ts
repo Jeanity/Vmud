@@ -36,6 +36,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  CRAFT_AVERAGE,
   DURIS_ITEM,
   armourBonusFrom,
   sizeFrom,
@@ -55,6 +56,12 @@ export interface RawObject {
   /** Long description: the line when it is lying on the floor. */
   readonly roomLine: string;
   readonly type: number;
+  /**
+   * `OBJCRAFT_*`, 0–15 with 7 as average. **Read and discarded by Duris itself** — every mechanical
+   * use of it in the source is commented out — and set deliberately by the builders on a third of the
+   * world. See {@link craftsmanshipBonus} for what it buys here and why that is a divergence.
+   */
+  readonly craftsmanship: number;
   readonly extraFlags: number;
   readonly wearFlags: number;
   /** `value[0..7]`, whose meaning depends entirely on `type`. */
@@ -138,8 +145,11 @@ export function parseObjectRecord(vnum: number, body: string): RawObject | undef
     name: strings[1]!,
     roomLine: strings[2]!,
     type: numbers[0]!,
-    // Positions 1–5 are material, two fields the source itself discards, craftsmanship and another
-    // discarded one. Skipped by position, which is what the format guarantees.
+    // Position 1 is **material** and is deliberately not carried: `common.c`'s `materials[]` makes it
+    // a damage-resistance row, and this game has no damage types to resist. `craftsmanshipBonus` has
+    // the argument. Positions 2, 3 and 5 are read and thrown away by the source itself. Everything
+    // here is taken by *position*, which is what the format guarantees.
+    craftsmanship: numbers[4]!,
     extraFlags: numbers[6]!,
     wearFlags: numbers[7]!,
     values: numbers.slice(11, 19),
@@ -234,7 +244,7 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
   // `ITEM_WORN` — so reading it off the type rather than off the value would credit clothing with
   // protection it does not have.
   const ac = raw.type === DURIS_ITEM.armor || raw.type === DURIS_ITEM.shield
-    ? armourBonusFrom(raw.values[0] ?? 0)
+    ? armourBonusFrom(raw.values[0] ?? 0, raw.craftsmanship)
     : 0;
 
   // `dice(value[1], value[2])` — `fight.c`'s own expression, verbatim. Taken unscaled, unlike armour:
@@ -291,6 +301,9 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
     type: raw.type,
     ...(slot ? { slot } : {}),
     ac,
+    // Absent at average, which is two thirds of the world: carrying `7` on 14,322 entries would be
+    // three hundred kilobytes of JSON saying "nothing unusual here".
+    ...(raw.craftsmanship === CRAFT_AVERAGE ? {} : { craftsmanship: raw.craftsmanship }),
     ...(damage ? { damage } : {}),
     ...(twoHanded ? { twoHanded: true as const } : {}),
     ...(hitroll === 0 ? {} : { hitroll }),

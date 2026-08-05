@@ -94,6 +94,15 @@ A graphical, multiplayer, top-down / three-quarter-view RPG built on the world o
 6. **npm eats unknown flags.** `npm run x -- --zone 390` through a nested `npm run --workspace`
    loses `--zone` to npm's own config parser. Root scripts that take flags must invoke `node`
    directly.
+7. **A git worktree with no `node_modules` builds the *other* checkout, silently.** `node_modules/`
+   is git-ignored, so a fresh worktree has none, and Node then resolves `@mygame/shared` upward into
+   the main checkout's — where the workspace symlink points at `D:\MyGame\packages\shared`. Typecheck,
+   tests and both Vite dev servers all then read main's source while you edit the worktree's, and
+   nothing warns: everything passes, because the code being checked is real, just not yours. The tell
+   arrives only when you *add* an export — `tsc` says the member does not exist and the browser says
+   the module does not provide it. **`npm install` in the worktree first.** Then delete
+   `packages/*/node_modules/.vite` and restart the dev servers: Vite caches the old resolution and a
+   reload will not clear it.
 
 ## Commands
 

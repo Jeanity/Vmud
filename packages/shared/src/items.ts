@@ -215,10 +215,104 @@ export const MAX_ITEM_ARMOUR_BONUS = 8;
  * 200-point legendary still beats a 16-point one — while flattening the top so the best gear in the
  * world is a strong edge rather than immunity. One function, one cap, one edit to retune.
  */
-export function armourBonusFrom(durisArmour: number): number {
+export function armourBonusFrom(durisArmour: number, craftsmanship?: number): number {
   if (durisArmour <= 0) return 0;
-  return Math.min(MAX_ITEM_ARMOUR_BONUS, Math.floor(Math.sqrt(durisArmour)));
+  const base = Math.min(MAX_ITEM_ARMOUR_BONUS, Math.floor(Math.sqrt(durisArmour)));
+  // The floor is at 1, not 0: a badly-made breastplate is still a breastplate, and armour that
+  // protects you for nothing would make "wear the worse thing" a real answer to a real question,
+  // which is a decision nobody should have to make about a jerkin.
+  return Math.max(1, Math.min(MAX_ITEM_ARMOUR_BONUS, base + craftsmanshipBonus(craftsmanship)));
 }
+
+/* -------------------------------------------------------------------------- */
+/* Craftsmanship                                                               */
+/* -------------------------------------------------------------------------- */
+
+/** `OBJCRAFT_AVERAGE` in `objmisc.h`. The middle of a 0–15 scale, and where two thirds of the world sits. */
+export const CRAFT_AVERAGE = 7;
+
+/** How far craftsmanship may move a piece of armour, either way. */
+export const MAX_CRAFT_BONUS = 2;
+
+/**
+ * What Duris' craftsmanship scale is worth in armour class.
+ *
+ * ## This is a divergence, and the reason is the interesting part
+ *
+ * **In Duris, craftsmanship does nothing at all.** `objmisc.h` defines the whole 0–15 ladder from
+ * `OBJCRAFT_TERRIBLE` to `OBJCRAFT_ONE_KIND`, `common.c` gives each rung a sentence — *"of
+ * one-of-a-kind craftsmanship"* — and every mechanical use of it in the source is **commented out**:
+ * the `max_condition` derivation in `db.c` (marked `wipe2011`) and the extra-attack roll in
+ * `fight.c`. It survives only as prose in `identify`.
+ *
+ * So this is not a transcription. It is the same call V6 made about colour: **the world's builders
+ * used the scale and the engine threw it away.** They set it deliberately and at scale — of 21,474
+ * objects, 66.7% sit at average and **a third do not**, with 1,284 marked one-of-a-kind and 1,041
+ * marked below average. An item that tells the player it was made by a master artisan and is
+ * mechanically identical to the average one is a promise the source does not keep, and we can.
+ *
+ * ## The size, and why it is small
+ *
+ * Thirds of a rung off average, bounded at ±{@link MAX_CRAFT_BONUS}, against a base that runs 0–8:
+ *
+ * | craftsmanship | | here | of the catalogue |
+ * | --- | --- | --- | --- |
+ * | 0–2 | terribly to very poorly made | **−2** | 0.6% |
+ * | 3–5 | fairly poorly to below average | **−1** | 5.5% |
+ * | 6–8 | either side of average | **0** | 68.3% |
+ * | 9–11 | above average to excellently made | **+1** | 9.6% |
+ * | 12–15 | skilled artisan to one-of-a-kind | **+2** | 16.0% |
+ *
+ * **Thirds rather than quarters, and the measurement is why.** Quarter-steps look tidier and leave
+ * only 1.3% of the world below average — because the builders' one heavily-used low rung is 5, *"of
+ * below average quality"* on 1,041 objects, and quarters round that to nothing. A scale on which
+ * a thousand items are labelled shoddy and none of them are is not a scale. Thirds move **31.7%** of
+ * the catalogue, in both directions, by an amount that is an edge rather than a tier — which is the
+ * same bound `armourBonusFrom`'s own cap exists to keep.
+ *
+ * **Condition is deliberately not an axis, and that is measured too.** The `.obj` format carries one
+ * (`<weight> <cost> <condition>`) and `structs.h` calls it *"items condition or level"*; in the
+ * shipped world it is **100 on 99.0% of objects** — 21,262 of 21,474. Nothing in this game wears an
+ * item down, so a condition term would be ×1 for the whole world and a rounding error for 206 items.
+ * Multiplying by it would be arithmetic that looks like a mechanic.
+ *
+ * **Material is not carried either**, and for the project's own reason rather than for lack of data:
+ * it is on 100% of objects, at position 1 of the numeric run. But `common.c`'s `materials[]` table
+ * makes material a **damage-resistance** row — phys, fire, cold, light, gas, acid, negative, holy,
+ * psi, spirit — and this game has no damage types to resist. It would also double-count against
+ * armour, since `value[0]` already tracks it closely (dragonscale median 12, iron 7, leather 5): the
+ * builders encoded material into the armour number themselves. Harvest it the day damage types
+ * arrive; a field with no reader is the exact failure `ROADMAP.md` rule 1 exists to prevent.
+ */
+export function craftsmanshipBonus(craftsmanship?: number): number {
+  // Absent, not zero. Zero is `OBJCRAFT_TERRIBLE` and a real value on 34 objects, so defaulting a
+  // missing field to it would quietly declare every un-harvested item the worst in the world.
+  if (craftsmanship === undefined || !Number.isFinite(craftsmanship)) return 0;
+  const step = Math.round((craftsmanship - CRAFT_AVERAGE) / 3);
+  // `|| 0` collapses `-0`, which `Math.round` produces for the rungs just below average and which
+  // `assert.deepEqual` and `Object.is` both consider a different number from zero.
+  return Math.max(-MAX_CRAFT_BONUS, Math.min(MAX_CRAFT_BONUS, step)) || 0;
+}
+
+/** Duris' own sentence for a rung of the scale, for anything that shows one to a person. */
+export const CRAFTSMANSHIP_NAMES: readonly string[] = [
+  'terribly made',
+  'extremely poorly made',
+  'very poorly made',
+  'fairly poorly made',
+  'of well below average quality',
+  'of below average quality',
+  'of slightly below average quality',
+  'of average quality',
+  'of slightly above average quality',
+  'of above average quality',
+  'of well above average quality',
+  'excellently made',
+  'made by a skilled artisian',
+  'made by a very skilled artisian',
+  'made by a master artisian',
+  'of one-of-a-kind craftsmanship',
+];
 
 /** The most slots one item may cost. `DESIGN-inventory.md` §2's own breastplate is ten of twenty. */
 export const MAX_ITEM_SIZE = 10;
@@ -277,8 +371,16 @@ export interface ItemTemplate {
   readonly type: number;
   /** Where it may be worn, or absent for something that can only be carried. */
   readonly slot?: EquipSlot;
-  /** Armour class it is worth, already compressed. See {@link armourBonusFrom}. */
+  /** Armour class it is worth, already compressed and already including craftsmanship. See {@link armourBonusFrom}. */
   readonly ac: number;
+  /**
+   * Duris' `OBJCRAFT_*` rung, 0–15, absent where the builder left it at average.
+   *
+   * **Already folded into {@link ac}** — this is carried so a person can be told *why* one steel helm
+   * beats another, which is otherwise unanswerable from the record. The admin panel's item row reads
+   * it through {@link CRAFTSMANSHIP_NAMES}; that reader is the reason it is here at all.
+   */
+  readonly craftsmanship?: number;
   /** What it hits for, verbatim from `value[1]d value[2]`. Absent on anything that is not a weapon. */
   readonly damage?: Dice;
   /**

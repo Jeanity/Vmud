@@ -4,7 +4,10 @@ import { describe, it } from 'node:test';
 import {
   MAX_ITEM_ARMOUR_BONUS,
   MAX_ITEM_SIZE,
+  CRAFTSMANSHIP_NAMES,
+  CRAFT_AVERAGE,
   armourBonusFrom,
+  craftsmanshipBonus,
   instantiate,
   sizeFrom,
   slotForWearPosition,
@@ -40,6 +43,44 @@ describe('Duris armour, compressed onto our AC', () => {
     // An item's is not, and feeding one to the other is a single sign error away from negative armour.
     assert.equal(armourBonusFrom(0), 0);
     assert.equal(armourBonusFrom(-122), 0);
+  });
+
+  it('leaves the whole world alone at average craftsmanship — Phase 16', () => {
+    // 66.7% of the catalogue sits at 7, so the common case must be bit-for-bit what it was before
+    // craftsmanship existed. An absent value means the same thing and must not read as `terrible`.
+    for (const value of [1, 7, 16, 64, 200]) {
+      assert.equal(armourBonusFrom(value, CRAFT_AVERAGE), armourBonusFrom(value), `value ${value}`);
+      assert.equal(armourBonusFrom(value, undefined), armourBonusFrom(value), `value ${value}, unset`);
+    }
+  });
+
+  it('lets craftsmanship move a piece by up to two, and no further', () => {
+    // A median piece is +2. One made by a master artisan is +4; a very poorly made one is +1 — the
+    // floor, because a badly-made breastplate is still a breastplate.
+    assert.equal(armourBonusFrom(7, 14), 4, 'master artisan');
+    assert.equal(armourBonusFrom(7, 15), 4, 'one-of-a-kind sits in the same band as master, not past it');
+    assert.equal(armourBonusFrom(16, 5), 3, 'a p90 piece of below average quality');
+    assert.equal(armourBonusFrom(7, 2), 1, 'very poorly made — floored, not zero');
+    assert.equal(armourBonusFrom(7, 0), 1, 'terribly made, floored rather than negative');
+  });
+
+  it('does not let craftsmanship break the cap in either direction', () => {
+    // The cap is what stops the best gear in the world being immunity, and the floor is what stops
+    // the worst being a trap. Craftsmanship is an edge on top of the base; it is not a way out.
+    assert.equal(armourBonusFrom(200, 15), MAX_ITEM_ARMOUR_BONUS);
+    assert.ok(armourBonusFrom(1, 0) >= 1);
+    assert.equal(armourBonusFrom(0, 15), 0, 'and it cannot turn clothing into armour');
+  });
+
+  it('maps the 0–15 ladder onto quarter-steps', () => {
+    // The table in `craftsmanshipBonus`, asserted rung by rung — this is the shape of the divergence
+    // and it should not drift silently.
+    const expected = [-2, -2, -2, -1, -1, -1, 0, 0, 0, 1, 1, 1, 2, 2, 2, 2];
+    assert.deepEqual([...expected.keys()].map((c) => craftsmanshipBonus(c)), expected);
+    assert.equal(CRAFTSMANSHIP_NAMES.length, expected.length, 'a name for every rung');
+    // `Math.round` gives `-0` for the rungs just below average, and `-0` is not `0` to `Object.is`.
+    // Left uncollapsed it would ride into a JSON overlay and out again as a value nothing expects.
+    assert.ok(Object.is(craftsmanshipBonus(6), 0), 'zero, not negative zero');
   });
 });
 

@@ -25,7 +25,7 @@
  * first reached a character sheet and printed their codes verbatim.
  */
 
-import { parseColour } from '@mygame/shared';
+import { CRAFTSMANSHIP_NAMES, parseColour } from '@mygame/shared';
 
 import { call } from '../api.ts';
 import { artPicker, artThumb } from '../artpicker.ts';
@@ -53,6 +53,8 @@ interface ItemRow {
   readonly coins?: Readonly<Record<string, number>>;
   /** A7c: the sheet this item is drawn with, when somebody has chosen one. */
   readonly art?: string;
+  /** Phase 16: Duris' 0–15 rung, absent at average. Already folded into `ac`. */
+  readonly craftsmanship?: number;
 }
 
 interface SearchBody {
@@ -147,6 +149,10 @@ function traits(row: ItemRow): string[] {
   const out: string[] = [];
   if (row.damage) out.push(row.twoHanded ? `${row.damage} · two-handed` : row.damage);
   if (row.ac > 0) out.push(`+${row.ac} AC`);
+  // Duris' own sentence, not a number: "of one-of-a-kind craftsmanship" is what the builder wrote and
+  // what `identify` says in the source. Only when it differs from average, which is the only time it
+  // has moved the AC beside it.
+  if (row.craftsmanship !== undefined) out.push(CRAFTSMANSHIP_NAMES[row.craftsmanship] ?? `craft ${row.craftsmanship}`);
   if (row.slot) out.push(row.slot);
   if (row.container) out.push(`holds ${row.container.capacity} (${row.container.accepts})`);
   if (row.stackLimit) out.push(`stacks to ${row.stackLimit}`);
