@@ -32,9 +32,9 @@ and restarting is the whole of "installing" a zone.
 
 ## State: green
 
-- **1,168 tests** (629 server, 454 shared, 85 worldgen), typecheck clean across all five packages.
+- **1,180 tests** (633 server, 462 shared, 85 worldgen), typecheck clean across all five packages.
   Four of the server's are `world.test.ts`'s, which **skip themselves when `data/world` is absent** —
-  a fresh clone or a new worktree reports 1,164 until `npm run worldgen` has run.
+  a fresh clone or a new worktree reports 1,176 until `npm run worldgen` has run.
 - `data/` is git-ignored and reproducible by `npm run worldgen` — **except `data/world/overrides/`**,
   which is hand-authored content no command can regenerate and is therefore the one thing under
   `data/` that git tracks. See `server/src/overrides.ts`.
@@ -135,6 +135,10 @@ and restarting is the whole of "installing" a zone.
 | Undescribed rooms say so | A room with no prose logs a dim `[ No description yet. ]`. **Rendered, never stored**: writing it into 40,619 override entries would mark every room authored and destroy the ✎ mark's meaning. The panel has the matching **"needs prose"** filter, which is the authoring queue — 3 rooms in IceCrag, all 98 in The Stag Forest. Giving them prose from a short prompt via a local model is the next A slice |
 | Picking art from pictures, not ids | A7c, and the half of A7b that made the field usable. `torso-tunic-brown` and `torso-shirt-brown` are one word apart and look nothing alike — **the id does not describe the picture**, so a dropdown of 319 ids is a list of guesses and the control shows images. The tile is a 64×64 window onto the staged sheet at **column 0 of row 2** (LPC's south-facing standing frame, `scene.ts`'s own row order) done with `background-position`: no canvas, no fetch, one cached image per sheet however often it is drawn, and `pixelated` because 64 px art smoothed at any scale but 1:1 is a smudge. Opens on the item's own slot — 17 sheets for `feet` rather than 319 — with a tick to see everything, since `artgen`'s slot mapping is a hint the server enforces nowhere. `itemRow` carries `art` now, so the search list shows **which** of 16,421 items have a picture; that was a recorded loose end and it is what makes the picker's work visible after Save. `admin/src/artpicker.ts` |
 | Getting a sheet to the panel at all | The real work behind A7c. `artgen` stages the PNGs into `packages/client/public/lpc/`, which the **client's** 5273 serves; the panel is 5274 and proxies only `/admin`. A picker pointed at the client's port would break whenever somebody ran the server and the panel without the game — the exact case the admin suite exists for. So the **game server** serves them, from the same files rather than a copy, so a re-stage cannot leave the picker offering art the game no longer has. **Ungated, and mechanically rather than as a relaxation**: the admin gate's first defence is that `x-admin-token` must be *present* (a custom header forces a CORS preflight nothing here answers), an `<img>` cannot send a header, and gating would mean fetching several hundred blobs onto a canvas to protect CC-BY-SA sheets of boots the game already serves unauthenticated to every player. The path is closed by **looking the id up in `LPC_ART_BY_ID`**, never by joining it — traversal is refused for the same reason a typo is, so there is no filter to get wrong. `server/src/art.ts`, whose two halves are split out of `index.ts` precisely so they have a test |
+| A lantern in your bag lights nothing | **Phase 16**, and the collapse of the interim `carriedLight` — a field *beside* the inventory rather than a fact about it, so you could own a lantern and be in the dark. Duris settles it in one line (`handler.c:431`): a light lights you between `WIELD` and `HOLD` and only while `value[2]` is non-zero. The world's **64 lights are harvested**, 32 that never go out and 32 that burn. **Radius is ours, duration is Duris'** — Diku light is a boolean so there is no radius to transcribe, and inventing a ladder would contradict `light.ts`'s own finding that `ROOM_GAP` makes **3 the gate**; so every light sees as far as a torch and what separates a candle from a lantern is how long you keep it. The hour is **ten seconds**, pinned by making the two catalogues agree where they overlap: Duris' 24-hour redwood torch against our 240-second one. Above a thousand hours a light is unlimited, because one redwood torch is authored at **99,999,999** hours. Two contributors to the fold: an unlimited held light is a standing fact and needs no clock, a finite one is *only* its burn affect so that expiry actually stops it with the item still in hand. Hangs off `afterKitChange`, the one seam every kit change passes through — a lantern reaches a hand by `wear`, `wield`, `get`, a shield displacing it, an admin `give` or a login. Driven: bag → radius 2, hand → radius 3 and 960 s, off → radius 2 and *"You are in the dark."* |
+| Gear quality, where the roadmap asked for material | **Phase 16**, and the measurement changed the plan — see `ROADMAP.md`. Condition is `100` on **99.0%** of objects so it is not an axis; material is a **damage-resistance** row in `common.c` and we have no damage types, and it is already baked into `value[0]` anyway. **Craftsmanship** is what carries signal, and using it is a divergence: in Duris the 0–15 ladder does *nothing* — every mechanical use is commented out and it survives only as prose in `identify` — while the builders set it deliberately on a third of the world. Same call V6 made about colour. Thirds of a rung, ±2 against a base of 0–8; **thirds not quarters, because quarters leave only 1.3% of the world below average**. 2,088 armour pieces moved, 1,834 up and 254 down; an earring of mist made by a master artisan went +5 to +7, and the panel's row says so in Duris' own words |
+| What you are hauling slows you down | **Phase 16.** `load_modifier` (`actmove.c:79`) transcribed: ten bands from **75** under a tenth full to **300** past 95%, widening as they climb so the *last* thing you pick up costs far more than the first. The bottom band being *below* 100 is Duris' and is the good part — travelling light is a choice, not the absence of a penalty. **Where it is applied is ours and the source says so**: Duris uses this for combat (`fight.c:6414`) and for the prose that makes somebody *"stagger in"*, and charges movement flat. Load counts **worn bulk as well as bag bulk** against the bag's capacity, which looks lopsided and is the point — `DESIGN-inventory.md` §6 puts worn gear outside *capacity* because what you have on is not luggage, and says nothing about *effort*. Mobs are never encumbered: their kit is loot they never chose. Driven: the same field step cost **3 unburdened and 6 loaded** |
+| Water you cannot wade into | **Phase 16**, and `SECTOR_REQUIRES_MOVEMENT`'s first caller after five phases on the inert list. Deep water and underwater want `swim`, air and astral want `fly`, and nothing grants either yet — both are Phase 19/20 — so today it is a wall that **says which wall it is** rather than an exit that silently fails. Refused **before stamina is charged**, because being unable to enter deep water is a different no from being too tired and paying for a step you were never going to take would drain the pool of somebody standing on a riverbank pressing east. Driven by making a room deep water through **A5's own authoring**, with no restart: the step was refused, the pool did not move, and every other exit still worked |
 | Operator messaging | World, a Place, or one room — one endpoint with an optional target, reporting how many heard it. On the **`announce`** channel (protocol 10), a person's voice styled apart from the machine's. A room line is **not** sight-gated: it comes from outside the world |
 
 ### Not built
@@ -171,8 +175,9 @@ authorable field on any item. Three things worth not rediscovering:
 Still to do on art: **A7d**, bag and floor icons. **A7c, the picker, landed 2026-08-05** — see the
 table row below.
 
-**Be aware of the inert surface.** `SECTOR_REQUIRES_MOVEMENT` and `proficiencyBonus` still have **zero
-non-test callers**. `resolveAttack` and `rollDamage` came off this list in Phase 11 — they had been
+**Be aware of the inert surface.** `proficiencyBonus` still has **zero non-test callers**.
+**`SECTOR_REQUIRES_MOVEMENT` came off this list in Phase 16** — deep water and thin air now refuse a
+step, before stamina is charged for it. `resolveAttack` and `rollDamage` came off this list in Phase 11 — they had been
 written and tested since the beginning and never once called, which is the exact failure `ROADMAP.md`
 rule 1 exists to prevent. `ROUND_MS` is now read through `roundLengthFor` and stored per actor, which is
 §4.1's requirement rather than a tidy-up. `SECTOR_MOVE_COST` came off in Phase 5, and **`isWimpy` came
@@ -312,17 +317,13 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-### Start here — round 6, in cadence order (A7c landed 2026-08-05)
+### Start here — round 6 (A7c and Phase 16 landed 2026-08-05)
 
-Round 5 closed with item authoring and item art. **Round 6's V slot is done — A7c, the art picker.**
-Two jobs left in the round, and either can go first:
+Round 5 closed with item authoring and item art. **Round 6's V and M slots are both done** — A7c the
+art picker, and **Phase 16 complete**: light from what you hold, craftsmanship on AC, encumbrance,
+and water you cannot wade into. One job left in the round:
 
-1. **Phase 16 proper.** The balance half landed (16a bands, 16c mob armour); the phase itself is
-   still open — light as an equipped-item property (collapsing the interim `carriedLight` field the
-   design docs already say *should* collapse), AC derived from material × slot × condition, and
-   movement/encumbrance. `SECTOR_MOVE_COST` and `SECTOR_REQUIRES_MOVEMENT` are **written with zero
-   callers** and this is the phase that calls them.
-2. **A4, then A4c.** Force a repop, work a door, list live mob instances, slay one, spawn one — the
+1. **A4, then A4c.** Force a repop, work a door, list live mob instances, slay one, spawn one — the
    mob-testing loop. `POST /players/:slug/give` was written with A4 in mind and is reusable as-is.
    **A4c** (owner, 2026-08-04: *"assign items to mobs as loot"*) needs a mob overlay first, the same
    shape `items-authored.json` gave items.
@@ -331,11 +332,17 @@ Two jobs left in the round, and either can go first:
 now the cheapest thing on the board: `artThumb` in `admin/src/artpicker.ts` already crops a frame out
 of a staged sheet, and the ULPC definitions carry `preview_row`/`preview_column` for exactly this.
 
-**One loose end left, neither blocking.** The newbie spawn room (41260) still holds a level-23 kobold
+**One loose end left, not blocking.** The newbie spawn room (41260) still holds a level-23 kobold
 shaman that answers to `kobold`; it is passive, so the hazard is a level-1's first `kill kobold`, not
 aggro. (`itemRow` omitting `art` was the other, and A7c closed it.)
 
-**Eighteen of 25 phases done — Acts I–IV complete, Act V under way (15 ✅, 16 part-done).** Track A
+**One thing Phase 16 did not build, deliberately.** A finite held light's burn is on its **affect**,
+not on the item, so it is not per-instance: take a half-burnt torch off and put it back on and the
+clock restarts. Fixing it means a `burnMs` on the persisted `Item`, which is the reader-line trap in
+the gotchas below — every field of a persisted shape needs a reader line and a whole-value round-trip
+test — and it deserves that pass rather than a line here.
+
+**Nineteen of 25 phases done — Acts I–IV complete, Act V under way (15 ✅, 16 ✅).** Track A
 has landed A2, A3, A4b, A5, A6, A6b, A7a and A7b; what is left there is A4, A4c, A7c, A7d and A8.
 Track V has V1, V2 and V6, with V3, V4 and V5 outstanding. Round 1 is complete: **V1 the combat feed** (the `combat` channel now
 renders *only* in its own section of the character pane — the owner's split: prose and speech on the

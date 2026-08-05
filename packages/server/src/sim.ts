@@ -21,9 +21,9 @@ import {
   affectKind,
   canAffordStep,
   clampPool,
+  encumberedMoveCost,
   hasType,
   isResting,
-  moveCost,
   needsRegen,
   newAffect,
   regenPerMinute,
@@ -55,6 +55,7 @@ import {
   type SelfView,
   type TilePoint,
   armourClassFrom,
+  wornBulk,
   wornIds,
   experienceToNext,
   rollStarterKit,
@@ -1552,10 +1553,30 @@ export class Simulation {
    * stamina for.
    */
   spendMove(actor: Actor, from: Sector, to: Sector): boolean {
-    const cost = moveCost(from, to);
+    const cost = encumberedMoveCost(from, to, this.loadOf(actor));
     if (!canAffordStep(actor.move, cost)) return false;
     actor.move -= cost;
     return true;
+  }
+
+  /**
+   * How full a character is, as a fraction of their bag — worn gear included.
+   *
+   * The denominator is the **bag's** capacity while the numerator counts the body too, which looks
+   * lopsided and is the point: capacity answers *what will fit*, and `DESIGN-inventory.md` §6 puts
+   * worn gear outside it, while load answers *what you are hauling* and a breastplate is squarely
+   * inside that. Using bag-used alone would mean a character in full plate with an empty pack was
+   * unencumbered, and Phase 16's completion test is exactly the opposite.
+   *
+   * **Mobs are never encumbered.** Their kit is loot, harvested from `E` commands and never chosen,
+   * so charging a guard for the sword it was authored holding would slow every equipped mob in
+   * IceCrag for a reason nobody decided — the same argument `reset.ts` makes about mob armour.
+   */
+  loadOf(actor: Actor): number {
+    if (!isPlayer(actor)) return 0;
+    const capacity = actor.inventory.capacity;
+    if (capacity <= 0) return 0;
+    return (slotsUsed(actor.inventory) + wornBulk(actor.equipped)) / capacity;
   }
 
   tick(): TickResult {

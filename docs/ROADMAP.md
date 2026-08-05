@@ -91,7 +91,7 @@ a new idea still answers the three questions; its second question now also picks
 | **3 ✅** | V6 — the world in its own colours ✅ | Phase 14b — a character worth keeping ✅ | A4b — the zone map ✅, then A5 — authoring ✅ |
 | 4 | V3 — speech in the world | Phase 15 — inventory and worn equipment ✅ | A4 — zones and mobs, live ops |
 | **5 ✅** | A7a/A7b — item art becomes data ✅ *(took the V slot: it is presentation of things that already exist)* | Phase 16 — gear that matters (16a bands ✅, 16c mob armour ✅) | A6 — items ✅, A6b — items you make yourself ✅ |
-| **6 — under way** | A7c — the art picker ✅, then A7d — bag and floor icons | Phase 16 proper — light as an equipped item, AC from material, encumbrance | A4 — mobs live, then A4c — their loot |
+| **6 — under way** | A7c — the art picker ✅, then A7d — bag and floor icons | Phase 16 ✅ — light from what you hold, craftsmanship on AC, encumbrance, water you cannot wade | A4 — mobs live, then A4c — their loot |
 | 7 | V3 — speech in the world, then V4 — Places as a graph | Phase 17 — containers, money and shops | A8 — zone geometry |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
@@ -1075,16 +1075,51 @@ good at.
 
 ---
 
-#### Phase 16 — Gear that matters
+#### Phase 16 — Gear that matters ✅ **done 2026-08-05**
 
-- **Mechanic.** Light as an equipped-item property with best-of-equipped (`bestLight` already takes a
-  candidate list; the list is currently one carried item). AC derived from material × slot ×
-  condition. Movement points and encumbrance — `SECTOR_MOVE_COST` and `SECTOR_REQUIRES_MOVEMENT` are
-  written with zero callers, and `move`/`maxMove` are already on the wire and decorative.
-- **Seen when.** A lantern in your hand rather than a `carriedLight` field; heavy armour visibly
-  slows you across swamp; deep water refuses you until you can swim.
+- **Mechanic.** Light as an equipped-item property with best-of-equipped; gear quality on AC;
+  movement points and encumbrance; terrain you cannot cross on foot.
+- **Seen when.** A lantern in your hand rather than a `carriedLight` field ✅; heavy armour visibly
+  slows you across swamp ✅; deep water refuses you until you can swim ✅.
 - **Why here.** It collapses the interim carried-light field, which the design docs already say
-  *should* collapse, and it retires three built-but-uncalled mechanisms in one pass.
+  *should* collapse, and it retires the built-but-uncalled mechanisms in one pass.
+
+Landed in three slices, and **the AC one is not what this entry originally said**. It read *"AC
+derived from material × slot × condition"*, and measuring the 21,474 `.obj` records first turned two
+thirds of that into arithmetic dressed as a mechanic:
+
+- **Condition is `100` on 99.0% of objects** — 21,262 of 21,474. `structs.h` calls the field *"items
+  condition or level"*, and nothing here wears an item down, so the term is ×1 for the whole world.
+- **Material is on 100% of them and is still not carried.** `common.c`'s `materials[]` makes it a
+  **damage-resistance** row (phys, fire, cold, light, gas, acid, negative, holy, psi, spirit) and we
+  have no damage types to resist. It would double-count too: the builders already wrote it into
+  `value[0]`, which runs median 12 for dragonscale, 7 for iron, 5 for leather. Harvest it the day
+  damage types arrive — a field with no reader is what rule 1 exists to prevent.
+- **Craftsmanship is the axis with signal, and taking it is a divergence stated as one.** In Duris
+  the 0–15 ladder does nothing: every mechanical use is commented out (`db.c`'s `max_condition`,
+  marked `wipe2011`, and `fight.c`'s extra attack), and it survives only as prose in `identify`. Same
+  call V6 made about colour — the builders used the scale and the engine threw it away. Thirds of a
+  rung, bounded ±2 against a base of 0–8; **thirds rather than quarters because quarters leave only
+  1.3% of the world below average**, the one heavily-used low rung being 5 on 1,041 objects. 5,802
+  entries carry a rung and 2,088 armour pieces moved.
+
+**Light** transcribes `handler.c:431` — a light lights you between `WIELD` and `HOLD` and only while
+`value[2]` is non-zero, so a lantern in your bag lights nothing. The world's 64 lights are harvested,
+32 unlimited and 32 finite; radius is ours (Diku light is a boolean, and `light.ts` already found that
+`ROOM_GAP` makes 3 the gate) and duration is Duris', at ten seconds an hour — pinned by making the two
+catalogues agree where they overlap, Duris' 24-hour redwood torch against our 240-second one.
+
+**Encumbrance** transcribes `load_modifier` (`actmove.c:79`) — ten bands from **75** under a tenth
+full to **300** past 95%, widening as they climb. Note the bottom band is *below* 100, so travelling
+light is a choice rather than the absence of a penalty. **Where it is applied is ours**: Duris uses it
+for combat (`fight.c:6414`, `victim_ac += load_modifier(ch) - 75`) and for the prose that makes
+somebody *"stagger in"*, and charges movement flat. Load counts **worn bulk as well as bag bulk**
+against the bag's capacity, which looks lopsided and is the point — `DESIGN-inventory.md` §6 puts worn
+gear outside *capacity* because what you have on is not luggage, and says nothing about *effort*.
+
+`SECTOR_REQUIRES_MOVEMENT` finally has its caller, and the refusal lands **before** stamina is
+charged: being unable to enter deep water is a different no from being too tired, and paying for a
+step you were never going to take would drain the pool of somebody standing on a riverbank.
 
 #### Phase 17 — Containers, money and shops
 

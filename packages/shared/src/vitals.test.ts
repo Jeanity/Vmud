@@ -15,6 +15,8 @@ import {
   canAffordStep,
   clampPool,
   isResting,
+  encumberedMoveCost,
+  loadModifier,
   moveCost,
   needsRegen,
   regenBonus,
@@ -390,5 +392,54 @@ describe('canAffordStep', () => {
     assert.equal(canAffordStep(3, 3), true);
     assert.equal(canAffordStep(2, 3), false);
     assert.equal(canAffordStep(0, 1), false);
+  });
+});
+
+describe('encumbrance — Phase 16', () => {
+  it('transcribes Duris’ own band table', () => {
+    // `actmove.c:79`, rung by rung. Written out rather than looped so a drifting edge fails loudly:
+    // the bands are not evenly spaced and a `<` quietly becoming `<=` would move four of them.
+    assert.equal(loadModifier(0), 75, 'an empty character moves cheaper than the terrain says');
+    assert.equal(loadModifier(0.099), 75);
+    assert.equal(loadModifier(0.10), 85);
+    assert.equal(loadModifier(0.20), 95);
+    assert.equal(loadModifier(0.30), 105, 'the first band that costs more than the terrain alone');
+    assert.equal(loadModifier(0.40), 125);
+    assert.equal(loadModifier(0.55), 145);
+    assert.equal(loadModifier(0.65), 165);
+    assert.equal(loadModifier(0.75), 185);
+    assert.equal(loadModifier(0.85), 200);
+    assert.equal(loadModifier(0.95), 300);
+    assert.equal(loadModifier(4), 300, 'and past full it does not keep climbing');
+  });
+
+  it('widens as it climbs, which is what makes the last thing you pick up expensive', () => {
+    // The shape, asserted rather than described: the first four bands are ten points apart and the
+    // rest are not. A linear multiplier would make the twentieth slot cost what the first one did.
+    const step = (from: number, to: number): number => loadModifier(to) - loadModifier(from);
+    assert.equal(step(0.0, 0.1), 10);
+    assert.equal(step(0.3, 0.4), 20);
+    assert.equal(step(0.85, 0.95), 100);
+  });
+
+  it('multiplies the terrain rather than replacing it', () => {
+    // Swamp against road is the roadmap's own completion test. Unburdened, a swamp step is cheaper
+    // than its raw cost; loaded to the eyeballs it is three times what it was.
+    const light = encumberedMoveCost('swamp', 'swamp', 0);
+    const heavy = encumberedMoveCost('swamp', 'swamp', 0.96);
+    assert.equal(light, Math.ceil(moveCost('swamp', 'swamp') * 0.75));
+    assert.equal(heavy, moveCost('swamp', 'swamp') * 3);
+    assert.ok(heavy > light * 3, 'and the gap is four times, not three, because the floor band is 75');
+
+    // Terrain still matters at every load — encumbrance is a multiplier, not a leveller.
+    assert.ok(encumberedMoveCost('road', 'road', 0.96) < encumberedMoveCost('swamp', 'swamp', 0.96));
+  });
+
+  it('never makes a step free', () => {
+    // The same floor `moveCost` keeps, and for the same reason: a pool that never moves is
+    // decorative, which is the state `move`/`maxMove` were in for five phases.
+    for (const load of [0, 0.5, 1]) {
+      assert.ok(encumberedMoveCost('road', 'road', load) >= 1);
+    }
   });
 });

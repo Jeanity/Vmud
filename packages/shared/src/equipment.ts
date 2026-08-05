@@ -264,6 +264,23 @@ export function wornIds(equipped: Equipped, classOf: (item: Item) => string | un
   return out;
 }
 
+/**
+ * The bulk of everything a character is wearing and wielding.
+ *
+ * **Worn gear costs no bag capacity and still weighs on you**, and those are two different questions
+ * that `DESIGN-inventory.md` §6 only answers the first of. §6's rule is about *storage*: a character
+ * in thirty slots of plate still has an empty bag, because what you have on is not luggage. It says
+ * nothing about *effort*, and Phase 16's whole completion test is that heavy armour slows you across
+ * a swamp — which it cannot do if a breastplate is weightless the moment you put it on.
+ *
+ * So this feeds encumbrance and nothing else. Nowhere does it reduce what you can carry.
+ */
+export function wornBulk(equipped: Equipped): number {
+  let total = 0;
+  for (const slot of EQUIP_SLOTS) total += equipped[slot]?.size ?? 0;
+  return total;
+}
+
 /** Every point of armour class the worn kit is worth. */
 export function armourClassFrom(equipped: Equipped): number {
   let total = 0;

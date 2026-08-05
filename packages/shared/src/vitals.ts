@@ -338,6 +338,65 @@ export function moveCost(from: Sector, to: Sector): number {
   return Math.max(1, Math.ceil((SECTOR_MOVE_COST[from] + SECTOR_MOVE_COST[to]) / 2));
 }
 
+/* -------------------------------------------------------------------------- */
+/* Encumbrance                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Duris' `load_modifier`, transcribed from `actmove.c:79` — a percentage against how full you are.
+ *
+ * | load | modifier |
+ * | --- | --- |
+ * | under 10% | **75** — an unburdened character moves *cheaper* than the terrain says |
+ * | 10–19% | 85 |
+ * | 20–29% | 95 |
+ * | 30–39% | 105 |
+ * | 40–54% | 125 |
+ * | 55–64% | 145 |
+ * | 65–74% | 165 |
+ * | 75–84% | 185 |
+ * | 85–94% | 200 |
+ * | 95% and up | **300** |
+ *
+ * The shape is the interesting part and it is not a straight line: the first four bands are ten
+ * points apart and the rest widen, so the cost of the *last* few things you pick up is far higher
+ * than the first few. And the bottom band is **below 100**, which makes travelling light a real
+ * choice rather than merely the absence of a penalty — a character carrying nothing crosses a swamp
+ * for three quarters of what it costs a loaded one, and that asymmetry is Duris', not ours.
+ *
+ * **Where it is applied is ours, and the source says so.** Duris uses this for combat — `fight.c:6414`
+ * is `victim_ac += load_modifier(ch) - 75`, so a loaded character is easier to hit — and for the
+ * prose that makes somebody *"stagger in"* above 199. It does **not** multiply movement cost there;
+ * Duris charges `movement_loss[sector]` flat. Applying it to the step is this project's extension,
+ * taken because movement points are already a resource here and because Phase 16's completion test
+ * is that heavy armour visibly slows you across a swamp. Duris' own use is left on the table: it
+ * wants the AC scale reconciled (theirs is inverted) and belongs with a balance pass, not here.
+ */
+export function loadModifier(loadFraction: number): number {
+  const p = Math.max(0, loadFraction) * 100;
+  if (p < 10) return 75;
+  if (p < 20) return 85;
+  if (p < 30) return 95;
+  if (p < 40) return 105;
+  if (p < 55) return 125;
+  if (p < 65) return 145;
+  if (p < 75) return 165;
+  if (p < 85) return 185;
+  if (p < 95) return 200;
+  return 300;
+}
+
+/**
+ * What a step actually costs, terrain and load together.
+ *
+ * Rounded up and floored at 1 for the reason {@link moveCost} already floors: a free step is worse
+ * than a cheap one, because a pool that never moves is decorative again — which is precisely the
+ * state `move`/`maxMove` were in before Phase 5.
+ */
+export function encumberedMoveCost(from: Sector, to: Sector, loadFraction: number): number {
+  return Math.max(1, Math.ceil((moveCost(from, to) * loadModifier(loadFraction)) / 100));
+}
+
 /**
  * Whether a character has the stamina for a step, and what it costs.
  *

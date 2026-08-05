@@ -97,6 +97,7 @@ import {
   summariseAffects,
   parseDirection,
   placeKey,
+  SECTOR_REQUIRES_MOVEMENT,
   samePlace,
   shortfall,
   type AdjacentRoomView,
@@ -2104,10 +2105,32 @@ function stepRoom(player: Player, dir: Direction): void {
     return;
   }
 
-  // Stamina, before anything is moved. `SECTOR_MOVE_COST` finally has a caller — a step across a bog
-  // costs more than a step along a road, and running out means stopping to catch your breath rather
-  // than being unable to walk at all.
   const destination = sim.room(exit.to);
+
+  // **Phase 16: terrain you cannot cross on foot.** `SECTOR_REQUIRES_MOVEMENT` has been written and
+  // tested with zero callers since the beginning — one of the four mechanisms `ROADMAP.md` rule 1
+  // names as the failure it exists to prevent. This is the caller.
+  //
+  // Refused *before* stamina is charged, because being unable to enter deep water is not the same
+  // kind of no as being too tired: paying for a step you were never going to take would drain the
+  // pool of somebody standing on a riverbank pressing east. Nothing grants `swim` or `fly` yet —
+  // both are Phase 19/20 — so today this is a wall, and the message says which wall it is rather
+  // than pretending the exit does not exist.
+  const needs = destination ? SECTOR_REQUIRES_MOVEMENT[destination.sector] : undefined;
+  if (needs) {
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text: needs === 'swim'
+        ? 'The water is far too deep to wade. You would have to swim.'
+        : 'There is nothing to stand on. You would have to fly.',
+    });
+    return;
+  }
+
+  // Stamina, after that. `SECTOR_MOVE_COST` finally has a caller — a step across a bog costs more
+  // than a step along a road, and running out means stopping to catch your breath rather than being
+  // unable to walk at all. Since Phase 16 the cost is multiplied by what you are hauling.
   if (destination && !sim.spendMove(player, room!.sector, destination.sector)) {
     send(player.id, {
       t: 'log',
