@@ -26,7 +26,7 @@
  * `innerHTML`.
  */
 
-import { parseColour } from '@mygame/shared';
+import { EQUIP_SLOTS, parseColour } from '@mygame/shared';
 
 import { call, type ZonesBody } from '../api.ts';
 import { el, render } from '../dom.ts';
@@ -49,7 +49,12 @@ interface TemplateRow {
   readonly name: string;
   readonly level: number;
   readonly keywords: readonly string[];
+  /** A4c: what this template is authored to carry, folded into the search response by the server. */
+  readonly loot?: readonly { readonly vnum: number; readonly slot?: string; readonly name?: string }[];
 }
+
+/** The server's own cap, mirrored so the panel can refuse a thirteenth piece before a round trip. */
+const MAX_LOOT = 12;
 
 /** Paints authored text as spans. Never markup — see the note at the top of this file. */
 function coloured(text: string): HTMLElement {
@@ -177,6 +182,18 @@ export const mobsSection = {
               loadLive();
             })();
           });
+          // A4c. The editor opens **below the row it belongs to** rather than in a third column,
+          // because what it edits is that row: a loot form floating elsewhere on the page would be
+          // one more thing to check you had the right mob in.
+          const drawer = el('div', {});
+          const loot = el('button', { type: 'button' }, template.loot?.length ? `Loot — ${template.loot.length}` : 'Loot…');
+          loot.addEventListener('click', () => {
+            if (drawer.childElementCount > 0) {
+              render(drawer);
+              return;
+            }
+            render(drawer, lootEditor(template, () => searchTemplates()));
+          });
           templateList.append(
             el(
               'div',
@@ -185,8 +202,10 @@ export const mobsSection = {
               coloured(template.name),
               el('span', { class: 'note' }, `level ${template.level}`),
               el('span', { class: 'muted' }, template.keywords.join(' ')),
+              loot,
               spawn,
             ),
+            drawer,
           );
         }
       })();
@@ -259,3 +278,143 @@ export const mobsSection = {
     searchTemplates();
   },
 };
+
+/**
+ * What a mob template is authored to carry — **A4c**, owner's ask 2026-08-04: *"assign items to mobs
+ * as loot."*
+ *
+ * ## The sentence this control exists to say
+ *
+ * Loot here is per **template**. A harvested kit is per reset command — an `E` attaches to the last
+ * mobile the zone file loaded — so the same vnum in two rooms can already be carrying two different
+ * things. What is edited here is the other kind of fact, and it is the one that surprises: it changes
+ * **every** instance the world spawns from now on, and **none** of the ones already standing there.
+ * The panel says both halves out loud, and the save reports how many are walking around unaffected,
+ * because "I authored it and nothing changed" is otherwise the first thing anybody reports.
+ *
+ * ## Slot means worn, no slot means carried
+ *
+ * The same distinction `reset.ts` draws between an `E` and a `G`, and for the same reason: where a
+ * builder put a thing is a different fact from where it *may* go. So the slot is chosen here rather
+ * than read off the item — which is what lets a ring go on the left hand, a thing no wear flag can say.
+ */
+function lootEditor(template: TemplateRow, done: () => void): HTMLElement {
+  const flash = el('p', { class: 'note' });
+  const rows: { vnum: number; name: string; slot: string }[] = (template.loot ?? []).map((row) => ({
+    vnum: row.vnum,
+    name: row.name ?? `item ${row.vnum}`,
+    slot: row.slot ?? '',
+  }));
+
+  const list = el('div', { class: 'rows' });
+  const save = el('button', { class: 'primary' }, 'Save loot');
+
+  const redraw = (): void => {
+    render(list);
+    if (rows.length === 0) {
+      list.append(el('p', { class: 'muted' }, 'Nothing — this template carries only what its zone file gives it.'));
+    }
+    rows.forEach((row, index) => {
+      const slot = el('select', {}, el('option', { value: '' }, 'carried')) as HTMLSelectElement;
+      for (const name of EQUIP_SLOTS) {
+        slot.append(el('option', { value: name, ...(row.slot === name ? { selected: true } : {}) }, name));
+      }
+      slot.addEventListener('change', () => {
+        row.slot = slot.value;
+      });
+      const drop = el('button', { type: 'button', class: 'danger' }, '×');
+      drop.addEventListener('click', () => {
+        rows.splice(index, 1);
+        redraw();
+      });
+      list.append(
+        el('div', { class: 'row' }, el('span', { class: 'vnum' }, String(row.vnum)), coloured(row.name), slot, drop),
+      );
+    });
+  };
+  redraw();
+
+  /* ---- adding a piece, searched the way the Items page searches ---------- */
+
+  const term = el('input', { type: 'search', placeholder: 'find an item by name, keyword or vnum' }) as HTMLInputElement;
+  const found = el('div', { class: 'rows' });
+  let pending = 0;
+  const search = (): void => {
+    const seq = ++pending;
+    const q = term.value.trim();
+    if (!q) {
+      render(found);
+      return;
+    }
+    void (async () => {
+      const result = await call<{ items: { vnum: number; name: string }[] }>(
+        'GET',
+        `/items?q=${encodeURIComponent(q)}&limit=8`,
+      );
+      // Out-of-order replies dropped, exactly as the template search above does.
+      if (seq !== pending) return;
+      render(found);
+      for (const item of result.body?.items ?? []) {
+        const add = el('button', { type: 'button' }, 'Add');
+        add.addEventListener('click', () => {
+          if (rows.length >= MAX_LOOT) {
+            flash.className = 'flash err';
+            flash.textContent = `At most ${MAX_LOOT} pieces.`;
+            return;
+          }
+          rows.push({ vnum: item.vnum, name: item.name, slot: '' });
+          redraw();
+        });
+        found.append(
+          el('div', { class: 'row' }, el('span', { class: 'vnum' }, String(item.vnum)), coloured(item.name), add),
+        );
+      }
+    })();
+  };
+  let debounce: ReturnType<typeof setTimeout> | undefined;
+  term.addEventListener('input', () => {
+    if (debounce) clearTimeout(debounce);
+    debounce = setTimeout(search, 150);
+  });
+
+  save.addEventListener('click', () => {
+    void (async () => {
+      save.disabled = true;
+      const result = await call<{ spawned: number }>('PATCH', `/mobs/${template.vnum}/loot`, {
+        loot: rows.map((row) => ({ vnum: row.vnum, ...(row.slot ? { slot: row.slot } : {}) })),
+      });
+      save.disabled = false;
+      if (!result.ok || !result.body) {
+        flash.className = 'flash err';
+        flash.textContent = result.error ?? 'refused';
+        return;
+      }
+      flash.className = 'note';
+      // The count is the point: it is the difference between "nothing happened" and "nothing has
+      // happened yet", and Repop on the Zones page is what turns the second into the first.
+      flash.textContent =
+        `Saved. ${result.body.spawned} of these are already standing and keep what they have — ` +
+        `repop the zone to see the new kit.`;
+      done();
+    })();
+  });
+
+  return el(
+    'div',
+    { class: 'card' },
+    el('h3', {}, 'Loot for ', coloured(template.name), ' ', el('span', { class: 'pill' }, `#${template.vnum}`)),
+    el(
+      'p',
+      { class: 'note' },
+      'Per template: every one of these the world spawns from now on carries this, on top of whatever ' +
+        'its zone file already gives it. Nothing already standing in the world is changed.',
+    ),
+    el('span', { class: 'field-label' }, 'carrying'),
+    list,
+    el('span', { class: 'field-label' }, 'add a piece'),
+    term,
+    found,
+    flash,
+    el('div', { class: 'row' }, save),
+  );
+}

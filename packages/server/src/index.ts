@@ -230,7 +230,7 @@ import {
   type MobAwareness,
   type NoticeEvent,
 } from './perception.ts';
-import { advanceZones, newZoneClock, runReset, type ZoneClock } from './reset.ts';
+import { advanceZones, newZoneClock, refitMobArmour, runReset, type ZoneClock } from './reset.ts';
 import { Simulation, isMob, isPlayer, type Actor, type AffectEvent, type Mob, type Player } from './sim.ts';
 import { indexTemplates, loadItemCatalogue, loadZoneSpawns } from './spawns.ts';
 import {
@@ -248,6 +248,7 @@ import {
   type ItemDraft,
 } from './item-authoring.ts';
 import { ROOMS_FILE } from './overrides.ts';
+import { MOBS_FILE, applyOutfit, loadMobOverrides, outfitFor, type MobOverride, type Outfit } from './mob-overrides.ts';
 import { buildPlaceGraph } from './placegraph.ts';
 import { AUTHORED_ROOMS_FILE, saveAuthoredRooms } from './room-authoring.ts';
 import { GameWorld, placeOf } from './world.ts';
@@ -357,6 +358,23 @@ for (const [vnum, override] of itemOverrides) {
  */
 const authoredStore = loadAuthoredStore();
 for (const [vnum, authored] of authoredStore.items) itemCatalogue.set(vnum, authored.item);
+
+/**
+ * A4c: what each mob template is authored to carry, and the one function the spawn paths read it with.
+ *
+ * Held here rather than passed around because two very different callers need the same answer — the
+ * zone reset and the panel's own spawn button — and a second copy of the resolution would be a second
+ * chance to disagree about what a slot means.
+ *
+ * Loaded **after** the catalogue is whole, including created items: authored loot may name a vnum that
+ * only exists because A6b made it, and reading the overlay before that fold would report it missing.
+ */
+const mobOverrides = loadMobOverrides();
+const authoredOutfit = (vnum: number): Outfit => outfitFor(mobOverrides.get(vnum), itemCatalogue, instantiate);
+if (mobOverrides.size > 0) {
+  const pieces = [...mobOverrides.values()].reduce((sum, o) => sum + (o.loot?.length ?? 0), 0);
+  console.log(`[mobs] ${mobOverrides.size} template(s) carry ${pieces} authored piece(s) of loot`);
+}
 
 console.log(
   itemCatalogue.size > 0
@@ -641,7 +659,7 @@ const progressRng = makeRng(WORLD_SEED ^ 0x14b0de);
 for (const spawns of loadedSpawns) {
   const clock = newZoneClock(spawns, spawnRng);
   zoneClocks.push(clock);
-  const outcome = runReset(sim, clock, mobTemplates, itemCatalogue, countInstances, spawnRng, true);
+  const outcome = runReset(sim, clock, mobTemplates, itemCatalogue, countInstances, authoredOutfit, spawnRng, true);
   const dropped = placeResetObjects(outcome);
   console.log(
     `[pop] zone ${String(spawns.zone).padStart(4)} "${world.zone(spawns.zone)?.name ?? '?'}" — ` +
@@ -4786,7 +4804,7 @@ const adminLive: LiveOps = {
     if (!clock) return undefined;
     // `force`, and it is the second caller of a flag that has existed since Phase 8 for exactly this —
     // see `runReset`'s own note about a sub-100% `M` never firing on a timed pass.
-    const outcome = runReset(sim, clock, mobTemplates, itemCatalogue, countInstances, spawnRng, true);
+    const outcome = runReset(sim, clock, mobTemplates, itemCatalogue, countInstances, authoredOutfit, spawnRng, true);
     const objects = placeResetObjects(outcome);
     // The same presence pass the timed reset does, and for the same reason: a mob that appeared in a
     // dark corner is still nobody's business until a light falls on it, so this is per-observer rather
@@ -4874,6 +4892,12 @@ const adminLive: LiveOps = {
     // the world it had. `CLAUDE.md` rule 3.
     const mob = sim.spawnMob(template, room, spawnRng);
     if (!mob) return { error: `room ${room} is in a Place with no grid — nothing can stand there` };
+    // **A4c, and the panel's spawn button is the first place anybody will look for it.** A reset
+    // dresses what it spawns; this path has no reset table behind it at all, so without this line the
+    // one spawn an operator can watch happen would be the one that arrives empty. No armour refold is
+    // needed: the mob is bare, so its combat profile is still the template's own.
+    const dressed = applyOutfit(mob, authoredOutfit(vnum));
+    if (dressed > 0) refitMobArmour(mob, template.combat.armourClass);
     syncEntitiesIn(room);
     return { id: mob.id, name: mob.name };
   },
@@ -4882,6 +4906,28 @@ const adminLive: LiveOps = {
     return [...mobTemplates.values()]
       .map((t) => ({ vnum: t.vnum, name: t.name, level: t.level, keywords: t.keywords ?? [] }))
       .sort((a, b) => a.vnum - b.vnum);
+  },
+
+  mobOverrides() {
+    return mobOverrides;
+  },
+
+  liveCountOf(vnum) {
+    return sim.countOf(vnum);
+  },
+
+  authorMobLoot(vnum, loot) {
+    if (!mobTemplates.has(vnum)) return undefined;
+    // **The live map is the truth and the file is its shadow**, the same order every other overlay
+    // keeps: applied here, written by the router. Nothing already standing in the world is touched —
+    // loot is per template, so it lands on the next spawn. See `authorMobLoot` in `admin.ts`.
+    if (loot.length === 0) {
+      mobOverrides.delete(vnum);
+      return { loot: [] };
+    }
+    const override: MobOverride = { loot: [...loot], at: new Date().toISOString() };
+    mobOverrides.set(vnum, override);
+    return override;
   },
 
   giveItem(player, vnum) {
@@ -5168,6 +5214,7 @@ const admin = new AdminApi({
   auditFile: join(REPO_ROOT, 'data', 'admin-audit.jsonl'),
   overridesFile: ROOMS_FILE,
   authoredRoomsFile: AUTHORED_ROOMS_FILE,
+  mobOverridesFile: MOBS_FILE,
   facts: { protocol: PROTOCOL_VERSION, tickMs: TICK_MS, roundMs: ROUND_MS, startedAt: Date.now() },
 });
 // Announced at boot like every other switch, so a server quietly running an open admin API is not a
@@ -5618,7 +5665,7 @@ setInterval(() => {
   // Zone repop. Almost every tick this does nothing — a zone comes due once every seventy minutes or so —
   // so the loop is a fraction added to a counter and a comparison, and the work only happens when one
   // fires. See `reset.ts` for why the fraction is carried rather than rounded.
-  for (const outcome of advanceZones(sim, zoneClocks, mobTemplates, itemCatalogue, countInstances, spawnRng, TICK_MS)) {
+  for (const outcome of advanceZones(sim, zoneClocks, mobTemplates, itemCatalogue, countInstances, authoredOutfit, spawnRng, TICK_MS)) {
     const droppedNow = placeResetObjects(outcome);
     if (outcome.spawned.length === 0 && outcome.doors === 0 && droppedNow === 0) continue;
     console.log(

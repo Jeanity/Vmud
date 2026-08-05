@@ -31,6 +31,7 @@ import {
   AUTHORED_ROOM_BASE,
   AUTHORED_VNUM_BASE,
   AffectFlag,
+  EQUIP_SLOTS,
   LPC_ART,
   LPC_ART_BY_ID,
   ROOM_FLAGS,
@@ -42,6 +43,7 @@ import {
   stripColour,
   type Dice,
   type Direction,
+  type EquipSlot,
   type ItemTemplate,
   type Place,
   type Room,
@@ -55,6 +57,13 @@ import { LIGHT_SOURCES, lightSource, type LightSource } from '@mygame/shared/lig
 
 import { draftDescription, listModels, ollamaReachable } from './ollama.ts';
 import { saveRoomOverrides, type RoomOverride } from './overrides.ts';
+import {
+  MAX_AUTHORED_LOOT,
+  saveMobOverrides,
+  type AuthoredLoot,
+  type MobOverride,
+  type MobOverrides,
+} from './mob-overrides.ts';
 import { draftAuthoredRoom, narrowsExtent, saveAuthoredRooms } from './room-authoring.ts';
 import { readDice, saveItemOverrides, type ItemOverride, type ItemOverrides } from './item-overrides.ts';
 import type { AuthoredItems, ItemDraft } from './item-authoring.ts';
@@ -267,6 +276,26 @@ export interface LiveOps {
   /** Every harvested mob template, for the spawn picker. Searched rather than listed, like items. */
   mobTemplates(): readonly { readonly vnum: number; readonly name: string; readonly level: number; readonly keywords: readonly string[] }[];
 
+  /**
+   * A4c: what each mob template is authored to carry. Read for the ✎ mark and for saving; never
+   * mutated here — the same split every other overlay keeps between the router that validates and the
+   * world that applies.
+   */
+  mobOverrides(): MobOverrides;
+
+  /** How many of a mob vnum are standing in the world right now. See {@link authorMobLoot}. */
+  liveCountOf(vnum: number): number;
+
+  /**
+   * Writes a template's loot, and says what it now stands at.
+   *
+   * **It does not touch anything already standing in the world**, and that is worth stating rather
+   * than discovering: loot is per *template*, so it lands on the next thing to spawn from that vnum
+   * and not on the ninety already walking around. The panel says so, and A4's repop button is what
+   * turns the edit into something you can go and look at.
+   */
+  authorMobLoot(vnum: number, loot: readonly AuthoredLoot[]): MobOverride | undefined;
+
   /** The operator switches as they currently stand. See `settings.ts`. */
   settings(): WorldSettings;
   /** The authored item overlay — read for edited marks and for saving; never mutated here. */
@@ -364,6 +393,8 @@ export interface AdminDeps {
    * because their lifecycles are opposite — `room-authoring.ts`'s table has the four rules.
    */
   readonly authoredRoomsFile: string | undefined;
+  /** Where authored mob loot is saved, or undefined to edit the live world without persisting. */
+  readonly mobOverridesFile: string | undefined;
   /** Boot-time constants the dashboard reports. */
   readonly facts: {
     readonly protocol: number;
@@ -515,6 +546,12 @@ export class AdminApi {
     if (head === 'mobs' && parts.length === 1 && request.method === 'POST') return this.spawnMob(request.body);
     if (head === 'mobs' && slug !== undefined && parts.length === 2 && request.method === 'DELETE') {
       return this.slayMob(slug);
+    }
+    // A4c. **A vnum, where the route above takes an entity id** — the two are genuinely different
+    // questions (this template, against that body), so they get different paths rather than one path
+    // whose meaning depends on the verb.
+    if (head === 'mobs' && slug !== undefined && action === 'loot' && parts.length === 3 && request.method === 'PATCH') {
+      return this.authorMobLoot(slug, request.body);
     }
     // A4. A door is named by the room it is in and the way it faces — not by an id, because it has
     // none: a doorway is two exits, and `world.doorway` is what keeps the two ends in step.
@@ -770,7 +807,23 @@ export class AdminApi {
         m.keywords.some((w) => w.toLowerCase().includes(term)) ||
         stripColour(m.name).toLowerCase().includes(term),
     );
-    return { status: 200, body: { total: matches.length, catalogue: all.length, mobs: matches.slice(0, limit) } };
+    // A4c: what each row is authored to carry, folded in here rather than fetched per row. The panel
+    // needs it to mark a template and to open its editor with something in it, and a request per row
+    // would be fifty requests to answer a question the server already has in a map.
+    const overrides = this.deps.live.mobOverrides();
+    const rows = matches.slice(0, limit).map((template) => {
+      const loot = overrides.get(template.vnum)?.loot;
+      if (!loot || loot.length === 0) return { ...template };
+      // **Named here, because only this side has the catalogue.** The overlay stores vnums — that is
+      // the join key and the only thing that should be persisted — but an editor listing `item 2749`
+      // twice is an editor nobody can check their own work in. The name is decoration on the way out
+      // and is never read back.
+      return {
+        ...template,
+        loot: loot.map((row) => ({ ...row, name: this.deps.items.get(row.vnum)?.name ?? `item ${row.vnum}` })),
+      };
+    });
+    return { status: 200, body: { total: matches.length, catalogue: all.length, mobs: rows } };
   }
 
   /** `POST /mobs` — put one instance of a template in a room. */
@@ -1886,6 +1939,82 @@ export class AdminApi {
         /** Whether the grid moved, and so cost everyone their explored map here — slice 3. */
         extentChanged: removed.extentChanged,
         ...(forgot ? { mapsCleared: forgot.characters, told: forgot.told } : {}),
+      },
+    };
+  }
+
+
+  /**
+   * `PATCH /mobs/:vnum/loot` — what every instance of a template carries. **A4c.**
+   *
+   * Owner's ask (2026-08-04): *"assign items to mobs as loot."* A4 gave an operator live mobs to spawn,
+   * watch and slay; this is the half that decides what is on them when they arrive.
+   *
+   * **Per template, and the response says so.** A harvested kit comes from the zone's reset table,
+   * where an `E` attaches to the last mobile loaded — so the same vnum in two rooms can be carrying two
+   * different things. This is the other kind of fact, and it is the surprising one: authoring it
+   * changes every kobold guard the world spawns, and none of the ninety already standing there. The
+   * body reports `spawned`, which is how many are walking around unaffected, because that number is the
+   * difference between "nothing happened" and "nothing has happened *yet*".
+   *
+   * A vnum the catalogue does not have is refused by name rather than stored and skipped: an authored
+   * piece that silently never appears is indistinguishable from the feature not working.
+   */
+  private authorMobLoot(slug: string, body: unknown): AdminResponse {
+    const vnum = Number(slug);
+    if (!Number.isInteger(vnum)) return { status: 400, body: { error: `"${slug}" is not a mob vnum` } };
+    if (!this.deps.live.mobTemplates().some((template) => template.vnum === vnum)) {
+      return { status: 404, body: { error: `no mob ${vnum} among the loaded templates` } };
+    }
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return { status: 400, body: { error: 'PATCH body must be a JSON object' } };
+    }
+    const raw = (body as { loot?: unknown }).loot;
+    if (!Array.isArray(raw)) return { status: 400, body: { error: 'body must be {"loot": [...]}' } };
+    if (raw.length > MAX_AUTHORED_LOOT) {
+      return { status: 400, body: { error: `at most ${MAX_AUTHORED_LOOT} pieces` } };
+    }
+
+    // Validated whole before anything is written, so an edit either lands or does not.
+    const loot: AuthoredLoot[] = [];
+    for (const entry of raw as unknown[]) {
+      if (typeof entry !== 'object' || entry === null) {
+        return { status: 400, body: { error: 'each piece must be {"vnum": <integer>, "slot": <slot|null>}' } };
+      }
+      const row = entry as { vnum?: unknown; slot?: unknown };
+      if (typeof row.vnum !== 'number' || !Number.isInteger(row.vnum)) {
+        return { status: 400, body: { error: 'each piece needs an integer item vnum' } };
+      }
+      if (!this.deps.items.has(row.vnum)) {
+        return { status: 404, body: { error: `no item ${row.vnum} in the catalogue` } };
+      }
+      if (row.slot === undefined || row.slot === null || row.slot === '') {
+        loot.push({ vnum: row.vnum });
+        continue;
+      }
+      if (typeof row.slot !== 'string' || !(EQUIP_SLOTS as readonly string[]).includes(row.slot)) {
+        return { status: 400, body: { error: `no such slot: ${String(row.slot)}` } };
+      }
+      loot.push({ vnum: row.vnum, slot: row.slot as EquipSlot });
+    }
+
+    const applied = this.deps.live.authorMobLoot(vnum, loot);
+    if (!applied) return { status: 404, body: { error: `no mob ${vnum} among the loaded templates` } };
+    if (this.deps.mobOverridesFile) saveMobOverrides(this.deps.live.mobOverrides(), this.deps.mobOverridesFile);
+
+    const standing = this.deps.live.liveCountOf(vnum);
+    this.audit('mob.loot', { vnum, pieces: loot.length });
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        vnum,
+        loot: applied.loot ?? [],
+        /**
+         * How many of this template are already standing in the world — every one of them unaffected.
+         * Reported because "I authored it and nothing changed" is otherwise the first bug report.
+         */
+        spawned: standing,
       },
     };
   }

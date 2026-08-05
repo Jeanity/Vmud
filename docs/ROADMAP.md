@@ -93,7 +93,7 @@ a new idea still answers the three questions; its second question now also picks
 | **5 ✅** | A7a/A7b — item art becomes data ✅ *(took the V slot: it is presentation of things that already exist)* | Phase 16 — gear that matters (16a bands ✅, 16c mob armour ✅) | A6 — items ✅, A6b — items you make yourself ✅ |
 | **6 — under way** | A7c — the art picker ✅, then A7d — bag and floor icons | Phase 16 ✅ — light from what you hold, craftsmanship on AC, encumbrance, water you cannot wade | A4 ✅ — mobs live, then A4c — their loot |
 | **7 — closed** | V3 — speech in the world ✅ | Phase 17 — shops ✅ | A8 — zone geometry ✅ (infill, deletion, extent changes) |
-| **8 — under way** | V4 — Places as a graph ✅ | dropped-item decay ✅ and `junk` ✅ | A4c — loot on a mob, or A7e/A7f — recolour |
+| **8 — closed** | V4 — Places as a graph ✅ | dropped-item decay ✅ and `junk` ✅ | A4c — loot on a mob ✅ |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
 A5, because A5's prose editor is a colour editor and building the palette before the renderer would
@@ -1619,7 +1619,17 @@ order.
     drafts and the human commits**. The prize beyond one item: every catalogue entry already carries
     the builder's own name, so a pass could propose art *and* ramp for a whole zone's loot without
     anybody retyping a description.
-- **A4c — Loot: assigning items to mobs** (owner, 2026-08-04). *"we also need to be able to assign
+- **A4c — Loot: assigning items to mobs** ✅ **done 2026-08-05, round 8.** `server/src/mob-overrides.ts`
+  is the fourth overlay, and the two things this entry said to settle were both settled the way it
+  guessed. Kit is per **template** and the panel says so out loud, reporting how many instances are
+  already standing and unaffected. The overlay **composes over** harvested kit — applied *after* the
+  reset table, so an authored piece wins a contested slot and the harvested one it displaces goes to
+  the mob's hands rather than being destroyed. That makes "additive" literally true: what is on a body
+  only ever goes up. One thing the build decided that this entry did not raise: **a slot the game does
+  not model is refused rather than downgraded to carried**, which is the opposite of what `reset.ts`
+  does with a harvested `E`, because inherited data is worth keeping while a slot somebody just typed
+  should not silently mean something else. Original entry follows.
+- ↳ *(original entry)* (owner, 2026-08-04). *"we also need to be able to assign
   items to mobs as loot."* Agreed, and it belongs with **A4** rather than with A6b: the item side is
   done — anything in the catalogue, created or harvested, can already be instantiated — and what is
   missing is a **mob overlay**, the same shape `items-authored.json` gave items, carrying the `G`

@@ -34,6 +34,7 @@ import {
   type ItemDraft,
 } from './item-authoring.ts';
 import { PlayerStore, slugify } from './players.ts';
+import type { MobOverrides } from './mob-overrides.ts';
 import { loadAuthoredRooms } from './room-authoring.ts';
 import type { WorldSettings } from './settings.ts';
 import type { Player } from './sim.ts';
@@ -96,7 +97,7 @@ interface Rig {
   scopes: AnnounceScope[];
 }
 
-function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string; itemOverridesFile?: string; authoredRoomsFile?: string; noPopulation?: boolean; zone?: Zone; occupants?: { players: string[]; mobs: string[]; corpses: string[] }; resets?: Record<string, number> } = {}): Rig {
+function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string; itemOverridesFile?: string; authoredRoomsFile?: string; mobOverridesFile?: string; noPopulation?: boolean; zone?: Zone; occupants?: { players: string[]; mobs: string[]; corpses: string[] }; resets?: Record<string, number> } = {}): Rig {
   const dir = mkdtempSync(join(tmpdir(), 'mygame-admin-'));
   const store = new PlayerStore({ dir });
   const world = new GameWorld([options.zone ?? testZone()], { zone: 600, room: null });
@@ -249,6 +250,19 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
       return { mobs: 2, corpses: 1, items: 0 };
     },
     resetsNaming: () => options.resets ?? {},
+    // A4c. The overlay lives in the rig, so a test can assert what was written without a file.
+    mobOverrides: () => mobLoot,
+    liveCountOf: () => 3,
+    authorMobLoot: (vnum, loot) => {
+      calls.push(`authorMobLoot ${vnum} x${loot.length}`);
+      if (loot.length === 0) {
+        mobLoot.delete(vnum);
+        return { loot: [] };
+      }
+      const override = { loot: [...loot] };
+      mobLoot.set(vnum, override);
+      return override;
+    },
     forgetPlace: (place) => {
       calls.push(`forgetPlace ${place.zone}:${place.level}`);
       return { characters: 3, told: 1 };
@@ -262,6 +276,9 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
       calls.push(`setSettings pvp=${next.pvp}`);
     },
   };
+
+  // A4c: the authored-loot overlay this rig pretends to hold.
+  const mobLoot: MobOverrides = new Map();
 
   const deps: AdminDeps = {
     world,
@@ -280,6 +297,7 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     // Undefined unless a test asks: authoring must never write into the repository's real overlay.
     overridesFile: options.overridesFile,
     authoredRoomsFile: options.authoredRoomsFile,
+    mobOverridesFile: options.mobOverridesFile,
     itemOverridesFile: options.itemOverridesFile,
     facts: { protocol: 9, tickMs: 100, roundMs: 3000, startedAt: Date.now() },
   };
@@ -1550,5 +1568,69 @@ describe('deleting a room', () => {
     assert.equal(line.action, 'room.delete');
     assert.equal(line.orphanedExits, 2);
     assert.equal(line.orphanedResets, 2);
+  });
+});
+
+/** A4c — authoring what a mob template carries. */
+describe('mob loot', () => {
+  it('writes a template’s loot and says how many are already standing', () => {
+    const { api, calls } = makeRig();
+    const response = api.route(req('PATCH', '/mobs/61/loot', { loot: [{ vnum: 100, slot: 'head' }, { vnum: 100 }] }));
+    assert.equal(response.status, 200);
+
+    const body = response.body as { loot: unknown[]; spawned: number };
+    assert.deepEqual(body.loot, [{ vnum: 100, slot: 'head' }, { vnum: 100 }]);
+    // The number that stops "I authored it and nothing changed" being the first bug report: loot is
+    // per template, so it lands on the next spawn and not on the bodies already walking around.
+    assert.equal(body.spawned, 3);
+    assert.ok(calls.includes('authorMobLoot 61 x2'));
+  });
+
+  it('refuses an item the catalogue does not have, rather than storing it to fail later', () => {
+    const { api } = makeRig();
+    const response = api.route(req('PATCH', '/mobs/61/loot', { loot: [{ vnum: 999_999 }] }));
+    assert.equal(response.status, 404);
+    assert.match((response.body as { error: string }).error, /no item 999999/);
+  });
+
+  it('refuses a slot the game does not model', () => {
+    const { api } = makeRig();
+    const response = api.route(req('PATCH', '/mobs/61/loot', { loot: [{ vnum: 100, slot: 'tail' }] }));
+    assert.equal(response.status, 400);
+    assert.match((response.body as { error: string }).error, /no such slot: tail/);
+  });
+
+  it('refuses a template this server has not loaded', () => {
+    const { api } = makeRig();
+    assert.equal(api.route(req('PATCH', '/mobs/99999/loot', { loot: [] })).status, 404);
+  });
+
+  it('takes an empty list as "carry nothing", which is how an author undoes it', () => {
+    const { api, calls } = makeRig();
+    api.route(req('PATCH', '/mobs/61/loot', { loot: [{ vnum: 100 }] }));
+    const cleared = api.route(req('PATCH', '/mobs/61/loot', { loot: [] }));
+    assert.equal(cleared.status, 200);
+    assert.deepEqual((cleared.body as { loot: unknown[] }).loot, []);
+    assert.ok(calls.includes('authorMobLoot 61 x0'));
+  });
+
+  it('validates the whole list before writing any of it', () => {
+    const { api, calls } = makeRig();
+    // The second row is bad. A half-applied edit is worse than a refused one.
+    const response = api.route(req('PATCH', '/mobs/61/loot', { loot: [{ vnum: 100 }, { vnum: 999_999 }] }));
+    assert.equal(response.status, 404);
+    assert.equal(calls.filter((c) => c.startsWith('authorMobLoot')).length, 0);
+  });
+
+  it('audits it, because it changes what the world will spawn', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mygame-a4c-'));
+    const auditFile = join(dir, 'audit.jsonl');
+    const { api } = makeRig({ auditFile });
+    api.route(req('PATCH', '/mobs/61/loot', { loot: [{ vnum: 100 }] }));
+
+    const line = JSON.parse(readFileSync(auditFile, 'utf8').trim()) as { action: string; vnum: number; pieces: number };
+    assert.equal(line.action, 'mob.loot');
+    assert.equal(line.vnum, 61);
+    assert.equal(line.pieces, 1);
   });
 });

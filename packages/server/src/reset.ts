@@ -46,6 +46,7 @@ import {
   type ZoneSpawns,
 } from '@mygame/shared';
 
+import { applyOutfit, type Outfit } from './mob-overrides.ts';
 import type { Mob, Simulation } from './sim.ts';
 
 /** A zone's live reset state: how old it is, and how old it gets to be this time round. */
@@ -119,7 +120,7 @@ export const MAX_MOB_KIT_ARMOUR = 8;
  *
  * Recomputed from the whole kit rather than accumulated per piece, so equipping twice cannot count once.
  */
-function refitMobArmour(mob: Mob, baseArmourClass: number): void {
+export function refitMobArmour(mob: Mob, baseArmourClass: number): void {
   const worn = Math.min(MAX_MOB_KIT_ARMOUR, armourClassFrom(mob.equipped));
   mob.combat = { ...mob.combat, armourClass: baseArmourClass + worn };
 }
@@ -162,6 +163,11 @@ export function runReset(
    * world silts up one sword per repop.
    */
   census: (vnum: number) => number,
+  /**
+   * What each mob vnum is authored to carry — A4c, injected for the reason everything else here is:
+   * this file has no business reading an overlay off disk, and a test wants to hand it a map.
+   */
+  authoredLoot: (vnum: number) => Outfit,
   rng: Rng,
   force = false,
 ): ResetOutcome {
@@ -336,6 +342,22 @@ export function runReset(
     lastMobBaseAc = mob.combat.armourClass;
   }
 
+  // **A4c, and after the whole pass rather than inside it.** Authored loot is per *template* while a
+  // harvested kit is per reset command, so this dresses every mob the pass produced — including the
+  // ones the table gave nothing at all. Last, so an authored piece wins a contested slot and the
+  // harvested one it displaces goes to the mob's hands rather than being destroyed: what is on the
+  // body only ever goes up, which is what makes "additive" true rather than merely intended.
+  for (const mob of spawned) {
+    // The mob's own armour class, recovered by subtracting whatever its kit is currently worth —
+    // `refitMobArmour` folds from scratch, so it needs the bare number rather than the dressed one.
+    const baseAc = mob.combat.armourClass - Math.min(MAX_MOB_KIT_ARMOUR, armourClassFrom(mob.equipped));
+    const added = applyOutfit(mob, authoredLoot(mob.vnum));
+    if (added > 0) {
+      kitted += added;
+      refitMobArmour(mob, baseAc);
+    }
+  }
+
   clock.age = 0;
   clock.lifespan = rollLifespan(clock.spawns, rng);
   return { zone: clock.spawns.zone, spawned, atLimit, doors, kitted, objects, contents };
@@ -357,6 +379,7 @@ export function advanceZones(
   templates: ReadonlyMap<number, MobTemplate>,
   items: ReadonlyMap<number, ItemTemplate>,
   census: (vnum: number) => number,
+  authoredLoot: (vnum: number) => Outfit,
   rng: Rng,
   elapsedMs: number,
 ): ResetOutcome[] {
@@ -368,7 +391,7 @@ export function advanceZones(
       clock.age++;
     }
     if (clock.age < clock.lifespan) continue;
-    out.push(runReset(sim, clock, templates, items, census, rng));
+    out.push(runReset(sim, clock, templates, items, census, authoredLoot, rng));
   }
   return out;
 }
