@@ -178,6 +178,29 @@ authorable field on any item. Three things worth not rediscovering:
 Still to do on art: **A7d**, bag and floor icons. **A7c, the picker, landed 2026-08-05** — see the
 table row below.
 
+**A7a stages one layer per ULPC definition, and 168 of 657 have more than one.** Found 2026-08-05
+from three separate owner reports that turned out to be one fault:
+
+- *"if I walk north the weapon in my hand disappears"* — `weapon_sword_rapier.json` has **four**
+  layers: `layer_1` at z 140 (the sword in front of the body), **`layer_2` at z 9,
+  `universal_behind/`** — the sword drawn *behind* the body — and two more for the attack animation.
+  Facing north your back is to the camera, so the sword belongs to the behind layer, and that layer
+  was never staged. Measured: `weapon-sword-rapier-rapier.png` has **zero opaque pixels in its
+  north row**.
+- *"the cloak only really shows the shoulder connection"* — `cape_solid.json` is `layer_1` z 85
+  (`fg/`, the shoulders and clasp) plus **`layer_2` z 5 (`bg/`, the cloak that hangs behind you)**.
+  Only the shoulders were staged.
+- The cape the owner had picked was `cape-trim`, which is a third thing again: `kind: cape_trim`, the
+  decorative *hem* meant to layer over `cape-solid`. Its pixels sit only in the bottom 16 px of the
+  frame, the same band as boots — so it drew exactly where it was painted, around the ankles. Not a
+  bug; the picker just gives no hint that an entry is an overlay rather than a garment.
+
+**The fix is not small and should not be rushed**: `ArtEntry` carries one `sheet`, and it needs to
+carry a *list* of (sheet, z) — which changes `artgen`'s staging, the index, and the client's stack
+expansion from one image per art id to several. The z values already say where each goes, so the
+sorting the client does is unchanged. **25.6% of the pack is affected**, so this is the difference
+between the art pack half working and working.
+
 **Be aware of the inert surface.** `proficiencyBonus` still has **zero non-test callers**.
 **`SECTOR_REQUIRES_MOVEMENT` came off this list in Phase 16** — deep water and thin air now refuse a
 step, before stamina is charged for it. `resolveAttack` and `rollDamage` came off this list in Phase 11 — they had been
