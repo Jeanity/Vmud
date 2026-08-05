@@ -810,6 +810,65 @@ export class PlayerStore {
    * clearing the set makes every room offer its find again — for this character and nobody else.
    * Safe while online for the same reason: `hasTaken` reads this set at walk time.
    */
+  /**
+   * Forgets one Place's explored map, for **every** character this store knows about — A8 slice 3.
+   *
+   * Returns how many actually had one to lose.
+   *
+   * **Everyone, not just whoever is online**, and that is the whole difficulty of the operation.
+   * A resized grid makes every saved bitset for the Place wrong, and the characters most likely to be
+   * hurt are the ones not here to notice — they log in weeks later to a map that lifts the fog off
+   * places they have never been. Re-mapping the old indices onto the new grid is the alternative and
+   * `DESIGN-zone-geometry.md` rejects it for exactly this reason: it needs the old grid's width, which
+   * is not stored, and it would have to be right for every one of these files too.
+   *
+   * Cached records are handled first and on-disk ones only if they are *not* cached, because for an
+   * online character the cached record is the truth — editing their file underneath them would be
+   * faithfully overwritten by the next flush.
+   */
+  forgetPlace(place: Place): number {
+    const key = placeKey(place);
+    let cleared = 0;
+    for (const record of this.records.values()) {
+      if (!record.seen.delete(key)) continue;
+      cleared += 1;
+      // **Flushed at once, not debounced, and the difference is a real hole rather than a
+      // preference.** `touch` schedules a write `SAVE_DEBOUNCE_MS` later and `unref`s the timer, so a
+      // restart inside that window keeps the old file — and the boot-time check would then *not*
+      // catch it, because by then the stored extent matches the grid and the two agree that nothing
+      // has changed. The one character still holding a wrong map would be the one who was online
+      // when it was cleared. Every other admin write flushes immediately for the same reason.
+      this.flush(record);
+    }
+
+    let files: string[];
+    try {
+      files = readdirSync(this.dir).filter((f) => f.endsWith('.json'));
+    } catch {
+      return cleared;
+    }
+    for (const file of files) {
+      const slug = file.slice(0, -'.json'.length);
+      if (this.records.has(slug)) continue;
+      const path = join(this.dir, file);
+      try {
+        const stored = JSON.parse(readFileSync(path, 'utf8')) as StoredRecord;
+        // Surgery on the stored shape rather than a full load: loading would pull every offline
+        // character into the cache to change one key, and a record round-trip through the loader is
+        // a much larger promise than "delete this entry".
+        if (!stored.seen || typeof stored.seen !== 'object' || !(key in stored.seen)) continue;
+        delete stored.seen[key];
+        writeFileSync(path, JSON.stringify(stored));
+        cleared += 1;
+      } catch {
+        // One unreadable file must not cost the rest of the sweep. It also cannot be *left* stale in
+        // a way that matters: an unreadable save does not load, so there is no map to be wrong.
+        console.warn(`[players] ${file}: could not clear its map of ${key}`);
+      }
+    }
+    return cleared;
+  }
+
   clearTaken(record: PlayerRecord): number {
     const count = record.taken.size;
     if (count === 0) return 0;

@@ -33,6 +33,18 @@ interface DeleteReport {
   readonly resets: Readonly<Record<string, number>>;
   readonly orphanedResets: number;
   readonly cleared: { readonly mobs: number; readonly corpses: number; readonly items: number };
+  /** A8 slice 3: whether the grid moved, and what that cost. Absent on a delete that fit. */
+  readonly extentChanged: boolean;
+  readonly mapsCleared?: number;
+  readonly told?: number;
+}
+
+/** What `POST /zones/:id/rooms` answers with. Same slice-3 tail as {@link DeleteReport}. */
+interface BuildReport {
+  readonly room: { readonly id: number; readonly name: string };
+  readonly extentChanged: boolean;
+  readonly mapsCleared?: number;
+  readonly told?: number;
 }
 
 let timer: number | undefined;
@@ -135,9 +147,18 @@ export const zonesSection = {
                 pickedLevel,
                 { x, y },
                 body.rooms,
-                (created) => {
+                // **A build that resized the Place stops and says so, rather than sailing on into
+                // the new room's editor.** Everything else here can be undone by writing again;
+                // this one just took every character's explored map of the area, and walking
+                // straight past that would be the panel deciding it did not matter.
+                (report) => {
                   pickedGap = undefined;
-                  void showZone(id).then(() => showRoom(created));
+                  if (report.extentChanged) {
+                    render(detailPane, resizeReport(report));
+                    void showZone(id);
+                    return;
+                  }
+                  void showZone(id).then(() => showRoom(report.room.id));
                 },
                 () => {
                   pickedGap = undefined;
@@ -591,7 +612,7 @@ function roomBuilder(
   level: number,
   gap: { x: number; y: number },
   rooms: readonly import('../api.ts').ZoneRoomRow[],
-  done: (created: number) => void,
+  done: (report: BuildReport) => void,
   cancel: () => void,
 ): HTMLElement {
   const flash = el('p', { class: 'note' });
@@ -625,7 +646,19 @@ function roomBuilder(
   const sector = el('select', {}, ...SECTORS.map((s) => el('option', { value: s }, s)));
   const flagBoxes = ROOM_FLAGS.map((flag) => ({ flag, box: el('input', { type: 'checkbox', id: `new-flag-${flag}` }) }));
 
-  const build = el('button', { class: 'primary', disabled: true }, 'Build room');
+  // **A8 slice 3: is this cell outside what the level already covers?** Computed here from the rooms
+  // the panel is already drawing rather than asked of the server, because the warning has to be on
+  // screen *before* the button is pressed — the server can only tell you afterwards, and afterwards
+  // is too late for a thing that clears everybody's explored map.
+  const onLevel = rooms.filter((r) => r.level === level);
+  const widens =
+    onLevel.length === 0 ||
+    gap.x < Math.min(...onLevel.map((r) => r.x)) ||
+    gap.x > Math.max(...onLevel.map((r) => r.x)) ||
+    gap.y < Math.min(...onLevel.map((r) => r.y)) ||
+    gap.y > Math.max(...onLevel.map((r) => r.y));
+
+  const build = el('button', { class: widens ? 'danger' : 'primary', disabled: true }, widens ? 'Build room, and reset every map here' : 'Build room');
   const exitBoxes = neighbours.map((entry) => {
     const box = el('input', { type: 'checkbox', id: `new-exit-${entry.dir}` });
     if (entry.taken) box.disabled = true;
@@ -641,7 +674,7 @@ function roomBuilder(
   build.addEventListener('click', () => {
     void (async () => {
       build.disabled = true;
-      const result = await call<{ room: { id: number; name: string } }>('POST', `/zones/${zoneId}/rooms`, {
+      const result = await call<BuildReport>('POST', `/zones/${zoneId}/rooms`, {
         name: name.value().trim(),
         description: prose.value(),
         sector: (sector as HTMLSelectElement).value,
@@ -657,7 +690,7 @@ function roomBuilder(
         build.disabled = false;
         return;
       }
-      done(result.body.room.id);
+      done(result.body);
     })();
   });
 
@@ -665,13 +698,22 @@ function roomBuilder(
     'div',
     { class: 'card' },
     el('h3', {}, 'Build a room ', el('span', { class: 'pill' }, `cell ${gap.x},${gap.y} · L${level}`)),
-    el(
-      'p',
-      { class: 'note' },
-      'A room built inside the level’s current extent — filling a gap resizes nothing, so every ' +
-        'explored map of this place stays valid. It is saved to an overlay that survives npm run ' +
-        'worldgen and takes effect with no restart.',
-    ),
+    widens
+      ? el(
+          'p',
+          { class: 'flash err' },
+          'This cell is outside what the level covers, so building here makes the grid bigger — and ' +
+            'every explored map of this place is measured from a corner that would move. They will ' +
+            'all be reset, for every character, online or not, and the people standing here will be ' +
+            'told. Pick a cell inside the shape if you would rather not.',
+        )
+      : el(
+          'p',
+          { class: 'note' },
+          'A room built inside the level’s current extent — filling a gap resizes nothing, so every ' +
+            'explored map of this place stays valid. It is saved to an overlay that survives npm run ' +
+            'worldgen and takes effect with no restart.',
+        ),
     el('span', { class: 'field-label' }, 'name'),
     name.node,
     el('span', { class: 'field-label' }, 'terrain'),
@@ -741,10 +783,17 @@ function roomRemover(room: RoomDetail, gone: (report: DeleteReport) => void): HT
   arm.addEventListener('click', () => {
     arm.hidden = true;
     armed.hidden = false;
-    flash.className = 'note';
-    flash.textContent =
-      'This cannot be undone. Neighbours that lead here will be left pointing at nothing, and any ' +
-      'reset command naming this room will be skipped from now on.';
+    // **Slice 3's warning, and it has to be here rather than in the response.** A room the level's
+    // extent rests on takes the whole Place's explored maps with it, which is a different order of
+    // consequence from a dangling exit — so it is said in red, before the second gesture, not
+    // reported afterwards when nothing can be done about it.
+    flash.className = room.holdsExtent ? 'flash err' : 'note';
+    flash.textContent = room.holdsExtent
+      ? 'This cannot be undone, and this room is holding the edge of its level — removing it makes ' +
+        'the grid smaller, so every explored map of this place will be reset for every character, ' +
+        'online or not. Neighbours that lead here will also be left pointing at nothing.'
+      : 'This cannot be undone. Neighbours that lead here will be left pointing at nothing, and any ' +
+        'reset command naming this room will be skipped from now on.';
   });
   cancel.addEventListener('click', () => {
     armed.hidden = true;
@@ -768,6 +817,35 @@ function roomRemover(room: RoomDetail, gone: (report: DeleteReport) => void): HT
   });
 
   return el('div', { class: 'danger-zone' }, el('span', { class: 'field-label' }, 'geometry'), arm, armed, flash);
+}
+
+/**
+ * What a build that moved the grid cost — A8 slice 3.
+ *
+ * Two numbers, and they answer different questions. `mapsCleared` is how many *characters* lost an
+ * explored map, most of whom are not here; `told` is how many were online to be given the line
+ * saying so. The gap between them is the part worth seeing, because it is the people who will find
+ * out by logging in later.
+ */
+function resizeReport(report: BuildReport): HTMLElement {
+  return el(
+    'div',
+    { class: 'card' },
+    el('h3', {}, `Built — ${report.room.name} `, el('span', { class: 'pill' }, `#${report.room.id}`)),
+    el(
+      'p',
+      { class: 'flash err' },
+      `The level is bigger than it was, so every explored map of it has been reset: ` +
+        `${report.mapsCleared ?? 0} character(s), of whom ${report.told ?? 0} were online and told. ` +
+        `Nothing else about anybody is affected.`,
+    ),
+    el(
+      'p',
+      { class: 'note' },
+      'Tile indices are measured from the corner of the level’s extent, and that corner moved. A ' +
+        'preserved map would have been drawn in the wrong places rather than merely being short.',
+    ),
+  );
 }
 
 /** What the server says a delete cost. Rendered once, because nothing will ever say it again. */
@@ -808,6 +886,14 @@ function removalReport(report: DeleteReport, zoneName: string): HTMLElement {
         report.cleared.mobs + report.cleared.corpses + report.cleared.items === 0
           ? el('span', { class: 'muted' }, 'nothing')
           : `${report.cleared.mobs} mob(s), ${report.cleared.corpses} corpse(s), ${report.cleared.items} item(s)`,
+      ),
+      el('dt', {}, 'explored maps reset'),
+      el(
+        'dd',
+        {},
+        report.extentChanged
+          ? `${report.mapsCleared ?? 0} character(s), ${report.told ?? 0} of them online and told`
+          : el('span', { class: 'muted' }, 'none — the level is the same size'),
       ),
     ),
     // Said plainly because it is the half nobody expects: the spawn files are a worldgen output, so

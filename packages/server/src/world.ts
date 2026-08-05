@@ -47,12 +47,17 @@ import {
   applyDeletions,
   attachAuthoredRoom,
   composeAuthoredRooms,
+  extentOf,
   loadAuthoredRooms,
+  narrowsExtent,
   placementRefusal,
   removalRefusal,
   resolveExits,
+  sameExtent,
   takeAuthoredRoomId,
+  widensExtent,
   type AuthoredRoomStore,
+  type Extent,
 } from './room-authoring.ts';
 
 
@@ -333,6 +338,15 @@ export class GameWorld {
   readonly authoredRefusals: readonly { readonly id: RoomId; readonly why: string }[];
 
   /**
+   * Places whose grid is not the one the overlay was last written against — A8 slice 3.
+   *
+   * Every saved `seen` for these is indexed against a grid of a different size and is therefore
+   * **wrong, not merely incomplete**. The caller must clear them before anybody connects; see
+   * `index.ts`, which is where the store lives. Empty in every ordinary session.
+   */
+  readonly staleExtents: readonly Place[];
+
+  /**
    * What each authored room said *before* anybody wrote on it.
    *
    * The whole of "revert", and the reason it cannot fail. The alternative — re-reading the zone file
@@ -365,7 +379,7 @@ export class GameWorld {
     spawn: SpawnConfig,
     populate: readonly ZoneId[] = [],
     overrides: RoomOverrides = new Map(),
-    authoredRooms: AuthoredRoomStore = { rooms: new Map(), next: AUTHORED_ROOM_BASE, deleted: new Set() },
+    authoredRooms: AuthoredRoomStore = { rooms: new Map(), next: AUTHORED_ROOM_BASE, deleted: new Set(), extents: new Map() },
   ) {
     this.populate = populate;
     this.spawn = spawn;
@@ -415,6 +429,61 @@ export class GameWorld {
     this.locksRelaxed = relaxed;
     this.roomsAuthored = authored;
     this.authoredRefusals = refusals;
+
+    // **A8 slice 3: has any Place's grid moved since this overlay was last written?**
+    //
+    // Asked here, once, against the world as finally composed — after deletions, additions and
+    // overrides have all had their say — because that is the grid the next `buildZoneTilemap` will
+    // produce and therefore the one every saved `seen` is about to be indexed against.
+    //
+    // Only Places the overlay *touches* are considered. A world nobody has authored has no stored
+    // extents, nothing to compare, and nothing to clear — which is what keeps an ordinary boot from
+    // writing to a git-tracked file. A Place the overlay touches with **no** stored extent is treated
+    // as stale rather than as fine: that state can only come from a hand edit, and assuming the best
+    // there is exactly the silent shift decision 2 exists to prevent.
+    const stale: Place[] = [];
+    for (const place of this.places) {
+      const key = placeKey(place);
+      const touched = this.overlayTouches(place);
+      if (!touched && !authoredRooms.extents.has(key)) continue;
+      const now = extentOf(this.zonesById.get(place.zone)?.rooms ?? [], place.level);
+      if (!sameExtent(now, authoredRooms.extents.get(key))) stale.push(place);
+    }
+    this.staleExtents = stale;
+  }
+
+  /** Whether the authored overlay has anything to say about this Place. See the constructor. */
+  private overlayTouches(place: Place): boolean {
+    for (const authored of this.authoredRooms.rooms.values()) {
+      if (authored.room.zone === place.zone && authored.room.pos.z === place.level) return true;
+    }
+    // A tombstone is checked against the zone file rather than the live world, because the room it
+    // names is by definition no longer in the live world to be asked about.
+    for (const id of this.authoredRooms.deleted) {
+      const zone = this.zonesById.get(place.zone);
+      if (!zone) continue;
+      // The room is gone from `zone.rooms`; the only surviving fact is that this zone owned it.
+      if (this.zoneOf(id) === place.zone) return true;
+    }
+    return false;
+  }
+
+  /** The Place's extent as it stands now, for the overlay to remember it by. */
+  extentNow(place: Place): Extent | undefined {
+    return extentOf(this.zonesById.get(place.zone)?.rooms ?? [], place.level);
+  }
+
+  /**
+   * Records a Place's current extent in the overlay, so the next boot compares against this grid.
+   *
+   * Called after the invalidation rather than before it, and by the caller rather than here: writing
+   * the file is I/O and this class does none, and recording an extent whose `seen` clearing then
+   * failed would leave the maps shifted with nothing left to notice it.
+   */
+  recordExtent(place: Place): void {
+    const extent = this.extentNow(place);
+    if (extent) this.authoredRooms.extents.set(placeKey(place), extent);
+    else this.authoredRooms.extents.delete(placeKey(place));
   }
 
   /** Loads every zone named in the config, with both authored overlays composed on top. */
@@ -556,11 +625,15 @@ export class GameWorld {
     zoneId: ZoneId,
     draft: { readonly room: Room; readonly dirs: readonly Direction[] },
     meta: { readonly at: string; readonly by?: string; readonly brief?: string },
-  ): { room: Room; place: Place } | { error: string } {
+  ): { room: Room; place: Place; extentChanged: boolean } | { error: string } {
     const zone = this.zonesById.get(zoneId);
     if (!zone) return { error: `zone ${zoneId} is not loaded` };
 
     const pos = draft.room.pos;
+    // **Asked before the room is added, and it is the whole of slice 3.** Building against the edge
+    // moves the extent, which resizes the grid, which shifts every saved tile index for this Place.
+    // The room is still built — what changes is that the caller has to clear the maps and say so.
+    const extentChanged = widensExtent(zone.rooms, pos);
     const refusal = placementRefusal(zone.rooms, pos);
     if (refusal) return { error: refusal };
 
@@ -589,7 +662,7 @@ export class GameWorld {
     const place = placeOf(room);
     this.index.set(id, { room, place });
     this.dropGrid(place);
-    return { room, place };
+    return { room, place, extentChanged };
   }
 
   /**
@@ -678,6 +751,8 @@ export class GameWorld {
          * show up as a 279-line diff with no change in it.
          */
         droppedOverride: boolean;
+        /** Whether the level's grid shrank with it — A8 slice 3. See `createRoom`. */
+        extentChanged: boolean;
       }
     | { error: string } {
     const located = this.index.get(roomId);
@@ -687,6 +762,10 @@ export class GameWorld {
 
     const refusal = removalRefusal(zone.rooms, roomId);
     if (refusal) return { error: refusal };
+
+    // Asked before the room goes, for the same reason the additive half asks first: once it is out
+    // of the array the old extent cannot be measured.
+    const extentChanged = narrowsExtent(zone.rooms, roomId);
 
     const room = located.room;
     const authored = this.authoredRooms.rooms.get(roomId);
@@ -731,7 +810,7 @@ export class GameWorld {
     this.pristine.delete(roomId);
 
     this.dropGrid(located.place);
-    return { room, place: located.place, orphans, droppedOverride };
+    return { room, place: located.place, orphans, droppedOverride, extentChanged };
   }
 
   /** Snapshots a room's authorable fields, once, before the first thing is written over them. */

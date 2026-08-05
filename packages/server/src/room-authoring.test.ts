@@ -10,12 +10,15 @@ import {
   applyDeletions,
   composeAuthoredRooms,
   draftAuthoredRoom,
+  extentOf,
   loadAuthoredRooms,
+  narrowsExtent,
   placementRefusal,
   removalRefusal,
   resolveExits,
   saveAuthoredRooms,
   takeAuthoredRoomId,
+  widensExtent,
   type AuthoredRooms,
 } from './room-authoring.ts';
 
@@ -88,10 +91,12 @@ test('a gap inside the extent is free', () => {
   assert.equal(placementRefusal(zone().rooms, { x: 1, y: 0, z: 0 }), undefined);
 });
 
-test('a cell outside the extent is refused, and says what the extent is', () => {
-  const why = placementRefusal(zone().rooms, { x: 3, y: 0, z: 0 });
-  assert.ok(why?.includes('outside level 0'), why);
-  assert.ok(why?.includes('0..2'), why);
+test('a cell outside the extent is allowed now, and reported as moving the grid', () => {
+  // Slices 1 and 2 refused this. Slice 3 pays for it instead — the room is built and the Place's
+  // maps are cleared, which is the only honest outcome of the three.
+  assert.equal(placementRefusal(zone().rooms, { x: 3, y: 0, z: 0 }), undefined);
+  assert.equal(widensExtent(zone().rooms, { x: 3, y: 0, z: 0 }), true);
+  assert.equal(widensExtent(zone().rooms, { x: 1, y: 0, z: 0 }), false, 'a gap inside it still costs nothing');
 });
 
 test('an occupied cell names its occupant', () => {
@@ -178,13 +183,16 @@ test('composing does not widen the level — which is what makes a saved map sti
   assert.deepEqual(boundsOf(z.rooms.filter((r) => r.pos.z === 0)), before);
 });
 
-test('a room placed outside the extent is left out entirely, and says why', () => {
+test('a room outside the extent composes, and the level really is wider afterwards', () => {
   const z = zone();
-  const { added, refused } = composeAuthoredRooms(z, authored(AUTHORED_ROOM_BASE, { pos: { x: 9, y: 0, z: 0 } }));
+  // Its west exit points at room 10, which is now four cells away, so the link is dropped — but the
+  // room itself stands. Slice 3's question is only about the grid.
+  const { added, refused } = composeAuthoredRooms(z, authored(AUTHORED_ROOM_BASE, { pos: { x: 4, y: 0, z: 0 } }));
 
-  assert.equal(added.length, 0);
-  assert.equal(z.rooms.length, 2);
-  assert.ok(refused[0]?.why.includes('outside level 0'), refused[0]?.why);
+  assert.equal(added.length, 1);
+  assert.equal(z.rooms.length, 3);
+  assert.deepEqual(extentOf(z.rooms, 0), { minX: 0, maxX: 4, minY: 0, maxY: 0 });
+  assert.ok(refused[0]?.why.includes('west exit dropped'), refused[0]?.why);
 });
 
 test('a neighbour that moved costs the exit, not the room', () => {
@@ -247,7 +255,7 @@ test('malformed JSON loses the overlay rather than the server', () => {
 
 test('a whole record round-trips, exits and all', () => {
   const file = tempFile();
-  const store = { rooms: authored(AUTHORED_ROOM_BASE), next: AUTHORED_ROOM_BASE + 1, deleted: new Set<RoomId>() };
+  const store = { rooms: authored(AUTHORED_ROOM_BASE), next: AUTHORED_ROOM_BASE + 1, deleted: new Set<RoomId>(), extents: new Map() };
   saveAuthoredRooms(store, file);
 
   const back = loadAuthoredRooms(file);
@@ -287,7 +295,7 @@ test('the counter is raised to clear the records, never lowered by a hand edit',
 });
 
 test('an id is never handed out twice, including across a delete', () => {
-  const store = { rooms: new Map(), next: AUTHORED_ROOM_BASE, deleted: new Set<RoomId>() };
+  const store = { rooms: new Map(), next: AUTHORED_ROOM_BASE, deleted: new Set<RoomId>(), extents: new Map() };
   const first = takeAuthoredRoomId(store);
   const second = takeAuthoredRoomId(store);
   assert.equal(second, first + 1);
@@ -310,19 +318,19 @@ test('a room that is not there at all is refused rather than silently succeeding
   assert.ok(removalRefusal(strip, 99 as RoomId)?.includes('not in this zone'));
 });
 
-test('a room holding a bound of its own is refused, and says what would move', () => {
+test('a room the extent rests on can go now, and is reported as moving the grid', () => {
   const strip = [room(1, 0, 0), room(2, 1, 0), room(3, 2, 0)];
-  const why = removalRefusal(strip, 3 as RoomId);
-  assert.ok(why?.includes('would shrink level 0'), why);
-  assert.ok(why?.includes('0..2'), why);
-  assert.ok(why?.includes('0..1'), why);
+  assert.equal(removalRefusal(strip, 3 as RoomId), undefined);
+  assert.equal(narrowsExtent(strip, 3 as RoomId), true);
+  assert.equal(narrowsExtent(strip, 2 as RoomId), false, 'the middle still costs nothing');
 });
 
 test('a bound shared with another room is not a bound this room holds', () => {
-  // Two rooms at maxX: losing one moves nothing, and refusing it would make most of a wall
-  // undeletable for no reason at all.
+  // Two rooms at maxX: losing one moves nothing, and treating every edge room as a resize would
+  // clear maps for nothing several times a session.
   const block = [room(1, 0, 0), room(2, 1, 0), room(3, 1, 1), room(4, 0, 1)];
   assert.equal(removalRefusal(block, 2 as RoomId), undefined);
+  assert.equal(narrowsExtent(block, 2 as RoomId), false);
 });
 
 test('the last room on a level is refused — that is removing the Place, not a room', () => {
@@ -347,13 +355,40 @@ test('a tombstone takes the room out at load and counts what now leads nowhere',
   assert.equal(z.rooms.find((r) => r.id === 10)!.exits.east?.to, 11);
 });
 
-test('a hand-typed tombstone that would shrink the grid is refused at load too', () => {
+test('a tombstone on the edge shrinks the grid, and the extent says so afterwards', () => {
   const z = zone([room(10, 0, 0), room(11, 1, 0), room(12, 2, 0)]);
   const { removed, refused } = applyDeletions(z, new Set([12 as RoomId]));
 
+  assert.deepEqual(refused, []);
+  assert.equal(removed.length, 1);
+  // The comparison that catches it is the stored extent's, at boot — see `GameWorld.staleExtents`.
+  assert.deepEqual(extentOf(z.rooms, 0), { minX: 0, maxX: 1, minY: 0, maxY: 0 });
+});
+
+test('the last room on a level is still refused — that is removing the Place, not resizing it', () => {
+  const z = zone([room(10, 0, 0)]);
+  const { removed, refused } = applyDeletions(z, new Set([10 as RoomId]));
   assert.equal(removed.length, 0);
-  assert.equal(z.rooms.length, 3, 'the room stands');
-  assert.ok(refused[0]?.why.includes('would shrink level 0'), refused[0]?.why);
+  assert.ok(refused[0]?.why.includes('only room on level 0'), refused[0]?.why);
+});
+
+test('extents round-trip, and a half-written one is dropped rather than compared', () => {
+  const file = tempFile(
+    JSON.stringify({
+      next: AUTHORED_ROOM_BASE,
+      extents: { '168:5': { minX: 0, maxX: 12, minY: 0, maxY: 9 }, '36:9': { minX: 0, maxX: 3 } },
+      rooms: {},
+    }),
+  );
+  const store = loadAuthoredRooms(file);
+  assert.deepEqual(store.extents.get('168:5'), { minX: 0, maxX: 12, minY: 0, maxY: 9 });
+  // All four or none: a half-read extent compares unequal to everything and would clear a Place's
+  // maps on every boot, which is the one failure this record exists to prevent.
+  assert.equal(store.extents.has('36:9'), false);
+
+  const back = tempFile();
+  saveAuthoredRooms(store, back);
+  assert.deepEqual(loadAuthoredRooms(back).extents.get('168:5'), { minX: 0, maxX: 12, minY: 0, maxY: 9 });
 });
 
 test('tombstones round-trip, and only harvested ids are honoured', () => {

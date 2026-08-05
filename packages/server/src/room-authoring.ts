@@ -23,18 +23,25 @@
  * would survive a collision: a room id is the join between the zMUD map, the `.wld` files, every
  * reset command and every `lastRoom` ever saved.
  *
- * ## Infill only, and the refusal is the feature
+ * ## The extent, and what moving it costs
  *
  * `DESIGN-zone-geometry.md` decision 2 is the sharp edge of this whole track: a grid is sized from
- * `boundsOf` the rooms on its level, tile indices are row-major, and **widening a grid shifts every
- * saved `seen` index below the first row**. So this slice places rooms *inside* a level's current
- * extent and refuses anything outside it by name. That is not a stub — it is the build order the
- * design note picks, because it reaches A8's completion test without being able to take an explored
- * map away from a player who was not consulted.
+ * `boundsOf` the rooms on its level, tile indices are row-major, and **changing a grid's size shifts
+ * every saved `seen` index below the first row**. Slices 1 and 2 sidestepped it by refusing — infill
+ * only, interior only — which reached A8's completion test without being able to take an explored map
+ * away from anybody.
  *
- * The same check runs at load, not only at creation: this file is hand-editable like its siblings,
- * and a room typed in outside the extent would otherwise widen a grid on the next boot with nothing
- * to say it had.
+ * **Slice 3 pays for it instead.** Building on the edge or clearing the edge is allowed, and when the
+ * extent moves the Place's `seen` is **cleared for every character and announced**. Of the three
+ * possible outcomes that is the only honest one: a preserved map is impossible, and a *shifted* map is
+ * a bug the player reports as the fog being broken. The comparison is against {@link
+ * AuthoredRoomStore.extents}, recorded when this file was last written, which is what makes the
+ * question "has it changed *since the maps were written*" rather than "is it different from the
+ * harvest" — the second answer stays true for ever and would clear every map on every boot.
+ *
+ * The same comparison runs at load, not only at edit time: this file is hand-editable like its
+ * siblings, and a room typed in outside the extent would otherwise shift a grid on the next boot with
+ * nothing to say it had.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -117,6 +124,49 @@ export interface AuthoredRoomStore {
    * is the room. So this holds harvested ids and only harvested ids.
    */
   readonly deleted: Set<RoomId>;
+  /**
+   * The cell extent each Place had **when this overlay was last written** — A8 slice 3.
+   *
+   * `DESIGN-zone-geometry.md` decision 2, and the reason it is stored rather than derived is that
+   * the question is about *time*, not about geometry. "Has this grid changed since the saved maps
+   * were written against it" cannot be answered by comparing the harvest with the composed world:
+   * that comparison stays true for ever once a room has been added outside the extent, so it would
+   * clear everybody's map on every boot from then on.
+   *
+   * Keyed by `placeKey`. Only Places the overlay has actually touched appear — an untouched world
+   * writes nothing here, which is what keeps a boot from dirtying a git-tracked file.
+   */
+  readonly extents: Map<string, Extent>;
+}
+
+/**
+ * A Place's cell extent — the four numbers `buildZoneTilemap` sizes its grid from.
+ *
+ * Two dimensions, not three: a Place is one level, so `z` is the key rather than a bound.
+ */
+export interface Extent {
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minY: number;
+  readonly maxY: number;
+}
+
+/** The extent of one level, or nothing when no room stands on it. */
+export function extentOf(rooms: readonly Room[], level: number): Extent | undefined {
+  const here = rooms.filter((room) => room.pos.z === level);
+  if (here.length === 0) return undefined;
+  const bounds = boundsOf(here);
+  return { minX: bounds.minX, maxX: bounds.maxX, minY: bounds.minY, maxY: bounds.maxY };
+}
+
+export function sameExtent(a: Extent | undefined, b: Extent | undefined): boolean {
+  if (!a || !b) return a === b;
+  return a.minX === b.minX && a.maxX === b.maxX && a.minY === b.minY && a.maxY === b.maxY;
+}
+
+/** Human-readable, for the log line and the panel — `0..12 by 0..9`. */
+export function extentText(extent: Extent | undefined): string {
+  return extent ? `${extent.minX}..${extent.maxX} by ${extent.minY}..${extent.maxY}` : 'nothing';
 }
 
 /**
@@ -180,18 +230,31 @@ export function placementRefusal(
     );
   }
 
-  const bounds = boundsOf(level);
-  if (pos.x < bounds.minX || pos.x > bounds.maxX || pos.y < bounds.minY || pos.y > bounds.maxY) {
-    return (
-      `(${pos.x},${pos.y}) is outside level ${pos.z}'s extent, which runs ` +
-      `${bounds.minX}..${bounds.maxX} by ${bounds.minY}..${bounds.maxY}. Widening it would shift ` +
-      `every tile index in every saved map of this Place, so this slice fills gaps only.`
-    );
-  }
-
   const occupant = level.find((room) => room.pos.x === pos.x && room.pos.y === pos.y);
   if (occupant) return `(${pos.x},${pos.y}) already holds room ${occupant.id}, "${occupant.name}"`;
   return undefined;
+}
+
+/**
+ * Whether putting a room here would make the level's grid bigger — A8 slice 3.
+ *
+ * **Slices 1 and 2 made this a refusal; slice 3 makes it a consequence.** The fact is unchanged and
+ * so is its cost: a grid is sized from `boundsOf` and tile indices are row-major, so a wider grid
+ * shifts every saved index. What changed is the answer — the map is cleared and the player is told,
+ * rather than the room being refused. See `GameWorld.createRoom` and decision 2.
+ *
+ * **It can only ever be one cell**, and that falls out of a rule slice 1 already had rather than
+ * needing a bound of its own: a created room must be joined to a neighbour, so it must sit against
+ * an existing room, so it cannot be more than one cell beyond the current edge. There is no way to
+ * ask for a grid a thousand cells wide, which is why nothing here checks for one.
+ */
+export function widensExtent(
+  rooms: readonly Room[],
+  pos: { readonly x: number; readonly y: number; readonly z: number },
+): boolean {
+  const bounds = extentOf(rooms, pos.z);
+  if (!bounds) return true;
+  return pos.x < bounds.minX || pos.x > bounds.maxX || pos.y < bounds.minY || pos.y > bounds.maxY;
 }
 
 /**
@@ -221,22 +284,23 @@ export function removalRefusal(rooms: readonly Room[], id: RoomId): string | und
     );
   }
 
-  const before = boundsOf(level);
-  const after = boundsOf(rest);
-  if (
-    after.minX !== before.minX ||
-    after.maxX !== before.maxX ||
-    after.minY !== before.minY ||
-    after.maxY !== before.maxY
-  ) {
-    return (
-      `removing room ${id} would shrink level ${room.pos.z}'s extent from ` +
-      `${before.minX}..${before.maxX} by ${before.minY}..${before.maxY} to ` +
-      `${after.minX}..${after.maxX} by ${after.minY}..${after.maxY}. Every tile index in every saved ` +
-      `map of this Place is measured from that corner, so this slice clears gaps only.`
-    );
-  }
   return undefined;
+}
+
+/**
+ * Whether taking this room out would make the level's grid smaller — {@link widensExtent}'s twin.
+ *
+ * A narrower grid shifts every row-major index exactly as a wider one does, so it costs the same
+ * thing and gets the same answer: clear the Place's maps and say so. Note it asks whether the
+ * *extent* moves rather than whether the room sits on it — a wall of five rooms along `maxX` loses
+ * nothing when one of them goes, and treating every edge room as a resize would clear maps for
+ * nothing several times a session.
+ */
+export function narrowsExtent(rooms: readonly Room[], id: RoomId): boolean {
+  const room = rooms.find((candidate) => candidate.id === id);
+  if (!room) return false;
+  const rest = rooms.filter((candidate) => candidate.id !== id);
+  return !sameExtent(extentOf(rooms, room.pos.z), extentOf(rest, room.pos.z));
 }
 
 /**
@@ -596,15 +660,31 @@ export function composeAuthoredRooms(
 export function loadAuthoredRooms(file = AUTHORED_ROOMS_FILE): AuthoredRoomStore {
   const rooms: AuthoredRooms = new Map();
   const deleted = new Set<RoomId>();
+  const extents = new Map<string, Extent>();
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(file, 'utf8'));
   } catch {
     // No overlay is the ordinary case — nothing has been created yet.
-    return { rooms, next: AUTHORED_ROOM_BASE, deleted };
+    return { rooms, next: AUTHORED_ROOM_BASE, deleted, extents };
   }
-  if (typeof raw !== 'object' || raw === null) return { rooms, next: AUTHORED_ROOM_BASE, deleted };
+  if (typeof raw !== 'object' || raw === null) return { rooms, next: AUTHORED_ROOM_BASE, deleted, extents };
   const parsed = raw as Record<string, unknown>;
+
+  if (typeof parsed.extents === 'object' && parsed.extents !== null) {
+    for (const [key, value] of Object.entries(parsed.extents as Record<string, unknown>)) {
+      if (typeof value !== 'object' || value === null) continue;
+      const raw = value as Record<string, unknown>;
+      const minX = readInt(raw.minX);
+      const maxX = readInt(raw.maxX);
+      const minY = readInt(raw.minY);
+      const maxY = readInt(raw.maxY);
+      // All four or none. A half-read extent would compare unequal to everything and clear a Place's
+      // maps on every boot, which is the one failure mode this record exists to prevent.
+      if (minX === undefined || maxX === undefined || minY === undefined || maxY === undefined) continue;
+      extents.set(key, { minX, maxX, minY, maxY });
+    }
+  }
 
   if (Array.isArray(parsed.deleted)) {
     for (const id of parsed.deleted as unknown[]) {
@@ -627,7 +707,7 @@ export function loadAuthoredRooms(file = AUTHORED_ROOMS_FILE): AuthoredRoomStore
 
   let next = readInt(parsed.next) ?? AUTHORED_ROOM_BASE;
   for (const id of rooms.keys()) if (id >= next) next = id + 1;
-  return { rooms, next: Math.max(next, AUTHORED_ROOM_BASE), deleted };
+  return { rooms, next: Math.max(next, AUTHORED_ROOM_BASE), deleted, extents };
 }
 
 /**
@@ -665,7 +745,18 @@ export function saveAuthoredRooms(store: AuthoredRoomStore, file = AUTHORED_ROOM
   }
   writeFileSync(
     file,
-    `${JSON.stringify({ next: store.next, deleted: [...store.deleted].sort((a, b) => a - b), rooms: records }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        next: store.next,
+        deleted: [...store.deleted].sort((a, b) => a - b),
+        // Sorted, like everything else here, so a hand-read diff shows what changed rather than a
+        // reshuffle of a Map's iteration order.
+        extents: Object.fromEntries([...store.extents.entries()].sort(([a], [b]) => a.localeCompare(b))),
+        rooms: records,
+      },
+      null,
+      2,
+    )}\n`,
   );
 }
 

@@ -92,7 +92,7 @@ a new idea still answers the three questions; its second question now also picks
 | 4 | V3 — speech in the world | Phase 15 — inventory and worn equipment ✅ | A4 — zones and mobs, live ops |
 | **5 ✅** | A7a/A7b — item art becomes data ✅ *(took the V slot: it is presentation of things that already exist)* | Phase 16 — gear that matters (16a bands ✅, 16c mob armour ✅) | A6 — items ✅, A6b — items you make yourself ✅ |
 | **6 — under way** | A7c — the art picker ✅, then A7d — bag and floor icons | Phase 16 ✅ — light from what you hold, craftsmanship on AC, encumbrance, water you cannot wade | A4 ✅ — mobs live, then A4c — their loot |
-| **7 — under way** | V3 — speech in the world ✅, then V4 — Places as a graph | Phase 17 — shops ✅ | A8 — zone geometry: infill ✅ and deletion ✅; extent changes to go |
+| **7 — closed** | V3 — speech in the world ✅ | Phase 17 — shops ✅ | A8 — zone geometry ✅ (infill, deletion, extent changes) |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
 A5, because A5's prose editor is a colour editor and building the palette before the renderer would
@@ -1431,9 +1431,21 @@ order.
   a real destination needs *three* states, since an exit into a zone this server does not run is real
   content, and a tombstoned room is still in its zone file so the disk must not be asked first.
 
-  What is left is **slice 3, extent changes**, with the explicit `seen` invalidation. Both slices so
-  far can sidestep decision 2 completely — nothing built can widen or narrow a grid — and giving that
-  property up is precisely what slice 3 is.
+  **Slice 3, extent changes, is built (2026-08-05), and A8 is done.** Decision 2 honoured rather than
+  sidestepped: building on the edge or clearing the edge is allowed, and when the extent moves the
+  Place's `seen` is cleared for **every** character, online or not, and announced to whoever is there.
+  The comparison is against an extent stored in the overlay, which is what makes the question "has it
+  changed since the maps were written" rather than "is it different from the harvest" — the second
+  answer stays true for ever after one edit and would clear every map on every boot. The same
+  comparison runs at load, so a hand edit is caught before anybody connects, and it is idempotent.
+  Growth is bounded to one cell by slice 1's own rule that a room must join a neighbour.
+
+  Three things the build found that this note did not predict. **Actors are positioned in tiles
+  measured from the extent's corner**, so a grid that grew leftward moves every body on the Place —
+  they are re-seated. **The clearing must be flushed rather than debounced**, or a restart inside the
+  window keeps a stale map that the boot check can no longer detect, because by then the stored extent
+  matches. And **the warning has to precede the act**: the panel says what a resize will cost before
+  the button, since a warning delivered with the response describes something that already happened.
 
   The five problems, four of which were decisions rather than work:
 

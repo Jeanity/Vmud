@@ -249,6 +249,10 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
       return { mobs: 2, corpses: 1, items: 0 };
     },
     resetsNaming: () => options.resets ?? {},
+    forgetPlace: (place) => {
+      calls.push(`forgetPlace ${place.zone}:${place.level}`);
+      return { characters: 3, told: 1 };
+    },
     publishRoom: (room, _place, regrid) => void calls.push(`publishRoom ${room.id} regrid=${regrid}`),
     // Held in the rig rather than written to disk: what these tests check is that the router reads,
     // validates and announces, not that a JSON file round-trips.
@@ -1288,11 +1292,6 @@ describe('creating a room', () => {
   it("refuses the world's objections with 409 and the request's own faults with 400", () => {
     const { api } = makeRig({ zone: gappyZone() });
 
-    // Outside the extent — the one refusal the whole build order exists to keep.
-    const wide = api.route(req('POST', '/zones/600/rooms', { ...good, x: 5, exits: ['west'] }));
-    assert.equal(wide.status, 409);
-    assert.match((wide.body as { error: string }).error, /outside level 0's extent/);
-
     // A cell somebody already has.
     const taken = api.route(req('POST', '/zones/600/rooms', { ...good, x: 0, exits: ['east'] }));
     assert.equal(taken.status, 409);
@@ -1310,9 +1309,27 @@ describe('creating a room', () => {
 
   it('spends no id on a refused draft', () => {
     const { api } = makeRig({ zone: gappyZone() });
-    api.route(req('POST', '/zones/600/rooms', { ...good, x: 5, exits: ['west'] }));
+    api.route(req('POST', '/zones/600/rooms', { ...good, x: 0, exits: ['east'] }));
     const created = api.route(req('POST', '/zones/600/rooms', good));
     assert.equal((created.body as { room: { id: number } }).room.id, AUTHORED_ROOM_BASE);
+  });
+
+  it('builds against the edge, and clears the Place when it does — slice 3', () => {
+    const { api, calls } = makeRig({ zone: gappyZone(), occupants: { players: [], mobs: [], corpses: [] } });
+    // (3,0) is one cell beyond the level's 0..2, and reachable because 6003 sits at (2,0). That is
+    // the only kind of outside-the-extent cell there is: a room must be joined to a neighbour, so it
+    // can never be more than one cell past the edge.
+    const wide = api.route(req('POST', '/zones/600/rooms', { ...good, x: 3, exits: ['west'] }));
+    assert.equal(wide.status, 200);
+    assert.equal((wide.body as { extentChanged: boolean }).extentChanged, true);
+    assert.ok(calls.includes('forgetPlace 600:0'));
+  });
+
+  it('does not clear anything for a room that fits in the gap', () => {
+    const { api, calls } = makeRig({ zone: gappyZone() });
+    const inside = api.route(req('POST', '/zones/600/rooms', good));
+    assert.equal((inside.body as { extentChanged: boolean }).extentChanged, false);
+    assert.equal(calls.filter((c) => c.startsWith('forgetPlace')).length, 0);
   });
 
   it('sends an edit to the created room back to its own record, never to rooms.json', () => {
@@ -1401,11 +1418,21 @@ describe('deleting a room', () => {
 
   const empty = { players: [], mobs: [], corpses: [] };
 
-  it('refuses a room the extent rests on — the edge slice 3 has to pay for', () => {
-    const { api } = makeRig({ zone: spurZone(), occupants: empty });
+  it('clears the Place when the room it removes was holding the extent — slice 3', () => {
+    const { api, calls } = makeRig({ zone: spurZone(), occupants: empty });
     const response = api.route(req('DELETE', '/rooms/6003'));
-    assert.equal(response.status, 409);
-    assert.match((response.body as { error: string }).error, /would shrink level 0/);
+    assert.equal(response.status, 200);
+    assert.equal((response.body as { extentChanged: boolean }).extentChanged, true);
+    // The maps for this Place are wrong rather than merely incomplete, so they go — and the players
+    // on it are told, which is what `forgetPlace` does.
+    assert.ok(calls.includes('forgetPlace 600:0'));
+  });
+
+  it('leaves the maps alone when the extent does not move', () => {
+    const { api, calls } = makeRig({ zone: blockZone(), occupants: empty });
+    const response = api.route(req('DELETE', '/rooms/6002'));
+    assert.equal((response.body as { extentChanged: boolean }).extentChanged, false);
+    assert.equal(calls.filter((c) => c.startsWith('forgetPlace')).length, 0);
   });
 
   it('refuses the spawn room, whoever asks', () => {
@@ -1452,8 +1479,9 @@ describe('deleting a room', () => {
   });
 
   it('empties the room only once the world has accepted the delete', () => {
-    const refused = makeRig({ zone: spurZone(), occupants: empty });
-    refused.api.route(req('DELETE', '/rooms/6003'));
+    // Refused because somebody is standing in it — the room survives, so nothing may be despawned.
+    const refused = makeRig({ zone: blockZone(), occupants: { players: ['Ravi'], mobs: [], corpses: [] } });
+    refused.api.route(req('DELETE', '/rooms/6002'));
     assert.equal(
       refused.calls.filter((c) => c.startsWith('clearRoom')).length,
       0,

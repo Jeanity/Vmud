@@ -55,7 +55,7 @@ import { LIGHT_SOURCES, lightSource, type LightSource } from '@mygame/shared/lig
 
 import { draftDescription, listModels, ollamaReachable } from './ollama.ts';
 import { saveRoomOverrides, type RoomOverride } from './overrides.ts';
-import { draftAuthoredRoom, saveAuthoredRooms } from './room-authoring.ts';
+import { draftAuthoredRoom, narrowsExtent, saveAuthoredRooms } from './room-authoring.ts';
 import { readDice, saveItemOverrides, type ItemOverride, type ItemOverrides } from './item-overrides.ts';
 import type { AuthoredItems, ItemDraft } from './item-authoring.ts';
 import { seenTileCount, slugify, type PlayerStore, type StoredSummary } from './players.ts';
@@ -168,6 +168,27 @@ export interface LiveOps {
    * will ever be told.
    */
   resetsNaming(room: RoomId): Readonly<Record<string, number>>;
+
+  /**
+   * Throws away every character's explored map of a Place, and tells the people standing on it —
+   * A8 slice 3, and the price of moving a grid.
+   *
+   * **A cleared map is the only honest one of the three outcomes.** Tile indices are row-major and
+   * measured from the extent's corner, so a resized grid does not make a saved map *incomplete*, it
+   * makes it *wrong*: the fog would be lifted off tiles nobody has been to and drawn over ones they
+   * have. Keeping it is impossible, re-mapping it needs the old grid's width (which is not stored)
+   * and would have to be right for every offline character too, and leaving it shifted is the version
+   * a player reports as the fog being broken.
+   *
+   * Three things happen together and must not be separable: the stored bitsets go, for **everyone**
+   * rather than only whoever is online; every actor on the Place is re-seated, because tile positions
+   * are measured from the same corner that just moved; and the players there are sent the new grid,
+   * an empty map, and a line saying so — finding out by walking into a wall is not acceptable.
+   *
+   * Returns how many characters lost a map, which is what makes "was that as bad as I thought" an
+   * answerable question at the moment of doing it.
+   */
+  forgetPlace(place: Place): { readonly characters: number; readonly told: number };
 
   /* ---- A4: zones and mobs, live ------------------------------------------ */
 
@@ -1216,6 +1237,12 @@ export class AdminApi {
         // Which of the fields above are hand-authored rather than harvested, so the editor can offer
         // to revert exactly those and no others. Null for an untouched room.
         authored: this.deps.world.overrides.get(room.id) ?? null,
+        // A8 slice 3. **Answered here because only the server can**, and the panel needs it *before*
+        // the operator presses anything — a warning that arrives with the response is a warning
+        // about something that has already happened. True when this room is the last one holding
+        // one of its level's four bounds, so removing it would move the corner every saved tile
+        // index is measured from.
+        holdsExtent: narrowsExtent(this.deps.world.zone(room.zone)?.rooms ?? [], room.id),
         // **The neighbourhood, with its prose.** See {@link neighbourhood}.
         nearby: this.neighbourhood(room),
         occupants: this.deps.live.occupantsOf(room.id),
@@ -1722,6 +1749,12 @@ export class AdminApi {
     });
     if ('error' in created) return { status: 409, body: { error: created.error } };
 
+    // **The invalidation before the save**, so the overlay never records an extent whose maps are
+    // still keyed to the old one. `recordExtent` is what the next boot compares against, and writing
+    // it early would make a failed clearing invisible for ever.
+    const forgot = created.extentChanged ? this.deps.live.forgetPlace(created.place) : undefined;
+    if (created.extentChanged) this.deps.world.recordExtent(created.place);
+
     if (this.deps.authoredRoomsFile) {
       saveAuthoredRooms(this.deps.world.authoredRooms, this.deps.authoredRoomsFile);
     }
@@ -1734,6 +1767,8 @@ export class AdminApi {
       zone: zoneId,
       pos: created.room.pos,
       exits: Object.keys(created.room.exits),
+      extentChanged: created.extentChanged,
+      ...(forgot ? { mapsCleared: forgot.characters, told: forgot.told } : {}),
     });
     return {
       status: 200,
@@ -1748,6 +1783,9 @@ export class AdminApi {
           level: created.room.pos.z,
           exits: Object.entries(created.room.exits).map(([dir, exit]) => ({ dir, to: exit.to })),
         },
+        /** Whether this moved the grid, and so cost everyone their explored map here — slice 3. */
+        extentChanged: created.extentChanged,
+        ...(forgot ? { mapsCleared: forgot.characters, told: forgot.told } : {}),
       },
     };
   }
@@ -1807,6 +1845,10 @@ export class AdminApi {
     // Only once the world has actually accepted it: clearing first would empty a room that a refusal
     // then left standing, which is a mob despawned for nothing.
     const cleared = this.deps.live.clearRoom(id as RoomId);
+    // Slice 3, and the same order the additive half keeps: invalidate, then record the extent the
+    // maps are now keyed to, then save.
+    const forgot = removed.extentChanged ? this.deps.live.forgetPlace(removed.place) : undefined;
+    if (removed.extentChanged) this.deps.world.recordExtent(removed.place);
 
     if (this.deps.authoredRoomsFile) {
       saveAuthoredRooms(this.deps.world.authoredRooms, this.deps.authoredRoomsFile);
@@ -1827,6 +1869,8 @@ export class AdminApi {
       orphanedExits: removed.orphans.length,
       orphanedResets,
       cleared,
+      extentChanged: removed.extentChanged,
+      ...(forgot ? { mapsCleared: forgot.characters, told: forgot.told } : {}),
     });
     return {
       status: 200,
@@ -1839,6 +1883,9 @@ export class AdminApi {
         resets,
         orphanedResets,
         cleared,
+        /** Whether the grid moved, and so cost everyone their explored map here — slice 3. */
+        extentChanged: removed.extentChanged,
+        ...(forgot ? { mapsCleared: forgot.characters, told: forgot.told } : {}),
       },
     };
   }

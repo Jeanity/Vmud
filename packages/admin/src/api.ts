@@ -233,6 +233,8 @@ export interface RoomDetail {
    * precisely those and leaves the harvested ones alone. See `server/src/overrides.ts`.
    */
   authored: RoomOverride | null;
+  /** A8 slice 3: whether removing this room would resize the level, and so reset every map of it. */
+  holdsExtent: boolean;
   /**
    * The rooms within two steps, with their prose — the context a room cannot be written without.
    *

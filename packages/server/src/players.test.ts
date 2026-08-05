@@ -665,3 +665,70 @@ describe('the bag on disk', () => {
     assert.equal('inventory' in readSaved(dir, 'Empty'), false);
   });
 });
+
+/**
+ * A8 slice 3 — forgetting a Place's map when its grid moves.
+ *
+ * The offline half is the one that matters and the one a lazier implementation would miss. A resized
+ * grid makes every saved bitset for the Place **wrong rather than incomplete**, and the characters
+ * most likely to be hurt are the ones not connected to notice: they log in weeks later to fog lifted
+ * off places they have never been.
+ */
+describe('forgetting a Place', () => {
+  it('clears the map of a character who is nowhere near, without loading them', () => {
+    const { store, dir } = makeStore();
+    const away = store.load('Wanderer');
+    store.markSeen(away, GROUND, 288, [0, 5, 287]);
+    store.markSeen(away, { zone: 600, level: 1 }, 144, [12]);
+    store.flushAll();
+
+    // A second store over the same directory — nothing cached, exactly as it is at boot.
+    const restarted = new PlayerStore({ dir });
+    assert.equal(restarted.forgetPlace(GROUND), 1);
+
+    const back = restarted.load('Wanderer');
+    assert.equal(bitsetHas(restarted.seenBits(back, GROUND, 288), 5), false, 'the resized Place is blank');
+    // **Only that Place.** Every other level of every other zone is indexed against its own grid and
+    // has not moved, so clearing them would be destroying maps for nothing.
+    assert.equal(bitsetHas(restarted.seenBits(back, { zone: 600, level: 1 }, 144), 12), true);
+  });
+
+  it('clears a cached record too, and counts both', () => {
+    const { store, dir } = makeStore();
+    const offline = store.load('Wanderer');
+    store.markSeen(offline, GROUND, 288, [1]);
+    store.flushAll();
+
+    const restarted = new PlayerStore({ dir });
+    // One loaded (so cached, standing in for an online character) and one only on disk.
+    const online = restarted.load('Ravi');
+    restarted.markSeen(online, GROUND, 288, [2]);
+
+    assert.equal(restarted.forgetPlace(GROUND), 2);
+    assert.equal(bitsetHas(restarted.seenBits(online, GROUND, 288), 2), false);
+  });
+
+it('writes the cleared map to disk at once, rather than on the save debounce', () => {
+    const { store, dir } = makeStore();
+    const record = store.load('Ravi');
+    store.markSeen(record, GROUND, 288, [1, 2, 3]);
+    store.flushAll();
+
+    store.forgetPlace(GROUND);
+
+    // **Read straight off disk, with no flush in between.** A debounced write would leave this file
+    // holding the old map, and a restart inside that window is unrecoverable: by then the stored
+    // extent matches the grid, so the boot-time check agrees nothing has changed and the one
+    // character who was online keeps a map drawn in the wrong places for ever.
+    const onDisk = JSON.parse(readFileSync(join(dir, 'ravi.json'), 'utf8')) as { seen?: Record<string, string> };
+    assert.equal(onDisk.seen?.['600:0'], undefined);
+  });
+
+  it('counts only the characters that had a map there to lose', () => {
+    const { store } = makeStore();
+    const record = store.load('Wanderer');
+    store.markSeen(record, GROUND, 288, [1]);
+    assert.equal(store.forgetPlace({ zone: 600, level: 7 }), 0, 'nobody has ever been there');
+    assert.equal(bitsetHas(store.seenBits(record, GROUND, 288), 1), true);
+  });
+});

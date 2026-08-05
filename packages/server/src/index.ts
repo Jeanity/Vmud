@@ -246,7 +246,7 @@ import {
   type ItemDraft,
 } from './item-authoring.ts';
 import { ROOMS_FILE } from './overrides.ts';
-import { AUTHORED_ROOMS_FILE } from './room-authoring.ts';
+import { AUTHORED_ROOMS_FILE, saveAuthoredRooms } from './room-authoring.ts';
 import { GameWorld, placeOf } from './world.ts';
 
 /**
@@ -650,6 +650,32 @@ const store = new PlayerStore({
   },
 });
 const records = new Map<EntityId, PlayerRecord>();
+
+/**
+ * **A8 slice 3: any Place whose grid moved while the server was down loses its maps here.**
+ *
+ * The live editor clears as it goes, so this only ever fires after somebody hand-edited
+ * `rooms-authored.json` — or after a `npm run worldgen` that changed a harvested zone's own extent,
+ * which is the case nobody would think to check. Either way the saved bitsets are indexed against a
+ * grid that no longer exists and are **wrong rather than incomplete**, so they go before the first
+ * player can connect and be shown fog in the wrong places.
+ *
+ * The overlay is rewritten afterwards so the next boot compares against the grid that now exists.
+ * That is a write to a git-tracked file at start-up, which is exactly the thing to avoid doing
+ * casually — it happens only when something really did change, and saying so in the log is the point.
+ */
+if (world.staleExtents.length > 0) {
+  for (const place of world.staleExtents) {
+    const cleared = store.forgetPlace(place);
+    console.log(
+      `[world] ${placeKey(place)} has been resized since the overlay was written — ` +
+        `${cleared} explored map(s) cleared, because every tile index in them is measured from a ` +
+        `corner that has moved`,
+    );
+    world.recordExtent(place);
+  }
+  saveAuthoredRooms(world.authoredRooms);
+}
 
 /**
  * Which other entities each connected player is currently being shown.
@@ -4853,6 +4879,40 @@ const adminLive: LiveOps = {
     for (const item of items) ground.delete(item.id);
 
     return { mobs: mobs.length, corpses: corpses.length, items: items.length };
+  },
+
+  forgetPlace(place) {
+    const characters = store.forgetPlace(place);
+
+    // **Re-seat every body on the Place, and this is the half that is easy to miss.** An actor's
+    // `x`/`y` are tile coordinates measured from the grid's origin, and the origin *is* the extent's
+    // corner — `(room.pos.x - bounds.minX) * ROOM_STRIDE`. So a grid that grew leftward or upward has
+    // moved every actor by a whole cell without anybody touching them. `relocate` re-derives the
+    // origin from the freshly built grid, which is why this runs after `dropGrid`.
+    let told = 0;
+    for (const actor of sim.allActors()) {
+      if (!samePlace(actor.place, place)) continue;
+      sim.relocate(actor, actor.roomId);
+    }
+
+    for (const player of sim.allPlayers()) {
+      if (!samePlace(player.place, place)) continue;
+      const zone = world.zone(place.zone);
+      if (zone) send(player.id, { t: 'zone', zone, level: place.level });
+      // The `zone` message only resets a client's fog when the Place *changes*, and this is the same
+      // Place — so the empty map has to be sent explicitly or the client keeps drawing the old one.
+      sendSeen(player);
+      describeRoom(player);
+      send(player.id, {
+        t: 'log',
+        channel: 'announce',
+        text:
+          '[Announcement] The shape of this area has changed, so your explored map of it has been ' +
+          'reset. Nothing else about your character is affected.',
+      });
+      told += 1;
+    }
+    return { characters, told };
   },
 
   resetsNaming(room) {
