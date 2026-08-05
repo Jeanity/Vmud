@@ -360,6 +360,20 @@
       }
       .art-tile:hover { border-color: var(--edge); background: rgba(157, 176, 138, 0.07); }
       .art-tile.chosen { border-color: var(--accent); background: rgba(157, 176, 138, 0.14); }
+      /* The overlay mark and its warning -- see isOverlayArt: 72 of the index's entries are art that
+         layers over a base piece and shows almost nothing alone, which reads as a broken renderer the
+         first time somebody picks one. */
+      .art-tile.overlay { border-style: dashed; border-color: #6d6552; }
+      .art-overlay-mark {
+        position: absolute;
+        top: 2px; right: 3px;
+        font-size: 9px;
+        color: #d8b45c;
+        text-shadow: 0 1px 2px #0b0d0a;
+      }
+      .art-tile { position: relative; }
+      .art-warn { color: #d8b45c; font-size: 10px; }
+
       /* One line, clipped. A three-line label under a 64 px tile makes the grid ragged and unscannable. */
       .art-label {
         max-width: 66px;

@@ -87,6 +87,28 @@ export interface ArtPickerOptions {
  * — so this is a plain `<img>`-less div with a background and needs neither auth nor a canvas. See
  * `server/src/art.ts` for why the sheets come from there rather than from the client's port.
  */
+/**
+ * Whether an entry is an **overlay** — art that is meaningless on its own.
+ *
+ * ULPC splits a lot of gear into a base and the things painted on top of it: `cape_trim` is the hem
+ * of a cloak, `shield_pattern` is a heraldic device with no shield under it, `hat_trim` is a band.
+ * Chosen alone they draw a few dozen pixels somewhere unexpected and read, entirely reasonably, as
+ * the renderer being broken.
+ *
+ * **This is not hypothetical.** The owner picked `cape-trim` for a hooded black cape on 2026-08-05,
+ * reported it as *"sitting around his feet instead of shoulders"* and then, after a real layering bug
+ * had been fixed, as *"no visible cape from any angle"* — both accurate, and neither a bug. Its whole
+ * content is about thirty pixels along the ankles. The index holds **71 more like it**: 48
+ * `shield_pattern`, 13 `hat_trim`, 4 `shield_trim`, 3 `jacket_trim`, 3 `hat_overlay` and 2
+ * `shield_paint`.
+ *
+ * A suffix test on ULPC's own `type_name` rather than a list of the seventy-one, because the pack
+ * names them consistently and a hand-kept list would be one re-index away from being wrong.
+ */
+export function isOverlayArt(kind: string): boolean {
+  return /_(trim|paint|pattern|overlay)$/.test(kind);
+}
+
 export function artThumb(sheet: string, scale = 2): HTMLElement {
   const size = 64 * scale;
   return el('div', {
@@ -140,7 +162,21 @@ export function artPicker(options: ArtPickerOptions): ArtPicker {
         // The id as well as the name, because the id is what lands in the overlay file and what a
         // bug report will quote. The name alone would leave "Bracers" ambiguous across three sheets.
         el('strong', {}, entry?.name ?? chosen),
-        el('span', { class: 'muted' }, entry ? ` ${entry.id}` : ' — not in the index; re-run artgen'),
+        // **Three states, not two.** The index is fetched on the chooser's first open, so before that
+        // there is no entry for *anything* — and saying "not in the index; re-run artgen" about a
+        // perfectly good id, on every editor opened, is the panel lying about the operator's data.
+        // Silence until we actually know: `index` undefined means unasked, not absent.
+        el(
+          'span',
+          { class: 'muted' },
+          entry ? ` ${entry.id}` : index ? ' — not in the index; re-run artgen' : '',
+        ),
+        // **Said again after the choice, not only before it.** The tile's mark is easy to miss while
+        // scanning a grid, and this is the line an operator reads when they come back wondering why
+        // the cloak they picked is invisible. It names the fix rather than only the fault.
+        entry && isOverlayArt(entry.kind)
+          ? el('span', { class: 'art-warn' }, `⚠ overlay — layers over a base piece; on its own it draws almost nothing`)
+          : null,
       ),
     );
   };
@@ -171,18 +207,28 @@ export function artPicker(options: ArtPickerOptions): ArtPicker {
       return;
     }
     for (const entry of matches) {
+      const overlay = isOverlayArt(entry.kind);
       const tile = el(
         'button',
         {
           type: 'button',
-          class: entry.id === chosen ? 'art-tile chosen' : 'art-tile',
+          class: `art-tile${entry.id === chosen ? ' chosen' : ''}${overlay ? ' overlay' : ''}`,
           // The authors are in here rather than on the tile because attribution is mandatory under
           // CC-BY-SA and an operator picking art should be able to see whose it is without leaving
           // the panel — but a credit line under every tile would treble the grid's height.
-          title: `${entry.name} — ${entry.id}\n${entry.kind}${entry.slot ? ` · ${entry.slot}` : ''}\n${entry.authors.join(', ')}`,
+          //
+          // The overlay warning goes **first**, because it is the one line that changes whether you
+          // want this at all, and a tooltip is read from the top.
+          title:
+            (overlay ? `An overlay — draws over another piece and shows almost nothing alone.\n\n` : '') +
+            `${entry.name} — ${entry.id}\n${entry.kind}${entry.slot ? ` · ${entry.slot}` : ''}\n${entry.authors.join(', ')}`,
         },
         artThumb(entry.sheet, 1),
         el('span', { class: 'art-label' }, entry.name),
+        // A corner mark rather than a word in the label: the label is already clipped to one line, and
+        // the thing an operator needs is "this one is different", which a glyph carries and a
+        // truncated adjective does not.
+        overlay ? el('span', { class: 'art-overlay-mark', title: 'overlay' }, '◫') : null,
       );
       tile.addEventListener('click', () => {
         chosen = entry.id;
