@@ -89,6 +89,8 @@ import {
 } from '@mygame/shared';
 // Subpath imports: `vision` and `light` are not re-exported from the package barrel.
 import {
+  LIGHT_BEARING_SLOTS,
+  bestLight,
   brightestLight,
   burnRemaining,
   effectiveRadius,
@@ -629,6 +631,16 @@ export class Simulation {
    */
   artClassOf: ((item: Item) => string | undefined) | undefined;
   /**
+   * What a catalogue item is worth as a light, injected for the same reason {@link artClassOf} is:
+   * the item catalogue is `index.ts`'s and `sim.ts` has no business importing it.
+   *
+   * Phase 16. Keyed by **id** rather than by `Item` because both callers have one and only one has
+   * the object: `heldLights` looks up what is in a hand, and the resolver handed to `brightestLight`
+   * turns an affect's `obj:<vnum>` context back into a source so a held light's burn can ride the
+   * ordinary affect clock instead of a second timer beside it.
+   */
+  lightOf: ((id: string) => LightSource | undefined) | undefined;
+  /**
    * Everything in the world with a body, players and mobs alike, in **one** map.
    *
    * One rather than two, and that is the point of Phase 7. Two maps would mean every pass over the
@@ -888,9 +900,19 @@ export class Simulation {
    *   points.
    */
   private recompute(actor: Actor): void {
-    const lit = brightestLight(actor.affects);
-    actor.light = lit?.source;
-    this.setLightRadius(actor, effectiveRadius(lit?.source));
+    // **Phase 16: the fold is over hands *and* affects, and `bestLight` arbitrates.** The roadmap
+    // asked for best-of-equipped and `bestLight` has taken a list since Phase 5 waiting for one.
+    //
+    // Two contributors, not one, because they answer different questions. A **held** light is a fact
+    // about your equipment and needs no clock when it never goes out — 35 of the world's 78 light
+    // records are Duris' `-1`. An **affect** is a fact about time: it is how a finite burn counts
+    // down, how the `GAME_DEV_LIGHT` ring works, and where a light spell will land in Phase 20. A
+    // held light with a finite burn is therefore *both*, and appears in both lists — which costs
+    // nothing, since `bestLight` keeps the incumbent on a tie and the two entries are equal.
+    const lit = brightestLight(actor.affects, (id) => this.resolveLight(id));
+    const best = bestLight([...this.heldLights(actor), lit?.source]);
+    actor.light = best;
+    this.setLightRadius(actor, effectiveRadius(best));
     // Queued unconditionally rather than only when the radius moved, and the name of the queue is now a
     // little narrower than what it carries: `relit` is the one channel that tells a client its *own*
     // state changed, and everything hanging off it is either needed here or a cheap no-op. The `self` is
@@ -902,13 +924,111 @@ export class Simulation {
   }
 
   /**
+   * The light sources in a character's hands — Duris' `handler.c:431`, transcribed.
+   *
+   * *"if (((i >= WIELD) && (i <= HOLD)) && (ch->equipment[i]->type == ITEM_LIGHT) &&
+   * ch->equipment[i]->value[2])"* — a lantern in your bag lights nothing. That is the whole of the
+   * rule and the reason the interim `carriedLight` field had to collapse: it was a light beside your
+   * inventory rather than a fact about it, so putting one down changed nothing and picking one up
+   * needed a special case.
+   *
+   * Empty for a mob, and for every character before `lightOf` is injected — a `Simulation` built in a
+   * unit test has no catalogue and must not need one to run a fight.
+   */
+  private heldLights(actor: Actor): LightSource[] {
+    const of = this.lightOf;
+    if (!of || !isPlayer(actor)) return [];
+    const out: LightSource[] = [];
+    for (const slot of LIGHT_BEARING_SLOTS) {
+      const item = actor.equipped[slot];
+      if (!item) continue;
+      const source = of(item.id);
+      // **Only the ones that never go out.** A finite light is represented by its burn affect and by
+      // nothing else, so that when the affect expires the light actually stops — with the item still
+      // sitting in the hand, which is what Duris does (`value[2]` hits zero and the torch stays a
+      // burnt-out torch). Listing it here as well would mean a guttered torch that never dims.
+      if (source && source.durationMs === undefined) out.push(source);
+    }
+    return out;
+  }
+
+  /**
+   * A light affect's `context` turned back into a source.
+   *
+   * The six hand-authored ids first, then the catalogue — in that order rather than the other way
+   * because the authored ones are the ladder `pickups.ts` scatters and the dev ring, and they must
+   * keep resolving even with no catalogue injected at all.
+   */
+  private resolveLight(id: string): LightSource | undefined {
+    return lightSource(id) ?? this.lightOf?.(id);
+  }
+
+  /**
+   * Re-derives the burn clock after anything moves in or out of a hand.
+   *
+   * **Only finite lights get an affect.** One that never goes out is a standing fact about your
+   * equipment and needs no timer; giving it one would put a clock on the HUD that never moves and an
+   * expiry event that never fires. One that *does* burn needs the affect, because the affect list is
+   * this simulation's only source of truth for anything temporary and a second timer beside it is the
+   * bespoke thing Phase 5b deleted.
+   *
+   * **The burn is not restarted when something else changes.** The affect is left alone while the
+   * same item is still the winner, so buckling on a shield does not refill your torch — the guard is
+   * on `context`, which is the item's own id.
+   */
+  syncHeldLight(actor: Actor): void {
+    const of = this.lightOf;
+    // Typed as *definitely* finite rather than filtered and asserted: the burn below is required, and
+    // a cast there would be the one place a source that never expires could quietly acquire a clock.
+    const finite: (LightSource & { readonly durationMs: number })[] = [];
+    if (of && isPlayer(actor)) {
+      for (const slot of LIGHT_BEARING_SLOTS) {
+        const item = actor.equipped[slot];
+        const source = item ? of(item.id) : undefined;
+        if (source && source.durationMs !== undefined) finite.push({ ...source, durationMs: source.durationMs });
+      }
+    }
+    // `bestLight` widens back to `LightSource`, so the winner is re-found in the list that knows it
+    // is finite. One extra scan of at most two entries, against a cast that could go wrong silently.
+    const winner = bestLight(finite);
+    const best = winner ? finite.find((f) => f.id === winner.id) : undefined;
+    // Only the affect this function owns. A `light` affect whose context is not an `obj:` id is the
+    // dev ring or a scattered pickup, and swapping a shield must not put one out.
+    const at = actor.affects.findIndex((a) => a.type === 'light' && a.context?.startsWith('obj:') === true);
+    const current = at < 0 ? undefined : actor.affects[at];
+    if (best) {
+      if (current?.context === best.id) return;
+      if (at >= 0) actor.affects.splice(at, 1);
+      actor.affects.push(
+        newAffect({
+          type: 'light',
+          durationMs: best.durationMs,
+          apply: 'light',
+          // `NoShow`, like the carried light it replaces: it has its own HUD line and its own prose.
+          flags: AffectFlag.NoShow,
+          context: best.id,
+        }),
+      );
+    } else if (at >= 0) {
+      // Either the hands are empty or what is in them never expires. Both mean the clock is wrong.
+      actor.affects.splice(at, 1);
+    }
+    this.recompute(actor);
+  }
+
+  /**
    * How much burn the carried light has left, or `undefined` when it never runs out.
    *
    * Read through from the affect rather than cached on the character — see {@link Player.light}. Every
    * caller of this is a display or persistence path, none of them per-tick, so the walk is free.
    */
   lightRemaining(actor: Actor): number | undefined {
-    return burnRemaining(brightestLight(actor.affects)?.affect);
+    // **The resolver is not optional here, and leaving it off was caught by driving it.** Without it
+    // a held lantern's `obj:<vnum>` context does not resolve, this walk finds nothing, and the HUD
+    // reports a 960-second lantern as one that never runs out — the opposite of true, on the one
+    // number the whole light resource is made of. Same resolver as `recompute`'s, for the same reason:
+    // two derivations of "which light is winning" must not be able to disagree.
+    return burnRemaining(brightestLight(actor.affects, (id) => this.resolveLight(id))?.affect);
   }
 
   /**

@@ -117,7 +117,7 @@ import {
   type TilePoint,
 } from '@mygame/shared';
 // Subpath imports: `light`, `pathfind` and `vision` are not re-exported from the package barrel.
-import { lightSource, type LightSource } from '@mygame/shared/light.ts';
+import { lightSource, lightSourceFrom, type LightSource } from '@mygame/shared/light.ts';
 import { canWalkStraightTo, findPath, type PathFailure } from '@mygame/shared/pathfind.ts';
 import { bitsToBase64, bitsetToSet } from '@mygame/shared/vision.ts';
 
@@ -2042,9 +2042,20 @@ function announceArrival(player: Player, from: RoomId, fromPlace: Place, via?: D
  *
  * The names carry their own article, exactly as the light sources do (see {@link bare}), which is
  * right for "You open a rusted gate" and wrong for "a rusted gate is closed."
+ *
+ * **It capitalises the first *letter*, not the first character**, and that distinction is the whole
+ * of Phase 16's prose bug: a harvested item's name is authored text and 4.6 million colour codes
+ * exist across the world files, so `&+ya small brass lantern&N` starts with an ampersand. Upper-casing
+ * character zero produced "&+ya small brass lantern lights the way" — a sentence that begins in lower
+ * case *and* leaves the code intact — and it will do it to every door and every item the moment a
+ * builder colours one. The scan walks past whole `&`-codes rather than past punctuation generally,
+ * because the colour notation is the only thing that legitimately precedes a sentence's first word.
  */
 function capitalise(name: string): string {
-  return name.charAt(0).toUpperCase() + name.slice(1);
+  // `&+X` (three characters) or `&X` (two) — `colour.ts`'s own grammar.
+  const codes = /^(?:&\+?.)*/.exec(name)?.[0] ?? '';
+  const rest = name.slice(codes.length);
+  return codes + rest.charAt(0).toUpperCase() + rest.slice(1);
 }
 
 /**
@@ -3256,6 +3267,26 @@ function refitCombat(player: Player): void {
  */
 function afterKitChange(player: Player): void {
   refitCombat(player);
+  // **Phase 16: light is a fact about your hands, so it is re-derived here and nowhere else.** This
+  // is the one seam every kit change already passes through, which is exactly why it is the right
+  // place: a lantern can reach a hand by `wear`, by `wield`, by `get`, by a shield displacing it, by
+  // an admin `give` or by a login restoring a save, and a rule installed at any one of those would be
+  // missing from the other five.
+  const before = player.light?.id;
+  sim.syncHeldLight(player);
+  const after = player.light?.id;
+  if (before !== after) {
+    // Announced, because `light.ts` says it must be: *"a radius that silently shrinks reads as a
+    // bug"*. Both directions — the drop into the dark is the half that matters, and the lift is what
+    // tells a player the thing they just picked up was worth picking up.
+    send(player.id, {
+      t: 'log',
+      channel: 'system',
+      text: after
+        ? `${capitalise(player.light!.name)} lights the way.`
+        : 'You are in the dark.',
+    });
+  }
   sim.refreshStatus(player);
   send(player.id, { t: 'self', view: sim.selfViewOf(player) });
   syncEntityState(player);
@@ -4360,6 +4391,17 @@ const adminLive: LiveOps = {
 sim.artClassOf = (item) => {
   const template = templateOf(item);
   return template?.art ?? (template?.type === DURIS_ITEM.shield ? 'shield' : undefined);
+};
+
+// Phase 16. The catalogue's 64 light sources, resolved by item id — `sim.ts` has no business owning
+// a catalogue, the same rule `artClassOf` above follows. `vnumOf` returns nothing for a starter-kit
+// id, and no starter-kit piece is a light, so the miss is the answer rather than a gap.
+sim.lightOf = (id) => {
+  // `vnumOf` takes an `Item`; here there is only an id, which is the half of it that matters. The
+  // pattern is the same one it owns, kept in one place by calling it with the shape it wants.
+  const match = /^obj:(\d+)$/.exec(id);
+  const template = match ? itemCatalogue.get(Number(match[1])) : undefined;
+  return template ? lightSourceFrom(id, template.name, template.light) : undefined;
 };
 
 const admin = new AdminApi({

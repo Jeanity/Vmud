@@ -39,6 +39,7 @@ import {
   CRAFT_AVERAGE,
   DURIS_ITEM,
   armourBonusFrom,
+  lightFromValues,
   sizeFrom,
   slotForWearFlags,
   stackLimitFor,
@@ -249,6 +250,8 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
 
   // `dice(value[1], value[2])` — `fight.c`'s own expression, verbatim. Taken unscaled, unlike armour:
   // 14b proved our combat scale *against* these numbers, so a 2d6 sword is what it already expects.
+  const light = lightFromValues(raw.type, raw.values);
+
   const isWeapon = raw.type === DURIS_ITEM.weapon;
   const count = raw.values[1] ?? 0;
   const sides = raw.values[2] ?? 0;
@@ -304,6 +307,9 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
     // Absent at average, which is two thirds of the world: carrying `7` on 14,322 entries would be
     // three hundred kilobytes of JSON saying "nothing unusual here".
     ...(raw.craftsmanship === CRAFT_AVERAGE ? {} : { craftsmanship: raw.craftsmanship }),
+    // Phase 16. `value[2]` is the burn in Duris' own hours; the radius is ours, because Diku light is
+    // a boolean and has none to transcribe.
+    ...(light ? { light } : {}),
     ...(damage ? { damage } : {}),
     ...(twoHanded ? { twoHanded: true as const } : {}),
     ...(hitroll === 0 ? {} : { hitroll }),

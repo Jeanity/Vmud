@@ -314,6 +314,64 @@ export const CRAFTSMANSHIP_NAMES: readonly string[] = [
   'of one-of-a-kind craftsmanship',
 ];
 
+/* -------------------------------------------------------------------------- */
+/* Light                                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One Duris hour of burn, in milliseconds.
+ *
+ * **Pinned to our own torch rather than to a clock.** Duris keeps a light's life in `value[2]` as
+ * mud-hours; `light.ts` keeps ours in milliseconds tuned against *room crossings*, and there is no
+ * true conversion between the two because a mud hour is not a real one. So the rate is fixed by
+ * making the two catalogues agree at the one item they share: Duris' redwood torch burns **24
+ * hours** and ours burns **240 seconds**, so an hour is ten seconds and every other harvested light
+ * falls out of that. A plain candle's 10 hours lands at 100 s against our own candle's 45; a small
+ * brass lantern's 96 at 16 minutes.
+ */
+export const MS_PER_DURIS_HOUR = 10_000;
+
+/**
+ * Above this many Duris hours a light is treated as never going out.
+ *
+ * Not tidiness — the data demands it. Beside the honest `-1`s the world contains a redwood torch of
+ * **99,999,999 hours**, which is a builder writing *forever* in the only column available. At the
+ * conversion above that is thirty-one thousand years of burn, and carrying it as a finite number
+ * would mean a countdown on the HUD that never visibly moves. A thousand hours is already three
+ * hours of play, well past any expedition, and it leaves the genuinely long ones (300, 999) finite.
+ */
+export const DURIS_HOURS_UNLIMITED = 1000;
+
+/**
+ * What a harvested light is worth, or nothing for an item that is not one.
+ *
+ * **Radius is ours; duration is Duris'.** Diku light is a boolean — a room is lit or it is not — so
+ * there is no radius in the source to transcribe, and inventing a ladder of radii would contradict
+ * `light.ts`'s own finding: `ROOM_GAP` makes **3 the gate**, and anything between 2 and 3 is
+ * mechanically indistinguishable from carrying nothing. So every light the world ships sees exactly
+ * as far as a torch, and what separates a candle from a lantern is how long you keep it — which is
+ * the axis Duris itself varies, and the one our five hand-authored sources were built around.
+ *
+ * `value[2] === 0` is a light that has already burnt out. Three of them exist, and they come back as
+ * `undefined` rather than as a zero-duration source: a candle melted onto a skull is scenery, and a
+ * source that expires on the tick you equip it would announce itself and go out in the same breath.
+ */
+export function lightFromValues(type: number, values: readonly number[]): { readonly radius: number; readonly durationMs?: number } | undefined {
+  if (type !== DURIS_ITEM.light) return undefined;
+  const hours = values[2] ?? 0;
+  if (hours === 0) return undefined;
+  // The gate, from `light.ts`. Named through the constant so moving `ROOM_GAP` moves this too.
+  const radius = HARVESTED_LIGHT_RADIUS;
+  if (hours < 0 || hours > DURIS_HOURS_UNLIMITED) return { radius };
+  return { radius, durationMs: hours * MS_PER_DURIS_HOUR };
+}
+
+/**
+ * The radius every harvested light burns at — the `ROOM_GAP` threshold, and the reason a light is
+ * worth finding at all. See {@link lightFromValues} for why it is one number and not a ladder.
+ */
+export const HARVESTED_LIGHT_RADIUS = 3;
+
 /** The most slots one item may cost. `DESIGN-inventory.md` §2's own breastplate is ten of twenty. */
 export const MAX_ITEM_SIZE = 10;
 
@@ -381,6 +439,13 @@ export interface ItemTemplate {
    * it through {@link CRAFTSMANSHIP_NAMES}; that reader is the reason it is here at all.
    */
   readonly craftsmanship?: number;
+  /**
+   * What it lights, for the 64 light sources the world ships. Absent on everything else.
+   *
+   * Read by the simulation's own light fold, which is what makes a lantern in your hand brighter than
+   * one in your bag — Duris' rule, `handler.c:431`. See {@link lightFromValues}.
+   */
+  readonly light?: { readonly radius: number; readonly durationMs?: number };
   /** What it hits for, verbatim from `value[1]d value[2]`. Absent on anything that is not a weapon. */
   readonly damage?: Dice;
   /**

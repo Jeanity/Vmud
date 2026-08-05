@@ -191,6 +191,53 @@ export const LIGHT_SOURCES: Readonly<Record<string, LightSource>> = {
   },
 };
 
+/* -------------------------------------------------------------------------- */
+/* Lights the world ships                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The slots a light has to be in before it lights you — **Duris' own rule, not ours.**
+ *
+ * `handler.c:431` is the whole of it: `if (((i >= WIELD) && (i <= HOLD)) && (ch->equipment[i]->type
+ * == ITEM_LIGHT) && ch->equipment[i]->value[2])`. A lantern in your bag lights nothing; a lantern in
+ * your hand lights the room. That single line is what Phase 16 is transcribing, and it is why the
+ * interim `carriedLight` — a field beside the inventory rather than a fact about it — had to go.
+ *
+ * Two slots rather than Duris' three, because `WIELD`, `HOLD` and the light position between them
+ * collapse onto the two hands we model. A shield in the off hand therefore costs you your lantern,
+ * which is the trade the rule exists to create.
+ */
+export const LIGHT_BEARING_SLOTS = ['mainHand', 'offHand'] as const;
+
+/**
+ * A catalogue item turned into a light source, or nothing for anything that is not one.
+ *
+ * The id is the item's own `obj:<vnum>`, so a source derived here can never collide with one of the
+ * six hand-authored ids above — and so a log line naming what went out can be traced back to the
+ * record it came from. `scatterWeight` is 0: {@link SCATTERABLE_LIGHTS} is the ground-pickup ladder,
+ * which is authored progression, and dropping sixty-four harvested torches into it would flood the
+ * one place the candle-to-lantern climb is legible.
+ *
+ * Takes the two fields it needs rather than an `ItemTemplate`, because `light.ts` must not depend on
+ * the catalogue module to know what a light is — the same separation `CarriedLight` keeps from
+ * `LightMode` a few lines up.
+ */
+export function lightSourceFrom(
+  id: string,
+  name: string,
+  light: { readonly radius: number; readonly durationMs?: number } | undefined,
+): LightSource | undefined {
+  if (!light) return undefined;
+  return {
+    id,
+    name,
+    radius: light.radius,
+    mode: 'radius',
+    ...(light.durationMs === undefined ? {} : { durationMs: light.durationMs }),
+    scatterWeight: 0,
+  };
+}
+
 /**
  * Catalogue lookup.
  *
@@ -283,11 +330,19 @@ export interface LitBy {
   readonly affect: Affect;
 }
 
-export function brightestLight(affects: Iterable<Affect>): LitBy | undefined {
+export function brightestLight(
+  affects: Iterable<Affect>,
+  // Phase 16: a held lantern's burn is an affect too, and its `context` is an `obj:<vnum>` that the
+  // hand-authored catalogue has never heard of. Injected rather than looked up here, because the item
+  // catalogue must not live in `@mygame/shared` — the same shape `keywords.ts` and `artClassOf` take,
+  // and for the same reason. Defaulted, so every caller that only ever meant the six authored sources
+  // keeps working untouched.
+  resolve: (id: string) => LightSource | undefined = lightSource,
+): LitBy | undefined {
   let best: LitBy | undefined;
   for (const affect of affectsFor(affects, 'light')) {
     if (affect.context === undefined) continue;
-    const source = lightSource(affect.context);
+    const source = resolve(affect.context);
     if (!source) continue;
     if (!best || outranks(source, best.source)) best = { source, affect };
   }

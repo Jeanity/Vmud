@@ -34,6 +34,7 @@ import {
 } from '@mygame/shared';
 import { makeRng } from '@mygame/shared';
 import { LIGHT_SOURCES, effectiveRadius, type LightSource } from '@mygame/shared/light.ts';
+import type { Item } from '@mygame/shared';
 import { DEFAULT_LIGHT_RADIUS } from '@mygame/shared/vision.ts';
 
 import { LIGHT_WARNING_MS, Simulation, type Player, type TickResult } from './sim.ts';
@@ -443,5 +444,98 @@ describe('a rooms-mode source', () => {
     assert.equal(player.visible.size, 0);
     assert.equal(sim.refreshVisible(player), true, 'and it recomputes for where they now stand');
     assert.deepEqual(roomsLit(player), [9004, 9005], 'the far end and its one neighbour');
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Phase 16 — light comes from what you hold                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The catalogue the world ships, faked down to the two sources these tests need.
+ *
+ * Injected exactly as `index.ts` injects the real one, which is the point: `sim.ts` must be able to
+ * run a fight with no catalogue at all, so `lightOf` is optional and every test above leaves it unset.
+ */
+const HELD: Readonly<Record<string, LightSource>> = {
+  'obj:399': { id: 'obj:399', name: 'a small brass lantern', radius: 3, mode: 'radius', durationMs: 960_000, scatterWeight: 0 },
+  'obj:2011': { id: 'obj:2011', name: "an oaken magician's staff", radius: 3, mode: 'radius', scatterWeight: 0 },
+};
+
+function withCatalogue(): { sim: Simulation; player: Player } {
+  const made = makeSim();
+  made.sim.lightOf = (id) => HELD[id];
+  return made;
+}
+
+const item = (id: string): Item => ({ id, name: HELD[id]!.name, slot: 'offHand', ac: 0, size: 1 });
+
+describe('a light in your hand — Phase 16', () => {
+  it('lights you from the hand and not from the bag, which is Duris’ own rule', () => {
+    // `handler.c:431` gates on the equipment slot being between WIELD and HOLD. A lantern you own is
+    // not a lantern you are holding, and before this the distinction did not exist: light was a field
+    // beside the inventory rather than a fact about it.
+    const { sim, player } = withCatalogue();
+    assert.equal(player.lightRadius, DEFAULT_LIGHT_RADIUS);
+
+    player.equipped.offHand = item('obj:399');
+    sim.syncHeldLight(player);
+    assert.equal(player.lightRadius, DEFAULT_LIGHT_RADIUS + 1, 'in the hand');
+    assert.equal(player.light?.id, 'obj:399');
+
+    delete player.equipped.offHand;
+    sim.syncHeldLight(player);
+    assert.equal(player.lightRadius, DEFAULT_LIGHT_RADIUS, 'and out of it');
+    assert.equal(player.light, undefined);
+  });
+
+  it('gives a finite light a burn clock and an unlimited one none', () => {
+    // The split that makes the whole thing work. A source that never goes out is a standing fact
+    // about equipment and needs no timer; one that burns is represented by its affect and by nothing
+    // else, so that when the affect expires the light actually stops.
+    const { sim, player } = withCatalogue();
+
+    player.equipped.offHand = item('obj:399');
+    sim.syncHeldLight(player);
+    assert.equal(sim.lightRemaining(player), 960_000, 'the lantern counts down');
+
+    player.equipped.offHand = item('obj:2011');
+    sim.syncHeldLight(player);
+    assert.equal(sim.lightRemaining(player), undefined, 'the staff does not');
+    assert.equal(player.lightRadius, DEFAULT_LIGHT_RADIUS + 1, 'and still lights you');
+  });
+
+  it('does not refill a burn because something else moved in the kit', () => {
+    // `syncHeldLight` runs on *every* kit change — buckling on a breastplate must not top up the
+    // torch in your other hand. The guard is the affect's context, which is the item's own id.
+    const { sim, player } = withCatalogue();
+    player.equipped.offHand = item('obj:399');
+    sim.syncHeldLight(player);
+
+    run(sim, ticksFor(5_000));
+    const burnt = sim.lightRemaining(player);
+    assert.ok(burnt !== undefined && burnt < 960_000, 'it burned');
+
+    player.equipped.chest = { id: 'kit:jerkin', name: 'a jerkin', slot: 'chest', ac: 2, size: 3 };
+    sim.syncHeldLight(player);
+    assert.equal(sim.lightRemaining(player), burnt, 'and putting on a jerkin did not top it up');
+  });
+
+  it('leaves a light that is not an item alone, so the dev ring survives a kit change', () => {
+    // `GAME_DEV_LIGHT` and `pickups.ts` both install a light affect with an authored catalogue id.
+    // `syncHeldLight` owns only the `obj:` one; a wider sweep would put the tester's ring out every
+    // time they picked something up.
+    const { sim, player } = withCatalogue();
+    sim.setCarriedLight(player, source('glowing_ring_of_testing'));
+    const lit = player.lightRadius;
+
+    player.equipped.offHand = item('obj:399');
+    sim.syncHeldLight(player);
+    assert.equal(player.lightRadius, lit, 'the ring still wins — rooms mode beats any radius');
+    assert.equal(player.light?.id, 'glowing_ring_of_testing');
+
+    delete player.equipped.offHand;
+    sim.syncHeldLight(player);
+    assert.equal(player.light?.id, 'glowing_ring_of_testing', 'and dropping the lantern did not douse it');
   });
 });
