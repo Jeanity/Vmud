@@ -434,7 +434,7 @@ const MOVEMENT_KEYS: readonly string[] = ['W', 'A', 'S', 'D', 'UP', 'LEFT', 'DOW
  * cannot reach Phaser at all. That is the quiet win in the three-column layout — a whole class of
  * click-through bug stopped being possible instead of being guarded against.
  */
-const UI_PANELS: readonly string[] = ['status', 'hint', 'target-menu'];
+const UI_PANELS: readonly string[] = ['status', 'hint', 'target-menu', 'announce'];
 
 /**
  * How close a click has to land to count as clicking a body, in world units.
@@ -489,6 +489,43 @@ const PATH_DEPTH = 5;
 
 /** Above the bodies and the path line both — a marker hidden behind a sprite marks nothing. */
 const DEPTH_MARKER = 15;
+
+/* -------------------------------------------------------------------------- */
+/* V3 — speech in the world                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * **Above the fog, not merely above the bodies** — owner's rule, 2026-08-05: *"the bubble should be
+ * fully visible even in the dark. darkness doesn't affect what can be heard."*
+ *
+ * That is a real distinction and the first draft got it wrong. The fog overlay is one image at depth
+ * 50 covering the whole Place, and a bubble underneath it is dimmed by however dark the tiles behind
+ * the *text* happen to be — which is usually the unlit air above the speaker's head, not the speaker.
+ * So a perfectly visible person's words faded out because of the ceiling.
+ *
+ * **Being drawn at all is still gated on sight, and that gate is elsewhere and unchanged**: the bubble
+ * is attached to an entity the client holds, and a speaker outside your light is not one. So the rule
+ * is exactly *"if you can see who is talking, you can read what they said"* — darkness decides the
+ * first half, and nothing dims the second.
+ *
+ * A **silenced room** is the case that would stop a line being heard at all, and that is a server-side
+ * rule about who receives the message rather than a rendering one; there is no such flag yet.
+ */
+const DEPTH_SPEECH = 60;
+/** Clear of the target chevron, which already sits at {@link MARKER_HEIGHT}. */
+const SPEECH_HEIGHT = MARKER_HEIGHT + 16;
+/** Wrapped rather than let run: a long sentence over one body must not cover the room. */
+const SPEECH_WRAP_PX = 150;
+/**
+ * How long a bubble stays up.
+ *
+ * **Scaled by how much there is to read**, because a fixed dwell is wrong at both ends: two seconds
+ * is an age for *"hi"* and not enough for a sentence. Roughly 190 ms a word at a comfortable reading
+ * pace, on a floor that keeps a one-word greeting on screen long enough to notice at all.
+ */
+const SPEECH_MIN_MS = 2200;
+const SPEECH_MS_PER_CHAR = 45;
+const SPEECH_MAX_MS = 9000;
 const PATH_COLOUR = 0xffe9a8;
 /** Matches the log's error colour, so a refusal reads the same in both places. */
 const DENIED_COLOUR = 0xd08a7d;
@@ -1280,6 +1317,104 @@ export class WorldScene extends Phaser.Scene {
     this.marker.setPosition(Math.round(entity.x), Math.round(entity.y) - MARKER_HEIGHT);
   }
 
+  /**
+   * The speech bubbles currently up, one per speaker — V3.
+   *
+   * **Keyed by entity rather than a list**, because somebody who says two things in a row has one
+   * mouth: the second replaces the first rather than stacking a tower of bubbles over their head.
+   * A whole room can be talking at once and each body carries its own.
+   */
+  private readonly bubbles = new Map<EntityId, { node: Phaser.GameObjects.Container; until: number }>();
+
+  /**
+   * Puts a bubble over the body that just spoke — V3, and the whole of it.
+   *
+   * **Drawn only on an entity the client already holds**, which is what makes the visibility gate
+   * unbreakable here rather than merely respected. The server sends `from` to everyone who may hear
+   * the line, including people standing outside the speaker's torchlight — and their client has no
+   * entity for that id, so there is nothing to attach a bubble to and nothing is drawn. They still
+   * get the log line, which reads *"someone says"*. The gate is applied once, on the server, and the
+   * renderer is structurally unable to disobey it. Same fall-out the target chevron relies on.
+   *
+   * Positioned per frame in `update` beside the body rather than parented to its container, for the
+   * reason the chevron is: a sprite that flips when it walks west would mirror the text.
+   */
+  private sayInWorld(id: EntityId, text: string): void {
+    const entity = this.entities.get(id);
+    if (!entity) return;
+
+    this.bubbles.get(id)?.node.destroy();
+
+    const label = this.add
+      .text(0, 0, text, {
+        fontFamily: 'monospace',
+        fontSize: '11px',
+        color: '#f2ead8',
+        align: 'center',
+        wordWrap: { width: SPEECH_WRAP_PX },
+      })
+      .setOrigin(0.5, 1);
+
+    // A plate behind the words, sized from the text **after wrapping** rather than from its length:
+    // the wrap decides the real box, and guessing it from a character count is wrong on the first
+    // sentence that breaks early.
+    //
+    // The container's origin is the point just above the speaker's head, and everything is built
+    // upward from it: the tail's tip sits at 0, the plate's bottom edge at −TAIL, its top edge a box
+    // higher again. Laying it out from the tip means the thing that has to touch the body is the one
+    // coordinate that is not the sum of three others.
+    const PAD = 4;
+    const TAIL = 6;
+    const w = label.width + PAD * 2;
+    const h = label.height + PAD * 2;
+    const plate = this.add.graphics();
+    plate.fillStyle(0x1b1a16, 0.86);
+    plate.lineStyle(1, 0x6d6552, 1);
+    plate.fillRoundedRect(-w / 2, -TAIL - h, w, h, 4);
+    plate.strokeRoundedRect(-w / 2, -TAIL - h, w, h, 4);
+    // The tail, so a bubble in a crowd points at whose it is. A triangle rather than a rounded nub:
+    // at this size anything softer reads as a smudge.
+    plate.fillTriangle(-4, -TAIL, 4, -TAIL, 0, 0);
+
+    // Origin (0.5, 1) — the label hangs from its own bottom edge, which is the plate's inner floor.
+    label.setPosition(0, -TAIL - PAD);
+    const node = this.add.container(0, 0, [plate, label]).setDepth(DEPTH_SPEECH);
+    const dwell = Math.min(SPEECH_MAX_MS, SPEECH_MIN_MS + text.length * SPEECH_MS_PER_CHAR);
+    this.bubbles.set(id, { node, until: this.time.now + dwell });
+  }
+
+  /**
+   * Moves every bubble onto its speaker and retires the ones whose time is up.
+   *
+   * Run from `update` for the same reason the chevron's positioning is: bodies are eased toward the
+   * server's position every frame, and a bubble placed once would drift off the head of anybody who
+   * so much as steps sideways while talking.
+   *
+   * A speaker who leaves the room takes their bubble with them — the entity is gone from the map, so
+   * the lookup misses and the bubble is dropped rather than left floating over empty floor.
+   */
+  private advanceBubbles(): void {
+    for (const [id, bubble] of this.bubbles) {
+      const entity = this.entities.get(id);
+      if (!entity || this.time.now >= bubble.until) {
+        bubble.node.destroy();
+        this.bubbles.delete(id);
+        continue;
+      }
+      bubble.node.setPosition(Math.round(entity.x), Math.round(entity.y) - SPEECH_HEIGHT);
+      // **Counter-scaled against the camera, so the bubble is a constant size on screen.** It lives
+      // in world space — it has to, or it could not follow a body that walks — and world space is
+      // scaled by the zoom ladder, which runs from 0.25 to 2. Left alone, the first drive had one
+      // sentence covering a quarter of the map at close zoom, and the same sentence would be three
+      // unreadable pixels at `fit`. Dividing by the zoom cancels the camera exactly: the local size
+      // times 1/zoom times zoom is the size it was authored at, whatever the player has chosen.
+      //
+      // The *offset* above the head deliberately stays in world units, because the body it points at
+      // scales too — a screen-constant offset would drift off the head at every zoom but one.
+      bubble.node.setScale(1 / this.cameras.main.zoom);
+    }
+  }
+
   private renderInventory(bag?: BagView): void {
     const panel = document.getElementById('inventory');
     if (!panel) return;
@@ -1626,6 +1761,13 @@ export class WorldScene extends Phaser.Scene {
     // prose and speech on the left, violence on the right. Everything else lands here unchanged.
     this.net.on('log', (message) => {
       if (message.channel !== 'combat') this.log.write(message.channel, message.text);
+      // V3. The same message, read a second way: the log gets the sentence with the speaker's name in
+      // it, the world gets the words over the speaker's head. Both or neither — they arrive together
+      // because they *are* together, which is what stops the two from ever disagreeing about who
+      // heard what.
+      if (message.from !== undefined && message.speech !== undefined) {
+        this.sayInWorld(message.from, message.speech);
+      }
     });
     this.net.on('rejected', (message) => this.log.write('error', `Rejected: ${message.reason}`));
   }
@@ -3225,6 +3367,10 @@ export class WorldScene extends Phaser.Scene {
         this.marker.setPosition(Math.round(entity.x), Math.round(entity.y) - MARKER_HEIGHT).setVisible(true);
       }
     }
+
+    // After the bodies have been moved, so a bubble lands on where its speaker is *this* frame rather
+    // than where they were last one — the same ordering the chevron needs and for the same reason.
+    this.advanceBubbles();
 
     // After the movement above, not before it: the lit set follows the *predicted* position, and
     // computing it from last frame's would leave the light trailing the character by a frame.

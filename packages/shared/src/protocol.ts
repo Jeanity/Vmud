@@ -15,7 +15,27 @@ import type { Posture, Status } from './position.ts';
 import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
 
 /**
- * Bumped to 16: you can see which one you are fighting.
+ * Bumped to 17: you can watch somebody say it.
+ *
+ * The `log` message gains **`from`** and **`speech`**, set only on the `say` channel — whose mouth the
+ * line came out of, and the words without the *"Bob says,"* wrapper.
+ *
+ * **Additive on the existing message rather than a message of its own, and that is the design rather
+ * than thrift.** A speech line is already rendered per recipient and already passes the `act()` gate,
+ * so a second send path would be a second answer to *"who may hear this"* — and two answers drift.
+ * Riding along means the bubble reaches exactly the people the sentence does, by construction.
+ *
+ * **The id may name a body the client cannot see, and that needs no rule** — the same fall-out
+ * protocol 16 relies on. A client draws the bubble on an entity it holds, so a speaker standing in
+ * the dark has nothing to draw on, while the log line they *do* get still reads *"someone says"*. The
+ * gate is not applied twice; it is applied once, and the renderer is simply unable to disobey it.
+ *
+ * Two fields rather than one because the two renderings genuinely differ. A log line must name the
+ * speaker, since the reader may be looking anywhere; a bubble is already attached to a body, and
+ * repeating the name inside it would be shouting your own name. Asking the client to strip the
+ * wrapper off `text` would put the server's prose grammar in the renderer.
+ *
+ * Was 16: you can see which one you are fighting.
  *
  * `SelfView` gains **`target`** — the entity you are engaged with, or chasing if it broke off.
  *
@@ -162,7 +182,7 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * Was 6: doors have live state — the `door` message, and `open`/`close` losing their required `dir`.
  * Was 5: carried light sources — `SelfView` gained `light`.
  */
-export const PROTOCOL_VERSION = 16;
+export const PROTOCOL_VERSION = 17;
 
 /**
  * One timed effect on your own character, as the HUD reads it.
@@ -628,7 +648,32 @@ export type ServerMessage =
       readonly t: 'pathFailed';
       readonly reason: 'unexplored' | 'unreachable' | 'not-walkable' | 'off-map';
     }
-  | { readonly t: 'log'; readonly channel: LogChannel; readonly text: string }
+  | {
+      readonly t: 'log';
+      readonly channel: LogChannel;
+      readonly text: string;
+      /**
+       * Whose mouth this line came out of, for a client that wants to draw it in the world — V3.
+       *
+       * **Additive on the existing message rather than a message of its own, and that is the whole
+       * design.** The speech line is already rendered *per recipient* and already passes the `act()`
+       * gate, so a second send path would be a second answer to "who may hear this" and the two would
+       * eventually disagree. Riding along means the bubble reaches exactly the people the sentence
+       * does, by construction rather than by keeping two lists in step.
+       *
+       * Absent on every line nobody said — room prose, combat, the machine's own voice.
+       */
+      readonly from?: EntityId;
+      /**
+       * The words alone, without the *"Bob says,"* wrapper the log line carries.
+       *
+       * Two fields rather than one because the two renderings genuinely differ: a log needs to say
+       * *who* since the reader may be looking anywhere, and a bubble is already attached to a body
+       * and repeating the name inside it would be shouting your own name. Sending only `text` and
+       * asking the client to strip the wrapper would put the server's prose grammar in the renderer.
+       */
+      readonly speech?: string;
+    }
   | { readonly t: 'pong'; readonly ts: number; readonly serverTime: number };
 
 /* -------------------------------------------------------------------------- */

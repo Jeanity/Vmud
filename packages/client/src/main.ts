@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 
+import { AnnounceBanner } from './announce.ts';
 import { CombatFeed } from './combatfeed.ts';
 import { LogPanel } from './log.ts';
 import { Net } from './net.ts';
@@ -74,8 +75,13 @@ const scene = new WorldScene(net, log);
 // A second listener rather than a branch inside the scene's own — Net.on fans out, and the feed
 // is DOM that owes the renderer nothing.
 const combatFeed = new CombatFeed();
+// V3's banner, on the same fan-out and for the same reason. **Note this one is a mirror where the
+// feed is a split**: an announcement also stays in the log, because the banner is transient by
+// necessity and a line you were looking away for has to be findable afterwards. See `announce.ts`.
+const announce = new AnnounceBanner();
 net.on('log', (message) => {
   if (message.channel === 'combat') combatFeed.push(message.text);
+  if (message.channel === 'announce') announce.show(message.text);
 });
 
 // The line goes to the server unparsed: which command an abbreviation means, and which orc `2.orc`

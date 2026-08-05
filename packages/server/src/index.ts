@@ -712,9 +712,21 @@ function canSee(observer: Player, subject: Actor): boolean {
  * {@link canSee}, the very function entity presence is gated on, so prose and presence cannot come to
  * different conclusions about who is in the room.
  */
-function actToRoom(actor: Player, channel: LogChannel, render: (who: string) => string): void {
+function actToRoom(
+  actor: Player,
+  channel: LogChannel,
+  render: (who: string) => string,
+  /**
+   * V3's extra fields, when the line is something somebody *said*.
+   *
+   * Passed through rather than added unconditionally: an `act` line is usually a thing that happened
+   * — a door opening, somebody standing up — and `from` on one of those would invite a renderer to
+   * draw a speech bubble containing a door.
+   */
+  extra?: { readonly from: EntityId; readonly speech: string },
+): void {
   for (const line of actLines(actor, sim.playersIn(actor.roomId), canSee, render)) {
-    send(line.to, { t: 'log', channel, text: line.text });
+    send(line.to, { t: 'log', channel, text: line.text, ...extra });
   }
 }
 
@@ -2722,8 +2734,16 @@ function saySomething(player: Player, text: string): void {
   // Rendered per listener, never broadcast pre-formatted: an observer standing outside the speaker's
   // torchlight hears "someone says", which is the same answer the entity gate already gives their
   // client about who is in the room.
-  send(player.id, { t: 'log', channel: 'say', text: `You say, '${said}'` });
-  actToRoom(player, 'say', (who) => `${who} says, '${said}'`);
+  //
+  // **V3 rides on this and adds no second send path.** `from` and `speech` go out with the very line
+  // the `act()` gate already decided each person may hear, so the bubble reaches exactly the people
+  // the sentence does — by construction, rather than by keeping a second recipient list in step. An
+  // unseen speaker's `from` names a body their listener's client does not hold, and a bubble with
+  // nothing to attach to is simply not drawn; the gate is applied once and the renderer cannot
+  // disobey it.
+  const speech = { from: player.id, speech: said };
+  send(player.id, { t: 'log', channel: 'say', text: `You say, '${said}'`, ...speech });
+  actToRoom(player, 'say', (who) => `${who} says, '${said}'`, speech);
 }
 
 /** `open east`, or bare `open` for the door the character is facing. */

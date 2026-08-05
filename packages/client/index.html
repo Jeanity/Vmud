@@ -133,6 +133,37 @@
         pointer-events: none;
         text-shadow: 0 1px 3px #0b0d0a, 0 1px 2px #0b0d0a, 0 0 6px #0b0d0a;
       }
+      /* V3. The operator's banner, along the **bottom** of the map and centred.
+
+         Top-centre was the first try and it was wrong twice over: `#status` is pinned top-left and
+         runs most of the width of a narrow map column, so the two overlapped into an unreadable
+         mess — and `#status` comes later in the document, so it painted *through* the banner's own
+         background. The bottom edge is the one strip of the map with nothing pinned to it: the
+         vitals are top-left, the keys hint is top-right, and the target menu appears where you
+         clicked. Centred, because an announcement is addressed to the room rather than to you.
+
+         `pointer-events: none` and the matching `UI_PANELS` entry in `scene.ts` are not optional —
+         this sits over ground you can walk to, and a banner that swallowed a click would make the
+         world stop responding for as long as it was up, which is exactly when a player is looking
+         at something else. */
+      #announce {
+        position: absolute;
+        bottom: 12px; left: 50%;
+        transform: translateX(-50%);
+        max-width: min(520px, calc(100% - 40px));
+        padding: 6px 14px;
+        border: 1px solid #7d6a3e;
+        border-radius: 3px;
+        background: rgba(32, 27, 16, 0.92);
+        color: #f0d99a;
+        font-size: 12px;
+        line-height: 1.5;
+        text-align: center;
+        pointer-events: none;
+        text-shadow: 0 1px 3px #0b0d0a;
+      }
+      #announce[hidden] { display: none; }
+
       #status .name { color: #e8dcc0; font-weight: 600; font-size: 13px; }
       #status .zone { color: #a8b596; font-size: 11px; }
       #status .where { color: var(--dim); font-size: 11px; }
@@ -601,6 +632,11 @@
       <!-- ----------------------------------------------------------- centre: map -->
       <main id="stage">
         <div id="game"></div>
+
+        <!-- V3. An operator's voice, given somewhere to land that is not the log.
+             Empty and unstyled until something arrives — `hidden` is toggled, not opacity, so an
+             empty banner cannot eat a click on the ground beneath it. -->
+        <div id="announce" hidden></div>
 
         <!-- Always on screen, whatever the panes are doing. Name, the three pools, your light, your
              stance, what is affecting you, and where you are standing — pinned to the map so it
