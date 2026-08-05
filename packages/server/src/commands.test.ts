@@ -71,6 +71,21 @@ describe('lookupCommand — abbreviation by table order', () => {
     assert.equal(lookupCommand('inv'), 'inventory');
   });
 
+  it('leaves everything alone when Phase 18\'s four are added', () => {
+    // Same check as 15b's, for the four grouping verbs. The two that could have gone wrong are `g` and
+    // `c`: `get` and `close` are both above, and a single letter that stopped meaning what it meant is
+    // the kind of change nobody notices until they type it under pressure.
+    assert.equal(lookupCommand('g'), 'get', 'not group');
+    assert.equal(lookupCommand('ge'), 'get');
+    assert.equal(lookupCommand('gr'), 'group');
+    assert.equal(lookupCommand('gs'), 'gsay');
+    assert.equal(lookupCommand('c'), 'close', 'not consent');
+    assert.equal(lookupCommand('cl'), 'close');
+    assert.equal(lookupCommand('co'), 'consent');
+    assert.equal(lookupCommand('d'), 'down', 'still down');
+    assert.equal(lookupCommand('di'), 'disband');
+  });
+
   it('prefers an exact match over a prefix of something above it', () => {
     // The reason the lookup makes two passes rather than one. Every command must resolve to itself
     // when typed in full, whatever sits above it in the table — otherwise adding a command silently
@@ -137,9 +152,17 @@ describe('COMMAND_REQUIREMENTS', () => {
     // genuinely imposes nothing — the shopkeeper's own routine is the gate, and `keeperFor` in
     // `index.ts` is where ours lives ("you will have to be awake and on your feet"). Transcribed
     // rather than tidied, because moving the check into this table would put it a layer too low.
+    // Phase 18 added two to this list and both are the source's own rows. `consent` is `STAT_DEAD`,
+    // which is lower than sleeping — and it is an *act*, not interface, which reads oddly until you
+    // notice what consent does in `do_consent`: it also drops your saving throws against that person's
+    // spells, so the moment you most need to give it is while somebody is trying to raise your corpse.
+    // `disband` is `STAT_SLEEPING`, where `group` is not: dissolving a party is one word said in your
+    // sleep, and reading a roster to enrol people is not.
     const asleep = { posture: 'prone', status: 'sleeping' } as const;
     const allowed = COMMANDS.filter((c) => meets(asleep, COMMAND_REQUIREMENTS[c]));
-    assert.deepEqual([...allowed].sort(), ['affects', 'buy', 'help', 'list', 'sell', 'sleep', 'stop', 'value', 'wake', 'who']);
+    assert.deepEqual([...allowed].sort(), [
+      'affects', 'buy', 'consent', 'disband', 'help', 'list', 'sell', 'sleep', 'stop', 'value', 'wake', 'who',
+    ]);
   });
 
   it('lets someone flat on their back look and talk', () => {

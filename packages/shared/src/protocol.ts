@@ -15,7 +15,34 @@ import type { Posture, Status } from './position.ts';
 import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
 
 /**
- * Bumped to 18: the world as a graph of Places.
+ * Bumped to 19: the party is on screen.
+ *
+ * One new server message — **`group`** — carrying who is in your group, in join order, with each
+ * member's pools as fractions and whether they are standing with you.
+ *
+ * **It is a message rather than a field on `SelfView`, and the reason is whose data it is.** `self` is
+ * pushed when *your* numbers move; a roster goes stale when *somebody else's* do. Hanging it on `self`
+ * would mean either sending your whole view every time a party member took a hit, or watching your
+ * roster freeze until you happened to heal — the same trap protocol 16's chevron fell into, where the
+ * only routine `self` push walks `vitalsChanged` and your opening swing does not move your own pools.
+ *
+ * **Fractions, not pools, and the deferral is deliberate** — the rule protocol 15 set for the bag,
+ * applied to somebody else's body. `EntityView.healthFraction` has carried a fraction since Phase 7
+ * because a bar is what a client draws; exact hit points are what a *healer* needs, and there is no
+ * heal to aim until Phase 20. The day there is, this gains the numbers on purpose rather than having
+ * shipped them for a panel that only ever drew a bar with them.
+ *
+ * **`here` is on the wire because it is a rule, not a decoration.** Only members in the room share a
+ * kill (`fight.c`: *"Ppl out of room still count against exp gain? Erm... no"*), so a roster that drew
+ * a distant member identically would hide the reason their share went missing. Duris blanks the bars
+ * for anyone out of the room; we grey the row, which says the same thing.
+ *
+ * Pushed to every member whenever the group's shape changes, whenever a member's pools move, and
+ * whenever one of them changes room. An **empty `members`** is how a client is told the group is gone —
+ * a departure has to reach the panel of the person who left, and they are by then in no group to be
+ * enumerated.
+ *
+ * Was 18: the world as a graph of Places.
  *
  * One new server message — **`places`** — carrying the Places this character has been and the links
  * between them they have actually walked.
@@ -209,7 +236,29 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * Was 6: doors have live state — the `door` message, and `open`/`close` losing their required `dir`.
  * Was 5: carried light sources — `SelfView` gained `light`.
  */
-export const PROTOCOL_VERSION = 18;
+export const PROTOCOL_VERSION = 19;
+
+/**
+ * One member of your group, as the roster draws them — protocol 19.
+ *
+ * Ordered by the server (join order, leader first) rather than sorted here, because the order *is*
+ * information: it is who inherits the lead when the leader leaves.
+ */
+export interface GroupMemberView {
+  readonly id: EntityId;
+  readonly name: string;
+  readonly level: number;
+  /** Whether this is the head of the group. Exactly one member has it. */
+  readonly leader: boolean;
+  /** Health, 0–1. See the version note for why this is not hit points. */
+  readonly health: number;
+  /** Movement, 0–1. */
+  readonly move: number;
+  /** Mana, 0–1. */
+  readonly mana: number;
+  /** Whether they are in the room with you — which is what decides whether they share a kill. */
+  readonly here: boolean;
+}
 
 /**
  * One Place on the map of where you have been — V4.
@@ -645,6 +694,17 @@ export type ServerMessage =
    * in it, so you have seen it by construction.
    */
   | { readonly t: 'places'; readonly nodes: readonly PlaceNode[]; readonly edges: readonly PlaceEdge[]; readonly here: Place }
+  /**
+   * Who you are grouped with — protocol 19, Phase 18.
+   *
+   * In join order, leader first, **including you**: the roster is a list of the party rather than a
+   * list of the other people in it, and a panel that had to insert the reader at the right position
+   * would be re-deriving an order the server already knows.
+   *
+   * **Empty means you are in no group**, which is the only way a client can be told a group it was in
+   * has ended — see the version note. A client holding a roster and receiving an empty one clears it.
+   */
+  | { readonly t: 'group'; readonly members: readonly GroupMemberView[] }
   /**
    * Tiles seen for the first time since the last message, for the Place the player is currently on.
    *

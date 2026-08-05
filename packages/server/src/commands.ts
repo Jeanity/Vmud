@@ -120,6 +120,17 @@ export const COMMANDS = [
   // Phase 18. Appended, and it costs no prefix anybody was using: `f` is flee and `fl` is flee, both
   // above, so `fo` is the shortest thing that reaches this — which is what Diku gives it too.
   'follow',
+  // Phase 18's second half. Four appended, and every one lands on a free prefix — checked against the
+  // rows above rather than assumed, because table order is the whole mechanism:
+  //   `co`  → consent   (`c` and `cl` stay close; nothing above is `co`)
+  //   `gr`  → group     (`g` and `ge` stay get)
+  //   `gs`  → gsay      (and `gr`/`gs` do not collide with each other)
+  //   `di`  → disband   (`d` and `do` stay down, `dr` stays drop)
+  // Not one existing abbreviation moves, which is the bar every appended command has to clear.
+  'consent',
+  'group',
+  'gsay',
+  'disband',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -305,6 +316,27 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // fight that makes you want one is still going on. Walking is still refused — `stepRoom` gates on
   // the engagement, and `flee` is still the way out.
   follow: { status: 'resting', posture: 'sitting' },
+  // Phase 18's four, and the interesting part is that they are all four different rows — which is
+  // exactly the sort of thing that would have been flattened to one if they had been reasoned about
+  // instead of read off `interp.c`:
+  //
+  //   CMD_Y(CMD_CONSENT, STAT_DEAD     + POS_PRONE)
+  //   CMD_Y(CMD_GROUP,   STAT_RESTING  + POS_PRONE)
+  //   CMD_Y(CMD_GSAY,    STAT_RESTING  + POS_PRONE)
+  //   CMD_Y(CMD_DISBAND, STAT_SLEEPING + POS_PRONE)
+  //
+  // **`consent` works while you are dead**, which puts it with `help` and `who` at the floor of the
+  // ladder — and unlike those two it is not interface, it is an act. It reads oddly until you notice
+  // what consent is *for* in the source: it also drops your saving throws against that person's
+  // spells, so the one moment you most need to be able to give it is while somebody is trying to
+  // resurrect your corpse. Transcribed.
+  //
+  // **`disband` works while asleep** and `group` does not. Dissolving a party is one word said in your
+  // sleep; reading a roster and enrolling people is not.
+  consent: { status: 'dead', posture: 'prone' },
+  group: { status: 'resting', posture: 'prone' },
+  gsay: { status: 'resting', posture: 'prone' },
+  disband: { status: 'sleeping', posture: 'prone' },
 };
 
 /* -------------------------------------------------------------------------- */

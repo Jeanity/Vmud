@@ -32,6 +32,7 @@ import {
   DEFAULT_WEAPON,
   OPPOSITE,
   divideExperience,
+  groupedShare,
   armourToAc,
   attackBonusFor,
   parseDice,
@@ -111,6 +112,7 @@ import {
   type Direction,
   type EntityId,
   type EntityView,
+  type GroupMemberView,
   type LogChannel,
   type Place,
   type Posture,
@@ -145,6 +147,7 @@ import {
   COMMAND_REQUIREMENTS,
   directionOf,
   findTarget,
+  isName,
   keywordsFromName,
   lookupCommand,
   newCommandBudget,
@@ -258,6 +261,20 @@ import {
   stopFollowing,
   wouldLoop,
 } from './following.ts';
+import {
+  consentedTo,
+  depart,
+  disband,
+  enrol,
+  forgetGrouping,
+  grantConsent,
+  grouped,
+  leads,
+  MAX_GROUP_MEMBERS,
+  membersWith,
+  newGrouping,
+  revokeConsent,
+} from './grouping.ts';
 import { buildPlaceGraph } from './placegraph.ts';
 import { AUTHORED_ROOMS_FILE, saveAuthoredRooms } from './room-authoring.ts';
 import { GameWorld, placeOf } from './world.ts';
@@ -751,6 +768,15 @@ const watching = new Map<EntityId, Set<EntityId>>();
  * now, and restoring one on login would put somebody behind a leader who logged off yesterday.
  */
 const following = newFollowing();
+
+/**
+ * Who is grouped with whom, and who has consented to whom — Phase 18. See `grouping.ts`.
+ *
+ * Live state with no save file, for the same reason `following` has none and one more: consent is
+ * something you gave a person who is standing there, and restoring it on login would let somebody
+ * enrol a character whose player has not seen them since yesterday.
+ */
+const grouping = newGrouping();
 
 /**
  * Per-connection command allowance. See {@link newCommandBudget}.
@@ -1778,10 +1804,46 @@ function resolveDeath(death: Death): void {
     if (whole > 0) cuts.set(kind, apportion(whole, weights));
   }
 
+  // **Phase 18: a group multiplies what its members earned, and only the ones who fought count.**
+  // Owner's call, 2026-08-06 — see `experience.ts` for the arithmetic and why it is composed this way
+  // rather than replacing the contribution split. Two conditions decide who is counted, and both are
+  // the source's: **in the room the thing died in** (`fight.c`: *"Ppl out of room still count against
+  // exp gain? Erm... no"*) and, ours, **having contributed** — which is what makes twelve idle alts
+  // parked in the room worth nothing to anybody.
+  //
+  // **The coin is deliberately not multiplied.** A purse is a thing the mob was carrying, not a pool
+  // scaled by who turned up; paying a group more than the body held would mint money, where paying
+  // them more experience than the body was worth is exactly what Duris does on purpose.
+  const contributorsHere = new Set<EntityId>();
+  for (const award of shares) {
+    const earner = sim.player(award.actor);
+    if (earner && earner.roomId === actor.roomId) contributorsHere.add(earner.id);
+  }
+
   for (const [index, award] of shares.entries()) {
     const earner = sim.player(award.actor);
     if (!earner) continue;
-    earner.experience += award.experience;
+
+    // The earner's own cohort: themselves plus the group-mates who also fought and are also here. One
+    // member is not a group, so a solo contributor and somebody whose party all fled take the plain
+    // share and the multiplier is never consulted.
+    const cohort = contributorsHere.has(earner.id)
+      ? [...contributorsHere]
+        .map((id) => sim.player(id))
+        .filter((who): who is Player => who !== undefined)
+        .filter((who) => who.id === earner.id || grouped(grouping, earner.id, who.id))
+      : [];
+    const members = cohort.length;
+    const experience = members > 1
+      ? groupedShare(award.experience, {
+        members,
+        level: earner.level,
+        // Measured over the cohort, not the mob: the wall exists to stop a level 1 being carried by a
+        // level 50, and it is the company they are keeping that says whether that is happening.
+        highest: Math.max(...cohort.map((who) => who.level)),
+      })
+      : award.experience;
+    earner.experience += experience;
 
     const gained: Record<string, number> = {};
     for (const [kind, split] of cuts) {
@@ -1803,11 +1865,16 @@ function resolveDeath(death: Death): void {
       dealt > 0 ? `${dealt} dealt` : undefined,
       taken > 0 ? `${taken} taken` : undefined,
       supported > 0 ? `${supported} support` : undefined,
+      // Said out loud for the same reason the breakdown is: the *rule* is the interesting part, and a
+      // player who sees "group of 3" beside a bigger number than they got alone has learnt why parties
+      // exist without anybody explaining it. It reports the cohort that was counted, not the group's
+      // size, so a member who sat out is visibly not in it.
+      members > 1 ? `group of ${members}` : undefined,
     ].filter(Boolean).join(', ');
     send(earner.id, {
       t: 'log',
       channel: 'system',
-      text: `You gain ${award.experience} experience${how ? ` (${how})` : ''}.`,
+      text: `You gain ${experience} experience${how ? ` (${how})` : ''}.`,
     });
     // **And this is where it finally buys something.** Experience has been earned and banked since
     // Phase 13 with nothing to spend it on: the number went up and never did anything. Phase 14b.
@@ -2180,6 +2247,12 @@ function announceArrival(player: Player, from: RoomId, fromPlace: Place, via?: D
     send(player.id, { t: 'log', channel: 'combat', text: `You close in on ${quarry.name}!` });
     startFight(player, quarry.id);
   }
+
+  // **Phase 18: `here` just changed for the whole party.** Every arrival in the game funnels through
+  // this function — walking, fleeing, being moved, waking up at the spawn room after dying — so the
+  // roster's one derived field is refreshed from a single place. Pushed to all members rather than
+  // working out which two rooms it mattered in: a party is at most thirteen rows.
+  pushGroupTo(membersWith(grouping, player.id));
 }
 
 /**
@@ -2323,6 +2396,338 @@ function walkFollowers(leader: Player, from: RoomId, dir: Direction): void {
     if (!follower || !isPlayer(follower) || follower.roomId !== from) continue;
     send(follower.id, { t: 'log', channel: 'system', text: `You follow ${leader.name} ${dir}.` });
     stepRoom(follower, dir);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Grouping — Phase 18's second half                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Sends one character their roster — protocol 19.
+ *
+ * `here` is computed against **the recipient's** room rather than the leader's, because the question
+ * the row answers is *"is this person with me"*. A five-member party split across two rooms therefore
+ * sees two different rosters, which is correct: each half is told who is beside them.
+ *
+ * An empty group sends an empty list rather than nothing at all. That is the only way a client can be
+ * told the group it was in has ended — by then the departed character is in no group to enumerate.
+ */
+function pushGroup(who: EntityId): void {
+  const player = sim.player(who);
+  if (!player) return;
+  const ids = membersWith(grouping, who);
+  const members: GroupMemberView[] = [];
+  for (const [index, id] of ids.entries()) {
+    const member = sim.player(id);
+    if (!member) continue;
+    members.push({
+      id,
+      name: member.name,
+      level: member.level,
+      leader: index === 0,
+      // Clamped, because a dying character is on negative hit points and a bar drawn from a negative
+      // fraction renders inside-out.
+      health: fraction(member.hp, member.maxHp),
+      move: fraction(member.move, member.maxMove),
+      mana: fraction(member.mana, member.maxMana),
+      here: member.roomId === player.roomId,
+    });
+  }
+  send(who, { t: 'group', members });
+}
+
+function fraction(value: number, max: number): number {
+  if (max <= 0) return 0;
+  return Math.max(0, Math.min(1, value / max));
+}
+
+/** Pushes the roster to a whole party — every membership change ends in one of these. */
+function pushGroupTo(ids: readonly EntityId[]): void {
+  for (const id of ids) pushGroup(id);
+}
+
+/** A line to everybody in the group, the party's own channel. */
+function tellGroup(ids: readonly EntityId[], text: string, except?: EntityId): void {
+  for (const id of ids) {
+    if (id === except) continue;
+    send(id, { t: 'log', channel: 'system', text });
+  }
+}
+
+/**
+ * `consent <name>`, `consent who`, bare `consent` — Phase 18, and the half of grouping the *joiner*
+ * does.
+ *
+ * Transcribed from `do_consent` (`actnew.c:311`), including the reach: the source scans the descriptor
+ * list rather than the room, so consent may be given to **anybody online you could see**. That is not
+ * laxity — it is what makes a party assemble before it is standing in one place, and the enrolment
+ * itself still requires the same room.
+ */
+function consentCommand(player: Player, rest: string): void {
+  const term = rest.trim();
+  if (!term) {
+    revokeConsent(grouping, player.id);
+    send(player.id, {
+      t: 'log',
+      channel: 'system',
+      text: 'You no longer feel generous and revoke your consent.',
+    });
+    return;
+  }
+
+  if (term.toLowerCase() === 'who') {
+    const names = consentedTo(grouping, player.id)
+      .map((id) => sim.player(id)?.name)
+      .filter((name): name is string => name !== undefined);
+    send(player.id, {
+      t: 'log',
+      channel: 'system',
+      text: names.length === 0
+        ? 'You have given nobody your consent.'
+        : ['You have given your consent to:', ...names.map((name) => `  ${name}`)].join('\n'),
+    });
+    return;
+  }
+
+  const target = [...sim.allPlayers()].find((other) => isName(term, [other.name]));
+  if (!target) {
+    send(player.id, { t: 'log', channel: 'error', text: 'No one by that name here...' });
+    return;
+  }
+  if (target.id === player.id) {
+    send(player.id, { t: 'log', channel: 'error', text: 'You cannot give yourself consent!' });
+    return;
+  }
+
+  if (!grantConsent(grouping, player.id, target.id)) {
+    send(player.id, { t: 'log', channel: 'system', text: `${target.name} already has your consent.` });
+    return;
+  }
+  send(player.id, { t: 'log', channel: 'system', text: `You give ${target.name} your consent.` });
+  // The other half has to be told, or the handshake is a thing you do into the dark and then have to
+  // say out loud on some other channel anyway.
+  send(target.id, {
+    t: 'log',
+    channel: 'system',
+    text: `${player.name} gives you consent — you may "group ${player.name.toLowerCase()}".`,
+  });
+}
+
+/**
+ * `group`, `group <name>`, `group me`, `group all` — Phase 18, and the leader's half.
+ *
+ * `do_group` (`group.c:358`) is one command doing five jobs, and it is transcribed rather than split
+ * because which job it does follows from the state rather than from a different word: a name you have
+ * is a kick, a name you do not have is an enrolment, your own name is leaving, and no name at all is
+ * the roster. A Diku player's fingers already know this.
+ */
+function groupCommand(player: Player, rest: string): void {
+  const term = rest.trim();
+  const members = membersWith(grouping, player.id);
+
+  if (!term) {
+    if (members.length === 0) {
+      send(player.id, { t: 'log', channel: 'system', text: 'But you are a member of no group?!' });
+      return;
+    }
+    const lines = members.map((id, index) => {
+      const member = sim.player(id);
+      if (!member) return '  (gone)';
+      const where = member.roomId === player.roomId ? '' : ' &+L(elsewhere)&N';
+      return `  (${index === 0 ? ' Head' : 'Group'}) ${member.name}, level ${member.level} — ` +
+        `${member.hp}/${member.maxHp} hit, ${member.move}/${member.maxMove} move${where}`;
+    });
+    send(player.id, {
+      t: 'log',
+      channel: 'system',
+      text: [`Your group consists of (${members.length}/${MAX_GROUP_MEMBERS}):`, ...lines].join('\n'),
+    });
+    return;
+  }
+
+  // **`group all` enrols your followers, and it is the seam between the phase's two halves.** The
+  // source picks them out of `ch->followers` for a reason worth keeping: somebody who chose to walk
+  // behind you has already said something about wanting to be with you, so this is the one bulk
+  // enrolment that is not a way to conscript a room. Consent is still required of each.
+  if (term.toLowerCase() === 'all') {
+    if (members.length > 0 && !leads(grouping, player.id)) {
+      send(player.id, { t: 'log', channel: 'error', text: 'This only works for group leaders.' });
+      return;
+    }
+    let added = 0;
+    for (const id of followersOf(following, player.id)) {
+      const follower = sim.player(id);
+      if (!follower || !canSee(player, follower)) continue;
+      if (grouped(grouping, player.id, id)) continue;
+      const result = enrol(grouping, player.id, id);
+      if (result.ok) {
+        added++;
+        announceEnrolment(player, follower, result.merged);
+      } else {
+        send(player.id, { t: 'log', channel: 'error', text: refuseEnrolment(follower, result.why) });
+      }
+    }
+    if (added === 0) send(player.id, { t: 'log', channel: 'system', text: 'No new group members.' });
+    return;
+  }
+
+  const view = resolveTarget(player, term);
+  if (!view) return;
+  const target = sim.player(view.id);
+  if (!target) {
+    // A mob. `do_group_add` will take an NPC that is following you, which is Duris' charmed-pet
+    // mechanic — and we have no charm, no orders and no pets, so a grouped mob would be a member with
+    // nobody driving it and a share of the experience.
+    send(player.id, { t: 'log', channel: 'error', text: 'They cannot be grouped.' });
+    return;
+  }
+
+  // Your own name leaves the group, which is the form that reads oddly and is worth keeping.
+  if (target.id === player.id) {
+    if (members.length === 0) {
+      send(player.id, {
+        t: 'log',
+        channel: 'error',
+        text: "You can't leave a group when you're not already in one!",
+      });
+      return;
+    }
+    leaveGroup(player, 'You leave the group.', `${player.name} leaves the group.`);
+    return;
+  }
+
+  // Somebody already in your group: this is a kick. Same word, and the state decides.
+  if (grouped(grouping, player.id, target.id)) {
+    if (!leads(grouping, player.id)) {
+      send(player.id, {
+        t: 'log',
+        channel: 'error',
+        text: 'You can not enroll group members without being head of a group.',
+      });
+      return;
+    }
+    const before = membersWith(grouping, player.id);
+    const result = depart(grouping, target.id);
+    send(target.id, { t: 'log', channel: 'system', text: `You have been kicked out of ${player.name}'s group.` });
+    tellGroup(before, `${target.name} has been kicked out of ${player.name}'s group.`, target.id);
+    if (result.dissolved !== undefined) {
+      send(result.dissolved, { t: 'log', channel: 'system', text: 'Your group has been disbanded.' });
+    }
+    pushGroupTo(before);
+    return;
+  }
+
+  if (members.length > 0 && !leads(grouping, player.id)) {
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text: 'You can not enroll group members without being head of a group.',
+    });
+    return;
+  }
+
+  const result = enrol(grouping, player.id, target.id);
+  if (!result.ok) {
+    send(player.id, { t: 'log', channel: 'error', text: refuseEnrolment(target, result.why) });
+    return;
+  }
+  announceEnrolment(player, target, result.merged);
+}
+
+/** The four refusals, each said in its own words — see `EnrolResult` for why one boolean will not do. */
+function refuseEnrolment(target: Player, why: string): string {
+  switch (why) {
+    case 'in-another-group': return `${target.name} is in another group.`;
+    // Duris' own sentence, and it is the one that teaches the mechanic: the *joiner* consents.
+    case 'no-consent': return `But you haven't ${target.name}'s permission to do that! (They must "consent" you.)`;
+    case 'full': return 'Your group is too large!';
+    case 'not-leader': return 'This only works for the group leader!';
+    case 'already': return `${target.name} is already in your group.`;
+    default: return 'You cannot group that.';
+  }
+}
+
+/** Told to all three audiences the source tells: the leader, the joiner, and the party around them. */
+function announceEnrolment(leader: Player, joined: Player, merged: readonly EntityId[]): void {
+  const party = membersWith(grouping, leader.id);
+  send(leader.id, { t: 'log', channel: 'system', text: `${joined.name} is now a member of your group.` });
+  send(joined.id, { t: 'log', channel: 'system', text: `You are now a member of ${leader.name}'s group.` });
+  for (const id of party) {
+    if (id === leader.id || id === joined.id || merged.includes(id)) continue;
+    send(id, { t: 'log', channel: 'system', text: `${joined.name} is now a member of ${leader.name}'s group.` });
+  }
+  // A merge is announced to the people it happened *to*, because from their side nothing they did has
+  // changed and they have a new leader.
+  for (const id of merged) {
+    send(id, { t: 'log', channel: 'system', text: `Your group has merged into ${leader.name}'s group.` });
+  }
+  pushGroupTo(party);
+}
+
+/**
+ * One character out of their group, however they came to be leaving, with everybody told.
+ *
+ * Shared by `group me` and by `disband`'s own path so that the promotion sentence and the dissolution
+ * sentence are written once. Which of them is said is a property of the group's new shape, which is
+ * `depart`'s answer rather than this function's.
+ */
+function leaveGroup(player: Player, toThem: string, toThePartyText: string): void {
+  const before = membersWith(grouping, player.id);
+  const result = depart(grouping, player.id);
+  send(player.id, { t: 'log', channel: 'system', text: toThem });
+  tellGroup(before, toThePartyText, player.id);
+  if (result.promoted !== undefined) {
+    send(result.promoted, { t: 'log', channel: 'system', text: 'You are now the leader of your group!' });
+  }
+  if (result.dissolved !== undefined) {
+    send(result.dissolved, { t: 'log', channel: 'system', text: 'Your group has been disbanded.' });
+  }
+  pushGroupTo(before);
+}
+
+/** `disband` — the leader dissolving their own group, and `CMD_Y` at `STAT_SLEEPING`. */
+function disbandCommand(player: Player): void {
+  if (!leads(grouping, player.id)) {
+    send(player.id, { t: 'log', channel: 'error', text: 'You must be the leader of a group to disband it.' });
+    return;
+  }
+  const before = membersWith(grouping, player.id);
+  const thrown = disband(grouping, player.id);
+  send(player.id, { t: 'log', channel: 'system', text: 'You disband the group.' });
+  for (const id of thrown) {
+    send(id, { t: 'log', channel: 'system', text: `${player.name} has disbanded the group.` });
+  }
+  pushGroupTo(before);
+}
+
+/**
+ * `gsay <what>` — the party's channel, and **it reaches the whole group regardless of room.**
+ *
+ * `do_gsay` (`actnew.c:232`) walks `ch->group` with no room check at all, which is the point of it: a
+ * party splits up, and the one line that has to cross a wall is *"I am in trouble"*. That makes it the
+ * first speech in the game that is not room-scoped — and note what it therefore does **not** carry:
+ * `from`/`speech`, protocol 17's bubble fields. A bubble is drawn on a body the client holds, and most
+ * of a group is not on your screen; a channel that drew bubbles for the members who happened to be
+ * beside you and nothing for the rest would read as the far ones being ignored.
+ */
+function groupSay(player: Player, rest: string): void {
+  const said = rest.trim().slice(0, 400);
+  if (!said) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Yes, but WHAT do you want to gsay?' });
+    return;
+  }
+  const members = membersWith(grouping, player.id);
+  if (members.length === 0) {
+    send(player.id, { t: 'log', channel: 'error', text: 'But you are a member of no group?!' });
+    return;
+  }
+  // `&+G` is the source's own colour for it, and it survives to the client as the MUD's notation
+  // rather than as markup — see `colour.ts`.
+  send(player.id, { t: 'log', channel: 'say', text: `&+GYou group-say '${said}'&N` });
+  for (const id of members) {
+    if (id === player.id) continue;
+    send(id, { t: 'log', channel: 'say', text: `&+G${player.name} group-says '${said}'&N` });
   }
 }
 
@@ -3253,6 +3658,10 @@ function runCommand(player: Player, line: string): void {
     case 'put': return putInContainer(player, rest);
     case 'drop': return dropFromBag(player, rest);
     case 'follow': return followCommand(player, rest);
+    case 'consent': return consentCommand(player, rest);
+    case 'group': return groupCommand(player, rest);
+    case 'gsay': return groupSay(player, rest);
+    case 'disband': return disbandCommand(player);
     // Never destroys on this pass: an unconfirmed junk arms the question and returns.
     case 'junk': return junkFromBag(player, rest, false);
     case 'wear': return wearFromBag(player, rest);
@@ -5531,6 +5940,23 @@ wss.on('connection', (socket) => {
     for (const orphan of forgetFollower(following, player.id)) {
       send(orphan, { t: 'log', channel: 'system', text: `${player.name} is no longer here to follow.` });
     }
+    // And out of their group, with the same argument again in its third form: a leftover membership
+    // would put the next character handed this id into a stranger's party and start dividing their
+    // kills. The party is told, because a member who silently stops counting toward the group's share
+    // is a number going down for no visible reason — and the promotion is said out loud for the same
+    // reason it is when somebody leaves on purpose.
+    {
+      const party = membersWith(grouping, player.id);
+      const departed = forgetGrouping(grouping, player.id);
+      tellGroup(party, `${player.name} is no longer in your group.`, player.id);
+      if (departed.promoted !== undefined) {
+        send(departed.promoted, { t: 'log', channel: 'system', text: 'You are now the leader of your group!' });
+      }
+      if (departed.dissolved !== undefined) {
+        send(departed.dissolved, { t: 'log', channel: 'system', text: 'Your group has been disbanded.' });
+      }
+      pushGroupTo(party);
+    }
     sim.remove(player.id);
     // Every mob forgets them. `noticed` as well as the dwell timer, and that is not tidiness: entity ids are
     // reissued, so a mob that remembered id 7 would silently already know the next character handed it.
@@ -5648,6 +6074,18 @@ setInterval(() => {
     if (!isPlayer(actor) || relighted.has(actor)) continue;
     send(actor.id, { t: 'self', view: sim.selfViewOf(actor) });
   }
+
+  // **A roster is other people's numbers**, so it goes stale on *their* vitals rather than on the
+  // reader's — protocol 19's whole reason for being a message instead of a field on `self`. Collected
+  // into a set first, so a party of three all taking a hit in one tick is one push each and not nine.
+  // `relighted` is deliberately not excluded here: a relight sends a `self`, which carries none of
+  // somebody else's health, and a torch guttering does not move a pool anyway.
+  const rosters = new Set<EntityId>();
+  for (const actor of vitalsChanged) {
+    if (!isPlayer(actor)) continue;
+    for (const id of membersWith(grouping, actor.id)) rosters.add(id);
+  }
+  for (const id of rosters) pushGroup(id);
 
   // Who has noticed whom. Runs over aggressive mobs only — 52 of IceCrag's 66 are passive and cost one field
   // read — and the delay inside it is the mechanic: see `perception.ts` and §4.5.

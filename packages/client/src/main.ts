@@ -4,6 +4,7 @@ import { AnnounceBanner } from './announce.ts';
 import { ArrivalCard } from './arrival.ts';
 import { PlaceMap } from './placemap.ts';
 import { CombatFeed } from './combatfeed.ts';
+import { GroupRoster } from './grouproster.ts';
 import { LogPanel } from './log.ts';
 import { Net } from './net.ts';
 import { WorldScene } from './scene.ts';
@@ -94,6 +95,13 @@ const placeMap = new PlaceMap();
 net.on('places', (message) => placeMap.update(message.nodes, message.edges, message.here));
 placeMap.onOpen = () => net.send({ t: 'places' });
 scene.setPlaceMap(placeMap);
+
+// Phase 18's shared list. On the same fan-out as the feed and the banner, and for the fourth time the
+// reason is that this is DOM which owes the renderer nothing. Nothing else has to know a group exists:
+// the server sends the whole roster whenever it changes or a member's pools move, and an empty one is
+// how it says you are in no group.
+const groupRoster = new GroupRoster();
+net.on('group', (message) => groupRoster.update(message.members));
 
 // V5. Nothing listens on the socket for this one — the scene already knows when a Place changed,
 // because it is the thing that redraws the map, so the card is handed to it rather than wired to a

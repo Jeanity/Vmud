@@ -452,6 +452,51 @@
         color: #6f7a63;
       }
 
+      /* ---------------------------------------------------------------- group */
+
+      /* The party roster — Phase 18. Hidden entirely when you are in no group, the rule `#worn-extra`
+         follows and for the same reason: a permanently empty "Group" header would make a mechanic that
+         is switched off look like one that is broken.
+
+         Above the gear on purpose. Worn equipment is reference you consult between fights; a party
+         member's health is the thing you are watching *during* one, and the vitals it sits under are
+         your own. So the pane reads top to bottom as: me, then us, then my kit. */
+      #group.empty { display: none; }
+      #group-rows { display: flex; flex-direction: column; gap: 4px; }
+      .party-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        grid-template-areas: "who level" "bars bars";
+        gap: 2px 6px;
+        font-size: 12px;
+        line-height: 1.3;
+      }
+      .party-row .who { grid-area: who; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .party-row .level { grid-area: level; color: var(--dim); font-variant-numeric: tabular-nums; }
+      /* The leader is marked rather than moved, because the order already says who leads — the mark is
+         for the reader who is not counting rows. */
+      .party-row .who .lead { color: #c8b884; }
+      /* Somebody in another room is dimmed whole, which is the roster saying a *rule* out loud: only
+         members in the room share a kill. Duris blanks their bars; dimming the row says the same thing
+         without making the numbers unreadable when they matter (they are still who you are healing). */
+      .party-row.away { opacity: 0.45; }
+      .party-row .bars { grid-area: bars; display: flex; gap: 3px; }
+      .party-row .bar {
+        flex: 1 1 0;
+        height: 4px;
+        border-radius: 2px;
+        background: #26291f;
+        overflow: hidden;
+      }
+      .party-row .bar > span { display: block; height: 100%; width: 0; }
+      /* Health takes the same three-stop ramp the world's health bars use, so a body on screen and its
+         row in this list cannot be different colours at the same fraction. */
+      .party-row .bar.hp > span { background: #7bb661; }
+      .party-row .bar.hp.hurt > span { background: #d6a740; }
+      .party-row .bar.hp.low > span { background: #c4553f; }
+      .party-row .bar.mv > span { background: #5c8ba8; }
+      .party-row .bar.mn > span { background: #8a6fa8; }
+
       /* ------------------------------------------------------------ equipment */
 
       /* A paper doll: the character in the middle, the slots flanking them where they sit on a body.
@@ -801,7 +846,15 @@
           <span class="spacer"></span>
         </div>
         <div class="pane-body" id="sheet-body">
-          <div class="sheet-section" style="border-top: 0; padding-top: 0">
+          <!-- The party — Phase 18, protocol 19. Empty until you are in a group, and hidden while it
+               is: see the CSS. Rows are built by grouproster.ts rather than written out here, because
+               how many there are is a fact about the game and not about the page. -->
+          <div class="sheet-section empty" id="group" style="border-top: 0; padding-top: 0">
+            <h2>Group</h2>
+            <div id="group-rows"></div>
+          </div>
+
+          <div class="sheet-section">
             <h2>Worn</h2>
 
             <!-- The slot glyphs, defined once and referenced by `<use>` below.

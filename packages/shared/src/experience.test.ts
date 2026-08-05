@@ -14,6 +14,9 @@ import {
   contributionValue,
   divideExperience,
   groupDivisor,
+  groupedShare,
+  groupMultiplier,
+  powerLevelDivisor,
   type Contribution,
 } from './index.ts';
 
@@ -126,5 +129,55 @@ describe('the group divisor — §4.4, and the sign is the mechanic', () => {
 
   it('treats a party of none as a party of one', () => {
     assert.equal(groupDivisor(0), 1);
+  });
+});
+
+describe('what a group does to a contribution share — Phase 18', () => {
+  it('lands on Duris\' own numbers when everybody pulls their weight', () => {
+    // Two equal contributors split the pool 50/50 and the multiplier takes each to 80% of a solo kill —
+    // 160% between them, which is the divisor's table read from the other end.
+    assert.equal(groupedShare(500, { members: 2, level: 10, highest: 10 }), 800);
+    assert.equal(groupMultiplier(2), 1.6);
+    // Four equal contributors: 25% each × 2.2857 = 57.1%, the table's 57%.
+    assert.equal(Math.round(groupMultiplier(4) * 25), 57);
+  });
+
+  it('leaves a lone contributor exactly where they were, grouped or not', () => {
+    // The rule has to be invisible to somebody fighting alone, or every ungrouped kill in the game
+    // changes the day grouping lands.
+    assert.equal(groupMultiplier(1), 1);
+    assert.equal(groupedShare(1234, { members: 1, level: 20, highest: 20 }), 1234);
+  });
+
+  it('pays nothing extra for members who did not fight, because they are not counted', () => {
+    // Owner's call, 2026-08-06: `members` is contributing members present, so twelve idle alts parked
+    // in the room cannot turn one player's solo kill into 3.25 kills. The caller counts; this asserts
+    // that the arithmetic gives them no way to profit if they did not.
+    const alone = groupedShare(1000, { members: 1, level: 30, highest: 30 });
+    assert.equal(alone, 1000);
+  });
+
+  it('walls off power-levelling at the source\'s own four steps', () => {
+    assert.equal(powerLevelDivisor(50, 50), 1);
+    assert.equal(powerLevelDivisor(36, 50), 1, 'fourteen levels is still a group');
+    assert.equal(powerLevelDivisor(35, 50), 40);
+    assert.equal(powerLevelDivisor(30, 50), 150);
+    assert.equal(powerLevelDivisor(20, 50), 1000);
+    assert.equal(powerLevelDivisor(10, 50), 5000);
+  });
+
+  it('applies the bonus first and the wall second, so a bigger group cannot buy the penalty back', () => {
+    // 1,000 × 1.6 = 1,600, then ÷ 5,000 → 0. The other order would floor to 0 and then multiply 0,
+    // which happens to agree here — so the assertion that matters is the one where it does not.
+    assert.equal(groupedShare(100_000, { members: 2, level: 5, highest: 50 }), 32);
+    assert.equal(Math.floor(100_000 / 5000) * 1.6, 32.0, 'and the orders agree only by luck at this size');
+    // A level 1 taking one hit from a level 50 mob is genuine contribution and would otherwise be a
+    // career: a share worth dozens of their levels becomes nothing at all.
+    assert.equal(groupedShare(50_000, { members: 2, level: 1, highest: 50 }), 16);
+  });
+
+  it('floors, because a fraction of a point is not spendable', () => {
+    assert.equal(groupedShare(1, { members: 2, level: 10, highest: 10 }), 1);
+    assert.equal(groupedShare(1, { members: 2, level: 10, highest: 40 }), 0);
   });
 });
