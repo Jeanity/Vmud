@@ -4257,6 +4257,111 @@ const adminLive: LiveOps = {
   authoredItems: () => authoredStore.items,
   authorNewItem,
   deleteAuthoredItem,
+  /* ---- A4: zones and mobs, live ---------------------------------------- */
+
+  repopZone(zone) {
+    const clock = zoneClocks.find((candidate) => candidate.spawns.zone === zone);
+    if (!clock) return undefined;
+    // `force`, and it is the second caller of a flag that has existed since Phase 8 for exactly this —
+    // see `runReset`'s own note about a sub-100% `M` never firing on a timed pass.
+    const outcome = runReset(sim, clock, mobTemplates, itemCatalogue, countInstances, spawnRng, true);
+    const objects = placeResetObjects(outcome);
+    // The same presence pass the timed reset does, and for the same reason: a mob that appeared in a
+    // dark corner is still nobody's business until a light falls on it, so this is per-observer rather
+    // than a broadcast. Leaving it out is the bug where a forced repop is invisible until you walk away
+    // and back — which is precisely the loop this button exists to shorten.
+    for (const room of new Set(outcome.spawned.map((mob) => mob.roomId))) syncEntitiesIn(room);
+    return { spawned: outcome.spawned.length, doors: outcome.doors, objects, atLimit: outcome.atLimit };
+  },
+
+  workDoor(room, dir, next) {
+    const direction = parseDirection(dir);
+    if (!direction) return { error: `"${dir}" is not a direction` };
+    const doorway = world.doorway(room, direction);
+    if (!doorway) return { error: `there is no door ${dir} of room ${room}` };
+    // **Both ends.** `doorway()` returns them precisely so nothing has to remember to; a door shut from
+    // one side only is a wall from the other, and the two sides share one carved strip of tiles.
+    for (const end of [doorway.near, doorway.far]) {
+      if (!end) continue;
+      if (next.closed !== undefined) end.door.closed = next.closed;
+      if (next.locked !== undefined) end.door.locked = next.locked;
+    }
+    // Told to the rooms on both sides, because a door swinging is a thing you would see and hear from
+    // either one. Not sight-gated: it comes from outside the world, like A2's room announcement.
+    const said = next.closed === undefined
+      ? `${capitalise(doorway.near.door.name)} clicks.`
+      : `${capitalise(doorway.near.door.name)} swings ${next.closed ? 'shut' : 'open'}.`;
+    for (const end of [doorway.near, doorway.far]) {
+      if (!end) continue;
+      for (const player of sim.playersIn(end.roomId)) {
+        send(player.id, { t: 'log', channel: 'system', text: said });
+      }
+    }
+    return { name: doorway.near.door.name, closed: doorway.near.door.closed, locked: doorway.near.door.locked };
+  },
+
+  mobsIn(zone) {
+    const out: {
+      id: number; vnum: number; name: string; level: number; hp: number; maxHp: number;
+      room: RoomId; roomName: string; status: string; fighting?: number;
+    }[] = [];
+    // Walked room by room rather than over every actor in the world, because the zone's own room list
+    // is the index we already have and `actorsIn` is the presence primitive. A 219-room zone is the
+    // largest loaded and this is a panel refresh, not a tick.
+    for (const room of world.zone(zone)?.rooms ?? []) {
+      for (const actor of sim.actorsIn(room.id)) {
+        if (!isMob(actor)) continue;
+        out.push({
+          id: actor.id,
+          vnum: actor.vnum,
+          name: actor.name,
+          level: actor.level,
+          hp: actor.hp,
+          maxHp: actor.maxHp,
+          room: room.id,
+          roomName: room.name,
+          status: actor.status,
+          ...(actor.fighting === undefined ? {} : { fighting: actor.fighting }),
+        });
+      }
+    }
+    // By room, then by id — so the three guards of one patrol read as a group and the order is stable
+    // across refreshes. Sorting by name would separate twins whose hit points differ.
+    out.sort((a, b) => a.room - b.room || a.id - b.id);
+    return out;
+  },
+
+  slayMob(id) {
+    const actor = sim.get(id);
+    if (!actor || !isMob(actor)) return undefined;
+    const name = actor.name;
+    // **The game's own death path.** A corpse where it fell, holding what it carried, and the room
+    // told — an admin kill that made a body vanish would exercise a path the game does not have, and
+    // the whole point of this loop is to watch the real one. No killer and an empty ledger, so nobody
+    // is paid experience or coin — `resolveDeath` already takes that case, because a mob can die to a
+    // burn or a fall with nobody to credit.
+    resolveDeath({ actor, killer: undefined, contributions: new Map() });
+    return { name };
+  },
+
+  spawnMob(vnum, room) {
+    const template = mobTemplates.get(vnum);
+    if (!template) return { error: `no mob ${vnum} in the loaded templates` };
+    // Through the simulation's own spawner, on the world rng — so an admin-placed mob rolls its hit
+    // points and its tile from the same seeded stream every other mob does, and a restart reproduces
+    // the world it had. `CLAUDE.md` rule 3.
+    const mob = sim.spawnMob(template, room, spawnRng);
+    if (!mob) return { error: `room ${room} is in a Place with no grid — nothing can stand there` };
+    syncEntitiesIn(room);
+    return { id: mob.id, name: mob.name };
+  },
+
+  mobTemplates() {
+    return [...mobTemplates.values()]
+      .map((t) => ({ vnum: t.vnum, name: t.name, level: t.level, keywords: t.keywords ?? [] }))
+      .sort((a, b) => a.vnum - b.vnum);
+  },
+
   giveItem(player, vnum) {
     const template = itemCatalogue.get(vnum);
     if (!template) return { error: `no item ${vnum} in the catalogue` };

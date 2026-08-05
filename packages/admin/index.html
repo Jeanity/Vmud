@@ -305,6 +305,12 @@
       .item-editor input[type='number'] { width: 64px; }
       .item-editor .flash { margin: 0; font-size: 11px; }
 
+      /* A4. A room heading inside the live mob list — a divider, not a row you can act on. */
+      .rows .row.group { border-bottom: 0; padding-bottom: 0; font-size: 11px; }
+      .rows .row.group + .row { padding-top: 2px; }
+      .door-ops { display: inline-flex; gap: 4px; }
+      .door-ops button { font-size: 10px; padding: 1px 6px; }
+
       /*
        * A7c — the art picker. `image-rendering: pixelated` is not a preference here: LPC is 64 px
        * art and a browser's default smoothing turns a helmet into a smudge at any scale but 1:1,

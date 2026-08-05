@@ -167,6 +167,40 @@ function renderZones(pane: HTMLElement, zones: readonly ZoneRow[], pick: (id: nu
               // A dash, not a zero: a zone with no population never repops, which is a different
               // fact from one that is about to.
               el('td', {}, zone.repopInMs === null ? el('span', { class: 'muted' }, '—') : duration(zone.repopInMs)),
+              // A4. **Offered only where there is a population to repop**, because the server refuses
+              // the rest by name and a button whose only outcome is a refusal is worse than no button.
+              // The click does not stop propagating: selecting the zone you just repopped is what you
+              // want next, and the row's own handler does that.
+              el(
+                'td',
+                {},
+                zone.repopInMs === null
+                  ? ''
+                  : el(
+                      'button',
+                      {
+                        type: 'button',
+                        title: 'Run this zone’s reset now. Additive — nothing despawns, and per-vnum limits still hold.',
+                        onclick: (event: Event) => {
+                          const button = event.currentTarget as HTMLButtonElement;
+                          void (async () => {
+                            const done = await call<{ spawned: number; doors: number; objects: number; atLimit: number }>(
+                              'POST',
+                              `/zones/${zone.id}/repop`,
+                            );
+                            // Reported on the button itself rather than in a flash somewhere else: the
+                            // interesting number is `atLimit`, and it is what tells an operator that
+                            // hammering this does *not* fill the zone.
+                            button.textContent = done.ok && done.body
+                              ? `+${done.body.spawned} mobs, ${done.body.atLimit} at limit`
+                              : done.error ?? 'refused';
+                            setTimeout(() => { button.textContent = 'Repop'; }, 4000);
+                          })();
+                        },
+                      },
+                      'Repop',
+                    ),
+              ),
             ),
           ),
         ),
@@ -285,6 +319,40 @@ function renderRooms(
   );
 }
 
+/**
+ * Open/shut and lock/unlock for one doorway — A4.
+ *
+ * **Two independent buttons rather than one three-state control**, because the two flags are
+ * independent in the world: `LOCKS_HOLD` is off, so a locked door still opens, and an operator
+ * testing the day it goes on has to be able to set them apart. A combined control would have to
+ * invent an ordering between them and would be wrong the moment locks bite.
+ *
+ * Each says what it *will do*, not what the door is — the state is already three columns to the left,
+ * and a button labelled with the current state is the classic way to make somebody close a door they
+ * meant to open.
+ */
+function doorControls(
+  room: number,
+  dir: string,
+  door: { name: string; closed: boolean; locked: boolean },
+  reload: () => void,
+): HTMLElement {
+  const work = (patch: Record<string, unknown>) => () => {
+    void (async () => {
+      await call('POST', `/rooms/${room}/door`, { dir, ...patch });
+      // Reloaded rather than patched in place: the server owns both ends of the doorway and the room
+      // detail is what shows them, so re-reading is the only way the panel and the world cannot drift.
+      reload();
+    })();
+  };
+  return el(
+    'span',
+    { class: 'door-ops' },
+    el('button', { type: 'button', onclick: work({ closed: !door.closed }) }, door.closed ? 'open' : 'shut'),
+    el('button', { type: 'button', onclick: work({ locked: !door.locked }) }, door.locked ? 'unlock' : 'lock'),
+  );
+}
+
 function renderRoom(pane: HTMLElement, room: RoomDetail, reload: () => void): void {
   const here = [
     ...room.occupants.players.map((name) => `${name} (player)`),
@@ -345,6 +413,9 @@ function renderRoom(pane: HTMLElement, room: RoomDetail, reload: () => void): vo
                       ? `${exit.door.name} — ${exit.door.closed ? 'shut' : 'open'}${exit.door.locked ? ', locked' : ''}`
                       : '',
                   ),
+                  // A4: work it from here. Only where there *is* a door — an empty cell on every
+                  // other exit would suggest one could be added, and geometry is A8's.
+                  el('td', {}, exit.door ? doorControls(room.id, exit.dir, exit.door, reload) : ''),
                 ),
               ),
             ),

@@ -32,9 +32,9 @@ and restarting is the whole of "installing" a zone.
 
 ## State: green
 
-- **1,180 tests** (633 server, 462 shared, 85 worldgen), typecheck clean across all five packages.
+- **1,189 tests** (642 server, 462 shared, 85 worldgen), typecheck clean across all five packages.
   Four of the server's are `world.test.ts`'s, which **skip themselves when `data/world` is absent** —
-  a fresh clone or a new worktree reports 1,176 until `npm run worldgen` has run.
+  a fresh clone or a new worktree reports 1,185 until `npm run worldgen` has run.
 - `data/` is git-ignored and reproducible by `npm run worldgen` — **except `data/world/overrides/`**,
   which is hand-authored content no command can regenerate and is therefore the one thing under
   `data/` that git tracks. See `server/src/overrides.ts`.
@@ -139,6 +139,7 @@ and restarting is the whole of "installing" a zone.
 | Gear quality, where the roadmap asked for material | **Phase 16**, and the measurement changed the plan — see `ROADMAP.md`. Condition is `100` on **99.0%** of objects so it is not an axis; material is a **damage-resistance** row in `common.c` and we have no damage types, and it is already baked into `value[0]` anyway. **Craftsmanship** is what carries signal, and using it is a divergence: in Duris the 0–15 ladder does *nothing* — every mechanical use is commented out and it survives only as prose in `identify` — while the builders set it deliberately on a third of the world. Same call V6 made about colour. Thirds of a rung, ±2 against a base of 0–8; **thirds not quarters, because quarters leave only 1.3% of the world below average**. 2,088 armour pieces moved, 1,834 up and 254 down; an earring of mist made by a master artisan went +5 to +7, and the panel's row says so in Duris' own words |
 | What you are hauling slows you down | **Phase 16.** `load_modifier` (`actmove.c:79`) transcribed: ten bands from **75** under a tenth full to **300** past 95%, widening as they climb so the *last* thing you pick up costs far more than the first. The bottom band being *below* 100 is Duris' and is the good part — travelling light is a choice, not the absence of a penalty. **Where it is applied is ours and the source says so**: Duris uses this for combat (`fight.c:6414`) and for the prose that makes somebody *"stagger in"*, and charges movement flat. Load counts **worn bulk as well as bag bulk** against the bag's capacity, which looks lopsided and is the point — `DESIGN-inventory.md` §6 puts worn gear outside *capacity* because what you have on is not luggage, and says nothing about *effort*. Mobs are never encumbered: their kit is loot they never chose. Driven: the same field step cost **3 unburdened and 6 loaded** |
 | Water you cannot wade into | **Phase 16**, and `SECTOR_REQUIRES_MOVEMENT`'s first caller after five phases on the inert list. Deep water and underwater want `swim`, air and astral want `fly`, and nothing grants either yet — both are Phase 19/20 — so today it is a wall that **says which wall it is** rather than an exit that silently fails. Refused **before stamina is charged**, because being unable to enter deep water is a different no from being too tired and paying for a step you were never going to take would drain the pool of somebody standing on a riverbank pressing east. Driven by making a room deep water through **A5's own authoring**, with no restart: the step was refused, the pool did not move, and every other exit still worked |
+| Setting the world up without restarting it | **A4**, and the mob-testing loop every later phase wants. **Live instances, not templates** — Zones says what a zone is *authored* to hold, the Mobs section says what is standing in it, and two sentinel privates of one vnum carry 1,182 and 1,274 hit points because the roll is per instance. Every row has an **entity id**, protocol 11's argument again: a keyword cannot say *which*. **Slay runs `resolveDeath`**, so the body leaves a corpse holding what it carried and the room is told — an admin kill that made a mob vanish would exercise a path the game does not have, and watching the real one is the whole point; nobody is paid experience or coin because nobody hurt it. **Repop passes `runReset`'s `force` flag**, which had existed since Phase 8 with boot as its only caller, and stays additive: the first press reported *+5 mobs, 97 at limit*, the second *+0, 98* — the per-vnum world-wide limit doing its job, which is what makes the button safe to hand somebody. **A door is worked at both ends** through `world.doorway`, since a doorway shut from one side only is a wall from the other, with `closed` and `locked` set independently because `LOCKS_HOLD` is off and testing the day it bites needs them apart. `admin/src/sections/mobs.ts`; doors and Repop live on the Zones page beside what they act on |
 | Operator messaging | World, a Place, or one room — one endpoint with an optional target, reporting how many heard it. On the **`announce`** channel (protocol 10), a person's voice styled apart from the machine's. A room line is **not** sight-gated: it comes from outside the world |
 
 ### Not built
@@ -317,20 +318,23 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-### Start here — round 6 (A7c and Phase 16 landed 2026-08-05)
+### Start here — round 6 is closed (2026-08-05)
 
-Round 5 closed with item authoring and item art. **Round 6's V and M slots are both done** — A7c the
-art picker, and **Phase 16 complete**: light from what you hold, craftsmanship on AC, encumbrance,
-and water you cannot wade into. One job left in the round:
+Round 5 closed with item authoring and item art. **Round 6 is now complete on all three tracks** —
+A7c the art picker, **Phase 16** (light from what you hold, craftsmanship on AC, encumbrance, water
+you cannot wade into), and **A4** (repop, doors, live mob instances, slay, spawn).
 
-1. **A4, then A4c.** Force a repop, work a door, list live mob instances, slay one, spawn one — the
-   mob-testing loop. `POST /players/:slug/give` was written with A4 in mind and is reusable as-is.
-   **A4c** (owner, 2026-08-04: *"assign items to mobs as loot"*) needs a mob overlay first, the same
-   shape `items-authored.json` gave items.
+Round 7's slate, per the cadence table: **V3 speech in the world**, then **V4 Places as a graph**;
+**Phase 17 containers, money and shops**; **A8 zone geometry**. Two smaller things are unblocked and
+cheaper than any of them:
 
-**A7d** — bag and floor icons, retiring the procedural placeholder — is the other half of A7 and is
-now the cheapest thing on the board: `artThumb` in `admin/src/artpicker.ts` already crops a frame out
-of a staged sheet, and the ULPC definitions carry `preview_row`/`preview_column` for exactly this.
+1. **A7d — bag and floor icons**, the other half of A7 and the cheapest thing on the board:
+   `artThumb` in `admin/src/artpicker.ts` already crops a frame out of a staged sheet, and the ULPC
+   definitions carry `preview_row`/`preview_column` for exactly this.
+2. **A4c — loot on a mob** (owner, 2026-08-04: *"assign items to mobs as loot"*). A4 built the live
+   half; this is the authoring half and needs a **mob overlay** first, the same shape
+   `items-authored.json` gave items. Note the thing to say out loud before building it: kit is per
+   *template*, not per instance, so authoring it changes every kobold guard the world spawns.
 
 **One loose end left, not blocking.** The newbie spawn room (41260) still holds a level-23 kobold
 shaman that answers to `kobold`; it is passive, so the hazard is a level-1's first `kill kobold`, not
@@ -343,7 +347,7 @@ the gotchas below — every field of a persisted shape needs a reader line and a
 test — and it deserves that pass rather than a line here.
 
 **Nineteen of 25 phases done — Acts I–IV complete, Act V under way (15 ✅, 16 ✅).** Track A
-has landed A2, A3, A4b, A5, A6, A6b, A7a and A7b; what is left there is A4, A4c, A7c, A7d and A8.
+has landed A2, A3, A4, A4b, A5, A6, A6b, A7a, A7b and A7c; what is left there is A4c, A7d and A8.
 Track V has V1, V2 and V6, with V3, V4 and V5 outstanding. Round 1 is complete: **V1 the combat feed** (the `combat` channel now
 renders *only* in its own section of the character pane — the owner's split: prose and speech on the
 left, violence on the right) and **Phase 14, mercy and fear**.

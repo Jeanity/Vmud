@@ -11,6 +11,7 @@ import { el, render } from './dom.ts';
 import { dashboardSection } from './sections/dashboard.ts';
 import { messagingSection } from './sections/messaging.ts';
 import { itemsSection } from './sections/items.ts';
+import { mobsSection } from './sections/mobs.ts';
 import { playersSection } from './sections/players.ts';
 import { worldSection } from './sections/world.ts';
 import { zonesSection } from './sections/zones.ts';
@@ -32,10 +33,7 @@ const SECTIONS: Section[] = [
   messagingSection,
   worldSection,
   zonesSection,
-  stubSection('mobs', 'Mobs', 'A4', [
-    'Live: instances by zone, slay, spawn from a harvested template.',
-    'Authoring: template overrides (name, level, combat numbers, aggression) as overlay files over data/world/spawns/.',
-  ]),
+  mobsSection,
   itemsSection,
   stubSection('quests', 'Quests', 'Phase 17', [
     'Nothing exists to edit — quests are Phase 17. This tab exists so the panel’s shape is the plan’s shape.',

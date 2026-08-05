@@ -20,6 +20,7 @@ import {
   boundsOf,
   type ItemTemplate,
   type Room,
+  type RoomId,
   type Zone,
 } from '@mygame/shared';
 
@@ -93,7 +94,7 @@ interface Rig {
   scopes: AnnounceScope[];
 }
 
-function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string; itemOverridesFile?: string } = {}): Rig {
+function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string; itemOverridesFile?: string; noPopulation?: boolean } = {}): Rig {
   const dir = mkdtempSync(join(tmpdir(), 'mygame-admin-'));
   const store = new PlayerStore({ dir });
   const world = new GameWorld([testZone()], { zone: 600, room: null });
@@ -119,8 +120,49 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
   const pristineItems = new Map<number, ItemTemplate>();
   const authored: AuthoredStore = { items: new Map(), next: AUTHORED_VNUM_BASE };
 
+  // A4's live half. Real enough to exercise the router's validation and its refusals, which is all
+  // that lives on this side of the seam: the world-touching half is `index.ts`'s and is driven rather
+  // than unit-tested, exactly as `giveItem` and the teleport are.
+  // Keyed on **600**, the zone this rig's world actually has: the router checks `world.zone()` before
+  // it asks the live ops anything, so a fixture registered under an id the world does not know would
+  // only ever exercise the 404.
+  const zoneMobs = new Map<number, { id: number; vnum: number; name: string; level: number; hp: number; maxHp: number; room: RoomId; roomName: string; status: string }[]>([
+    [600, [
+      { id: 700, vnum: 61, name: 'a kobold guard', level: 8, hp: 40, maxHp: 55, room: 6001 as RoomId, roomName: 'A Mossy Hollow', status: 'standing' },
+      { id: 701, vnum: 61, name: 'a kobold guard', level: 8, hp: 55, maxHp: 55, room: 6001 as RoomId, roomName: 'A Mossy Hollow', status: 'standing' },
+    ]],
+  ]);
+  const doors = new Map<string, { name: string; closed: boolean; locked: boolean }>([
+    ['6001:north', { name: 'a rusted gate', closed: true, locked: false }],
+  ]);
+
   const live: LiveOps = {
     online: () => players,
+    // `noPopulation` is how the 409 branch gets exercised: a zone the world *has* but that carries no
+    // population file will never repop, and that is a different answer from a zone that does not exist.
+    repopZone: (zone) =>
+      zone === 600 && !options.noPopulation ? { spawned: 2, doors: 1, objects: 3, atLimit: 1 } : undefined,
+    workDoor: (room, dir, next) => {
+      const door = doors.get(`${room}:${dir}`);
+      if (!door) return { error: `there is no door ${dir} of room ${room}` };
+      if (next.closed !== undefined) door.closed = next.closed;
+      if (next.locked !== undefined) door.locked = next.locked;
+      return { ...door };
+    },
+    mobsIn: (zone) => zoneMobs.get(zone) ?? [],
+    slayMob: (id) => {
+      for (const list of zoneMobs.values()) {
+        const at = list.findIndex((m) => m.id === id);
+        if (at >= 0) return { name: list.splice(at, 1)[0]!.name };
+      }
+      return undefined;
+    },
+    spawnMob: (vnum) =>
+      vnum === 61 ? { id: 999, name: 'a kobold guard' } : { error: `no mob ${vnum} in the loaded templates` },
+    mobTemplates: () => [
+      { vnum: 61, name: 'a kobold guard', level: 8, keywords: ['kobold', 'guard'] },
+      { vnum: 62, name: '&+ya kobold shaman&N', level: 23, keywords: ['kobold', 'shaman'] },
+    ],
     itemOverrides: () => itemOverrides,
     authorItem: (vnum, next, clearedKeys) => {
       const current = items.get(vnum);
@@ -1083,5 +1125,110 @@ describe('creating an item — A6b', () => {
     const { api, players } = makeRig();
     players.push(fakePlayer('Ravi'));
     assert.equal(api.route(req('POST', '/players/ravi/give', { vnum: 424242 })).status, 404);
+  });
+});
+
+describe('zones and mobs, live — A4', () => {
+  it('forces a repop and reports what it did', () => {
+    const { api } = makeRig();
+    const done = api.route(req('POST', '/zones/600/repop'));
+    assert.equal(done.status, 200);
+    assert.deepEqual(done.body, { ok: true, zone: 600, spawned: 2, doors: 1, objects: 3, atLimit: 1 });
+
+    // A zone the world *has* but that carries no population file will never repop, and that is a
+    // **refusal with a reason** rather than a cheerful zero: "0 mobs appeared" reads as a broken
+    // button rather than as a fact about the zone. A different answer again from a zone that does
+    // not exist, which is the test below.
+    const empty = makeRig({ noPopulation: true }).api.route(req('POST', '/zones/600/repop'));
+    assert.equal(empty.status, 409);
+    assert.match(String((empty.body as { error: string }).error), /geometry only/);
+  });
+
+  it('404s a zone this server never loaded, before it asks the world to repop it', () => {
+    const { api } = makeRig();
+    assert.equal(api.route(req('POST', '/zones/999/repop')).status, 404);
+  });
+
+  it('lists live instances rather than templates, with an entity id on every row', () => {
+    // The distinction the whole section rests on: the Zones browser says what a zone is *authored* to
+    // contain, this says what is standing in it. Two kobold guards of one vnum, one of them wounded —
+    // and only the id can tell them apart, which is protocol 11's argument all over again.
+    const { api } = makeRig();
+    const body = api.route(req('GET', '/zones/600/mobs')).body as { total: number; mobs: { id: number; vnum: number; hp: number }[] };
+    assert.equal(body.total, 2);
+    assert.deepEqual(body.mobs.map((m) => m.id), [700, 701]);
+    assert.equal(new Set(body.mobs.map((m) => m.vnum)).size, 1, 'same vnum');
+    assert.notEqual(body.mobs[0]!.hp, body.mobs[1]!.hp, 'different bodies');
+  });
+
+  it('slays one instance by id and stops finding it', () => {
+    const { api } = makeRig();
+    const slain = api.route(req('DELETE', '/mobs/700'));
+    assert.equal(slain.status, 200);
+    assert.equal((slain.body as { name: string }).name, 'a kobold guard');
+
+    const left = api.route(req('GET', '/zones/600/mobs')).body as { mobs: { id: number }[] };
+    assert.deepEqual(left.mobs.map((m) => m.id), [701], 'and it took the right twin');
+
+    // Gone rather than refused: an id that named a mob a second ago and does not now is a thing that
+    // died, and the panel's list is simply stale.
+    assert.equal(api.route(req('DELETE', '/mobs/700')).status, 404);
+  });
+
+  it('spawns from a harvested template and refuses a vnum with no record', () => {
+    const { api } = makeRig();
+    const made = api.route(req('POST', '/mobs', { vnum: 61, room: 6001 }));
+    assert.equal(made.status, 201);
+    assert.equal((made.body as { id: number }).id, 999);
+
+    const refused = api.route(req('POST', '/mobs', { vnum: 4242, room: 6001 }));
+    assert.equal(refused.status, 400);
+    assert.match(String((refused.body as { error: string }).error), /no mob 4242/);
+  });
+
+  it('refuses a spawn into a room the world does not have, before it reaches the simulation', () => {
+    const { api } = makeRig();
+    assert.equal(api.route(req('POST', '/mobs', { vnum: 61, room: 99999 })).status, 404);
+    assert.equal(api.route(req('POST', '/mobs', { vnum: 61 })).status, 400, 'and a spawn with no room at all');
+  });
+
+  it('searches templates on keyword, vnum and the name with colour stripped', () => {
+    const { api } = makeRig();
+    const search = (q: string): number[] =>
+      (api.route({ ...req('GET', '/mobs'), query: { q } }).body as { mobs: { vnum: number }[] }).mobs.map((m) => m.vnum);
+    assert.deepEqual(search('guard'), [61], 'authored keyword');
+    assert.deepEqual(search('62'), [62], 'exact vnum');
+    // `&+ya kobold shaman&N` — matched with the codes stripped, or a builder's colour hides the mob.
+    assert.deepEqual(search('a kobold shaman'), [62]);
+    assert.deepEqual(search('kobold'), [61, 62]);
+  });
+
+  it('works a door, and refuses a change that changes nothing', () => {
+    const { api } = makeRig();
+    const opened = api.route(req('POST', '/rooms/6001/door', { dir: 'north', closed: false }));
+    assert.equal(opened.status, 200);
+    assert.deepEqual((opened.body as { door: unknown }).door, { name: 'a rusted gate', closed: false, locked: false });
+
+    // Independent flags, because they are independent in the world: LOCKS_HOLD is off, so a locked
+    // door still opens, and testing the day it goes on needs them settable apart.
+    const locked = api.route(req('POST', '/rooms/6001/door', { locked: true, dir: 'north' }));
+    assert.deepEqual((locked.body as { door: { closed: boolean; locked: boolean } }).door, { name: 'a rusted gate', closed: false, locked: true });
+
+    // A request that changes nothing and reports success is indistinguishable from one that failed.
+    assert.equal(api.route(req('POST', '/rooms/6001/door', { dir: 'north' })).status, 400);
+    assert.equal(api.route(req('POST', '/rooms/6001/door', { dir: 'sideways', closed: true })).status, 400);
+    assert.equal(api.route(req('POST', '/rooms/6001/door', { dir: 'south', closed: true })).status, 404, 'no door that way');
+  });
+
+  it('audits every one of them, because they all change the world', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mygame-audit-'));
+    const auditFile = join(dir, 'audit.jsonl');
+    const { api } = makeRig({ auditFile });
+    api.route(req('POST', '/mobs', { vnum: 61, room: 6001 }));
+    api.route(req('DELETE', '/mobs/701'));
+    api.route(req('POST', '/rooms/6001/door', { dir: 'north', closed: true }));
+
+    const actions = readFileSync(auditFile, 'utf8').trim().split('\n').map((l) => (JSON.parse(l) as { action: string }).action);
+    assert.deepEqual(actions, ['mob.spawn', 'mob.slay', 'door.work']);
   });
 });

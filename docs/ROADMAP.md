@@ -91,7 +91,7 @@ a new idea still answers the three questions; its second question now also picks
 | **3 ✅** | V6 — the world in its own colours ✅ | Phase 14b — a character worth keeping ✅ | A4b — the zone map ✅, then A5 — authoring ✅ |
 | 4 | V3 — speech in the world | Phase 15 — inventory and worn equipment ✅ | A4 — zones and mobs, live ops |
 | **5 ✅** | A7a/A7b — item art becomes data ✅ *(took the V slot: it is presentation of things that already exist)* | Phase 16 — gear that matters (16a bands ✅, 16c mob armour ✅) | A6 — items ✅, A6b — items you make yourself ✅ |
-| **6 — under way** | A7c — the art picker ✅, then A7d — bag and floor icons | Phase 16 ✅ — light from what you hold, craftsmanship on AC, encumbrance, water you cannot wade | A4 — mobs live, then A4c — their loot |
+| **6 — under way** | A7c — the art picker ✅, then A7d — bag and floor icons | Phase 16 ✅ — light from what you hold, craftsmanship on AC, encumbrance, water you cannot wade | A4 ✅ — mobs live, then A4c — their loot |
 | 7 | V3 — speech in the world, then V4 — Places as a graph | Phase 17 — containers, money and shops | A8 — zone geometry |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
@@ -1267,8 +1267,27 @@ order.
   **Read-only, and §1 is the reason rather than the effort.** The base data is generated, so an edit
   here would be lost by the next `npm run worldgen`. Authoring lands in A5 as overlay files that
   survive a rebuild.
-- **A4 — Zones and mobs, live ops.** Force a repop, work a door; live mob instances by zone, slay,
-  spawn from a harvested template. The mob-testing loop Phase 14's morale work will want.
+- **A4 — Zones and mobs, live ops** ✅ **done 2026-08-05.** Force a repop, work a door; live mob
+  instances by zone, slay, spawn from a harvested template.
+  **Seen when:** you can set the world up for a test without restarting the server ✅ — slew a
+  sentinel private from the panel and watched the count go 92 → 91, forced IceCrag's repop and the
+  button reported *"+5 mobs, 97 at limit"*, opened and shut a door and saw both ends agree.
+
+  **Instances, not templates, and that is why it is its own section.** Zones says what a zone is
+  *authored* to contain; this says what is standing in it — two sentinel privates of vnum 97022 with
+  1,182 and 1,274 hit points, because the roll is per instance. Every row carries an **entity id**,
+  the same argument protocol 11 made for clicking a body: a keyword cannot say *which*.
+
+  Three things the implementation is deliberate about. **Slay runs `resolveDeath`**, so the body
+  leaves a corpse holding what it carried and the room is told — an admin kill that made a mob vanish
+  would exercise a path the game does not have, and watching the real one is the point. Nobody is
+  paid experience or coin, because nobody hurt it. **Repop passes `runReset`'s `force` flag**, which
+  has existed since Phase 8 with boot as its only caller, and it is additive exactly as the timed one
+  is: the second press reported **+0 mobs, 98 at limit**, which is the per-vnum world-wide limit
+  doing its job and what makes the button safe to hand an operator. **A door is worked at both ends**
+  through `world.doorway`, because a doorway shut from one side only is a wall from the other; and
+  `closed` and `locked` are set independently, since `LOCKS_HOLD` is off and testing the day it goes
+  on needs them apart.
 - **A4b — The zone map** ✅ **done 2026-08-02, owner-requested.** A *spatial* view of one level of a
   zone: a cell per room at its own `pos.x, pos.y`, exits as the lines between them, colour by
   sector, flags and live occupants as marks, click a cell to select. `admin/src/zonemap.ts`.

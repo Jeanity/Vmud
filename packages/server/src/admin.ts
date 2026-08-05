@@ -36,6 +36,7 @@ import {
   SECTORS,
   UNLIMITED_DURATION,
   newAffect,
+  parseDirection,
   placeKey,
   stripColour,
   type Dice,
@@ -138,6 +139,83 @@ export interface LiveOps {
     readonly mobs: readonly string[];
     readonly corpses: readonly string[];
   };
+
+  /* ---- A4: zones and mobs, live ------------------------------------------ */
+
+  /**
+   * Runs a zone's reset **now** and re-arms its clock, returning what it did.
+   *
+   * `runReset` has taken a `force` flag since Phase 8 and only boot has ever passed it — this is the
+   * second caller, and forcing matters for a reason beyond impatience (§4.9): on a *timed* reset an
+   * `M` command below 100% never fires at all, so a forced pass is the only time a percentage is
+   * consulted. Nothing in the shipped world is below 100 today; the day one arrives, the tester needs
+   * the path that reads it.
+   *
+   * **Additive, exactly as the timed one is.** Nothing despawns, and the per-vnum world-wide limits
+   * still hold, so hammering this does not fill a zone — which is what makes it safe to give an
+   * operator a button for. Undefined for a zone with no population file.
+   */
+  repopZone(zone: ZoneId): { readonly spawned: number; readonly doors: number; readonly objects: number; readonly atLimit: number } | undefined;
+
+  /**
+   * Opens, shuts or locks a door, from the operator's side rather than a character's.
+   *
+   * **Both ends, always** — `world.doorway()` exists precisely because a doorway worked from one side
+   * only is a wall from the other, and the 5 exits in the shipped world that face a door without
+   * declaring one share the carved strip with the side that does.
+   *
+   * Not routed through `do_open`: that checks reach, position and whether the character has a key,
+   * and an operator has none of those things. The refusals it *does* keep are the ones about the
+   * world rather than the actor — there has to be a door there at all.
+   */
+  workDoor(room: RoomId, dir: string, next: { readonly closed?: boolean; readonly locked?: boolean }):
+    | { readonly name: string; readonly closed: boolean; readonly locked: boolean }
+    | { readonly error: string };
+
+  /**
+   * Every live mob in a zone, as instances rather than as templates.
+   *
+   * The distinction is the whole point of the section: the Zones browser lists what a zone is
+   * *authored* to contain, and this lists what is standing in it right now — three kobold guards of
+   * one vnum, two of them wounded, one of them chasing somebody. An **entity id** on every row,
+   * because that is the only thing that says *which*, exactly as protocol 11 argued for the target
+   * menu.
+   */
+  mobsIn(zone: ZoneId): readonly {
+    readonly id: number;
+    readonly vnum: number;
+    readonly name: string;
+    readonly level: number;
+    readonly hp: number;
+    readonly maxHp: number;
+    readonly room: RoomId;
+    readonly roomName: string;
+    readonly status: string;
+    /** The entity id it is fighting, when it is in a fight. */
+    readonly fighting?: number;
+  }[];
+
+  /**
+   * Kills one mob by entity id, through the game's own death path.
+   *
+   * **Through `resolveDeath`, not by deleting it**, so it leaves a corpse holding what it carried,
+   * pays out no experience to nobody, and tells the room. An admin slay that made a body vanish would
+   * be testing a code path the game does not have — and the mob-testing loop exists to watch the real
+   * one.
+   */
+  slayMob(id: number): { readonly name: string } | undefined;
+
+  /**
+   * Puts one instance of a harvested template into a room.
+   *
+   * The vnum is the mob's own, the same join key everything else uses. Refuses a template this server
+   * did not load rather than inventing one: a spawn table names mobs by number and a number with no
+   * record behind it is a typo, not a request.
+   */
+  spawnMob(vnum: number, room: RoomId): { readonly id: number; readonly name: string } | { readonly error: string };
+
+  /** Every harvested mob template, for the spawn picker. Searched rather than listed, like items. */
+  mobTemplates(): readonly { readonly vnum: number; readonly name: string; readonly level: number; readonly keywords: readonly string[] }[];
 
   /** The operator switches as they currently stand. See `settings.ts`. */
   settings(): WorldSettings;
@@ -363,6 +441,24 @@ export class AdminApi {
     if (head === 'zones' && slug !== undefined && action === 'rooms' && parts.length === 3 && request.method === 'GET') {
       return this.zoneRooms(slug);
     }
+    // A4. Zone-scoped live ops: what is standing in it, and making it repop.
+    if (head === 'zones' && slug !== undefined && action === 'mobs' && parts.length === 3 && request.method === 'GET') {
+      return this.zoneMobs(slug);
+    }
+    if (head === 'zones' && slug !== undefined && action === 'repop' && parts.length === 3 && request.method === 'POST') {
+      return this.repop(slug);
+    }
+    // A4. `/mobs` is the template catalogue (a read, searched) and `/mobs/:id` one live instance.
+    if (head === 'mobs' && parts.length === 1 && request.method === 'GET') return this.mobs(request.query);
+    if (head === 'mobs' && parts.length === 1 && request.method === 'POST') return this.spawnMob(request.body);
+    if (head === 'mobs' && slug !== undefined && parts.length === 2 && request.method === 'DELETE') {
+      return this.slayMob(slug);
+    }
+    // A4. A door is named by the room it is in and the way it faces — not by an id, because it has
+    // none: a doorway is two exits, and `world.doorway` is what keeps the two ends in step.
+    if (head === 'rooms' && slug !== undefined && action === 'door' && parts.length === 3 && request.method === 'POST') {
+      return this.workDoor(slug, request.body);
+    }
     if (head === 'rooms' && slug !== undefined && parts.length === 2) {
       if (request.method === 'GET') return this.room(slug);
       if (request.method === 'PATCH') return this.authorRoom(slug, request.body);
@@ -553,6 +649,134 @@ export class AdminApi {
         (!term || a.id.includes(term) || a.name.toLowerCase().includes(term) || a.kind.includes(term)),
     );
     return { status: 200, body: { total: LPC_ART.length, art: matches } };
+  }
+
+  /* ------------------------------------------------------------------------ */
+  /* A4 — zones and mobs, live                                                 */
+  /* ------------------------------------------------------------------------ */
+
+  /** `GET /zones/:id/mobs` — what is standing in the zone this instant, not what it is authored to hold. */
+  private zoneMobs(slug: string): AdminResponse {
+    const zone = Number(slug);
+    if (!Number.isInteger(zone) || !this.deps.world.zone(zone)) {
+      return { status: 404, body: { error: `no zone ${slug} in the loaded world` } };
+    }
+    const mobs = this.deps.live.mobsIn(zone);
+    return { status: 200, body: { zone, total: mobs.length, mobs } };
+  }
+
+  /**
+   * `POST /zones/:id/repop` — run the reset now.
+   *
+   * **Audited like every other mutation, and announced to nobody.** A repop is not a message: things
+   * appear where they appear and whoever is standing there is told by the ordinary presence path. An
+   * operator announcement would be telling the world that the world was edited.
+   */
+  private repop(slug: string): AdminResponse {
+    const zone = Number(slug);
+    if (!Number.isInteger(zone) || !this.deps.world.zone(zone)) {
+      return { status: 404, body: { error: `no zone ${slug} in the loaded world` } };
+    }
+    const outcome = this.deps.live.repopZone(zone);
+    if (!outcome) {
+      // A refusal with the reason, not a silent zero: a zone with no population file will *never*
+      // repop, and "0 mobs appeared" reads as a bug in the button rather than a fact about the zone.
+      return { status: 409, body: { error: `zone ${zone} has no population file — it is geometry only` } };
+    }
+    this.audit('zone.repop', { zone, ...outcome });
+    return { status: 200, body: { ok: true, zone, ...outcome } };
+  }
+
+  /**
+   * `GET /mobs?q=` — the harvested templates, searched.
+   *
+   * Same shape as the item catalogue's search and for the same reason: it is a list nobody should be
+   * asked to scroll. Matched on the authored keyword list and the name with colour stripped, exactly
+   * as `itemMatches` does, because a mob's name carries the builder's codes too.
+   */
+  private mobs(query: Readonly<Record<string, string>> | undefined): AdminResponse {
+    const term = (query?.['q'] ?? '').trim().toLowerCase();
+    const limit = Math.max(1, Math.min(200, Number(query?.['limit'] ?? 50) || 50));
+    const all = this.deps.live.mobTemplates();
+    const matches = all.filter(
+      (m) =>
+        !term ||
+        String(m.vnum) === term ||
+        m.keywords.some((w) => w.toLowerCase().includes(term)) ||
+        stripColour(m.name).toLowerCase().includes(term),
+    );
+    return { status: 200, body: { total: matches.length, catalogue: all.length, mobs: matches.slice(0, limit) } };
+  }
+
+  /** `POST /mobs` — put one instance of a template in a room. */
+  private spawnMob(body: unknown): AdminResponse {
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return { status: 400, body: { error: 'POST body must be a JSON object' } };
+    }
+    const raw = body as { vnum?: unknown; room?: unknown };
+    if (typeof raw.vnum !== 'number' || !Number.isInteger(raw.vnum)) {
+      return { status: 400, body: { error: 'vnum must be an integer — a mob is named by its number' } };
+    }
+    if (typeof raw.room !== 'number' || !Number.isInteger(raw.room)) {
+      return { status: 400, body: { error: 'room must be a room id' } };
+    }
+    const located = this.deps.world.locate(raw.room as RoomId);
+    if (!located) return { status: 404, body: { error: `no room ${raw.room} in the loaded world` } };
+
+    const made = this.deps.live.spawnMob(raw.vnum, raw.room as RoomId);
+    if ('error' in made) return { status: 400, body: { error: made.error } };
+    this.audit('mob.spawn', { vnum: raw.vnum, room: raw.room, id: made.id });
+    return { status: 201, body: { ok: true, ...made, room: raw.room } };
+  }
+
+  /** `DELETE /mobs/:id` — kill one live instance, through the game's own death path. */
+  private slayMob(slug: string): AdminResponse {
+    const id = Number(slug);
+    if (!Number.isInteger(id)) return { status: 400, body: { error: `"${slug}" is not an entity id` } };
+    const slain = this.deps.live.slayMob(id);
+    // 404 rather than 409: an id that named a mob a second ago and does not now is a thing that
+    // *died*, and the panel's list is simply stale. Saying "gone" is the truthful answer to both.
+    if (!slain) return { status: 404, body: { error: `no live mob with entity id ${id}` } };
+    this.audit('mob.slay', { id, name: stripColour(slain.name) });
+    return { status: 200, body: { ok: true, ...slain } };
+  }
+
+  /**
+   * `POST /rooms/:id/door` — open, shut or lock a doorway.
+   *
+   * `closed` and `locked` are independent and both optional, because they are independent in the
+   * world: `LOCKS_HOLD` is off, so a locked door still opens, and an operator testing the day it goes
+   * on needs to be able to set them apart. Sending neither is refused rather than treated as a no-op,
+   * for the reason `authorItem` refuses an empty patch — a request that changes nothing and reports
+   * success is indistinguishable from one that failed.
+   */
+  private workDoor(slug: string, body: unknown): AdminResponse {
+    const room = Number(slug);
+    if (!Number.isInteger(room)) return { status: 400, body: { error: `"${slug}" is not a room id` } };
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return { status: 400, body: { error: 'POST body must be a JSON object' } };
+    }
+    const raw = body as { dir?: unknown; closed?: unknown; locked?: unknown };
+    if (typeof raw.dir !== 'string' || !parseDirection(raw.dir)) {
+      return { status: 400, body: { error: 'dir must be a direction — north, east, south, west, up or down' } };
+    }
+    if (raw.closed !== undefined && typeof raw.closed !== 'boolean') {
+      return { status: 400, body: { error: 'closed must be true or false' } };
+    }
+    if (raw.locked !== undefined && typeof raw.locked !== 'boolean') {
+      return { status: 400, body: { error: 'locked must be true or false' } };
+    }
+    if (raw.closed === undefined && raw.locked === undefined) {
+      return { status: 400, body: { error: 'send closed, locked, or both — an empty change is not a change' } };
+    }
+
+    const worked = this.deps.live.workDoor(room as RoomId, raw.dir, {
+      ...(raw.closed === undefined ? {} : { closed: raw.closed }),
+      ...(raw.locked === undefined ? {} : { locked: raw.locked }),
+    });
+    if ('error' in worked) return { status: 404, body: { error: worked.error } };
+    this.audit('door.work', { room, dir: raw.dir, closed: worked.closed, locked: worked.locked });
+    return { status: 200, body: { ok: true, room, dir: raw.dir, door: worked } };
   }
 
   /** One item, whole. The row is a summary; this is every harvested field. */
