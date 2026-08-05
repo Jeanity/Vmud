@@ -26,6 +26,7 @@ import {
   type SpawnBuildStats,
 } from './mobs.ts';
 import { buildCatalogue } from './objects.ts';
+import { loadShops } from './shops.ts';
 import { loadWorld, type WorldgenStats } from './zmud.ts';
 
 /** What the catalogue turned out to be, for the build report. */
@@ -400,6 +401,27 @@ function main(): void {
     // Same posture as the rest of the Duris readers: the source tree is git-ignored and may not be
     // there. A world with no items is a poorer world, not a failed build.
     console.log('\nno item catalogue: %s', (err as Error).message);
+  }
+
+  // Shops — Phase 17. **Keyed by the keeper's mob vnum, not by room**, because that is the join the
+  // game actually makes: you walk up to a *mob* and ask what it sells, and a keeper that wanders is
+  // still the keeper. The `.shp` records name a room too and it is kept for reporting only.
+  //
+  // One file for the world, exactly as the catalogue is and for the same reason: a keeper vnum is a
+  // world-wide lookup, and splitting it by zone would mean searching every file to answer one id.
+  try {
+    const shops = [...loadShops(join(args.wld, '..', 'shp')).values()].sort((a, b) => a.keeper - b.keeper);
+    writeFileSync(join(args.out, 'shops.json'), JSON.stringify(shops));
+    const stocked = shops.filter((s) => s.sells.length > 0).length;
+    const buying = shops.filter((s) => s.buysTypes.length > 0).length;
+    console.log(
+      '\n  shops\n     %d keepers — %d with stock, %d that buy',
+      shops.length,
+      stocked,
+      buying,
+    );
+  } catch (err) {
+    console.log('\nno shops: %s', (err as Error).message);
   }
 
   // A light index so the server can list and lazily load zones without reading the whole world.
