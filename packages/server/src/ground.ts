@@ -40,12 +40,55 @@ import {
   type RoomId,
 } from '@mygame/shared';
 
+/**
+ * How long a dropped thing lies there before it goes.
+ *
+ * **Ours, and there is nothing to transcribe** — Duris does not decay dropped objects at all.
+ * `ITEM_TIMER` is bit 26 of `extra_flags` and `defines.h:125` says it is *"used chiefly to load/activate
+ * traps"*, while the `timer` `point_update` increments (`limits.c:1649`) is a **character** idle
+ * counter. So the number is a design decision, and the only honest anchor is our own corpse clock.
+ *
+ * Ten minutes sits deliberately between the two we already have: **twice a mob's corpse** (5 min),
+ * because you *chose* to put this down and that deserves more than something which merely fell, and
+ * **a third of a player's** (30 min), which is a disaster you are running back to rather than an
+ * errand you meant to return for.
+ *
+ * **The reason to have a clock at all is not tidiness.** `reset.ts` caps object instances world-wide
+ * and the census counts what is lying on floors and inside floor containers — so a room ankle-deep in
+ * discards quietly holds a zone's repop at its ceiling, and the sword nobody picked up is the reason
+ * the table upstairs has none. Clutter is the symptom; a zone that stops repopulating is the cost.
+ */
+export const GROUND_DECAY_MS = 10 * 60_000;
+
+/** How long before it goes that a dropped thing starts to look like it is going. */
+export const GROUND_WARN_MS = 60_000;
+
 /** One thing on the floor. */
 export interface GroundItem {
   readonly id: EntityId;
   readonly item: Item;
   readonly roomId: RoomId;
   readonly place: Place;
+  /**
+   * Milliseconds left before it goes — see {@link GROUND_DECAY_MS}.
+   *
+   * Mutable, like a corpse's, and for the same reason: the clock is *state* while everything else
+   * here is what the thing is. **Restarting on a pickup-and-drop is deliberate and costs nothing to
+   * defend**, because the floor is not persisted: a restart clears it entirely, so there is no
+   * long-lived object whose age a player could game. If `ground.ts` ever gains a save file, this is
+   * the line that has to be thought about again.
+   */
+  remainingMs: number;
+  /**
+   * How little time left counts as "starting to go".
+   *
+   * Per item rather than a bare constant so it can scale with a shortened clock: the shipped
+   * behaviour is the constant (ten minutes, warn at one), but `GAME_DEV_DECAY_MS=4000` would
+   * otherwise warn before the thing had finished landing. Half the clock, capped at the constant.
+   */
+  readonly warnAtMs: number;
+  /** Latched, so the warning is said once rather than every tick. */
+  warned: boolean;
   /** Where it lies, in room pixels — a dropped thing lands at your feet, not at the room's centre. */
   readonly x: number;
   readonly y: number;
@@ -84,6 +127,8 @@ export function dropItem(
   /** What it holds. Passed straight through, so putting a full quiver down and taking it back is a
    * round trip rather than a way to destroy arrows. */
   held?: Held,
+  /** How long it lies there. Defaults to the shipped clock; `GAME_DEV_DECAY_MS` shortens it. */
+  decayMs: number = GROUND_DECAY_MS,
 ): GroundItem {
   const dropped: GroundItem = {
     id: nextGroundId--,
@@ -92,12 +137,49 @@ export function dropItem(
     place: where.place,
     x: where.x,
     y: where.y,
+    remainingMs: decayMs,
+    warnAtMs: Math.min(GROUND_WARN_MS, decayMs / 2),
+    warned: false,
     // Only when there is something in it: an empty container on the floor is an ordinary object, and
     // writing an empty `contents` on every dropped dagger says nothing.
     ...(held && held.contents.length > 0 ? { held } : {}),
   };
   ground.set(dropped.id, dropped);
   return dropped;
+}
+
+export interface GroundEvent {
+  readonly entry: GroundItem;
+  readonly kind: 'fading' | 'gone';
+}
+
+/**
+ * Ages everything on the floor, and reports what changed.
+ *
+ * `advanceCorpses`' shape exactly, down to the latched warning — a countdown that announces itself
+ * every tick is a nag, and one that never announces itself is a thing that vanishes with no
+ * explanation while somebody is walking back for it.
+ *
+ * **A `gone` event carries what it held**, and the caller must decide what happens to a container's
+ * contents. The corpse rule is the precedent and points the same way: destroying what was inside
+ * because a player was slow is *"I came back and it was gone"*, which is the worse feeling. Spilling
+ * is not done here because this file has no view of the room.
+ */
+export function advanceGround(ground: Ground, elapsedMs: number): GroundEvent[] {
+  const events: GroundEvent[] = [];
+  for (const [id, entry] of ground) {
+    entry.remainingMs -= elapsedMs;
+    if (entry.remainingMs <= 0) {
+      ground.delete(id);
+      events.push({ entry, kind: 'gone' });
+      continue;
+    }
+    if (!entry.warned && entry.remainingMs <= entry.warnAtMs) {
+      entry.warned = true;
+      events.push({ entry, kind: 'fading' });
+    }
+  }
+  return events;
 }
 
 /** Takes it off the floor. Returns what was there, or nothing if somebody else got it first. */

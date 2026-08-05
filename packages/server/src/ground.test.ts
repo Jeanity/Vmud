@@ -4,6 +4,9 @@ import { beforeEach, describe, it } from 'node:test';
 import { TILE_SIZE, type Item, type Place, type RoomId } from '@mygame/shared';
 
 import {
+  GROUND_DECAY_MS,
+  GROUND_WARN_MS,
+  advanceGround,
   dropItem,
   groundSprite,
   groundViewOf,
@@ -179,5 +182,71 @@ describe('a container put down is still full', () => {
     const empty = { rule: { capacity: 30, accepts: 'any' } as const, contents: [] };
     assert.equal(dropItem(ground, item('sack'), at(0, 0), empty).held, undefined);
     assert.equal(dropItem(ground, item('dagger'), at(0, 0)).held, undefined);
+  });
+});
+
+/**
+ * The floor's clock — round 8, and the owner's ask: *"dropped items need to decay so we don't have
+ * rooms full of discarded items everywhere."*
+ *
+ * The reason it matters is not tidiness. `reset.ts` caps object instances world-wide and counts what
+ * is lying on floors, so a room of discards holds a zone's repop at its ceiling.
+ */
+describe('decay', () => {
+  it('gives a dropped thing the full clock, and takes it away when the clock runs out', () => {
+    const ground: Ground = new Map();
+    resetGroundIds();
+    const dropped = dropItem(ground, item('dagger'), at(0, 0));
+    assert.equal(dropped.remainingMs, GROUND_DECAY_MS);
+
+    assert.deepEqual(advanceGround(ground, 1000), [], 'nothing to say a second in');
+    assert.equal(ground.size, 1);
+
+    // One step past the end. Note it reports `gone` alone rather than warning on the way past: a
+    // thing that has already vanished has nothing to warn about, and a caller handed both would have
+    // to work out which of the two to render.
+    const events = advanceGround(ground, GROUND_DECAY_MS);
+    assert.deepEqual(events.map((e) => e.kind), ['gone']);
+    assert.equal(ground.size, 0, 'and it is off the floor');
+  });
+
+  it('warns once rather than every tick', () => {
+    const ground: Ground = new Map();
+    resetGroundIds();
+    dropItem(ground, item('dagger'), at(0, 0));
+
+    // Up to just short of the threshold, so the warning has not fired yet, then across it.
+    advanceGround(ground, GROUND_DECAY_MS - GROUND_WARN_MS - 100);
+    const first = advanceGround(ground, 200);
+    assert.deepEqual(first.map((e) => e.kind), ['fading']);
+    // A countdown that says so every tick is a nag; one that never says so is a thing that vanishes
+    // while somebody is walking back for it.
+    assert.deepEqual(advanceGround(ground, 100), []);
+  });
+
+  it('hands a gone container its contents, so the caller can spill them', () => {
+    const ground: Ground = new Map();
+    resetGroundIds();
+    const held = { rule: { capacity: 20, accepts: 'any' } as const, contents: [{ item: item('arrow'), count: 20 }] };
+    dropItem(ground, item('quiver'), at(0, 0), held);
+
+    const gone = advanceGround(ground, GROUND_DECAY_MS).find((e) => e.kind === 'gone');
+    assert.equal(gone?.entry.held?.contents[0]?.count, 20);
+  });
+
+  it('restarts the clock on a fresh drop, which the floor not being saved makes free', () => {
+    const ground: Ground = new Map();
+    resetGroundIds();
+    const first = dropItem(ground, item('dagger'), at(0, 0));
+    advanceGround(ground, GROUND_DECAY_MS / 2);
+    assert.ok(first.remainingMs < GROUND_DECAY_MS);
+
+    const taken = takeItem(ground, first.id);
+    assert.ok(taken);
+    const again = dropItem(ground, taken.item, at(0, 0));
+    // Nothing here is persisted, so a restart clears the floor outright — there is no long-lived
+    // object whose age this could be used to game. If `ground.ts` ever gains a save file, this is the
+    // line to think about again.
+    assert.equal(again.remainingMs, GROUND_DECAY_MS);
   });
 });

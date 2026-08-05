@@ -200,6 +200,8 @@ import {
   type Graveyard,
 } from './corpses.ts';
 import {
+  GROUND_DECAY_MS,
+  advanceGround,
   dropItem,
   dropSpotNear,
   groundViewOf,
@@ -479,6 +481,29 @@ const hunts = new Map<number, Hunt>();
 const DEV_LIGHT = process.env.GAME_DEV_LIGHT ? lightSource(process.env.GAME_DEV_LIGHT) : undefined;
 
 /**
+ * How long a dropped thing lies there, overridable for testing. Off unless `GAME_DEV_DECAY_MS` is set.
+ *
+ * The sibling of {@link DEV_LIGHT} and for exactly its reason: the shipped clock is ten minutes, and
+ * *watching* a thing decay — the warning, the line, the entity leaving every screen that held it —
+ * otherwise means sitting still for ten of them. `GAME_DEV_DECAY_MS=4000` makes it a thing you can
+ * see happen.
+ *
+ * **A rig, not a setting.** Like every other `GAME_DEV_*` switch it is default-off and announced at
+ * boot, so a server quietly running a five-second floor is not a state that can happen unnoticed. A
+ * value that is not a positive number is ignored rather than guessed at.
+ */
+const DEV_DECAY_MS = ((): number | undefined => {
+  const raw = process.env.GAME_DEV_DECAY_MS;
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.warn(`[dev] GAME_DEV_DECAY_MS=${raw} is not a positive number of milliseconds; ignored`);
+    return undefined;
+  }
+  return parsed;
+})();
+
+/**
  * A weapon handed to every character on join, for testing. Off unless `GAME_DEV_DAMAGE` is set.
  *
  * The sibling of {@link DEV_LIGHT} and for the same reason: IceCrag's weakest inhabitant has about 150
@@ -535,6 +560,9 @@ if (process.env.GAME_DEV_LIGHT && !DEV_LIGHT) {
   console.warn(`[dev] GAME_DEV_LIGHT="${process.env.GAME_DEV_LIGHT}" is not a light source id; ignoring`);
 } else if (DEV_LIGHT) {
   console.log(`[dev] every character joins carrying ${DEV_LIGHT.name} (GAME_DEV_LIGHT)`);
+}
+if (DEV_DECAY_MS !== undefined) {
+  console.log(`[dev] dropped things decay after ${DEV_DECAY_MS} ms rather than ${GROUND_DECAY_MS} (GAME_DEV_DECAY_MS)`);
 }
 
 /**
@@ -2995,6 +3023,31 @@ function runCommand(player: Player, line: string): void {
   const { word, rest } = splitCommand(line);
   if (!word) return;
 
+  // **The confirmation is intercepted before the command table, which is `interp.c:1343` exactly.**
+  // Putting `yes` and `no` in the table instead would be the obvious move and is wrong: `n` is north,
+  // and a table entry would either steal it or force the refusal onto some second-choice word. Read
+  // here, while an answer is actually pending, `n` means no and means north the rest of the time —
+  // and no key is taken from anybody.
+  const awaiting = pendingConfirm.get(player.id);
+  if (awaiting !== undefined) {
+    pendingConfirm.delete(player.id);
+    const first = word[0];
+    if (first === 'y') {
+      // Re-run the line that armed it, with the answer in hand. Re-resolving rather than acting on a
+      // stored reference is the point — see `pendingConfirm`.
+      const { rest: confirmedRest } = splitCommand(awaiting);
+      if (!permits(player, 'junk')) return;
+      junkFromBag(player, confirmedRest, true);
+      return;
+    }
+    send(player.id, { t: 'log', channel: 'system', text: 'Left alone.' });
+    // **And then fall through**, so the line still does whatever it says. Duris leaves the
+    // confirmation armed when the answer is neither yes nor no; this clears it, which is a deliberate
+    // divergence and the safer half of it — an armed destroy that survives ten minutes of play and
+    // then fires on a stray `y` is precisely the accident the owner asked for a confirmation to
+    // prevent. `n` still costs nothing: it cancels, and then walks you north.
+  }
+
   const command = lookupCommand(word);
   if (!command) {
     // The MUD's own answer, and it is the right one: it says "that is not a command" without
@@ -3050,6 +3103,8 @@ function runCommand(player: Player, line: string): void {
     }
     case 'put': return putInContainer(player, rest);
     case 'drop': return dropFromBag(player, rest);
+    // Never destroys on this pass: an unconfirmed junk arms the question and returns.
+    case 'junk': return junkFromBag(player, rest, false);
     case 'wear': return wearFromBag(player, rest);
     case 'wield': return wieldFromBag(player, rest);
     case 'remove': return removeWorn(player, rest);
@@ -3341,12 +3396,13 @@ function placeResetObjects(outcome: {
     const origin = located && world.grid(located.place)?.roomOrigins.get(room);
     if (!located || !origin) continue;
     const centre = roomCentre(origin);
-    const entry = dropItem(ground, instantiate(template), {
-      roomId: room,
-      place: located.place,
-      x: tileCentre(centre.tx),
-      y: tileCentre(centre.ty),
-    });
+    const entry = dropItem(
+      ground,
+      instantiate(template),
+      { roomId: room, place: located.place, x: tileCentre(centre.tx), y: tileCentre(centre.ty) },
+      undefined,
+      DEV_DECAY_MS,
+    );
     placed++;
     rooms.push(room);
     lastPlaced.set(template.vnum, entry.id);
@@ -4004,6 +4060,85 @@ function getFromContainer(player: Player, wanted: string, target: string): void 
   rememberProgress(player);
 }
 
+/**
+ * A command line waiting for a yes — the confirmation half of `junk`.
+ *
+ * **The whole line is kept, not the item it resolved to**, which is `interp.c`'s own shape
+ * (`strcpy(desc->last_command, argument)` at the arming site) and is the better of the two. Storing a
+ * resolved reference means acting on a decision made against a world that has since moved; re-running
+ * the line asks the question again, so a bag that changed between the ask and the answer produces an
+ * honest refusal rather than destroying whatever slid into that slot.
+ *
+ * Per connection rather than per character, exactly as Duris keeps it on the descriptor: it is a fact
+ * about a conversation, not about a person, and it must not survive a disconnect.
+ */
+const pendingConfirm = new Map<EntityId, string>();
+
+/**
+ * `junk <keyword>`: destroy something outright, once you have said so twice.
+ *
+ * Owner's ask (2026-08-05), and the source already had both halves of it —
+ * `CMD_CNF_N(CMD_JUNK, STAT_RESTING + POS_SITTING, do_junk, 56)` is *requires confirmation, and may
+ * not be used while fighting*. Even the prompt is transcribable: `do_junk` writes **"WARNING: JUNK
+ * permanently destroys the specified object(s)"** and offers `(Yes/No) [No]`, defaulting to no.
+ *
+ * **Why the verb exists at all when `drop` does.** Dropping is not disposal — Phase 15b put things on
+ * a real floor where they are still an entity, still visible, and still counted against their vnum's
+ * world-wide instance limit by the `O` reset census. Getting rid of something by dropping it makes it
+ * somebody else's problem and the zone's. This makes it nobody's.
+ */
+function junkFromBag(player: Player, rest: string, confirmed: boolean): void {
+  if (!rest.trim()) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Junk what?' });
+    return;
+  }
+  const index = matchInventory(player.inventory, rest, wordsFor);
+  if (index === -1) {
+    send(player.id, { t: 'log', channel: 'error', text: `You are not carrying ${rest}.` });
+    return;
+  }
+  const stack = player.inventory.stacks[index];
+  if (!stack) return;
+
+  if (!confirmed) {
+    // Armed, and the room is told nothing: deciding to destroy something is not yet an act.
+    pendingConfirm.set(player.id, `junk ${rest.trim()}`);
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text:
+        `Junking ${stack.item.name} destroys it permanently — it is not dropped, it is gone. ` +
+        `Type "yes" to confirm, or anything else to think better of it.`,
+    });
+    return;
+  }
+
+  const removed = removeAt(player.inventory, index);
+  if (!removed) return;
+  player.inventory = removed.inventory;
+
+  // **What was inside goes with it, and that is the one place this deliberately parts company with
+  // every other way a thing leaves your hands.** A corpse spills, a decaying container spills, a drop
+  // puts the whole quiver down still full — because in all three the player has not asked for the
+  // contents to stop existing. Here they have. Spilling a junked sack onto the floor would answer a
+  // request to destroy something by creating litter, which is the opposite of the verb.
+  const inside = stack.held?.contents ?? [];
+  const alsoGone = inside.reduce((sum, held) => sum + held.count, 0);
+
+  send(player.id, {
+    t: 'log',
+    channel: 'system',
+    text:
+      `You destroy ${stack.item.name}.` +
+      (alsoGone > 0 ? ` The ${alsoGone} thing${alsoGone === 1 ? '' : 's'} inside go with it.` : ''),
+  });
+  // The room sees the act but not the item: what somebody chose to throw away is their business, and
+  // naming it would let a bystander learn the contents of a bag they never looked in.
+  actToRoom(player, 'room', (who) => `${who} destroys something.`);
+  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+  rememberProgress(player);
+}
+
 /** `drop <keyword>`: put something down where you stand. */
 function dropFromBag(player: Player, rest: string): void {
   if (!rest.trim()) {
@@ -4039,6 +4174,7 @@ function dropFromBag(player: Player, rest: string): void {
     removed.item,
     { roomId: player.roomId, place: player.place, x: spot.x, y: spot.y },
     held,
+    DEV_DECAY_MS,
   );
 
   send(player.id, { t: 'log', channel: 'system', text: `You drop ${removed.item.name}.` });
@@ -5206,6 +5342,10 @@ wss.on('connection', (socket) => {
     sockets.delete(player.id);
     watching.delete(player.id);
     budgets.delete(player.id);
+    // A half-asked question does not survive the conversation it was asked in. Entity ids are
+    // reissued, so an armed junk left here would be inherited by whoever is handed this id next — and
+    // their first `y` would destroy something of theirs.
+    pendingConfirm.delete(player.id);
     sim.remove(player.id);
     // Every mob forgets them. `noticed` as well as the dwell timer, and that is not tidiness: entity ids are
     // reissued, so a mob that remembered id 7 would silently already know the next character handed it.
@@ -5369,12 +5509,13 @@ setInterval(() => {
       // first"*. Each thing lands where the corpse lay, so the pile is still findable.
       const spilled = event.corpse.contents;
       for (const item of spilled) {
-        dropItem(ground, item, {
-          roomId: event.corpse.roomId,
-          place: event.corpse.place,
-          x: event.corpse.x,
-          y: event.corpse.y,
-        });
+        dropItem(
+          ground,
+          item,
+          { roomId: event.corpse.roomId, place: event.corpse.place, x: event.corpse.x, y: event.corpse.y },
+          undefined,
+          DEV_DECAY_MS,
+        );
       }
       event.corpse.contents = [];
 
@@ -5402,6 +5543,58 @@ setInterval(() => {
         t: 'log',
         channel: 'room',
         text: `${capitalise(corpseName(event.corpse))} is beginning to rot away.`,
+      });
+    }
+  }
+
+
+  // Things lying on the floor, on the same clock and immediately after the corpses that spill onto
+  // it. The order matters by exactly one tick and is worth keeping straight: a corpse spilling this
+  // tick puts items down with a full clock, so nothing can be created and aged in the same pass.
+  for (const event of advanceGround(ground, TICK_MS)) {
+    if (event.kind === 'gone') {
+      // **A container spills rather than taking its contents with it** — the corpse rule, one store
+      // over, and for the same reason: destroying what was inside because nobody came back is the
+      // "I came back and it was gone" feeling rather than "somebody got there first". The spilled
+      // things land where the container lay and start their own clock.
+      // **One ground entry per *thing*, not per stack**, which is why the count is walked. Dropping a
+      // stack's worth as a single entry would destroy nineteen of twenty arrows — the exact silent
+      // loss `GroundItem.held` was added to stop, one level down. A stack carrying `held` always has
+      // `count: 1` (see `mergeable`), so a nested container cannot be duplicated by this loop.
+      const spilled = event.entry.held?.contents ?? [];
+      for (const stack of spilled) {
+        for (let i = 0; i < stack.count; i++) {
+          dropItem(
+            ground,
+            stack.item,
+            { roomId: event.entry.roomId, place: event.entry.place, x: event.entry.x, y: event.entry.y },
+            stack.held,
+            DEV_DECAY_MS,
+          );
+        }
+      }
+
+      for (const observer of sim.playersIn(event.entry.roomId)) {
+        if (!watching.get(observer.id)?.has(event.entry.id)) continue;
+        send(observer.id, { t: 'entityLeave', id: event.entry.id });
+        watching.get(observer.id)?.delete(event.entry.id);
+        send(observer.id, {
+          t: 'log',
+          channel: 'room',
+          text:
+            `${capitalise(stripColour(event.entry.item.name))} crumbles away` +
+            (spilled.length > 0 ? ', spilling what it held onto the ground.' : '.'),
+        });
+      }
+      if (spilled.length > 0) syncEntitiesIn(event.entry.roomId);
+      continue;
+    }
+    for (const observer of sim.playersIn(event.entry.roomId)) {
+      if (!watching.get(observer.id)?.has(event.entry.id)) continue;
+      send(observer.id, {
+        t: 'log',
+        channel: 'room',
+        text: `${capitalise(stripColour(event.entry.item.name))} is starting to fall apart.`,
       });
     }
   }

@@ -403,3 +403,26 @@ describe('whisper — owner-requested 2026-08-05', () => {
     assert.equal(COMMAND_REQUIREMENTS.whisper.inCombat, false, 'whisper is not');
   });
 });
+
+describe('junk — owner-requested 2026-08-05', () => {
+  it('lands on `j`, and moves nothing above it', () => {
+    // Nothing above starts with a `j`, so the shortest form reaches it. A single letter finding a
+    // destructive verb would be alarming anywhere else; here it is safe by construction, because
+    // `junk` never destroys anything on its own — it asks, and the answer is a second line.
+    assert.equal(lookupCommand('j'), 'junk');
+    assert.equal(lookupCommand('junk'), 'junk');
+    // And the movement keys are untouched, which is the one cost this table may never pay.
+    assert.equal(lookupCommand('n'), 'north');
+    assert.equal(lookupCommand('d'), 'down');
+  });
+
+  it('is refused in combat and needs you sitting, which is `CMD_CNF_N`’s other half', () => {
+    // `CMD_CNF_N(CMD_JUNK, STAT_RESTING + POS_SITTING, do_junk, 56)` — transcribed. It sits beside
+    // `wear` and `put` as a thing you do not do mid-swing.
+    assert.equal(COMMAND_REQUIREMENTS.junk?.inCombat, false);
+    const floored = { posture: 'prone', status: 'resting' } as const;
+    assert.equal(meets(floored, COMMAND_REQUIREMENTS.junk), false, 'not flat on your back');
+    const sitting = { posture: 'sitting', status: 'resting' } as const;
+    assert.ok(meets(sitting, COMMAND_REQUIREMENTS.junk));
+  });
+});

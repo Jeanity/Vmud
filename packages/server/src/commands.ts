@@ -111,6 +111,12 @@ export const COMMANDS = [
   // filling the room with speech bubbles."* Appended, and `whi` is the shortest thing that reaches
   // it: `w` is west and `wh` is who, both above, and neither moves.
   'whisper',
+  // Owner's ask (2026-08-05): *"some other kind of command other than drop that will just destroy an
+  // item so it isn't dropped, it is just gone."* The source has it — `do_junk`, `actobj.c:1630` — and
+  // `j` is free, since nothing above starts with one. A single letter reaching a destructive verb
+  // would be alarming anywhere else; here it is safe by construction, because `junk` never destroys
+  // anything on its own. It asks, and the answer is a second line.
+  'junk',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -280,6 +286,16 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // back and mid-fight; leaning in to murmur to one person needs you upright enough to lean, and is
   // not something the source lets you do while swinging. Transcribed, not chosen.
   whisper: { status: 'resting', posture: 'sitting', inCombat: false },
+  // `CMD_CNF_N(CMD_JUNK, STAT_RESTING + POS_SITTING, do_junk, 56)` — transcribed, and the two halves
+  // of `CMD_CNF_N` are both here. `_N` is the refusal in combat, which puts it beside `wear` and `put`
+  // as a thing you do not do mid-swing; `CNF` is the confirmation, which is not a *requirement* at all
+  // and so does not live in this table — it is a pre-dispatch state, exactly as `interp.c:1343` has it.
+  //
+  // The level column reads 56, and it is **deliberately not transcribed**: `do_junk`'s own body
+  // contradicts itself about `IS_TRUSTED` (an early return demands it, a later branch tests for its
+  // absence), and whatever that resolves to in Duris, a verb whose whole purpose is letting a player
+  // tidy their own bag has no business being restricted here. Ours is available to everybody.
+  junk: { status: 'resting', posture: 'sitting', inCombat: false },
 };
 
 /* -------------------------------------------------------------------------- */
