@@ -306,6 +306,7 @@ See `CLAUDE.md` for the full list. The ones that bite hardest:
 | `DESIGN-visibility-and-light.md` | The visibility model, light as progression, pointer movement |
 | `DESIGN-admin-panel.md` | The admin suite: architecture, auth, the section-by-section plan, and what the built players slice proves |
 | `RESEARCH-map-data.md` | Where the world data comes from, and the traps in it |
+| `DESIGN-skills.md` | **Read before starting Phase 19.** What a skill is, the floor and the ceiling, the per-weapon-type mapping, how a 0–100 percentage meets a d20 roll — and the two places our own reference doc cites code the shipped source does not compile |
 | `DESIGN-zone-geometry.md` | **Read before starting A8.** Adding and removing rooms: the id space, the `seen`-invalidation edge, two-sided exits, orphaned resets, and the build order whose first slice is safe |
 | `PLAN-3d-migration.md` | If the 3D question returns: engine choice, costs, milestones, go/no-go |
 
@@ -365,9 +366,23 @@ what it settled; the composition of the group bonus with our contribution split 
 and is written down in three places (`experience.ts`, the row, `ROADMAP.md`).
 
 **What is left in Track A is A7e/A7f and A7d-bag**, unchanged, and both start cold from the parking
-lot's measurements. **The next mechanic is Phase 19, skills.** Track V is complete, so round 10 has no
-visual slot to fill and §2b says a track with nothing unblocked skips its turn rather than inventing
-work.
+lot's measurements. Track V is complete, so round 10 has no visual slot to fill and §2b says a track
+with nothing unblocked skips its turn rather than inventing work.
+
+**Round 10's mechanic is Phase 19, skills, and its design note is written and its code is not** —
+[DESIGN-skills.md](DESIGN-skills.md), 2026-08-06, six decisions and a five-slice build order. It was
+written first for the reason A8's was: **three of the six turn on which branch of the source is
+compiled**, and the research found two places where our own documents cite code the shipped game does
+not build. `NEW_COMBAT` is defined, so `fight.c`'s weapon-skill path is dead and the live mapping is per
+*weapon type* — 18 skills over 2,841 weapons, measured and tabulated. And `wipe2011` is defined nowhere,
+so `notch_skill` writes a cooldown affect that **nothing in the source ever reads**: the roadmap's
+"per-category rate limits" are an intention, not shipped behaviour, and the note decides to run the dead
+branch on purpose (without it, 6.7% of hits notching at a 3 s round maxes a skill in 25 minutes).
+`REFERENCE-mud-mechanics.md` §1.6 now carries the correction rather than the old citation. **Slice 1 is
+startable cold**: harvest `weaponClass` (worldgen parses it today and throws it away), a pure
+`shared/src/skills.ts`, the notch on a landing blow through the seeded RNG, the cooldown as an ordinary
+Phase 5b affect, a `skills` command, and `floor(learned / 10)` on the attack bonus — with the
+rounds-to-kill measurement §5 asks for before it is called done.
 
 **Three things this session found and did *not* fix**, each cheap and each recorded here because they
 will otherwise be rediscovered:

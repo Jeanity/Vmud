@@ -155,8 +155,17 @@ exactly 1, on a roll, **rate-limited by a global per-category affect**: 5 real m
 10 for mental, regardless of how much you swing. Practice at a teacher costs
 `((s/10)² - 2*(s/10) + 2) * 5111` gold and stops well short of the ceiling.
 
-Mobs store **no skills at all**. NPC proficiency is `BOUNDED(0, level << 1, class_ceiling)` — level
-× 2, capped by class. Zero bytes per mob for information that is a pure function of level and class.
+Mobs store **no skills at all**. NPC proficiency is a pure function of level and class — zero bytes per
+mob.
+
+> **Corrected 2026-08-06, and the correction is the interesting part.** The `level << 1` this entry used
+> to quote, and the rate limit described above, are both read from branches the shipped source **does not
+> compile**: `fight.c`'s combat is inside `#ifndef NEW_COMBAT` and `NEW_COMBAT` is defined, while
+> `notch_skill`'s curve and the *only two readers* of the cooldown affect are inside `#if wipe2011`,
+> which is defined nowhere. The live NPC formula is `getNPCweaponSkillLevel`
+> (`new_combat_util.c:905`) — `level × 1.75` for `CLASS_NONE`, which is what every mob in our world is —
+> and as shipped there is no rate limit at all. See [DESIGN-skills.md](DESIGN-skills.md) §0 and §2. The
+> shape this entry describes is right; the arithmetic came from the wrong file.
 
 ### 1.7 The world repopulates by adding, never by removing.
 

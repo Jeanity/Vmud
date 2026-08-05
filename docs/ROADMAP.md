@@ -1186,11 +1186,24 @@ because taking one hit from a level 50 mob *is* contribution and a share of that
 1's entire career. Verified live in a single fight with three contributors, two grouped and one not:
 the ungrouped one earned exactly its contribution share and the grouped pair exactly 1.6× theirs.
 
-#### Phase 19 — Skills
+#### Phase 19 — Skills — **design note written 2026-08-06, not started**
 
 Percentages notched by use, per-category rate limits, a level-driven floor. Mobs derive proficiency
 from level and store nothing.
 **Seen when.** A skill percentage rises because you used it.
+
+**[DESIGN-skills.md](DESIGN-skills.md) is the thing to read first**, and it exists because three of its
+six decisions turn on **which branch of the source is compiled**. Two findings shaped the whole phase:
+`NEW_COMBAT` is defined, so `fight.c`'s weapon-skill path — the eight damage-class skills — is compiled
+out and the live mapping is `getWeaponSkillNumb`'s **per weapon type** (18 skills over 2,841 weapons,
+measured); and `wipe2011` is defined nowhere, so the notch cooldown affect is written and **never read**,
+which means the "per-category rate limits" in the line above describe an intention the shipped game does
+not enforce. We adopt the compiled-out branch deliberately — without it, 6.7% of hits notching at a 3 s
+round maxes a skill in 25 minutes. The note also settles the ceiling with no classes to ask (95, through
+one function Phase 21 replaces), the floor (`MIN(40, 3*level/2)`, dragging `learned` as well as the
+ceiling), how a 0–100 percentage meets our d20 (`floor(learned / 10)`, derived not chosen), the live NPC
+formula (`level × 1.75`, not the `level << 1` our reference quotes), and a five-slice build order whose
+first slice cannot break anything.
 
 #### Phase 20 — Spells
 
