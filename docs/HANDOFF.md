@@ -1,6 +1,6 @@
 # Handoff
 
-_Last updated 2026-08-02. Read this first; it is the shortest path back into the project._
+_Last updated 2026-08-05. Read this first; it is the shortest path back into the project._
 
 ---
 
