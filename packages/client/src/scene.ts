@@ -3116,17 +3116,37 @@ export class WorldScene extends Phaser.Scene {
    * ring, for an item nobody has chosen art for, and for a sheet that failed to load — a body missing
    * a layer reads as unremarkable, where a magenta box reads as a crash.
    */
-  private sheetFor(id: string): string | undefined {
-    if (LPC_ART_BY_ID.has(id)) {
+  /**
+   * The layers one art id draws as, in draw order — **usually one, and for a quarter of the pack more.**
+   *
+   * This returned a single sheet until 2026-08-05, and that was the whole of three owner-reported
+   * faults: a weapon that vanished when its wielder walked north, and a cloak that was nothing but a
+   * collar. ULPC keeps the parts of a thing that sit *behind* the body on their own layers —
+   * `weapon_sword_rapier` has the blade at z 140 and the same blade drawn behind its owner at z 9,
+   * `cape_solid` has shoulders at z 85 and the hanging cloak at z 5 — and `artgen` was staging only
+   * the first of them. It stages all of them now, and this hands the caller every one.
+   *
+   * The z on each layer is ULPC's own, so the caller sorts the whole body's stack by z and the behind
+   * halves land under the body without a rule naming them.
+   */
+  private sheetsFor(id: string, fallbackZ: number): { sheet: string; z: number }[] {
+    const art = LPC_ART_BY_ID.get(id);
+    if (art) {
       // **Not yet loaded means not drawn, not drawn badly.** Handing Phaser a key it does not have
       // gets the missing-texture placeholder — a green box with a diagonal through it, sitting over
       // the character's head where their sword should be. Queue it and leave the layer out; the
       // redress when it lands is what puts the sword on, a frame or two later and unnoticeably.
-      if (this.textures.exists(id)) return id;
+      //
+      // **All or nothing per art id**: half a cloak is worse than none, and the loader fetches every
+      // layer in one go, so a partial stack would only ever be a frame wide anyway.
+      if (art.layers.every((layer) => this.textures.exists(layer.sheet))) {
+        return art.layers.map((layer) => ({ sheet: layer.sheet, z: layer.z }));
+      }
       this.ensureSheet(id);
-      return undefined;
+      return [];
     }
-    return KIT_ART[id];
+    const kit = KIT_ART[id];
+    return kit ? [{ sheet: kit, z: fallbackZ }] : [];
   }
 
   /**
@@ -3145,8 +3165,13 @@ export class WorldScene extends Phaser.Scene {
    * `update` cannot run until creation finishes, which makes it the one place a load is always safe.
    */
   private ensureSheet(key: string): void {
-    if (this.textures.exists(key) || this.loadingSheets.has(key) || this.wantedSheets.has(key)) return;
-    this.wantedSheets.add(key);
+    // **An art id can be several sheets**, so this queues by *layer* rather than by id — otherwise a
+    // cape asked for its shoulders and its cloak never arrived. An id with no index entry is the
+    // starter kit, whose key is its own sheet.
+    for (const sheet of LPC_ART_BY_ID.get(key)?.layers.map((l) => l.sheet) ?? [key]) {
+      if (this.textures.exists(sheet) || this.loadingSheets.has(sheet) || this.wantedSheets.has(sheet)) continue;
+      this.wantedSheets.add(sheet);
+    }
   }
 
   /**
@@ -3219,14 +3244,10 @@ export class WorldScene extends Phaser.Scene {
     const stack = dressed
       ? [
           base[0] ?? 'body-human-male',
+          // Indexed art brings its own z, one per layer. The starter kit predates the index, so it
+          // keeps the painter's order 15a chose, expressed as z values on the same scale.
           ...Object.entries(wearing)
-            .flatMap(([slot, id]) => {
-              const sheet = this.sheetFor(id);
-              if (!sheet) return [];
-              // Indexed art brings its own z. The starter kit predates the index, so it keeps the
-              // painter's order 15a chose, expressed as z values on the same scale.
-              return [{ sheet, z: LPC_ART_BY_ID.get(id)?.z ?? KIT_Z[slot] ?? 50 }];
-            })
+            .flatMap(([slot, id]) => this.sheetsFor(id, KIT_Z[slot] ?? 50))
             .sort((a, b) => a.z - b.z)
             .map((layer) => layer.sheet),
         ]

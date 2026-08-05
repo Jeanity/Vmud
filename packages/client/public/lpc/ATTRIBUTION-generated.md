@@ -4,16 +4,16 @@ Art staged from the [Universal LPC Spritesheet Generator](https://github.com/Lib
 Every credit below is reproduced from that project’s own `sheet_definitions`, which is why this
 file is generated rather than kept by hand: a hand-kept one goes stale the first time a sheet is added.
 
-**319 sheets staged.** Licences in force across them: CC-BY 3.0, CC-BY 3.0+, CC-BY 4.0, CC-BY 4.0+, CC-BY-SA 3.0, CC-BY-SA 3.0+, CC-BY-SA 4.0, CC0, GPL 2.0, GPL 2.0+, GPL 3.0, OGA-BY 3.0, OGA-BY 3.0+, OGA-BY-3.0, OGA-SA 3.0.
+**346 sheets staged.** Licences in force across them: CC-BY 3.0, CC-BY 3.0+, CC-BY 4.0, CC-BY 4.0+, CC-BY-SA 3.0, CC-BY-SA 3.0+, CC-BY-SA 4.0, CC0, GPL 2.0, GPL 2.0+, GPL 3.0, OGA-BY 3.0, OGA-BY 3.0+, OGA-BY-3.0, OGA-SA 3.0.
 
 ## Authors
 
-- bluecarrot16 (226 sheets)
-- JaidynReiman (159 sheets)
+- bluecarrot16 (253 sheets)
+- JaidynReiman (164 sheets)
+- ElizaWy (119 sheets)
 - Johannes Sjölund (wulax) (96 sheets)
-- ElizaWy (93 sheets)
+- Sander Frenken (castelonia) (72 sheets)
 - Stephen Challener (Redshrike) (60 sheets)
-- Sander Frenken (castelonia) (46 sheets)
 - Matthew Krohn (makrohn) (36 sheets)
 - Nila122 (25 sheets)
 - Michael Whitlock (bigbeargames) (15 sheets)
@@ -252,6 +252,31 @@ file is generated rather than kept by hand: a hand-kept one goes stale the first
 | `neck-scarf-black` | Scarf | Johannes Sjölund (wulax), Nila122, Stephen Challener (Redshrike) | CC-BY-SA 3.0, GPL 2.0, GPL 3.0, OGA-SA 3.0 |
 | `quiver-quiver` | Quiver | Johannes Sjölund (wulax) | CC-BY-SA 3.0, GPL 3.0, OGA-BY 3.0 |
 | `shield-crusader-crusader` | Crusader shield | Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-paint` | Heater Shield Paint | ElizaWy, JaidynReiman, bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-barry` | barry | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-bend` | bend | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-bend-sinister` | bend_sinister | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-bendy` | bendy | ElizaWy, JaidynReiman, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-bendy-sinister` | bendy_sinister | ElizaWy, JaidynReiman, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-bordure` | bordure | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-chevron` | chevron | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-chevron-inverted` | chevron_inverted | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-chief` | chief | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-cross` | cross | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-fess` | fess | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-lozengy` | lozengy | ElizaWy, JaidynReiman, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-pale` | pale | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-pall` | pall | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-paly` | paly | ElizaWy, JaidynReiman, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-per-bend` | per_bend | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-per-bend-sinister` | per_bend_sinister | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-per-chevron` | per_chevron | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-per-chevron-inverted` | per_chevron_inverted | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-per-fess` | per_fess | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-per-pale` | per_pale | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-per-saltire` | per_saltire | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-quarterly` | quarterly | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-pattern-saltire` | saltire | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
 | `shield-heater-revised-paint` | Revised Heater Shield Paint | ElizaWy, JaidynReiman, bluecarrot16 | OGA-BY 3.0 |
 | `shield-heater-revised-pattern-barry` | revised_barry | ElizaWy, JaidynReiman, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
 | `shield-heater-revised-pattern-bend` | revised_bend | ElizaWy, JaidynReiman, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
@@ -280,11 +305,13 @@ file is generated rather than kept by hand: a hand-kept one goes stale the first
 | `shield-heater-revised-trim` | Revised Heater Shield Trim | ElizaWy, JaidynReiman, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
 | `shield-heater-revised-wood` | Revised Heater Shield Base | ElizaWy, JaidynReiman, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
 | `shield-heater-trim` | Heater Shield Trim | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-heater-wood` | Heater Shield Base | ElizaWy, Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
 | `shield-plus-plus` | Plus shield | Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
 | `shield-round-brown` | Round Shield | DarkwallLKE, Johannes Sjölund (wulax), Michael Whitlock (bigbeargames), Tuomo Untinen (reemax) | CC-BY-SA 3.0, GPL 3.0, OGA-BY 3.0 |
 | `shield-scutum-scutum` | Scutum shield | Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
 | `shield-scutum-trim-scutum-trim` | Scutum shield trim | Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
 | `shield-spartan-spartan` | Spartan Shield | Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
+| `shield-two-engrailed-trim-two-engrailed-trim` | Two engrailed shield trim | Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
 | `shield-two-engrailed-two-engrailed` | Two engrailed shield | Sander Frenken (castelonia), bluecarrot16 | OGA-BY 3.0 |
 | `shoulders-epaulets` | Epaulets | JaidynReiman, bluecarrot16 | CC-BY-SA 3.0, OGA-BY 3.0 |
 | `shoulders-legion` | Legion | Nila122 | CC-BY-SA 3.0, GPL 2.0, GPL 3.0, OGA-BY 3.0 |

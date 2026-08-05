@@ -133,8 +133,20 @@ interface RawDefinition {
     readonly urls?: readonly string[];
     readonly notes?: string;
   }[];
-  readonly layer_1?: RawLayer;
-  readonly layer_2?: RawLayer;
+  /**
+   * `layer_1`, `layer_2`, … — **any number of them, and that was the bug.**
+   *
+   * This used to name exactly two, which quietly meant "we only ever look at the first". A quarter of
+   * the pack — 168 of 657 definitions — has more, and the extras are not decoration: they are the
+   * halves of a thing that go *behind* the body. `weapon_sword_rapier` keeps the blade in `layer_1`
+   * at z 140 and the same blade drawn behind the wielder in `layer_2` at z 9, which is what a sword
+   * looks like when its owner has their back to you. `cape_solid` keeps the shoulders at z 85 and the
+   * cloak that actually hangs down at z 5.
+   *
+   * An index signature rather than a longer list of named fields, so the day a five-layer definition
+   * lands nothing has to be edited to see it.
+   */
+  readonly [layer: `layer_${number}`]: RawLayer | undefined;
 }
 
 /** One indexed piece of art: a stable id, where it came from, and what it may be worn as. */
@@ -145,10 +157,29 @@ export interface ArtEntry {
   readonly kind: string;
   /** The slot this would ordinarily go in, for filtering a picker. Not enforced anywhere. */
   readonly slot?: string;
-  /** The staged sheet's key: `packages/client/public/lpc/<key>.png`. */
+  /**
+   * The sheet a *thumbnail* should use, and the front-most layer of the art.
+   *
+   * A convenience mirror of the highest-z entry in {@link layers}, kept because a picker needs one
+   * picture and "the front of the thing" is the right one to show. **The renderer must use `layers`**:
+   * this alone is a cloak's shoulders without its cloak.
+   */
   readonly sheet: string;
-  /** Draw order within the body's stack. ULPC's own `zPos`. */
+  /** The front-most layer's `zPos`. Mirrors {@link layers}, same rule as {@link sheet}. */
   readonly z: number;
+  /**
+   * Every staged layer of this art, **in draw order** (lowest z first).
+   *
+   * Usually one. For 168 of the pack's 657 definitions it is more, and those are the ones that were
+   * broken until 2026-08-05: a weapon has a copy of itself drawn *behind* the body for the facings
+   * where its owner's back is turned, and a cape has the whole hanging cloak on a layer beneath the
+   * character. Staging only the first meant a sword that vanished when you walked north and a cloak
+   * that was nothing but a collar.
+   *
+   * The z values are ULPC's own and already say where each layer belongs in the body's stack, so a
+   * renderer that sorts by z needs no rule about which layer is which — it just gets more of them.
+   */
+  readonly layers: readonly { readonly sheet: string; readonly z: number }[];
   readonly authors: readonly string[];
   readonly licences: readonly string[];
 }
@@ -257,18 +288,30 @@ export function buildArtIndex(): ArtgenResult {
     if (!kind || !(kind in SLOT_FOR_TYPE)) continue;
     considered++;
 
-    const layer = raw.layer_1 ?? raw.layer_2;
-    const base = layer?.male ?? layer?.female ?? layer?.muscular;
-    if (!base) {
+    // **Every layer, in the definition's own order**, not `layer_1` and a shrug. Each is resolved
+    // independently and the ones with no walk sheet drop out — which is exactly how the attack
+    // animations exclude themselves for free: `weapon/sword/rapier/attack_slash/` has a slash sheet
+    // and no `walk.png`, so it never reaches the index and cannot be drawn on a walking character.
+    // That leaves the two that matter: the blade in front at z 140 and the blade behind at z 9.
+    const resolved: { layerKey: string; found: { path: string; variant?: string }; z: number }[] = [];
+    for (const key of Object.keys(raw).filter((k): k is `layer_${number}` => /^layer_\d+$/.test(k))) {
+      const layer = raw[key];
+      const base = layer?.male ?? layer?.female ?? layer?.muscular;
+      if (!base) continue;
+      const found = resolveWalk(base, raw.variants ?? []);
+      if (!found) continue;
+      resolved.push({ layerKey: key, found, z: layer?.zPos ?? 50 });
+    }
+    if (resolved.length === 0) {
       skipped++;
       continue;
     }
-    const found = resolveWalk(base, raw.variants ?? []);
-    if (!found) {
-      skipped++;
-      continue;
-    }
+    // Sorted by the number in the key, so `layer_1` is the id-bearing one however the JSON is ordered.
+    resolved.sort((a, b) => Number(a.layerKey.slice(6)) - Number(b.layerKey.slice(6)));
 
+    // The variant names the id, and it comes off the *first* layer: two variants of one definition are
+    // two entries in the index, and every layer of one entry is the same variant by construction.
+    const found = resolved[0]!.found;
     const id = idFrom(file, found.variant);
     if (seen.has(id)) continue;
     seen.add(id);
@@ -284,20 +327,33 @@ export function buildArtIndex(): ArtgenResult {
     const authors = [...new Set((raw.credits ?? []).flatMap((c) => c.authors ?? []))].sort();
     const licences = [...new Set((raw.credits ?? []).flatMap((c) => c.licenses ?? []))].sort();
 
+    // The first layer keeps the art id as its texture key, so **every already-authored `art` value
+    // still names a real sheet** — this change adds layers under a body, it does not renumber one.
+    // The rest take `<id>-l<n>`, which is traceable straight back to the definition's own key.
+    mkdirSync(STAGED, { recursive: true });
+    const layers = resolved.map((entry, index) => {
+      const sheet = index === 0 ? id : `${id}-${entry.layerKey.replace('layer_', 'l')}`;
+      // The sheet is staged under its key, so the client needs no path mapping at all — the string it
+      // is handed *is* the texture key. One fewer table to drift.
+      copyFileSync(entry.found.path, join(STAGED, `${sheet}.png`));
+      return { sheet, z: entry.z };
+    });
+    // Draw order, lowest first — what a renderer stacking a body wants, and it means the client sorts
+    // nothing that this has not already sorted.
+    layers.sort((a, b) => a.z - b.z);
+    const front = layers[layers.length - 1]!;
+
     entries.push({
       id,
       name: raw.name ?? id,
       kind,
       ...(SLOT_FOR_TYPE[kind] ? { slot: SLOT_FOR_TYPE[kind] } : {}),
-      sheet: id,
-      z: layer?.zPos ?? 50,
+      sheet: front.sheet,
+      z: front.z,
+      layers,
       authors,
       licences,
     });
-    // The sheet is staged under the art id, so the client needs no path mapping at all — the id it is
-    // handed *is* the texture key. One fewer table to drift.
-    mkdirSync(STAGED, { recursive: true });
-    copyFileSync(found.path, target);
   }
 
   entries.sort((a, b) => a.id.localeCompare(b.id));
@@ -309,9 +365,10 @@ function writeIndex(entries: readonly ArtEntry[]): void {
   const body = entries
     .map((e) => {
       const slot = e.slot ? `, slot: '${e.slot}'` : '';
+      const layers = e.layers.map((l) => `{ sheet: '${l.sheet}', z: ${l.z} }`).join(', ');
       return (
         `  { id: '${e.id}', name: ${JSON.stringify(e.name)}, kind: '${e.kind}'${slot}, ` +
-        `sheet: '${e.sheet}', z: ${e.z}, authors: ${JSON.stringify(e.authors)}, ` +
+        `sheet: '${e.sheet}', z: ${e.z}, layers: [${layers}], authors: ${JSON.stringify(e.authors)}, ` +
         `licences: ${JSON.stringify(e.licences)} },`
       );
     })
@@ -338,10 +395,24 @@ export interface ArtEntry {
   readonly kind: string;
   /** Where it would ordinarily be worn. A hint for filtering a picker, enforced nowhere. */
   readonly slot?: string;
-  /** Texture key, and the staged filename. Equal to the id by construction. */
+  /**
+   * The front-most layer's texture key — what a **thumbnail** should draw.
+   *
+   * A mirror of the last entry in \`layers\`. **A renderer must use \`layers\`**: this alone is a
+   * cloak's shoulders with no cloak under them.
+   */
   readonly sheet: string;
-  /** Draw order within the body's stack — ULPC's own \`zPos\`. */
+  /** The front-most layer's \`zPos\`. Mirrors \`layers\`, same rule as \`sheet\`. */
   readonly z: number;
+  /**
+   * Every staged layer of this art, **in draw order** (lowest z first).
+   *
+   * Usually one. For a quarter of the pack it is more, and those extras are the halves that go
+   * *behind* the body: a weapon carries a copy of itself drawn behind its wielder for the facings
+   * where their back is turned, and a cape carries the whole hanging cloak beneath the character.
+   * The z values are ULPC's own, so a renderer that sorts by z needs no rule about which is which.
+   */
+  readonly layers: readonly { readonly sheet: string; readonly z: number }[];
   readonly authors: readonly string[];
   readonly licences: readonly string[];
 }
