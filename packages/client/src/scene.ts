@@ -273,7 +273,21 @@ const WALK_MOVING_EPSILON = 0.25;
  */
 const IDLE_SUFFIX = '-idle';
 
-const LPC_SHEETS: readonly string[] = [
+/**
+ * Sheets that ship a real `idle.png` beside their walk cycle.
+ *
+ * **"Real" is doing work in that sentence, and it was measured.** The pack's idle sheets are not all
+ * complete: every one of these carries all four facings, and `offhand-shield-idle.png` carried
+ * **only north and south** — 71 / 0 / 107 / 0 opaque pixels in its first column, by facing. So a
+ * character standing still while facing east or west had no shield on them at all, which is exactly
+ * what the owner reported (2026-08-05): *"the shield disappears when I stop moving if I am facing any
+ * way but south or north."*
+ *
+ * That is the same class of fault as the empty column 8 this file already documents, and it wants the
+ * same answer: **measure the sheet, do not assume it.** Anything not in this list falls through to
+ * its walk sheet's own standing frame, which `faceEntity` already does for indexed art.
+ */
+const LPC_IDLE_SHEETS: readonly string[] = [
   'body-human-male',
   'torso-longsleeve-forest',
   'legs-slacks-green',
@@ -290,11 +304,26 @@ const LPC_SHEETS: readonly string[] = [
   'feet-boots-travel',
   'head-cap-leather',
   'head-hood-cloth',
+];
+
+/**
+ * Sheets loaded for their walk cycle alone — no idle twin, by measurement rather than by omission.
+ *
+ * A held object has no distinct rest pose anyway: a shield hangs off an arm whether the legs are
+ * moving or not, and the walk sheet's own column 0 is the contact pose. So this costs nothing beyond
+ * the frame it was already going to draw.
+ */
+const LPC_WALK_ONLY_SHEETS: readonly string[] = [
   // Phase 16: the first thing a character carries that is actually drawn. LPC's heater shield, taken
-  // from the Universal LPC Spritesheet Generator's `shield/heater` at the same 576x256 / 128x256
-  // geometry every garment above uses, so it needed no processing at all.
+  // from the Universal LPC Spritesheet Generator's `shield/heater` at the same 576x256 geometry every
+  // garment above uses, so it needed no processing at all.
   'offhand-shield',
-].flatMap((sheet) => [sheet, sheet + '-idle']);
+];
+
+const LPC_SHEETS: readonly string[] = [
+  ...LPC_IDLE_SHEETS.flatMap((sheet) => [sheet, sheet + '-idle']),
+  ...LPC_WALK_ONLY_SHEETS,
+];
 
 /**
  * Which LPC sheet each wearable item draws as. Phase 15a.
