@@ -81,6 +81,8 @@ import {
   type Held,
   isMoney,
   coinsOf,
+  isWalkableAt,
+  roomAtTile,
   purseIsEmpty,
   vnumOf,
   wordsFromName,
@@ -199,6 +201,7 @@ import {
 } from './corpses.ts';
 import {
   dropItem,
+  dropSpotNear,
   groundViewOf,
   itemsIn,
   nearestMatching,
@@ -787,7 +790,9 @@ function visibleEntities(observer: Player): EntityView[] {
   for (const entry of itemsIn(ground, observer.roomId)) {
     if (!observer.visible.has(tileIndexAt(grid, entry.x, entry.y))) continue;
     const template = templateOf(entry.item);
-    out.push(groundViewOf(entry, template?.type, template?.container !== undefined));
+    // A7d: the authored art id, when there is one, so a dagger on the floor is a dagger rather than
+    // the generic weapon glyph. Read from the same template the type comes from.
+    out.push(groundViewOf(entry, template?.type, template?.container !== undefined, template?.art));
   }
   return out;
 }
@@ -3971,12 +3976,21 @@ function dropFromBag(player: Player, rest: string): void {
   const removed = removeAt(player.inventory, index);
   if (!removed) return;
   player.inventory = removed.inventory;
-  // At the character's feet, not the room's centre — the same rule a corpse follows, and what makes
-  // *where* you dropped something a fact worth remembering.
+  // **One to two tiles away, in a random direction** — owner's rule, 2026-08-05. Not the room's
+  // centre, and no longer the character's exact feet: A7d gave items real pictures and three things
+  // on one tile read as one object with a fringe. The distance is bounded by the pickup reach it
+  // pairs with (three tiles), so a dropped thing is always still within arm's reach.
+  const spot = dropSpotNear(ground, player.roomId, player.x, player.y, spawnRng, (px, py) => {
+    const grid = world.grid(player.place);
+    // No grid means no floor to reason about, so anywhere is as good as anywhere — the fallback in
+    // `dropSpotNear` takes over. Also refuses a spot in another room: a dropped sword must not slide
+    // through a doorway into the corridor.
+    return !grid || (isWalkableAt(grid, px, py) && roomAtTile(grid, Math.floor(px / TILE_SIZE), Math.floor(py / TILE_SIZE)) === player.roomId);
+  });
   const entry = dropItem(
     ground,
     removed.item,
-    { roomId: player.roomId, place: player.place, x: player.x, y: player.y },
+    { roomId: player.roomId, place: player.place, x: spot.x, y: spot.y },
     held,
   );
 

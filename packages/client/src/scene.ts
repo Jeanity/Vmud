@@ -2884,7 +2884,7 @@ export class WorldScene extends Phaser.Scene {
     // A ground item is one image; a body is a stack of LPC layers. Both end up as children of the same
     // container, so everything downstream — movement, the visibility gate, the label — is unchanged.
     const layers: Phaser.GameObjects.Image[] = isItem
-      ? [this.add.image(0, 0, this.itemTexture(view.sprite))]
+      ? this.itemLayers(view.sprite)
       : this.characterLayers(view.sprite, view.facing, view.wearing);
 
     // **"This one is you", on the floor rather than over the head.** The LPC sprite already *shows* its
@@ -2918,16 +2918,28 @@ export class WorldScene extends Phaser.Scene {
     const health = isItem || isSelf ? undefined : this.add.rectangle(
       -HEALTH_BAR_WIDTH / 2, HEALTH_BAR_Y, HEALTH_BAR_WIDTH, HEALTH_BAR_HEIGHT, HEALTH_FULL,
     ).setOrigin(0, 0.5);
-    const label = this.add
-      // **Stripped, not painted.** A Phaser text object renders one colour and cannot hold spans, so
-      // the codes a harvested name carries have to come out or they print as `&+ma steel long sword`
-      // over the thing's head. The DOM surfaces — the log, the character sheet — paint instead.
-      .text(0, isItem ? 11 : 14, stripColour(view.name), {
-        fontFamily: 'Consolas, monospace',
-        fontSize: isItem ? '10px' : '11px',
-        color: isItem ? '#e6c07a' : isSelf ? '#ffe9a8' : '#cfd8c0',
-      })
-      .setOrigin(0.5, 0);
+    // **Bodies are named on screen; things on the floor are not** — owner's call, 2026-08-05:
+    // *"maybe not show the name of the object. just the graphic. people can look at it to see what it
+    // is."*
+    //
+    // Right, and A7d is what earns it. The label used to be doing the identifying, because nine
+    // category glyphs were shared between 16,421 catalogue entries and the picture could not tell a
+    // rapier from a mace. Now it can, and the label went from useful to noise the moment three items
+    // landed on one tile and their names overlapped into an unreadable smear. `look` is the verb for
+    // *what exactly is this*, and it always was.
+    const label = isItem
+      ? undefined
+      : this.add
+          // **Stripped, not painted.** A Phaser text object renders one colour and cannot hold spans,
+          // so the codes a harvested name carries have to come out or they print as
+          // `&+ma steel long sword` over the thing's head. The DOM surfaces — the log, the character
+          // sheet — paint instead.
+          .text(0, 14, stripColour(view.name), {
+            fontFamily: 'Consolas, monospace',
+            fontSize: '11px',
+            color: isSelf ? '#ffe9a8' : '#cfd8c0',
+          })
+          .setOrigin(0.5, 0);
 
     // **Behind the body, and it took two goes to land there.** Under it first, on the container origin:
     // the legs covered all but a sliver at each end, because the ring sat at the figure's *thighs* rather
@@ -2938,7 +2950,7 @@ export class WorldScene extends Phaser.Scene {
     // which is the only arrangement of the two that looks like ground rather than paint.
     const parts: Phaser.GameObjects.GameObject[] = footprint ? [footprint, ...layers] : [...layers];
     if (trough && health) parts.push(trough, health);
-    parts.push(label);
+    if (label) parts.push(label);
     const container = this.add
       .container(view.x, view.y, parts)
       .setDepth(isItem ? ITEM_DEPTH : ENTITY_DEPTH);
@@ -3927,6 +3939,40 @@ export class WorldScene extends Phaser.Scene {
   private itemTexture(sprite: string): string {
     const key = `${ITEM_TEXTURE_PREFIX}${sprite}`;
     return this.textures.exists(key) ? key : ITEM_TEXTURE_FALLBACK;
+  }
+
+  /**
+   * The image or images a thing on the floor is drawn as — A7d.
+   *
+   * Two cases, and the placeholder is **demoted rather than retired**. An item nobody has chosen art
+   * for keeps its category glyph, which still says *this is a weapon* — better than a blank, and the
+   * nine of them cover all 16,421 catalogue entries. An item with authored art draws that art
+   * instead, from the sheet the picker chose.
+   *
+   * **The frame is column 0 of row 2** — LPC's south-facing standing pose, the same crop the admin
+   * picker's thumbnails use, and for the same reason: it is the one frame every staged sheet has and
+   * the one that reads as a picture of the thing rather than a pose. Deliberately *not* the pack's
+   * `preview_row`/`preview_column`, which the roadmap expected to use — only **24 of 657**
+   * definitions carry those fields, so building on them would have dressed 3.6% of the pack and left
+   * the rest looking broken by comparison.
+   *
+   * Layered, because art can be several sheets since the multi-layer fix — a cloak lying on the floor
+   * is its hanging half *and* its shoulders, and drawing one of the two is how it went wrong on a
+   * body. Not yet loaded means the placeholder for a frame or two, then a redress; never `__MISSING`.
+   */
+  private itemLayers(sprite: string): Phaser.GameObjects.Image[] {
+    const art = LPC_ART_BY_ID.get(sprite);
+    if (!art) return [this.add.image(0, 0, this.itemTexture(sprite))];
+    if (!art.layers.every((layer) => this.textures.exists(layer.sheet))) {
+      this.ensureSheet(sprite);
+      return [this.add.image(0, 0, this.itemTexture(sprite))];
+    }
+    return art.layers.map((layer) => {
+      const image = this.add.image(0, 0, layer.sheet);
+      image.setData('sheet', layer.sheet);
+      image.setFrame(layerFrame(image.texture, 'south'));
+      return image;
+    });
   }
 }
 

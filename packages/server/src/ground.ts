@@ -36,6 +36,7 @@ import {
   type Held,
   type Item,
   type Place,
+  type Rng,
   type RoomId,
 } from '@mygame/shared';
 
@@ -118,12 +119,14 @@ export function itemsIn(ground: Ground, roomId: RoomId): GroundItem[] {
  * `kind: 'item'` puts it down the same path corpses already take — one image, no facing, no health
  * bar — so nothing in the renderer needed a new concept for objects on the floor.
  */
-export function groundViewOf(entry: GroundItem, durisType?: number, isContainer = false): EntityView {
+export function groundViewOf(entry: GroundItem, durisType?: number, isContainer = false, art?: string): EntityView {
   return {
     id: entry.id,
     kind: 'item',
     name: entry.item.name,
-    sprite: groundSprite(entry.item, durisType),
+    // Injected like the type and the container flag, and for the same reason each of those is: the
+    // catalogue is not this file's business.
+    sprite: groundSprite(entry.item, durisType, art),
     x: entry.x,
     y: entry.y,
     facing: 'south',
@@ -154,7 +157,16 @@ export function groundViewOf(entry: GroundItem, durisType?: number, isContainer 
  * enough to say *sword* apart from *flask* apart from *coin*, which is the job. Real per-item art is
  * an LPC gap and Phase 16's.
  */
-export function groundSprite(item: Item, durisType?: number): string {
+export function groundSprite(item: Item, durisType?: number, art?: string): string {
+  // **A7d. Authored art wins over the category placeholder.** The nine `item_*` sprites below are a
+  // *taxonomy* — this is a weapon, this is a container — and they were always the stopgap: 16,421
+  // catalogue entries share nine pictures between them. An item somebody chose a sheet for has a
+  // real picture available, and the id is already the client's texture key (A7b), so saying it here
+  // costs nothing on the wire and needs no protocol change.
+  //
+  // Deliberately *only* where art was authored. The placeholder is not retired, it is demoted: an
+  // item nobody has dressed still reads as the kind of thing it is, which is better than a blank.
+  if (art) return art;
   switch (durisType) {
     case DURIS_ITEM.weapon:
     case DURIS_ITEM.fireweapon:
@@ -194,6 +206,62 @@ export function groundSprite(item: Item, durisType?: number): string {
   // No type — an authored item. 15b's rule.
   if (item.slot === 'mainHand' || item.slot === 'offHand') return 'item_weapon';
   return 'item_bundle';
+}
+
+/**
+ * How far apart two things on the floor have to be to read as two things.
+ *
+ * A tile. The sprites are 64 px drawn at this scale and a pile sharing one tile renders as one
+ * object with a fringe — which is exactly what the owner reported (2026-08-05) after A7d gave items
+ * real pictures: *"if we can avoid stacking items that would be good."*
+ */
+const GROUND_SPACING = TILE_SIZE;
+
+/** How far a dropped thing lands from the dropper, in tiles. Owner's numbers, 2026-08-05. */
+const DROP_MIN_TILES = 1;
+const DROP_MAX_TILES = 2;
+
+/**
+ * Where a dropped thing lands: **one to two tiles away, in a random direction**.
+ *
+ * Owner's rule (2026-08-05), and the reasoning is theirs: *"if we are going to make it that we need
+ * to be close to pick it up, have it drop the item 1-2 tiles from the dropper in a random
+ * direction."* The two halves lock together — {@link withinPickupReach} is **three** tiles, so
+ * anything thrown down inside two is still inside arm's reach and cannot be dropped somewhere you
+ * then have to walk to.
+ *
+ * It replaced dropping at the dropper's own feet, which stacked: A7d gave items real pictures and
+ * three things on one tile immediately read as one object with a fringe.
+ *
+ * **Seeded, never `Math.random`** — `CLAUDE.md` rule 3. A drop is simulation, so two clients must
+ * agree about where the sword went and a restart must reproduce it.
+ *
+ * The candidate is rejected and re-rolled if it lands on another item or off the walkable floor;
+ * after the bound it takes the dropper's own position rather than refusing. A floor too crowded to
+ * find a gap is a worse problem than a stack, and a refused drop would strand the item in a bag
+ * somebody is trying to empty.
+ */
+export function dropSpotNear(
+  ground: Ground,
+  roomId: RoomId,
+  x: number,
+  y: number,
+  rng: Rng,
+  /** Whether a point is floor a thing can rest on. Injected — the tile grid is not this file's. */
+  canRest: (px: number, py: number) => boolean,
+): { x: number; y: number } {
+  const taken = itemsIn(ground, roomId);
+  const clear = (px: number, py: number): boolean =>
+    canRest(px, py) && taken.every((entry) => Math.hypot(entry.x - px, entry.y - py) >= GROUND_SPACING);
+
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const angle = rng() * Math.PI * 2;
+    const distance = TILE_SIZE * (DROP_MIN_TILES + rng() * (DROP_MAX_TILES - DROP_MIN_TILES));
+    const px = x + Math.cos(angle) * distance;
+    const py = y + Math.sin(angle) * distance;
+    if (clear(px, py)) return { x: px, y: py };
+  }
+  return { x, y };
 }
 
 /** Close enough to pick up — the same three tiles a corpse may be searched from. */
