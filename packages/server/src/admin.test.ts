@@ -96,7 +96,7 @@ interface Rig {
   scopes: AnnounceScope[];
 }
 
-function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string; itemOverridesFile?: string; authoredRoomsFile?: string; noPopulation?: boolean; zone?: Zone } = {}): Rig {
+function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string; itemOverridesFile?: string; authoredRoomsFile?: string; noPopulation?: boolean; zone?: Zone; occupants?: { players: string[]; mobs: string[]; corpses: string[] }; resets?: Record<string, number> } = {}): Rig {
   const dir = mkdtempSync(join(tmpdir(), 'mygame-admin-'));
   const store = new PlayerStore({ dir });
   const world = new GameWorld([options.zone ?? testZone()], { zone: 600, room: null });
@@ -241,7 +241,14 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     // A3's two reads, answered with fixtures: what these tests check is that the router asks and
     // shapes the reply, not that the simulation can count bodies.
     repopIn: (zone) => (zone === 600 ? 90_000 : undefined),
-    occupantsOf: () => ({ players: ['Ravi'], mobs: ['a sentry'], corpses: [] }),
+    occupantsOf: () => options.occupants ?? { players: ['Ravi'], mobs: ['a sentry'], corpses: [] },
+    // A8 slice 2. Recorded rather than simulated: what these tests check is that the router refuses,
+    // orders and reports — whether a mob is actually gone is `sim`'s to prove, not the router's.
+    clearRoom: (room) => {
+      calls.push(`clearRoom ${room}`);
+      return { mobs: 2, corpses: 1, items: 0 };
+    },
+    resetsNaming: () => options.resets ?? {},
     publishRoom: (room, _place, regrid) => void calls.push(`publishRoom ${room.id} regrid=${regrid}`),
     // Held in the rig rather than written to disk: what these tests check is that the router reads,
     // validates and announces, not that a JSON file round-trips.
@@ -1360,5 +1367,160 @@ describe('creating a room', () => {
     const line = JSON.parse(readFileSync(auditFile, 'utf8').trim()) as { action: string; exits: string[] };
     assert.equal(line.action, 'room.create');
     assert.deepEqual([...line.exits].sort(), ['east', 'west']);
+  });
+});
+
+/**
+ * A8 slice 2 — taking a room out.
+ *
+ * The fixture is a 2x2 block, because deletion needs a room that holds no bound *alone* to be legal
+ * at all: anything the extent rests on would narrow the grid, and a narrower grid shifts every saved
+ * tile index exactly as a wider one does. In a 2x2 every room sits on the extent and every bound is
+ * shared, which is precisely the case that must be allowed.
+ */
+describe('deleting a room', () => {
+  function blockZone(): Zone {
+    const rooms: Room[] = [
+      { id: 6001, zone: 600, name: 'A Mossy Hollow', sector: 'forest', pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 6002 }, south: { to: 6003 } } },
+      { id: 6002, zone: 600, name: 'A Fallen Log', sector: 'forest', pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 6001 }, south: { to: 6004 } } },
+      { id: 6003, zone: 600, name: 'A Hollow Stump', sector: 'forest', pos: { x: 0, y: 1, z: 0 }, exits: { north: { to: 6001 }, east: { to: 6004 } } },
+      { id: 6004, zone: 600, name: 'A Bramble Thicket', sector: 'forest', pos: { x: 1, y: 1, z: 0 }, exits: { west: { to: 6003 }, north: { to: 6002 } } },
+    ];
+    return { id: 600, name: 'Test Hollow', rooms, bounds: boundsOf(rooms), entryRoom: 6001 };
+  }
+
+  /** A straight line, so the end room is the only thing holding its bound and cannot go. */
+  function spurZone(): Zone {
+    const rooms: Room[] = [
+      { id: 6001, zone: 600, name: 'A Mossy Hollow', sector: 'forest', pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 6002 } } },
+      { id: 6002, zone: 600, name: 'A Fallen Log', sector: 'forest', pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 6001 }, east: { to: 6003 } } },
+      { id: 6003, zone: 600, name: 'A Far Bank', sector: 'forest', pos: { x: 2, y: 0, z: 0 }, exits: { west: { to: 6002 } } },
+    ];
+    return { id: 600, name: 'Test Hollow', rooms, bounds: boundsOf(rooms), entryRoom: 6001 };
+  }
+
+  const empty = { players: [], mobs: [], corpses: [] };
+
+  it('refuses a room the extent rests on — the edge slice 3 has to pay for', () => {
+    const { api } = makeRig({ zone: spurZone(), occupants: empty });
+    const response = api.route(req('DELETE', '/rooms/6003'));
+    assert.equal(response.status, 409);
+    assert.match((response.body as { error: string }).error, /would shrink level 0/);
+  });
+
+  it('refuses the spawn room, whoever asks', () => {
+    const { api } = makeRig({ zone: blockZone(), occupants: empty });
+    const response = api.route(req('DELETE', '/rooms/6001'));
+    assert.equal(response.status, 409);
+    assert.match((response.body as { error: string }).error, /where new characters arrive/);
+  });
+
+  it('refuses a room somebody is standing in, and names them', () => {
+    const { api } = makeRig({ zone: blockZone(), occupants: { players: ['Ravi'], mobs: [], corpses: [] } });
+    const response = api.route(req('DELETE', '/rooms/6002'));
+    assert.equal(response.status, 409);
+    assert.match((response.body as { error: string }).error, /Ravi is standing in room 6002/);
+  });
+
+  it('reports the exits it orphaned rather than rewriting the neighbours', () => {
+    const { api } = makeRig({ zone: blockZone(), occupants: empty });
+    const response = api.route(req('DELETE', '/rooms/6002'));
+    assert.equal(response.status, 200);
+
+    const body = response.body as { orphans: { from: number; dir: string }[] };
+    assert.deepEqual(
+      [...body.orphans].sort((a, b) => a.from - b.from),
+      [
+        { from: 6001, dir: 'east' },
+        { from: 6004, dir: 'north' },
+      ],
+    );
+    // Decision 3: tolerated, not repaired. 6001 still points east at a room that is gone, exactly as
+    // the 5 dangling exits the shipped world already has do.
+    const still = api.route(req('GET', '/rooms/6001')).body as { exits: { dir: string; to: number }[] };
+    assert.equal(still.exits.find((e) => e.dir === 'east')?.to, 6002);
+  });
+
+  it('reports the reset commands it orphaned — the only moment anybody is told', () => {
+    const { api } = makeRig({ zone: blockZone(), occupants: empty, resets: { mob: 3, equip: 5, door: 1 } });
+    const body = api.route(req('DELETE', '/rooms/6002')).body as {
+      resets: Record<string, number>;
+      orphanedResets: number;
+    };
+    assert.deepEqual(body.resets, { mob: 3, equip: 5, door: 1 });
+    assert.equal(body.orphanedResets, 9);
+  });
+
+  it('empties the room only once the world has accepted the delete', () => {
+    const refused = makeRig({ zone: spurZone(), occupants: empty });
+    refused.api.route(req('DELETE', '/rooms/6003'));
+    assert.equal(
+      refused.calls.filter((c) => c.startsWith('clearRoom')).length,
+      0,
+      'nothing was despawned for a delete that did not happen',
+    );
+
+    const done = makeRig({ zone: blockZone(), occupants: empty });
+    done.api.route(req('DELETE', '/rooms/6002'));
+    assert.ok(done.calls.includes('clearRoom 6002'));
+    assert.ok(done.calls.includes('publishRoom 6002 regrid=true'), 'the floor has to stop being floor');
+  });
+
+  it('writes a tombstone for a harvested room, and it holds across a reload', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mygame-a8-del-'));
+    const authoredRoomsFile = join(dir, 'rooms-authored.json');
+    const { api } = makeRig({ zone: blockZone(), occupants: empty, authoredRoomsFile });
+    assert.equal(api.route(req('DELETE', '/rooms/6002')).status, 200);
+
+    const store = loadAuthoredRooms(authoredRoomsFile);
+    assert.deepEqual([...store.deleted], [6002]);
+    // A fresh zone off disk — what `npm run worldgen` produces — with the overlay on top.
+    const reloaded = new GameWorld([blockZone()], { zone: 600, room: null }, [], new Map(), store);
+    assert.equal(reloaded.locate(6002), undefined, 'it stayed deleted');
+    assert.deepEqual(reloaded.authoredRefusals, []);
+  });
+
+  it('deletes a created room by removing its record, and unwires what it wired', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mygame-a8-delc-'));
+    const authoredRoomsFile = join(dir, 'rooms-authored.json');
+    const { api } = makeRig({ zone: blockZone(), occupants: empty, authoredRoomsFile });
+
+    // Clear a cell, then build back into the hole it left — the only way to get a created room into
+    // a zone with no gaps, and a fair exercise of the two halves against each other.
+    api.route(req('DELETE', '/rooms/6002'));
+    const rebuilt = api.route(
+      req('POST', '/zones/600/rooms', { name: 'A Sink Hole', sector: 'cave', x: 1, y: 0, level: 0, exits: ['south'] }),
+    );
+    assert.equal(rebuilt.status, 200);
+    const id = (rebuilt.body as { room: { id: number } }).room.id;
+    const wired = api.route(req('GET', '/rooms/6004')).body as { exits: { dir: string; to: number }[] };
+    assert.equal(wired.exits.find((e) => e.dir === 'north')?.to, id, 'we wrote that link');
+
+    // Now remove the created room. The reverse exit goes with it: that link exists only because of
+    // our record, so leaving it would be inventing a dangling exit rather than tolerating one.
+    assert.equal(api.route(req('DELETE', `/rooms/${id}`)).status, 200);
+    const back = api.route(req('GET', '/rooms/6004')).body as { exits: { dir: string; to: number }[] };
+    assert.equal(back.exits.find((e) => e.dir === 'north'), undefined, 'and it came out with it');
+
+    const store = loadAuthoredRooms(authoredRoomsFile);
+    assert.equal(store.rooms.size, 0, 'the record is the room');
+    assert.deepEqual([...store.deleted], [6002], 'and no tombstone for something we made');
+    assert.equal(store.next, AUTHORED_ROOM_BASE + 1, 'but the id it used is never handed out again');
+  });
+
+  it('audits the removal with what it orphaned', () => {
+    const auditDir = mkdtempSync(join(tmpdir(), 'mygame-a8-del-audit-'));
+    const auditFile = join(auditDir, 'audit.jsonl');
+    const { api } = makeRig({ zone: blockZone(), occupants: empty, auditFile, resets: { mob: 2 } });
+    api.route(req('DELETE', '/rooms/6002'));
+
+    const line = JSON.parse(readFileSync(auditFile, 'utf8').trim()) as {
+      action: string;
+      orphanedExits: number;
+      orphanedResets: number;
+    };
+    assert.equal(line.action, 'room.delete');
+    assert.equal(line.orphanedExits, 2);
+    assert.equal(line.orphanedResets, 2);
   });
 });

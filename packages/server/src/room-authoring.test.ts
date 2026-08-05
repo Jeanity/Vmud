@@ -7,10 +7,12 @@ import { test } from 'node:test';
 import { AUTHORED_ROOM_BASE, boundsOf, type Room, type RoomId, type Zone } from '@mygame/shared';
 
 import {
+  applyDeletions,
   composeAuthoredRooms,
   draftAuthoredRoom,
   loadAuthoredRooms,
   placementRefusal,
+  removalRefusal,
   resolveExits,
   saveAuthoredRooms,
   takeAuthoredRoomId,
@@ -123,9 +125,18 @@ test('up and down are refused by name — they land on another Place', () => {
 });
 
 test("a neighbour's existing exit is refused, never overwritten", () => {
-  const occupied = zone([room(10, 0, 0, { exits: { east: { to: 99 as RoomId } } }), room(11, 2, 0)]);
+  // Pointing at room 11, which is right there in the fixture — a link that still leads somewhere.
+  const occupied = zone([room(10, 0, 0, { exits: { east: { to: 11 as RoomId } } }), room(11, 2, 0)]);
   const resolved = resolveExits(occupied.rooms, { x: 1, y: 0, z: 0 }, ['west']);
   assert.ok('error' in resolved && resolved.error.includes('already has a east exit'));
+});
+
+test('an exit left pointing at a deleted room is debris, and building into the hole repairs it', () => {
+  // Exactly what slice 2 leaves behind: 10 still points east at a room that is no longer there.
+  const emptied = zone([room(10, 0, 0, { exits: { east: { to: 11 as RoomId } } }), room(12, 2, 0)]);
+  const resolved = resolveExits(emptied.rooms, { x: 1, y: 0, z: 0 }, ['west']);
+  assert.ok('exits' in resolved, 'a dead link must not make the cell unbuildable for ever');
+  assert.deepEqual(resolved.exits, { west: 10 });
 });
 
 /* -------------------------------------------------------------------------- */
@@ -236,7 +247,7 @@ test('malformed JSON loses the overlay rather than the server', () => {
 
 test('a whole record round-trips, exits and all', () => {
   const file = tempFile();
-  const store = { rooms: authored(AUTHORED_ROOM_BASE), next: AUTHORED_ROOM_BASE + 1 };
+  const store = { rooms: authored(AUTHORED_ROOM_BASE), next: AUTHORED_ROOM_BASE + 1, deleted: new Set<RoomId>() };
   saveAuthoredRooms(store, file);
 
   const back = loadAuthoredRooms(file);
@@ -276,11 +287,85 @@ test('the counter is raised to clear the records, never lowered by a hand edit',
 });
 
 test('an id is never handed out twice, including across a delete', () => {
-  const store = { rooms: new Map(), next: AUTHORED_ROOM_BASE };
+  const store = { rooms: new Map(), next: AUTHORED_ROOM_BASE, deleted: new Set<RoomId>() };
   const first = takeAuthoredRoomId(store);
   const second = takeAuthoredRoomId(store);
   assert.equal(second, first + 1);
   // Deleting the highest must not free its number — a room id is a name, and names are not reused.
   store.rooms.clear();
   assert.equal(takeAuthoredRoomId(store), second + 1);
+});
+
+/* -------------------------------------------------------------------------- */
+/* Removal — slice 2                                                           */
+/* -------------------------------------------------------------------------- */
+
+test('an interior room can go — the middle of a strip holds no bound', () => {
+  const strip = [room(1, 0, 0), room(2, 1, 0), room(3, 2, 0)];
+  assert.equal(removalRefusal(strip, 2 as RoomId), undefined);
+});
+
+test('a room that is not there at all is refused rather than silently succeeding', () => {
+  const strip = [room(1, 0, 0), room(2, 1, 0), room(3, 2, 0)];
+  assert.ok(removalRefusal(strip, 99 as RoomId)?.includes('not in this zone'));
+});
+
+test('a room holding a bound of its own is refused, and says what would move', () => {
+  const strip = [room(1, 0, 0), room(2, 1, 0), room(3, 2, 0)];
+  const why = removalRefusal(strip, 3 as RoomId);
+  assert.ok(why?.includes('would shrink level 0'), why);
+  assert.ok(why?.includes('0..2'), why);
+  assert.ok(why?.includes('0..1'), why);
+});
+
+test('a bound shared with another room is not a bound this room holds', () => {
+  // Two rooms at maxX: losing one moves nothing, and refusing it would make most of a wall
+  // undeletable for no reason at all.
+  const block = [room(1, 0, 0), room(2, 1, 0), room(3, 1, 1), room(4, 0, 1)];
+  assert.equal(removalRefusal(block, 2 as RoomId), undefined);
+});
+
+test('the last room on a level is refused — that is removing the Place, not a room', () => {
+  const alone = [room(1, 0, 0)];
+  assert.ok(removalRefusal(alone, 1 as RoomId)?.includes('only room on level 0'));
+});
+
+test('a tombstone takes the room out at load and counts what now leads nowhere', () => {
+  const z = zone([
+    room(10, 0, 0, { exits: { east: { to: 11 as RoomId } } }),
+    room(11, 1, 0, { exits: { west: { to: 10 as RoomId }, east: { to: 12 as RoomId } } }),
+    room(12, 2, 0, { exits: { west: { to: 11 as RoomId } } }),
+  ]);
+  const { removed, refused, dangling } = applyDeletions(z, new Set([11 as RoomId]));
+
+  assert.deepEqual(refused, []);
+  assert.equal(removed.length, 1);
+  assert.equal(z.rooms.length, 2);
+  // Both survivors still point at 11. Left alone rather than rewritten — the shipped world already
+  // has 5 exits like this and the engine simply does not walk them.
+  assert.equal(dangling, 2);
+  assert.equal(z.rooms.find((r) => r.id === 10)!.exits.east?.to, 11);
+});
+
+test('a hand-typed tombstone that would shrink the grid is refused at load too', () => {
+  const z = zone([room(10, 0, 0), room(11, 1, 0), room(12, 2, 0)]);
+  const { removed, refused } = applyDeletions(z, new Set([12 as RoomId]));
+
+  assert.equal(removed.length, 0);
+  assert.equal(z.rooms.length, 3, 'the room stands');
+  assert.ok(refused[0]?.why.includes('would shrink level 0'), refused[0]?.why);
+});
+
+test('tombstones round-trip, and only harvested ids are honoured', () => {
+  const file = tempFile(
+    JSON.stringify({ next: AUTHORED_ROOM_BASE, deleted: [41260, AUTHORED_ROOM_BASE, 'x', 41261], rooms: {} }),
+  );
+  const store = loadAuthoredRooms(file);
+  // A created room is deleted by removing its record — a tombstone at or above the base is a
+  // contradiction, and honouring it would hide a room the same file still declares.
+  assert.deepEqual([...store.deleted].sort((a, b) => a - b), [41260, 41261]);
+
+  const back = tempFile();
+  saveAuthoredRooms(store, back);
+  assert.deepEqual([...loadAuthoredRooms(back).deleted].sort((a, b) => a - b), [41260, 41261]);
 });

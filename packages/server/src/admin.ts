@@ -142,6 +142,33 @@ export interface LiveOps {
     readonly corpses: readonly string[];
   };
 
+  /**
+   * Empties a room of everything that is not a player — A8 slice 2, and it runs *before* the room is
+   * taken out from under them.
+   *
+   * **Not `slayMob`**, which is the opposite of what is wanted here: a slay leaves a corpse, and a
+   * corpse in a room that is about to stop existing is the thing this exists to prevent. Nothing died;
+   * the room did. Mobs are removed outright and repop into whatever is left of the zone on the next
+   * reset, which is the honest outcome — their reset command still names a room, and `reset.ts` has
+   * always skipped a command it cannot place.
+   *
+   * Players are **not** touched, because the router refuses to delete a room anybody is standing in.
+   * That refusal is the design: an operator has `teleport` and `kick`, and moving somebody without
+   * telling them is a worse answer than saying who is in the way.
+   */
+  clearRoom(room: RoomId): { readonly mobs: number; readonly corpses: number; readonly items: number };
+
+  /**
+   * How many reset commands name this room, by kind — `DESIGN-zone-geometry.md` decision 4.
+   *
+   * **A read that exists solely to be shown at delete time**, and that is the whole of decision 4:
+   * `reset.ts` is already defensive, so an orphaned command is skipped in silence on every boot for
+   * ever. The spawn files are a worldgen output and an authored delete cannot edit them, so the
+   * commands come back on every rebuild — which makes the moment of deletion the only moment anybody
+   * will ever be told.
+   */
+  resetsNaming(room: RoomId): Readonly<Record<string, number>>;
+
   /* ---- A4: zones and mobs, live ------------------------------------------ */
 
   /**
@@ -476,6 +503,9 @@ export class AdminApi {
     if (head === 'rooms' && slug !== undefined && parts.length === 2) {
       if (request.method === 'GET') return this.room(slug);
       if (request.method === 'PATCH') return this.authorRoom(slug, request.body);
+      // A8 slice 2. Not scoped to a zone the way creation is: a room already knows which zone it is
+      // in, and asking the caller to repeat it is a second thing they can get wrong.
+      if (request.method === 'DELETE') return this.deleteRoom(slug);
     }
     if (head === 'announce' && parts.length === 1 && request.method === 'POST') {
       return this.announce(request.body);
@@ -1718,6 +1748,97 @@ export class AdminApi {
           level: created.room.pos.z,
           exits: Object.entries(created.room.exits).map(([dir, exit]) => ({ dir, to: exit.to })),
         },
+      },
+    };
+  }
+
+  /**
+   * Takes a room out of the world — A8 slice 2, and the half that can destroy something.
+   *
+   * **Three refusals before anything moves, and each is a different kind of wrong.** The extent is
+   * `GameWorld.deleteRoom`'s to protect, because narrowing a grid shifts every saved tile index. The
+   * other two are here because they are about the *world in use* rather than its geometry: the spawn
+   * room is where every new character arrives, so deleting it breaks joining for everybody; and a room
+   * somebody is standing in cannot go, because the alternative is a player whose `roomId` resolves to
+   * nothing. The operator has `teleport` and `kick` for that, and naming who is in the way is a better
+   * answer than moving them without telling them.
+   *
+   * **What it reports is the point of the slice.** Orphaned exits and orphaned reset commands are both
+   * *tolerated* rather than repaired — the shipped world already has 5 dangling exits and `reset.ts`
+   * has always skipped what it cannot place — which means neither will ever announce itself again.
+   * This response is the only moment anybody is told, so it says both, plus what was cleared out of
+   * the room on the way.
+   */
+  private deleteRoom(slug: string): AdminResponse {
+    const id = Number(slug);
+    if (!Number.isInteger(id)) return { status: 400, body: { error: `"${slug}" is not a room id` } };
+    const located = this.deps.world.locate(id as RoomId);
+    if (!located) return { status: 404, body: { error: `no room ${id} in the loaded world` } };
+
+    if (this.deps.world.spawnRoom().id === id) {
+      return {
+        status: 409,
+        body: {
+          error:
+            `room ${id} is where new characters arrive — move the spawn in world.config.json first, ` +
+            `or joining breaks for everybody`,
+        },
+      };
+    }
+
+    const here = this.deps.live.occupantsOf(id as RoomId);
+    if (here.players.length > 0) {
+      return {
+        status: 409,
+        body: {
+          error:
+            `${here.players.join(', ')} ${here.players.length === 1 ? 'is' : 'are'} standing in room ` +
+            `${id} — teleport or kick them first`,
+        },
+      };
+    }
+
+    // Counted *before* the delete, so the report is assembled from a world that still makes sense.
+    const resets = this.deps.live.resetsNaming(id as RoomId);
+
+    const removed = this.deps.world.deleteRoom(id as RoomId);
+    if ('error' in removed) return { status: 409, body: { error: removed.error } };
+
+    // Only once the world has actually accepted it: clearing first would empty a room that a refusal
+    // then left standing, which is a mob despawned for nothing.
+    const cleared = this.deps.live.clearRoom(id as RoomId);
+
+    if (this.deps.authoredRoomsFile) {
+      saveAuthoredRooms(this.deps.world.authoredRooms, this.deps.authoredRoomsFile);
+    }
+    // **Only when an A5 override actually went with it.** `rooms.json` is 200 KB of git-tracked
+    // authored prose and rewriting it reorders every key, so a delete that touched none of it would
+    // otherwise land as a few hundred lines of diff containing no change.
+    if (removed.droppedOverride && this.deps.overridesFile) {
+      saveRoomOverrides(this.deps.world.overrides, this.deps.overridesFile);
+    }
+    // Always a regrid: the floor this room stood on has to stop being floor for everyone on the Place.
+    this.deps.live.publishRoom(removed.room, removed.place, true);
+
+    const orphanedResets = Object.values(resets).reduce((sum, n) => sum + n, 0);
+    this.audit('room.delete', {
+      room: id,
+      zone: removed.place.zone,
+      orphanedExits: removed.orphans.length,
+      orphanedResets,
+      cleared,
+    });
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        room: { id, name: removed.room.name },
+        /** Exits the harvest wrote that now lead nowhere. Left alone on purpose — see decision 3. */
+        orphans: removed.orphans,
+        /** Reset commands that will be skipped in silence from now on — decision 4. */
+        resets,
+        orphanedResets,
+        cleared,
       },
     };
   }

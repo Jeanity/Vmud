@@ -1,19 +1,5 @@
 {
   "next": 1000001,
-  "rooms": {
-    "1000000": {
-      "id": 1000000,
-      "zone": 168,
-      "name": "A Trampled Hollow in the Wheat",
-      "description": "The wheat gives way to a shallow scoop of bare earth, beaten flat by something that bedded down here and left. Stalks lean inward all around, broken at knee height, and the smell of them is sweet and turning. &+yA scatter of chaff&N has drifted into the low side of the hollow.",
-      "sector": "field",
-      "x": 1,
-      "y": 7,
-      "level": 5,
-      "exits": {
-        "north": 41263
-      },
-      "at": "2026-08-05T08:12:07.648Z"
-    }
-  }
+  "deleted": [],
+  "rooms": {}
 }

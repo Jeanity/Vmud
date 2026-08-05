@@ -181,6 +181,10 @@
       button:hover { border-color: var(--accent); }
       button.danger { color: var(--bad); }
       button.danger:hover { border-color: var(--bad); }
+      /* A8 slice 2. Set apart from the editor above it by a rule rather than by colour: this is the
+         one control in the panel that destroys something, and it should read as a different kind of
+         thing from the fields you can always write again. */
+      .danger-zone { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--edge); }
       button:disabled { opacity: 0.4; cursor: default; }
 
       .flash { min-height: 18px; font-size: 12px; margin: 6px 0; }

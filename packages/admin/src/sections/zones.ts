@@ -21,6 +21,20 @@ import { draftControl } from '../draft.ts';
 import { ago, duration, el, render } from '../dom.ts';
 import { drawZoneMap } from '../zonemap.ts';
 
+/**
+ * What `DELETE /rooms/:id` answers with — A8 slice 2.
+ *
+ * Declared here rather than in `api.ts` because nothing else reads it: this is the shape of one
+ * report shown once, not a row type the rest of the panel shares.
+ */
+interface DeleteReport {
+  readonly room: { readonly id: number; readonly name: string };
+  readonly orphans: readonly { readonly from: number; readonly dir: string }[];
+  readonly resets: Readonly<Record<string, number>>;
+  readonly orphanedResets: number;
+  readonly cleared: { readonly mobs: number; readonly corpses: number; readonly items: number };
+}
+
 let timer: number | undefined;
 let pickedZone: number | undefined;
 let pickedRoom: number | undefined;
@@ -71,10 +85,24 @@ export const zonesSection = {
       // Re-fetched after a save rather than patched in place: the server decides what an edit
       // actually became — a trimmed name, a flag list deduplicated — and the form must show that
       // rather than what was typed. The zone is refetched too, so the map's authored marks follow.
-      renderRoom(detailPane, result.body, () => {
-        void showRoom(id);
-        if (pickedZone !== undefined) void showZone(pickedZone);
-      });
+      const zoneName = result.body.place;
+      renderRoom(
+        detailPane,
+        result.body,
+        () => {
+          void showRoom(id);
+          if (pickedZone !== undefined) void showZone(pickedZone);
+        },
+        // **The report replaces the room, and the selection is dropped first.** Re-fetching the room
+        // to redraw the pane is what every other write here does and is exactly wrong after a delete:
+        // it would 404, and the reopen-what-you-were-looking-at logic at mount would 404 again next
+        // time the tab is opened.
+        (report) => {
+          pickedRoom = undefined;
+          render(detailPane, removalReport(report, zoneName));
+          if (pickedZone !== undefined) void showZone(pickedZone);
+        },
+      );
     };
 
     const showZone = async (id: number): Promise<void> => {
@@ -399,7 +427,7 @@ function doorControls(
   );
 }
 
-function renderRoom(pane: HTMLElement, room: RoomDetail, reload: () => void): void {
+function renderRoom(pane: HTMLElement, room: RoomDetail, reload: () => void, gone: (report: DeleteReport) => void): void {
   const here = [
     ...room.occupants.players.map((name) => `${name} (player)`),
     ...room.occupants.mobs,
@@ -468,6 +496,7 @@ function renderRoom(pane: HTMLElement, room: RoomDetail, reload: () => void): vo
           ),
       nearbyProse(room),
       roomEditor(room, reload),
+      roomRemover(room, gone),
     ),
   );
 }
@@ -687,6 +716,114 @@ const OPPOSITE_DIR: Readonly<Record<string, string>> = {
   east: 'west',
   west: 'east',
 };
+
+/**
+ * Taking a room out — A8 slice 2, and the one control in this panel that destroys something.
+ *
+ * **Two gestures, the same rule the PvP switch follows**, and for a stronger reason than symmetry:
+ * every other write here can be undone by writing again, and this one cannot. A room removed with a
+ * stray click takes its prose with it, and the prose is the part nobody can regenerate.
+ *
+ * **The report is the feature, not the confirmation.** What a delete leaves behind is *tolerated*
+ * rather than repaired — neighbours keep pointing at nothing, and reset commands that named the room
+ * are skipped in silence on every boot from now on — so this response is the only moment anybody is
+ * ever told. It stays on screen after the room has gone, which is why it renders into the pane rather
+ * than beside a button that is about to disappear with it.
+ */
+function roomRemover(room: RoomDetail, gone: (report: DeleteReport) => void): HTMLElement {
+  const flash = el('p', { class: 'note' });
+  const confirm = el('button', { class: 'danger' }, 'Yes, remove it');
+  const cancel = el('button', { type: 'button' }, 'Cancel');
+  const armed = el('div', { class: 'row' }, confirm, cancel);
+  armed.hidden = true;
+
+  const arm = el('button', { type: 'button' }, 'Remove room…');
+  arm.addEventListener('click', () => {
+    arm.hidden = true;
+    armed.hidden = false;
+    flash.className = 'note';
+    flash.textContent =
+      'This cannot be undone. Neighbours that lead here will be left pointing at nothing, and any ' +
+      'reset command naming this room will be skipped from now on.';
+  });
+  cancel.addEventListener('click', () => {
+    armed.hidden = true;
+    arm.hidden = false;
+    flash.className = 'note';
+    flash.textContent = '';
+  });
+
+  confirm.addEventListener('click', () => {
+    void (async () => {
+      confirm.disabled = true;
+      const result = await call<DeleteReport>('DELETE', `/rooms/${room.id}`);
+      if (!result.ok || !result.body) {
+        flash.className = 'flash err';
+        flash.textContent = result.error ?? 'refused';
+        confirm.disabled = false;
+        return;
+      }
+      gone(result.body);
+    })();
+  });
+
+  return el('div', { class: 'danger-zone' }, el('span', { class: 'field-label' }, 'geometry'), arm, armed, flash);
+}
+
+/** What the server says a delete cost. Rendered once, because nothing will ever say it again. */
+function removalReport(report: DeleteReport, zoneName: string): HTMLElement {
+  const kinds = Object.entries(report.resets);
+  return el(
+    'div',
+    { class: 'card' },
+    el('h3', {}, `Removed — ${report.room.name} `, el('span', { class: 'pill' }, `#${report.room.id}`)),
+    el(
+      'p',
+      { class: 'note' },
+      `It is gone from ${zoneName}, and from the overlay that survives npm run worldgen.`,
+    ),
+    el(
+      'dl',
+      { class: 'kv' },
+      el('dt', {}, 'exits left dangling'),
+      el(
+        'dd',
+        {},
+        report.orphans.length === 0
+          ? el('span', { class: 'muted' }, 'none')
+          : report.orphans.map((o) => `${o.from} (${o.dir})`).join(', '),
+      ),
+      el('dt', {}, 'reset commands orphaned'),
+      el(
+        'dd',
+        {},
+        report.orphanedResets === 0
+          ? el('span', { class: 'muted' }, 'none')
+          : `${report.orphanedResets} — ${kinds.map(([kind, n]) => `${n} ${kind}`).join(', ')}`,
+      ),
+      el('dt', {}, 'cleared out of it'),
+      el(
+        'dd',
+        {},
+        report.cleared.mobs + report.cleared.corpses + report.cleared.items === 0
+          ? el('span', { class: 'muted' }, 'nothing')
+          : `${report.cleared.mobs} mob(s), ${report.cleared.corpses} corpse(s), ${report.cleared.items} item(s)`,
+      ),
+    ),
+    // Said plainly because it is the half nobody expects: the spawn files are a worldgen output, so
+    // an authored delete cannot edit them. The orphaned commands come back on every rebuild and are
+    // skipped on every boot, for ever, without another word.
+    report.orphanedResets === 0
+      ? null
+      : el(
+          'p',
+          { class: 'note' },
+          'Those reset commands are in a generated file and cannot be edited from here. They will ' +
+            'come back on the next worldgen and be skipped every boot, silently. This is the only ' +
+            'time you will be told.',
+        ),
+  );
+}
 
 /* -------------------------------------------------------------------------- */
 /* The editor — A5                                                             */

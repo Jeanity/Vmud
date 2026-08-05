@@ -105,6 +105,18 @@ export interface AuthoredRoomStore {
   readonly rooms: AuthoredRooms;
   /** The next room id to allocate. Only ever increases, including across a delete. */
   next: number;
+  /**
+   * Harvested rooms that have been taken out — A8 slice 2, and the only way a delete can survive.
+   *
+   * **A tombstone rather than an edit**, for the reason `overrides.ts` exists at all: the zone files
+   * are generated, so a room removed from one comes back on the next `npm run worldgen`. Recording
+   * *that it is gone* is the only form of deletion that is stable, and it is the same trick the
+   * additive half uses seen from the other side.
+   *
+   * A **created** room needs no tombstone — deleting its record deletes the room, because the record
+   * is the room. So this holds harvested ids and only harvested ids.
+   */
+  readonly deleted: Set<RoomId>;
 }
 
 /**
@@ -183,6 +195,100 @@ export function placementRefusal(
 }
 
 /**
+ * Why a room may not be taken out, or nothing.
+ *
+ * **`placementRefusal` seen from the other side, and it guards the same edge.** Adding outside the
+ * extent widens a grid; removing the last room *at* the extent narrows one, and a narrower grid
+ * shifts every row-major tile index below the first row exactly as a wider one does. So slice 2
+ * clears gaps on the same terms slice 1 fills them: interior only, and the boundary waits for the
+ * slice that can pay for it with an explicit `seen` invalidation.
+ *
+ * Note it is the **extent** that is protected, not the boundary cell: a level with five rooms along
+ * `maxX` loses nothing by giving up one of them, and refusing that would make most of a wall
+ * undeletable for no reason. The test is therefore a comparison of the bounds before and after, not
+ * a look at where the room sits.
+ */
+export function removalRefusal(rooms: readonly Room[], id: RoomId): string | undefined {
+  const room = rooms.find((candidate) => candidate.id === id);
+  if (!room) return `room ${id} is not in this zone`;
+
+  const level = rooms.filter((candidate) => candidate.pos.z === room.pos.z);
+  const rest = level.filter((candidate) => candidate.id !== id);
+  if (rest.length === 0) {
+    return (
+      `room ${id} is the only room on level ${room.pos.z}, and removing it would remove the Place ` +
+      `itself rather than a room in it`
+    );
+  }
+
+  const before = boundsOf(level);
+  const after = boundsOf(rest);
+  if (
+    after.minX !== before.minX ||
+    after.maxX !== before.maxX ||
+    after.minY !== before.minY ||
+    after.maxY !== before.maxY
+  ) {
+    return (
+      `removing room ${id} would shrink level ${room.pos.z}'s extent from ` +
+      `${before.minX}..${before.maxX} by ${before.minY}..${before.maxY} to ` +
+      `${after.minX}..${after.maxX} by ${after.minY}..${after.maxY}. Every tile index in every saved ` +
+      `map of this Place is measured from that corner, so this slice clears gaps only.`
+    );
+  }
+  return undefined;
+}
+
+/**
+ * Takes the tombstoned rooms out of a freshly-loaded zone, in place.
+ *
+ * **Runs before {@link composeAuthoredRooms}, and the order is load-bearing.** Extents are what both
+ * halves are checked against, so they have to be measured against the world as it will actually
+ * stand — otherwise a room could be infilled against an extent that a deletion in the same file was
+ * about to change.
+ *
+ * Exits pointing at what has gone are **left dangling and counted, not rewritten**. That is decision
+ * 3's measured call: the shipped world already has 5 exits leading to rooms that do not exist and the
+ * engine simply does not walk them, so a delete makes more of a state that already works rather than
+ * a new failure. Silently rewriting a neighbour the operator was not looking at is the alternative,
+ * and it is worse.
+ */
+export function applyDeletions(
+  zone: Zone,
+  deleted: ReadonlySet<RoomId>,
+): {
+  readonly removed: readonly Room[];
+  readonly refused: readonly { readonly id: RoomId; readonly why: string }[];
+  /** Exits now leading nowhere, as a result of these removals. Reported at boot, never repaired. */
+  readonly dangling: number;
+} {
+  const removed: Room[] = [];
+  const refused: { id: RoomId; why: string }[] = [];
+
+  // Sorted so that a file listing two rooms whose removals interact is resolved the same way every
+  // boot, rather than by set iteration order.
+  for (const id of [...deleted].sort((a, b) => a - b)) {
+    if (!zone.rooms.some((room) => room.id === id)) continue;
+    // Re-checked at load and not merely at delete time: this file is hand-editable, and an id typed
+    // in here that narrows a grid would silently invalidate every saved map of the Place.
+    const why = removalRefusal(zone.rooms, id);
+    if (why) {
+      refused.push({ id, why });
+      continue;
+    }
+    const index = zone.rooms.findIndex((room) => room.id === id);
+    removed.push(...(zone.rooms as Room[]).splice(index, 1));
+  }
+
+  let dangling = 0;
+  const gone = new Set(removed.map((room) => room.id));
+  for (const room of zone.rooms) {
+    for (const exit of Object.values(room.exits)) if (gone.has(exit.to)) dangling++;
+  }
+  return { removed, refused, dangling };
+}
+
+/**
  * Turns a list of directions into the exits they mean, or the reason one of them cannot be made.
  *
  * **The destination is derived, never posted.** For an infill room an exit's far end is not a
@@ -198,6 +304,14 @@ export function resolveExits(
   rooms: readonly Room[],
   pos: { readonly x: number; readonly y: number; readonly z: number },
   dirs: readonly Direction[],
+  /**
+   * Whether an exit's destination is still a room somewhere — defaults to "in this zone".
+   *
+   * The caller supplies it because the honest answer needs more than one zone: an exit leading into a
+   * zone this server does not run is real content, and an exit leading to a room that was **deleted**
+   * is debris. See {@link isDebris}, and `GameWorld` for the version that can tell the two apart.
+   */
+  lives: (id: RoomId) => boolean = (id) => rooms.some((room) => room.id === id),
 ): { readonly exits: Partial<Record<Direction, RoomId>> } | { readonly error: string } {
   const byCell = new Map<string, Room>();
   for (const room of rooms) byCell.set(cellKey(room.pos.x, room.pos.y, room.pos.z), room);
@@ -213,8 +327,13 @@ export function resolveExits(
     const neighbour = byCell.get(cellKey(pos.x + delta[0], pos.y + delta[1], pos.z + delta[2]));
     if (!neighbour) return { error: `nothing lies ${dir} of (${pos.x},${pos.y}) on level ${pos.z}` };
 
+    // **A dangling exit is debris, not a link, and re-pointing it is the repair rather than a
+    // replacement.** Slice 2 leaves a deleted room's neighbours pointing at nothing on purpose
+    // (decision 3), and without this the hole left by a delete could never be built into again — the
+    // dead exit would refuse every attempt for ever. Overwriting an exit that still *leads* somewhere
+    // stays refused, which is the rule that was actually meant.
     const facing = neighbour.exits[OPPOSITE[dir]];
-    if (facing) {
+    if (facing && lives(facing.to)) {
       const to = byId.get(facing.to);
       return {
         error:
@@ -361,14 +480,23 @@ export function readAuthoredRoom(id: RoomId, raw: unknown): AuthoredRoom | undef
  * already made. Both ends of one doorway can be declared (nothing stops a hand-edited file doing it),
  * and refusing the second one would report a conflict between an exit and itself.
  */
-function linkFailure(rooms: readonly Room[], room: Room, dir: Direction, to: RoomId): string | undefined {
+function linkFailure(
+  rooms: readonly Room[],
+  room: Room,
+  dir: Direction,
+  to: RoomId,
+  deleted: ReadonlySet<RoomId>,
+): string | undefined {
   const neighbour = rooms.find((candidate) => candidate.id === to);
   if (!neighbour) return `room ${to} is not in this zone`;
   if (!isGeometricallyConsistent(room, dir, neighbour)) {
     return `room ${to} is no longer the cell ${dir} of (${room.pos.x},${room.pos.y}) on level ${room.pos.z}`;
   }
+  // Debris does not count, for the reason `resolveExits` gives: an exit left pointing at a room that
+  // was deleted is not a link somebody authored, and a created room standing in that cell is the
+  // thing it should have pointed at all along.
   const facing = neighbour.exits[OPPOSITE[dir]];
-  if (facing && facing.to !== room.id) {
+  if (facing && facing.to !== room.id && !deleted.has(facing.to)) {
     return `room ${to} already has a ${OPPOSITE[dir]} exit, to ${facing.to}`;
   }
   return undefined;
@@ -411,6 +539,8 @@ export function attachAuthoredRoom(zone: Zone, room: Room): void {
 export function composeAuthoredRooms(
   zone: Zone,
   rooms: AuthoredRooms,
+  /** Tombstoned ids, so an exit still pointing at one is read as debris rather than as a conflict. */
+  deleted: ReadonlySet<RoomId> = new Set(),
 ): { readonly added: readonly Room[]; readonly refused: readonly { readonly id: RoomId; readonly why: string }[] } {
   const mine = [...rooms.values()]
     .filter((authored) => authored.room.zone === zone.id)
@@ -438,7 +568,7 @@ export function composeAuthoredRooms(
 
   for (const room of added) {
     for (const [dir, exit] of Object.entries(room.exits)) {
-      const why = linkFailure(zone.rooms, room, dir as Direction, exit.to);
+      const why = linkFailure(zone.rooms, room, dir as Direction, exit.to, deleted);
       if (why) {
         // The room stands; only the bad exit goes. A room with one of its two doorways missing is
         // still somewhere you can walk, and deleting it over a neighbour that moved would throw away
@@ -465,15 +595,26 @@ export function composeAuthoredRooms(
  */
 export function loadAuthoredRooms(file = AUTHORED_ROOMS_FILE): AuthoredRoomStore {
   const rooms: AuthoredRooms = new Map();
+  const deleted = new Set<RoomId>();
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(file, 'utf8'));
   } catch {
     // No overlay is the ordinary case — nothing has been created yet.
-    return { rooms, next: AUTHORED_ROOM_BASE };
+    return { rooms, next: AUTHORED_ROOM_BASE, deleted };
   }
-  if (typeof raw !== 'object' || raw === null) return { rooms, next: AUTHORED_ROOM_BASE };
+  if (typeof raw !== 'object' || raw === null) return { rooms, next: AUTHORED_ROOM_BASE, deleted };
   const parsed = raw as Record<string, unknown>;
+
+  if (Array.isArray(parsed.deleted)) {
+    for (const id of parsed.deleted as unknown[]) {
+      const value = readInt(id);
+      // **Only harvested ids.** A created room is deleted by removing its record, so a tombstone at or
+      // above the authored base is either a contradiction or a leftover, and honouring it would hide a
+      // room the file itself still declares.
+      if (value !== undefined && value < AUTHORED_ROOM_BASE) deleted.add(value as RoomId);
+    }
+  }
 
   const records =
     typeof parsed.rooms === 'object' && parsed.rooms !== null ? (parsed.rooms as Record<string, unknown>) : {};
@@ -486,7 +627,7 @@ export function loadAuthoredRooms(file = AUTHORED_ROOMS_FILE): AuthoredRoomStore
 
   let next = readInt(parsed.next) ?? AUTHORED_ROOM_BASE;
   for (const id of rooms.keys()) if (id >= next) next = id + 1;
-  return { rooms, next: Math.max(next, AUTHORED_ROOM_BASE) };
+  return { rooms, next: Math.max(next, AUTHORED_ROOM_BASE), deleted };
 }
 
 /**
@@ -522,7 +663,10 @@ export function saveAuthoredRooms(store: AuthoredRoomStore, file = AUTHORED_ROOM
       ...(authored.brief ? { brief: authored.brief } : {}),
     };
   }
-  writeFileSync(file, `${JSON.stringify({ next: store.next, rooms: records }, null, 2)}\n`);
+  writeFileSync(
+    file,
+    `${JSON.stringify({ next: store.next, deleted: [...store.deleted].sort((a, b) => a - b), rooms: records }, null, 2)}\n`,
+  );
 }
 
 /**

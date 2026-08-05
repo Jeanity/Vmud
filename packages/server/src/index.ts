@@ -4839,6 +4839,35 @@ const adminLive: LiveOps = {
     return { players, mobs, corpses: corpsesIn(graveyard, room).map((corpse) => corpseName(corpse)) };
   },
 
+  clearRoom(room) {
+    // **Removed, not slain.** `slayMob` goes through `resolveDeath` on purpose, and that is exactly
+    // wrong here: it would leave a corpse in a room that is about to stop existing. Nothing died —
+    // the room did.
+    const mobs = sim.actorsIn(room).filter((actor) => !isPlayer(actor));
+    for (const mob of mobs) sim.remove(mob.id);
+
+    const corpses = corpsesIn(graveyard, room);
+    for (const corpse of corpses) graveyard.delete(corpse.id);
+
+    const items = itemsIn(ground, room);
+    for (const item of items) ground.delete(item.id);
+
+    return { mobs: mobs.length, corpses: corpses.length, items: items.length };
+  },
+
+  resetsNaming(room) {
+    // Every loaded zone, not just the room's own: `arg3` is a room id and nothing stops a zone's
+    // reset table naming a room in another zone — 168's own table already names 43321 and 72774.
+    const byKind: Record<string, number> = {};
+    for (const clock of zoneClocks) {
+      for (const reset of clock.spawns.resets) {
+        if (reset.room !== room) continue;
+        byKind[reset.kind] = (byKind[reset.kind] ?? 0) + 1;
+      }
+    }
+    return byKind;
+  },
+
   settings() {
     return settings;
   },

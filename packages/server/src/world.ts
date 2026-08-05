@@ -44,10 +44,12 @@ import {
   type RoomOverrides,
 } from './overrides.ts';
 import {
+  applyDeletions,
   attachAuthoredRoom,
   composeAuthoredRooms,
   loadAuthoredRooms,
   placementRefusal,
+  removalRefusal,
   resolveExits,
   takeAuthoredRoomId,
   type AuthoredRoomStore,
@@ -363,7 +365,7 @@ export class GameWorld {
     spawn: SpawnConfig,
     populate: readonly ZoneId[] = [],
     overrides: RoomOverrides = new Map(),
-    authoredRooms: AuthoredRoomStore = { rooms: new Map(), next: AUTHORED_ROOM_BASE },
+    authoredRooms: AuthoredRoomStore = { rooms: new Map(), next: AUTHORED_ROOM_BASE, deleted: new Set() },
   ) {
     this.populate = populate;
     this.spawn = spawn;
@@ -383,11 +385,22 @@ export class GameWorld {
       // sectors. Composing after the fact would leave the map showing the terrain the harvest had.
       // The snapshot is taken first, inside, so `revertRoom` can undo what is about to be applied.
       authored += applyOverridesToZone(zone, overrides, (room) => this.remember(room));
+      // **Deletions before additions**, because both are checked against the level's extent and the
+      // extent has to be the one the world will actually have. Composing first would let a room be
+      // infilled against a boundary that a tombstone in the same file was about to move.
+      const cleared = applyDeletions(zone, authoredRooms.deleted);
+      refusals.push(...cleared.refused);
+      if (cleared.removed.length > 0) {
+        console.log(
+          `[world] zone ${zone.id}: ${cleared.removed.length} room(s) removed by the authored overlay, ` +
+            `${cleared.dangling} exit(s) now lead nowhere`,
+        );
+      }
       // **After the patches and before the index**, which is `DESIGN-zone-geometry.md` decision 5's
       // order exactly: the harvest, then what was written over it, then whole records appended. A
       // created room is not patched by `rooms.json` and never will be — an edit to one is a re-draft
       // of its own record, which `reauthorRoom` does, so the two overlays cannot both claim a room.
-      const composed = composeAuthoredRooms(zone, authoredRooms.rooms);
+      const composed = composeAuthoredRooms(zone, authoredRooms.rooms, authoredRooms.deleted);
       refusals.push(...composed.refused);
 
       const levels = new Set<number>();
@@ -551,7 +564,7 @@ export class GameWorld {
     const refusal = placementRefusal(zone.rooms, pos);
     if (refusal) return { error: refusal };
 
-    const resolved = resolveExits(zone.rooms, pos, draft.dirs);
+    const resolved = resolveExits(zone.rooms, pos, draft.dirs, (id) => this.destinationLives(id));
     if ('error' in resolved) return resolved;
 
     const id = takeAuthoredRoomId(this.authoredRooms);
@@ -608,6 +621,117 @@ export class GameWorld {
   /** Whether this room was created here rather than harvested. The one question the API dispatches on. */
   isAuthoredRoom(roomId: RoomId): boolean {
     return this.authoredRooms.rooms.has(roomId);
+  }
+
+  /**
+   * Whether an exit's destination is still somewhere, as opposed to debris a delete left behind.
+   *
+   * **Three states, not two, and conflating the outer pair is the bug this exists to avoid.** A room
+   * in the live index is obviously there. A room in a zone this server does not *run* is also there —
+   * every one of the 991 cross-zone exits leads to one, and treating those as debris would let a new
+   * room quietly steal a portal. What is left — an id belonging to a zone we did load, that is not in
+   * the index — is a room that was deleted, and an exit still pointing at it is dead.
+   *
+   * `zoneOf` answers the middle case from the generated directory, which spans all 327 zones and is
+   * read at most once per process. It cannot be used alone: a tombstoned room is still in its zone
+   * *file*, so the directory says it exists long after the world stopped agreeing.
+   */
+  private destinationLives(id: RoomId): boolean {
+    if (this.index.has(id)) return true;
+    // **What we took out beats what the directory remembers, and the order is not cosmetic.** A
+    // tombstoned room is still in its zone *file* — that is the whole point of a tombstone — so
+    // `zoneOf` finds it there long after the world stopped agreeing, and asking the disk first would
+    // report a room we deleted as alive and well in whichever zone happens to own that number.
+    if (this.authoredRooms.deleted.has(id)) return false;
+    const zone = this.zoneOf(id);
+    return zone !== undefined && !this.zonesById.has(zone);
+  }
+
+  /**
+   * Takes a room out of the world — A8 slice 2.
+   *
+   * **Two deletions wearing one verb, and the difference is which file remembers.** A created room is
+   * removed by deleting its record, because the record *is* the room. A harvested one is removed by
+   * writing a tombstone, because the zone file is generated and the next `npm run worldgen` would put
+   * it back. The id range decides which, here as everywhere else in this pair of overlays.
+   *
+   * **What happens to exits pointing at it is the interesting half, and it is deliberately not
+   * uniform.** An exit that exists *because of us* is removed: every reverse link a created room's
+   * declaration caused, and every declared exit on another created room. An exit the harvest wrote is
+   * left dangling and reported — decision 3's measured call, since the shipped world already has 5 of
+   * those and the engine simply does not walk them. Rewriting a neighbour the operator was not
+   * looking at is the alternative, and it is the worse one.
+   *
+   * Persisting is the caller's, as ever. Dropping the grid is not: the floor this room stood on has
+   * to stop being floor, or a player walks onto tiles belonging to a room that no longer exists.
+   */
+  deleteRoom(roomId: RoomId):
+    | {
+        room: Room;
+        place: Place;
+        orphans: readonly { from: RoomId; dir: Direction }[];
+        /**
+         * Whether an A5 override went with it, so the caller knows whether `rooms.json` needs saving.
+         *
+         * Reported rather than assumed because that file is **git-tracked authored prose**, 200 KB of
+         * it, and rewriting it reorders every key — a delete that touched none of it would otherwise
+         * show up as a 279-line diff with no change in it.
+         */
+        droppedOverride: boolean;
+      }
+    | { error: string } {
+    const located = this.index.get(roomId);
+    if (!located) return { error: `no room ${roomId} in the loaded world` };
+    const zone = this.zonesById.get(located.place.zone);
+    if (!zone) return { error: `zone ${located.place.zone} is not loaded` };
+
+    const refusal = removalRefusal(zone.rooms, roomId);
+    if (refusal) return { error: refusal };
+
+    const room = located.room;
+    const authored = this.authoredRooms.rooms.get(roomId);
+
+    // **Ours first.** A created room's own declaration is what caused the reverse link on each of its
+    // neighbours, so those come out with it — they are not part of any harvest and leaving them would
+    // be inventing a dangling exit rather than tolerating one.
+    if (authored) {
+      for (const [dir, exit] of Object.entries(room.exits)) {
+        const neighbour = this.index.get(exit.to)?.room;
+        const back = neighbour?.exits[OPPOSITE[dir as Direction]];
+        if (neighbour && back?.to === roomId) delete (neighbour.exits as Record<string, unknown>)[OPPOSITE[dir as Direction]];
+      }
+    }
+
+    // Everything still pointing here, across the whole loaded world rather than this zone alone —
+    // a cross-zone exit is a portal, but it is still an exit somebody authored.
+    const orphans: { from: RoomId; dir: Direction }[] = [];
+    for (const { room: other } of this.index.values()) {
+      if (other.id === roomId) continue;
+      for (const [dir, exit] of Object.entries(other.exits)) {
+        if (exit.to !== roomId) continue;
+        const owner = this.authoredRooms.rooms.get(other.id);
+        if (owner) {
+          // Another created room's declared exit. Ours, so it goes — and the record goes with it,
+          // since the record and the live room are one object.
+          delete (other.exits as Record<string, unknown>)[dir];
+        } else {
+          orphans.push({ from: other.id, dir: dir as Direction });
+        }
+      }
+    }
+
+    const index = zone.rooms.findIndex((candidate) => candidate.id === roomId);
+    if (index >= 0) (zone.rooms as Room[]).splice(index, 1);
+    this.index.delete(roomId);
+    if (authored) this.authoredRooms.rooms.delete(roomId);
+    else this.authoredRooms.deleted.add(roomId);
+    // The override is dropped too when there was one: an entry patching a room that no longer exists
+    // would apply to nothing forever, and would come back to life if a re-harvest ever reused the id.
+    const droppedOverride = this.overrides.delete(roomId);
+    this.pristine.delete(roomId);
+
+    this.dropGrid(located.place);
+    return { room, place: located.place, orphans, droppedOverride };
   }
 
   /** Snapshots a room's authorable fields, once, before the first thing is written over them. */

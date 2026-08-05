@@ -92,7 +92,7 @@ a new idea still answers the three questions; its second question now also picks
 | 4 | V3 — speech in the world | Phase 15 — inventory and worn equipment ✅ | A4 — zones and mobs, live ops |
 | **5 ✅** | A7a/A7b — item art becomes data ✅ *(took the V slot: it is presentation of things that already exist)* | Phase 16 — gear that matters (16a bands ✅, 16c mob armour ✅) | A6 — items ✅, A6b — items you make yourself ✅ |
 | **6 — under way** | A7c — the art picker ✅, then A7d — bag and floor icons | Phase 16 ✅ — light from what you hold, craftsmanship on AC, encumbrance, water you cannot wade | A4 ✅ — mobs live, then A4c — their loot |
-| **7 — under way** | V3 — speech in the world ✅, then V4 — Places as a graph | Phase 17 — shops ✅ | A8 — zone geometry: slice 1, infill ✅; deletion and extent changes to go |
+| **7 — under way** | V3 — speech in the world ✅, then V4 — Places as a graph | Phase 17 — shops ✅ | A8 — zone geometry: infill ✅ and deletion ✅; extent changes to go |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
 A5, because A5's prose editor is a colour editor and building the palette before the renderer would
@@ -1415,8 +1415,25 @@ order.
   record** rather than writing a `rooms.json` patch, which is A6b's dispatch in its second home: two
   overlays claiming one room is a state where the answer depends on load order. Up and down are
   refused by name, because a vertical link lands on a second Place with its own grid and its own
-  stair placement. What is left is **deletion** with the orphan report, then **extent changes** with
-  the explicit `seen` invalidation.
+  stair placement.
+
+  **Slice 2, deletion, is built (2026-08-05).** Decision 4 delivered, and decisions 3 and 4 both moved
+  from *agreed with* to *honoured*. Deletion is two operations under one verb — a created room goes by
+  deleting its record, a harvested one by writing a **tombstone**, since the zone file is generated and
+  a rebuild would restore it. `removalRefusal` guards the extent from the other side to
+  `placementRefusal`, comparing the level's bounds with and without the room, so a boundary *shared*
+  with another room is deletable and one the extent *rests on* is not. Two refusals live in the router
+  because they are about the world in use: the spawn room, and a room somebody is standing in. Orphaned
+  exits and orphaned reset commands are **counted and shown at the moment of deletion** — the only
+  moment anybody is told, since both are then skipped in silence for ever. **One interaction the note
+  did not predict and the build had to settle**: the debris a delete leaves was blocking its own cell,
+  because a neighbour's dead exit read as a link worth protecting. It is not — but telling debris from
+  a real destination needs *three* states, since an exit into a zone this server does not run is real
+  content, and a tombstoned room is still in its zone file so the disk must not be asked first.
+
+  What is left is **slice 3, extent changes**, with the explicit `seen` invalidation. Both slices so
+  far can sidestep decision 2 completely — nothing built can widen or narrow a grid — and giving that
+  property up is precisely what slice 3 is.
 
   The five problems, four of which were decisions rather than work:
 
