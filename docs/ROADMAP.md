@@ -1520,9 +1520,8 @@ order.
     tiles away in a seeded random direction**, bounded by the three-tile pickup reach so nothing can
     land somewhere you have to walk to.
 
-    **The known flaw: an icon is a body-shaped frame with an empty top half** (owner, 2026-08-05, on
-    seeing a cloak on the floor: *"it had the shoulder part at the bottom of the image instead of the
-    top"*).
+    **The flaw the owner caught, and its fix** ✅ (2026-08-05). *"It had the shoulder part at the
+    bottom of the image instead of the top"* — an icon was a body-shaped frame with an empty top half.
 
     Measured, and the first diagnosis — *"south is the wrong facing"* — was wrong. The two cape layers
     are complementary **by facing**, because `fg`/`bg` is foreground/background *relative to the body*
@@ -1539,11 +1538,13 @@ order.
     as sunken rather than as an object. The nubs the owner saw at the bottom are the hem, drawn by the
     fg layer over the bg one.
 
-    **The fix is to crop each icon to its content's bounding box**, not to change the facing. And it
-    is cheaper than it first looked: it needs **no PNG decoder in `artgen`**, because the client can
-    measure the alpha bounds of a texture it has already loaded, once, and cache it — the same canvas
-    readback the measurements above were taken with. Phaser's `setCrop` plus an origin adjustment is
-    the whole of the rendering change.
+    **Fixed by cropping to the content's bounding box**, not by changing the facing — and it needed
+    **no PNG decoder in `artgen`**, which the first write-up had assumed. The client measures the alpha
+    bounds of a texture it has already loaded, once per sheet-set and cached, so a floor with twenty
+    daggers on it scans once. The **union** across an art's layers rather than each separately, since
+    cropping a cloak's two sheets independently would slide its halves apart. `setCrop` does not move
+    an object, so each image is also shifted by the crop's offset from the frame centre; that shift is
+    what actually centres the content.
   - **A7d-bag — icons in the drawer.** Still open, and a different job: it wants an art id per
     `BagRow`, which is a protocol addition rather than a rendering change.
   - **A7e — recolour** (owner, 2026-08-05). Pick a sheet and a named colour ramp, and stage the

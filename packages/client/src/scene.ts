@@ -3967,12 +3967,93 @@ export class WorldScene extends Phaser.Scene {
       this.ensureSheet(sprite);
       return [this.add.image(0, 0, this.itemTexture(sprite))];
     }
-    return art.layers.map((layer) => {
+
+    const images = art.layers.map((layer) => {
       const image = this.add.image(0, 0, layer.sheet);
       image.setData('sheet', layer.sheet);
       image.setFrame(layerFrame(image.texture, 'south'));
       return image;
     });
+
+    // **Cropped to what is actually drawn** — owner's report, 2026-08-05, on a cloak that looked like
+    // it was sitting at the bottom of its own picture.
+    //
+    // An LPC frame is 64x64 and shaped for a *whole person*, so a garment only ever fills part of it:
+    // a cloak hangs from the shoulders down and measures **nothing at all in the top half** of every
+    // facing. Centred as an icon, that is an object sitting low under a void, which reads as sunken
+    // rather than as a thing lying on the ground.
+    //
+    // The union across layers, not each separately — a cloak is two sheets and cropping them
+    // independently would slide its halves apart.
+    const bounds = this.artBounds(art.layers.map((layer) => layer.sheet));
+    if (bounds) {
+      for (const image of images) {
+        image.setCrop(bounds.x, bounds.y, bounds.w, bounds.h);
+        // `setCrop` does not move the object: the origin still refers to the whole frame, so the
+        // visible part stays where it was inside it. Shifting by the crop's offset from the frame
+        // centre is what actually centres the *content*.
+        image.setPosition(LPC_FRAME / 2 - (bounds.x + bounds.w / 2), LPC_FRAME / 2 - (bounds.y + bounds.h / 2));
+      }
+    }
+    return images;
+  }
+
+  /** Measured alpha bounds per sheet-set, so the scan happens once and not per dropped item. */
+  private readonly boundsCache = new Map<string, { x: number; y: number; w: number; h: number } | undefined>();
+
+  /**
+   * The tightest box containing anything opaque, across a set of sheets' south standing frames.
+   *
+   * **Measured from the texture the client already has**, which is the whole reason this is cheap: it
+   * needs no PNG decoder in `artgen` and no new field on the wire. One canvas readback per sheet-set,
+   * cached for the session — a floor with twenty daggers on it scans once.
+   *
+   * `undefined` for a frame with nothing in it, or if the readback fails, and the caller then draws
+   * uncropped: an icon that is slightly low is much better than an icon that is not there.
+   */
+  private artBounds(sheets: readonly string[]): { x: number; y: number; w: number; h: number } | undefined {
+    const key = sheets.join('|');
+    const cached = this.boundsCache.get(key);
+    if (cached !== undefined || this.boundsCache.has(key)) return cached;
+
+    let minX = LPC_FRAME;
+    let minY = LPC_FRAME;
+    let maxX = -1;
+    let maxY = -1;
+    try {
+      const scratch = document.createElement('canvas');
+      scratch.width = LPC_FRAME;
+      scratch.height = LPC_FRAME;
+      const ctx = scratch.getContext('2d', { willReadFrequently: true });
+      if (!ctx) throw new Error('no 2d context');
+      for (const sheet of sheets) {
+        const source = this.textures.get(sheet).getSourceImage() as CanvasImageSource;
+        ctx.clearRect(0, 0, LPC_FRAME, LPC_FRAME);
+        // Column 0 of row 2 — the same south-facing standing frame the icon draws.
+        ctx.drawImage(source, 0, LPC_ROW.south * LPC_FRAME, LPC_FRAME, LPC_FRAME, 0, 0, LPC_FRAME, LPC_FRAME);
+        const data = ctx.getImageData(0, 0, LPC_FRAME, LPC_FRAME).data;
+        for (let y = 0; y < LPC_FRAME; y++) {
+          for (let x = 0; x < LPC_FRAME; x++) {
+            // The same alpha floor the sheet measurements used, so a stray anti-aliased pixel does
+            // not stretch the box back out to the whole frame.
+            if (data[(y * LPC_FRAME + x) * 4 + 3]! <= 8) continue;
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+    } catch {
+      this.boundsCache.set(key, undefined);
+      return undefined;
+    }
+
+    const found = maxX >= minX && maxY >= minY
+      ? { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 }
+      : undefined;
+    this.boundsCache.set(key, found);
+    return found;
   }
 }
 
