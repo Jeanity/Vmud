@@ -106,6 +106,11 @@ export const COMMANDS = [
   'list',
   'sell',
   'value',
+  // Owner's ask (2026-08-05), the moment V3's first bubble went up: *"we will need a whisper option
+  // so we can talk to just one person in the room… so we aren't all just talking over each other and
+  // filling the room with speech bubbles."* Appended, and `whi` is the shortest thing that reaches
+  // it: `w` is west and `wh` is who, both above, and neither moves.
+  'whisper',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -269,6 +274,12 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   list: { status: 'dead', posture: 'prone' },
   sell: { status: 'dead', posture: 'prone' },
   value: { status: 'dead', posture: 'prone' },
+
+  // `CMD_N(CMD_WHISPER, STAT_RESTING + POS_SITTING, …)` — and it is deliberately *stricter than
+  // `say`* on both axes, which is the interesting part of the row. Speaking aloud works flat on your
+  // back and mid-fight; leaning in to murmur to one person needs you upright enough to lean, and is
+  // not something the source lets you do while swinging. Transcribed, not chosen.
+  whisper: { status: 'resting', posture: 'sitting', inCombat: false },
 };
 
 /* -------------------------------------------------------------------------- */

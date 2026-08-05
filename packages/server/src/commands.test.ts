@@ -381,3 +381,25 @@ describe('spendCommand — flood control', () => {
     assert.ok(budget.tokens >= 0);
   });
 });
+
+describe('whisper — owner-requested 2026-08-05', () => {
+  it('lands on `whi`, and moves nothing above it', () => {
+    // The abbreviation falls out of table order rather than being arranged: `w` is west and `wh` is
+    // who, both above, and a rebound movement key is the one cost this table must never pay.
+    assert.equal(lookupCommand('w'), 'west');
+    assert.equal(lookupCommand('wh'), 'who');
+    assert.equal(lookupCommand('whi'), 'whisper');
+    assert.equal(lookupCommand('whisper'), 'whisper');
+  });
+
+  it('is stricter than `say` on both axes, which is the source’s call', () => {
+    // `CMD_N(CMD_WHISPER, STAT_RESTING + POS_SITTING, …)`. Speaking aloud works flat on your back and
+    // mid-swing; leaning in to murmur to one person needs you upright enough to lean, and is not
+    // something you do while fighting.
+    const floored = { posture: 'prone', status: 'resting' } as const;
+    assert.ok(meets(floored, COMMAND_REQUIREMENTS.say), 'say works flat out');
+    assert.ok(!meets(floored, COMMAND_REQUIREMENTS.whisper), 'whisper does not');
+    assert.equal(COMMAND_REQUIREMENTS.say.inCombat, undefined, 'say is allowed mid-fight');
+    assert.equal(COMMAND_REQUIREMENTS.whisper.inCombat, false, 'whisper is not');
+  });
+});

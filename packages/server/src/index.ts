@@ -2763,6 +2763,79 @@ function saySomething(player: Player, text: string): void {
   actToRoom(player, 'say', (who) => `${who} says, '${said}'`, speech);
 }
 
+/**
+ * `whisper <who> <what>` — one person in the room, not the whole of it.
+ *
+ * Owner's ask (2026-08-05), immediately after watching V3's first bubble: *"we will need a whisper
+ * option so we can talk to just one person in the room… so we aren't all just talking over each
+ * other and filling the room with speech bubbles."*
+ *
+ * ## The privacy costs nothing, and that is V3's design paying off
+ *
+ * V3 put `from`/`speech` **on the log line itself** rather than in a message of its own, precisely so
+ * that whoever the `act()` gate picked is who gets the bubble. So a whisper needs no new mechanism at
+ * all: the recipient's line carries the fields and their client draws a bubble; the room's line —
+ * *"X whispers something to Y"* — carries neither and draws nothing. Nobody had to write a rule
+ * saying a whisper is private. It falls out of who receives which sentence.
+ *
+ * ## The room learns *that* you whispered, which is Duris' call and a good one
+ *
+ * `do_whisper` sends `"$n whispers something to $N."` to everyone else in the room (`TO_NOTVICT`).
+ * Transcribed rather than decided: whispering in company is itself a visible act, and a whisper that
+ * left no trace would make a room of people unable to tell conversation from conspiracy.
+ */
+function whisperTo(player: Player, rest: string): void {
+  // `half_chop` in the source: the first word is the target, everything after it is the message.
+  const trimmed = rest.trim();
+  const split = trimmed.indexOf(' ');
+  const name = split < 0 ? trimmed : trimmed.slice(0, split);
+  const said = (split < 0 ? '' : trimmed.slice(split + 1)).trim().slice(0, 400);
+  if (!name || !said) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Who do you want to whisper to — and what?' });
+    return;
+  }
+
+  const view = resolveTarget(player, name);
+  if (!view) return; // `resolveTarget` has already said why.
+
+  if (view.id === player.id) {
+    // Transcribed because it is better than anything I would have written. `do_whisper`:
+    // "You can't get your mouth close enough to your ear..." — and the room watches you try.
+    send(player.id, { t: 'log', channel: 'error', text: "You cannot get your mouth close enough to your own ear." });
+    actToRoom(player, 'say', (who) => `${who} whispers quietly to themselves.`);
+    return;
+  }
+
+  const target = sim.get(view.id);
+  if (!target) {
+    send(player.id, { t: 'log', channel: 'error', text: 'They are no longer here.' });
+    return;
+  }
+
+  send(player.id, { t: 'log', channel: 'say', text: `You whisper '${said}' to ${target.name}&N.` });
+
+  // **The bubble goes only here.** `from`/`speech` ride this one line, so the recipient's client is
+  // the only one with anything to draw — which is the whole of the privacy, and it is the same gate
+  // the sentence passes rather than a second one beside it.
+  if (isPlayer(target)) {
+    send(target.id, {
+      t: 'log',
+      channel: 'say',
+      text: `${capitalise(nameSeenBy(target, player))} whispers to you, '${said}'`,
+      // Only when they can actually see who it was. An unseen whisperer's line reads "someone
+      // whispers to you" and there is no body on their screen to hang a bubble from anyway — but
+      // saying so here keeps the two halves from ever disagreeing.
+      ...(canSee(target, player) ? { from: player.id, speech: said } : {}),
+    });
+  }
+
+  // Everyone else: that it happened, and between whom. Never what was said.
+  for (const line of actLines(player, sim.playersIn(player.roomId), canSee, (who) => `${who} whispers something to ${target.name}&N.`)) {
+    if (line.to === player.id || line.to === target.id) continue;
+    send(line.to, { t: 'log', channel: 'say', text: line.text });
+  }
+}
+
 /** `open east`, or bare `open` for the door the character is facing. */
 function workDoorCommand(player: Player, verb: 'open' | 'close', argument: string): void {
   if (!argument) {
@@ -2931,6 +3004,7 @@ function runCommand(player: Player, line: string): void {
     case 'inventory': return listInventory(player);
     // Phase 17. All four resolve the keeper the same way, so the refusal for "there is nobody here
     // to trade with" is written once in `keeperFor` rather than four times.
+    case 'whisper': return whisperTo(player, rest);
     case 'list': return listShopStock(player);
     case 'buy': return buyFromShop(player, rest);
     case 'sell': return sellToShop(player, rest);
