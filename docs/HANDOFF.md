@@ -943,6 +943,25 @@ Two consequences worth knowing:
 
 ## Open, not decided
 
+- **There is no authentication, and the name *is* the identity.** Asked by the owner 2026-08-05 and
+  worth not rediscovering: `hello` carries a name, the server does `store.load(name)`, and you are
+  that character. No account, no password, no creation step — two people typing `Aldric` are one
+  character. **The only thing standing between that and a problem is one line**:
+  `http.listen(PORT, '127.0.0.1')`, so nothing off this machine can reach the game; both Vite servers
+  bind localhost too. **So the bind change and the authentication are one decision and must never be
+  two** — an exposed port without accounts hands any character to whoever guesses its name. (The
+  admin API is safer than it looks: its gate refuses a non-loopback remote address *before* it looks
+  at the token. But `GAME_ADMIN_TOKEN` is unset, so that check is the only thing there.) Placed in
+  `ROADMAP.md` §4 as **two** entries — **accounts and login**, argued for landing *early* because it
+  is signature work (the save-file key and the protocol's first message both change), and
+  **character creation** at Phase 21 with races and classes. Neither is built.
+
+- **A stat roll cannot be both 5e and Duris literally, and §4 records why.** 5e is six abilities on
+  3–18; Duris is **ten** stats on **1–100** (`3d6 + 77` for a normal roll), two of which the player
+  never sees. `DESIGN-progression.md`'s existing rule settles it — *SRD sets the shape, Duris sets
+  the magnitudes* — and there are **no ability scores in the codebase at all** today, so Phase 14b's
+  unbuilt *derivation* half is the prerequisite.
+
 - **Container nesting depth.** Proposed max 2 (inventory → container → items), which kills the
   infinite-storage exploit outright rather than mitigating it. Not agreed.
 
