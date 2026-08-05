@@ -1505,8 +1505,34 @@ order.
     **Seen when:** an operator picks boots from pictures and a body walks around in them ✅ — chose
     `feet-boots-fold` for vnum 246, gave it to a character, and an observer's `EntityView.wearing`
     carried `feet: "feet-boots-fold"` beside the starter kit's own classes.
-  - **A7d — icons.** Bag and floor sprites from the catalogue's preview frame, retiring the
-    procedural placeholder. The definitions carry `preview_row`/`preview_column` for exactly this.
+  - **A7d — floor icons** ✅ **done 2026-08-05, with one known flaw below.** An item with authored art
+    draws that art on the ground instead of one of nine category glyphs shared between 16,421 entries.
+    The placeholder is demoted rather than retired — an item nobody has dressed still reads as the
+    *kind* of thing it is. No protocol change: `sprite` was already a string the client resolves.
+
+    **Not from the pack's preview coordinates, which this entry expected.** Only **24 of 657**
+    definitions carry `preview_row`/`preview_column`, so building on them would have dressed 3.6% of
+    the pack and left the rest looking broken beside it.
+
+    Two owner corrections landed with it and both improved on the plan: **no name label over a
+    dropped thing** — the picture identifies it now, and `look` is the verb for the detail, and three
+    items on one tile had turned their names into an unreadable smear — and **dropped things land 1–2
+    tiles away in a seeded random direction**, bounded by the three-tile pickup reach so nothing can
+    land somewhere you have to walk to.
+
+    **The known flaw: south is the wrong frame for a garment** (owner, 2026-08-05, on seeing a cloak
+    on the floor). The icon crops column 0 of row 2 — the south-facing standing pose — which is right
+    for a held object and wrong for anything worn on the back. Measured on `cape-solid`: **526** opaque
+    pixels in the north row against **62** in south, because facing the viewer a cloak hangs *behind*
+    you and the front view is only the lower hem. Neither cape layer has anything in the top half of
+    its south frame at all, so the icon reads as two nubs with an empty space above them.
+
+    **The fix is to pick the facing with the most content, per sheet, and it belongs in `artgen`** —
+    which already probes every sheet's geometry, so it is the right place to also measure it once and
+    record it, rather than having the client decide per frame. It needs a PNG *decoder* there, which
+    is the only new machinery: `artgen` reads IHDR width and height today and no pixels.
+  - **A7d-bag — icons in the drawer.** Still open, and a different job: it wants an art id per
+    `BagRow`, which is a protocol addition rather than a rendering change.
   - **A7e — recolour** (owner, 2026-08-05). Pick a sheet and a named colour ramp, and stage the
     result as new authored art: *"if I need a fiery red cloak I can select the black one and change
     the colors."* **Not an image editor** — ULPC ships the whole palette system
