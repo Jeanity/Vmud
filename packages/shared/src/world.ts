@@ -197,6 +197,21 @@ export const ROOM_FLAGS = [
 
 export type RoomFlag = (typeof ROOM_FLAGS)[number];
 
+/**
+ * Where **our own** room ids start. Nothing the MUD ships may ever reach here.
+ *
+ * A8, decision 1, and the same argument `AUTHORED_VNUM_BASE` makes about items — a room id is the
+ * join key between the zMUD map, the `.wld` files, every reset command and every save file that has
+ * ever recorded where somebody stood, so a collision is not a merge conflict, it is two rooms
+ * silently becoming one.
+ *
+ * **Measured rather than assumed:** the generated world's 46,508 rooms run to **97,271**, and **0**
+ * of them are above a million. That is an order of magnitude of headroom, which is enough that a
+ * re-harvest cannot collide with an authored room and a builder adding an area cannot make it. It is
+ * also large enough to be obvious on sight: a seven-digit room id is ours.
+ */
+export const AUTHORED_ROOM_BASE = 1_000_000;
+
 export interface Room {
   readonly id: RoomId;
   readonly zone: ZoneId;

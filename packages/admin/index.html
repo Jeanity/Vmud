@@ -129,6 +129,14 @@
       .zone-map-authored { fill: #cfa8e0; }
       /* Hollow: nobody has written this room. Filled means done, empty means waiting. */
       .zone-map-unwritten { fill: none; stroke: #6a6558; stroke-width: 1; }
+      /* A8: a cell inside the extent with nothing in it. Nearly invisible until pointed at — the map
+         is a live view of a running world first, and a grid of bright holes over it would turn
+         reading the zone into dodging the editor. */
+      .zone-map-gap { cursor: pointer; }
+      .zone-map-gap rect { fill: none; stroke: #4a463c; stroke-width: 1; stroke-dasharray: 2 3; }
+      .zone-map-gap:hover rect { stroke: var(--accent); stroke-dasharray: none; }
+      .zone-map-gap:focus { outline: none; }
+      .zone-map-gap:focus rect, .zone-map-gap rect.picked { stroke: var(--accent); stroke-width: 2; stroke-dasharray: none; }
       button.on { border-color: var(--accent); color: var(--accent); }
 
       table { border-collapse: collapse; width: 100%; }

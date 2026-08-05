@@ -246,6 +246,7 @@ import {
   type ItemDraft,
 } from './item-authoring.ts';
 import { ROOMS_FILE } from './overrides.ts';
+import { AUTHORED_ROOMS_FILE } from './room-authoring.ts';
 import { GameWorld, placeOf } from './world.ts';
 
 /**
@@ -4913,6 +4914,7 @@ const admin = new AdminApi({
   token: ADMIN_TOKEN,
   auditFile: join(REPO_ROOT, 'data', 'admin-audit.jsonl'),
   overridesFile: ROOMS_FILE,
+  authoredRoomsFile: AUTHORED_ROOMS_FILE,
   facts: { protocol: PROTOCOL_VERSION, tickMs: TICK_MS, roundMs: ROUND_MS, startedAt: Date.now() },
 });
 // Announced at boot like every other switch, so a server quietly running an open admin API is not a

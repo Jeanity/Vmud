@@ -28,6 +28,15 @@ let pickedRoom: number | undefined;
 let pickedLevel: number | undefined;
 /** Narrow the list to rooms nobody has written yet — the authoring queue. */
 let needProse = false;
+/**
+ * The empty cell being built into, or nothing. A8.
+ *
+ * Kept beside `pickedRoom` and cleared whenever one is chosen, because they are the same slot on
+ * screen: the right-hand pane shows either the room you are looking at or the room you are making,
+ * never both. Two selections that can be live at once is how an operator saves an edit into the wrong
+ * one.
+ */
+let pickedGap: { x: number; y: number } | undefined;
 
 export const zonesSection = {
   slug: 'zones',
@@ -53,6 +62,7 @@ export const zonesSection = {
 
     const showRoom = async (id: number): Promise<void> => {
       pickedRoom = id;
+      pickedGap = undefined;
       const result = await call<RoomDetail>('GET', `/rooms/${id}`);
       if (!result.ok || !result.body) {
         render(detailPane, el('div', { class: 'card' }, el('p', { class: 'flash err' }, result.error ?? 'gone')));
@@ -82,6 +92,34 @@ export const zonesSection = {
         renderRooms(
           roomPane,
           body,
+          // **Building into a gap.** The cell is already chosen by the click, so the form opens
+          // where a room's detail would be and the map marks the hole it is going to fill. On
+          // success the zone is refetched — the new room has to reach the map and the room list
+          // from the server rather than being drawn from what the form thought it sent.
+          (x, y) => {
+            pickedGap = { x, y };
+            pickedRoom = undefined;
+            if (pickedLevel === undefined) return;
+            render(
+              detailPane,
+              roomBuilder(
+                id,
+                pickedLevel,
+                { x, y },
+                body.rooms,
+                (created) => {
+                  pickedGap = undefined;
+                  void showZone(id).then(() => showRoom(created));
+                },
+                () => {
+                  pickedGap = undefined;
+                  render(detailPane);
+                  redraw();
+                },
+              ),
+            );
+            redraw();
+          },
           (room) => {
             // **Picking a room shows it in place.** Owner, 2026-08-02: the "needs prose" list is a
             // work queue, and a queue that answers "which room" without answering "where" is half
@@ -212,6 +250,7 @@ function renderZones(pane: HTMLElement, zones: readonly ZoneRow[], pick: (id: nu
 function renderRooms(
   pane: HTMLElement,
   body: ZoneRoomsBody,
+  onGap: (x: number, y: number) => void,
   pick: (id: number) => void,
   rerender: () => void,
 ): void {
@@ -250,7 +289,14 @@ function renderRooms(
       : el(
           'div',
           { class: 'zone-map-frame' },
-          drawZoneMap({ rooms: body.rooms, level: pickedLevel, selected: pickedRoom, onPick: pick }),
+          drawZoneMap({
+            rooms: body.rooms,
+            level: pickedLevel,
+            selected: pickedRoom,
+            onPick: pick,
+            onGap,
+            ...(pickedGap ? { gap: pickedGap } : {}),
+          }),
         );
 
   render(
@@ -490,6 +536,157 @@ function painted(tag: 'div' | 'p', className: string, text: string): HTMLElement
   }
   return node;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Building a room — A8                                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The form behind an empty cell on the map.
+ *
+ * **Where the room goes is already answered by the time this opens** — it is the cell that was
+ * clicked — which is the reason the map hosts this and a coordinate field does not exist. What is
+ * left to decide is what the room *is*, and which of its neighbours it opens onto.
+ *
+ * **The exits are checkboxes over the rooms that are actually there**, never a free direction list.
+ * An infill room's exit has no destination to choose: it is whatever stands in the adjacent cell, so
+ * offering `north` where nothing lies north is offering a refusal. The panel derives them from the
+ * rooms it is already drawing, so the list on screen and the list the server will accept are the
+ * same list by construction.
+ *
+ * At least one must be ticked, and the button says so rather than the server having to. A room with
+ * no way in is not something to explain after the fact.
+ */
+function roomBuilder(
+  zoneId: number,
+  level: number,
+  gap: { x: number; y: number },
+  rooms: readonly import('../api.ts').ZoneRoomRow[],
+  done: (created: number) => void,
+  cancel: () => void,
+): HTMLElement {
+  const flash = el('p', { class: 'note' });
+
+  const byCell = new Map<string, (typeof rooms)[number]>();
+  for (const room of rooms) if (room.level === level) byCell.set(`${room.x},${room.y}`, room);
+
+  const neighbours = (
+    [
+      ['north', 0, -1],
+      ['east', 1, 0],
+      ['south', 0, 1],
+      ['west', -1, 0],
+    ] as const
+  )
+    .flatMap(([dir, dx, dy]) => {
+      const room = byCell.get(`${gap.x + dx},${gap.y + dy}`);
+      // A neighbour whose exit back this way is already spoken for cannot be joined — the server
+      // refuses rather than replacing one, so the panel shows it greyed with the reason instead of
+      // offering a tick that will fail.
+      return room ? [{ dir: dir as string, room, taken: room.exits.some((exit) => exit.dir === OPPOSITE_DIR[dir]) }] : [];
+    });
+
+  const name = colourBox({ value: '', placeholder: 'the room’s name' });
+  const prose = colourBox({
+    value: '',
+    multiline: true,
+    rows: 8,
+    placeholder: 'What a player reads on walking in. Colour it with the swatches above.',
+  });
+  const sector = el('select', {}, ...SECTORS.map((s) => el('option', { value: s }, s)));
+  const flagBoxes = ROOM_FLAGS.map((flag) => ({ flag, box: el('input', { type: 'checkbox', id: `new-flag-${flag}` }) }));
+
+  const build = el('button', { class: 'primary', disabled: true }, 'Build room');
+  const exitBoxes = neighbours.map((entry) => {
+    const box = el('input', { type: 'checkbox', id: `new-exit-${entry.dir}` });
+    if (entry.taken) box.disabled = true;
+    return { ...entry, box };
+  });
+
+  const retest = (): void => {
+    build.disabled = !name.value().trim() || !exitBoxes.some((entry) => entry.box.checked);
+  };
+  name.field.addEventListener('input', retest);
+  for (const entry of exitBoxes) entry.box.addEventListener('change', retest);
+
+  build.addEventListener('click', () => {
+    void (async () => {
+      build.disabled = true;
+      const result = await call<{ room: { id: number; name: string } }>('POST', `/zones/${zoneId}/rooms`, {
+        name: name.value().trim(),
+        description: prose.value(),
+        sector: (sector as HTMLSelectElement).value,
+        flags: flagBoxes.filter((entry) => entry.box.checked).map((entry) => entry.flag),
+        x: gap.x,
+        y: gap.y,
+        level,
+        exits: exitBoxes.filter((entry) => entry.box.checked).map((entry) => entry.dir),
+      });
+      if (!result.ok || !result.body) {
+        flash.className = 'flash err';
+        flash.textContent = result.error ?? 'refused';
+        build.disabled = false;
+        return;
+      }
+      done(result.body.room.id);
+    })();
+  });
+
+  return el(
+    'div',
+    { class: 'card' },
+    el('h3', {}, 'Build a room ', el('span', { class: 'pill' }, `cell ${gap.x},${gap.y} · L${level}`)),
+    el(
+      'p',
+      { class: 'note' },
+      'A room built inside the level’s current extent — filling a gap resizes nothing, so every ' +
+        'explored map of this place stays valid. It is saved to an overlay that survives npm run ' +
+        'worldgen and takes effect with no restart.',
+    ),
+    el('span', { class: 'field-label' }, 'name'),
+    name.node,
+    el('span', { class: 'field-label' }, 'terrain'),
+    sector,
+    el('span', { class: 'field-label' }, 'flags'),
+    el(
+      'div',
+      { class: 'flag-grid' },
+      ...flagBoxes.map(({ flag, box }) => el('label', { class: 'flagbox' }, box, el('span', {}, flag))),
+    ),
+    el('span', { class: 'field-label' }, 'ways out'),
+    neighbours.length === 0
+      ? el('p', { class: 'flash err' }, 'Nothing adjoins this cell, so there is no way in. Pick one beside a room.')
+      : el(
+          'div',
+          { class: 'flag-grid' },
+          ...exitBoxes.map((entry) =>
+            el(
+              'label',
+              { class: 'flagbox' },
+              entry.box,
+              el(
+                'span',
+                entry.taken ? { class: 'muted' } : {},
+                `${entry.dir} — ${entry.room.name}`,
+                entry.taken ? ' (already has an exit this way)' : '',
+              ),
+            ),
+          ),
+        ),
+    el('span', { class: 'field-label' }, 'description'),
+    prose.node,
+    flash,
+    el('div', { class: 'row' }, build, el('button', { type: 'button', onclick: cancel }, 'Cancel')),
+  );
+}
+
+/** The exit a neighbour would need in order to already be joined to this cell. */
+const OPPOSITE_DIR: Readonly<Record<string, string>> = {
+  north: 'south',
+  south: 'north',
+  east: 'west',
+  west: 'east',
+};
 
 /* -------------------------------------------------------------------------- */
 /* The editor — A5                                                             */

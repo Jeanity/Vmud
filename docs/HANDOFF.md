@@ -32,7 +32,7 @@ and restarting is the whole of "installing" a zone.
 
 ## State: green
 
-- **1,214 tests** (651 server, 468 shared, 95 worldgen), typecheck clean across all five packages.
+- **1,246 tests** (683 server, 468 shared, 95 worldgen), typecheck clean across all five packages.
   Four of the server's are `world.test.ts`'s, which **skip themselves when `data/world` is absent** —
   a fresh clone or a new worktree reports 1,210 until `npm run worldgen` has run.
 - `data/` is git-ignored and reproducible by `npm run worldgen` — **except `data/world/overrides/`**,
@@ -146,6 +146,7 @@ and restarting is the whole of "installing" a zone.
 | The operator's voice, on screen | **V3's other half**: A2 took the protocol to 10 to give an administrator a channel of their own, and until now this client could tell it from `system` and did nothing with the difference. A banner along the **bottom** of the map — top-centre collided with `#status`, which is pinned top-left, runs most of a narrow map column and comes later in the document so it painted straight through. **A mirror where V1's combat feed is a split**, deliberately: combat lands in the feed and nowhere else because a fight is a stream and duplicating it doubles the noise, while a banner is transient by necessity and an announcement you were looking away for must still be findable — so it shows *and* stays in the log. One at a time, replaced rather than queued, because *"restarts in one minute"* after *"in five minutes"* is exactly where a queue shows the wrong number. `client/src/announce.ts` |
 | You can buy a thing from someone | **Phase 17**, and Act V's last. Containers and money landed early in 15c, so what the phase had left was shopkeepers: **694 harvested** from Duris' `.shp` files. **A keeper is a mob vnum and nothing else** — no flag on the instance, no second kind of actor — so a keeper that wanders is still a keeper, one killed and repopped still trades, and **A4's spawn endpoint placed a working shop without knowing shops exist**, which is how it was driven. `list`, `buy`, `sell`, `value`. Coin comes from `utils.h`'s ladder (copper, ×10, ×100, ×1000) and an item's `cost` is in copper, which is why the panel has printed `63185c` since 15c without anyone deciding what the `c` meant; the ladder being decimal makes re-denomination lossless, so `spendCoins` breaks a platinum piece for a one-copper price without charging a rounding error. **The command table imposes nothing** — all four verbs are `CMD_TRIG` in `interp.c`, at `STAT_DEAD + POS_PRONE` and `in_battle = TRUE` — so the two rules that matter live on the keeper: awake and on your feet, and a merchant you are fighting will not serve you. Driven: listed six items, bought a chicken egg for 2 silver 6 copper, and was told *"I will not buy that"* offering it back — because an empty `buysTypes` means **buys nothing**, which is 261 of the 694 |
 | Operator messaging | World, a Place, or one room — one endpoint with an optional target, reporting how many heard it. On the **`announce`** channel (protocol 10), a person's voice styled apart from the machine's. A room line is **not** sight-gated: it comes from outside the world |
+| You can build a room in a gap the world left | **A8's first slice, infill**, and the thing A5 spent five phases refusing by name. `DESIGN-zone-geometry.md`'s five decisions, three of them in code and the sharp one **side-stepped by construction rather than by care**: a grid is sized from `boundsOf` the rooms on its level and tile indices are row-major, so widening one shifts every saved `seen` index — and `placementRefusal` will not accept a cell outside the level's extent, so no code path here can widen a grid. Measured on the drive: level 168:5's tilemap is **143×110 with the new room and 143×110 without it**. `server/src/room-authoring.ts` is the overlay — `rooms-authored.json`, whole records rather than patches, a **stored** counter from 1,000,000 (the highest harvested id is 97,271 and none is above a million), which A6b's argument says must not be derived because deleting the highest room would recycle its number and a room id is a name. Four things the build settled that the note left open. **An infill exit's destination is derived, never posted** — it is whatever stands in the adjacent cell, so the panel offers a tick per real neighbour and a direction that would be refused is never on screen; but the resolved far end **is stored**, so a neighbour that moved in a re-harvest is a discrepancy the loader can see and drop rather than a link that silently re-points. **A neighbour's existing exit is refused, not replaced**: decision 3 says write both sides, which is not permission to overwrite a side somebody else authored. **An edit to a created room re-drafts its own record**, A6b's dispatch in its second home — two overlays claiming one room is a state where the answer depends on load order — and `null` (unauthor) is refused there because there is no harvest underneath to restore. **Up and down are refused by name**: a vertical link lands on a second Place with its own grid and its own `stairPlacement`, which is real work with its own drive. The gesture is **clicking an empty cell on A4b's map**, because "which cell" is the one question a map answers better than a form; only gaps that touch a room are drawn, which is both the performance bound on a sparse level and the honest set, since a room must be joined to something. **Driven live 2026-08-05**: built "A Trampled Hollow in the Wheat" at cell 1,7 of the Kobold Settlement from the panel, and walked into it from the spawn two rooms away — the room described itself, reported its one exit north, and 41263 had gained the matching south exit **with no restart**. A cold load from disk brings all of it back with no refusals. What is left is **deletion** with decision 4's orphan report, then **extent changes** with decision 2's explicit `seen` invalidation |
 
 ### Not built
 
@@ -347,7 +348,26 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-### Start here — round 7, only A8 left (2026-08-05)
+### Start here — round 7, A8's first slice is in (2026-08-05)
+
+**A8 slice 1, infill, landed 2026-08-05** — see the table row. What is left of A8 is its other two
+slices, in the order `DESIGN-zone-geometry.md` picks: **deletion** with decision 4's orphan report,
+then **extent changes** with decision 2's explicit `seen` invalidation, which is last because it is
+the only one that can take something away from a player who was not consulted.
+
+**One thing the drive left behind, deliberately.** Room **1000000, "A Trampled Hollow in the Wheat"**,
+is a real authored room at cell 1,7 of the Kobold Settlement — two steps south of the spawn — and it
+is in `data/world/overrides/rooms-authored.json`, which git tracks. It is the evidence the slice
+works in the running game, which is this file's own standard for done. **Delete that record if you do
+not want it**; nothing else depends on it.
+
+**Two ideas were placed in `ROADMAP.md` §4 on 2026-08-05 and not built** (owner): **dropped items
+should decay**, whose real cost is not clutter but the `O` reset census — floor objects count against
+a vnum's world-wide limit, so a room full of discards quietly holds a zone's repop at ceiling — and
+**a `junk` verb with a confirmation**, which the source already has, `CMD_CNF_N(CMD_JUNK, …)`, along
+with a general per-connection confirm mechanism it uses for exactly two commands.
+
+### The rest of round 7 (2026-08-05)
 
 Round 6 closed on all three tracks — A7c the art picker, **Phase 16** (light from what you hold,
 craftsmanship on AC, encumbrance, water you cannot wade into), and **A4** (repop, doors, live mob
@@ -355,12 +375,12 @@ instances, slay, spawn). Round 7 has since landed **V3, speech in the world** an
 shops** — which closes **Act V**, and with it every numbered phase up to Act VI. Three smaller pieces
 went with them: **whisper**, **A7d floor icons**, and the **icon crop** that followed from it.
 
-What is left in round 7: **A8, zone geometry** — the last big piece of Track A, and the one A5
+**A8, zone geometry** was what round 7 had left — the last big piece of Track A, and the one A5
 deliberately refuses because id, position and exits are the join key and the grid. **Its design note
-is written and is the thing to read first**: [DESIGN-zone-geometry.md](DESIGN-zone-geometry.md),
-2026-08-05, all five of its problems decided and measured. It also picks a build order whose **first
-slice cannot invalidate anybody's explored map** — authored rooms *inside* a Place's current extent,
-which reaches A8's own completion test without touching the sharp edge. Start there.
+is the thing to read first**: [DESIGN-zone-geometry.md](DESIGN-zone-geometry.md), 2026-08-05, all
+five of its problems decided and measured. It picks a build order whose **first slice cannot
+invalidate anybody's explored map** — authored rooms *inside* a Place's current extent — and **that
+slice is now built and driven**. Its other two remain.
 
 Then **V4, Places as a graph** opens round 8, and **Phase 18, following and grouping** opens Act VI.
 
@@ -387,10 +407,10 @@ clock restarts. Fixing it means a `burnMs` on the persisted `Item`, which is the
 the gotchas below — every field of a persisted shape needs a reader line and a whole-value round-trip
 test — and it deserves that pass rather than a line here.
 
-**Twenty of 25 phases done — Acts I–V complete.** Act VI is following and grouping, skills, spells, and the content layer. Track A
-has landed A2, A3, A4, A4b, A5, A6, A6b, A7a, A7b and A7c; what is left there is A4c, A7d and A8.
-Track V has V1, V2, V3 and V6, with V4 and V5 outstanding. Track A has landed A2, A3, A4, A4b, A5,
-A6, A6b, A7a, A7b, A7c and A7d; what is left there is A4c, A7e, A7f, A7d-bag and A8. Round 1 is complete: **V1 the combat feed** (the `combat` channel now
+**Twenty of 25 phases done — Acts I–V complete.** Act VI is following and grouping, skills, spells,
+and the content layer. **Track A** has landed A2, A3, A4, A4b, A5, A6, A6b, A7a, A7b, A7c, A7d and
+**A8's first slice**; what is left there is A4c, A7e, A7f, A7d-bag and A8's other two slices.
+**Track V** has V1, V2, V3 and V6, with V4 and V5 outstanding. Round 1 is complete: **V1 the combat feed** (the `combat` channel now
 renders *only* in its own section of the character pane — the owner's split: prose and speech on the
 left, violence on the right) and **Phase 14, mercy and fear**.
 

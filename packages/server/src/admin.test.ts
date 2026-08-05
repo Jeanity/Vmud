@@ -8,12 +8,13 @@
  */
 
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import {
+  AUTHORED_ROOM_BASE,
   AUTHORED_VNUM_BASE,
   DURIS_ITEM,
   LPC_ART,
@@ -33,6 +34,7 @@ import {
   type ItemDraft,
 } from './item-authoring.ts';
 import { PlayerStore, slugify } from './players.ts';
+import { loadAuthoredRooms } from './room-authoring.ts';
 import type { WorldSettings } from './settings.ts';
 import type { Player } from './sim.ts';
 import { GameWorld } from './world.ts';
@@ -94,10 +96,10 @@ interface Rig {
   scopes: AnnounceScope[];
 }
 
-function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string; itemOverridesFile?: string; noPopulation?: boolean } = {}): Rig {
+function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string; itemOverridesFile?: string; authoredRoomsFile?: string; noPopulation?: boolean; zone?: Zone } = {}): Rig {
   const dir = mkdtempSync(join(tmpdir(), 'mygame-admin-'));
   const store = new PlayerStore({ dir });
-  const world = new GameWorld([testZone()], { zone: 600, room: null });
+  const world = new GameWorld([options.zone ?? testZone()], { zone: 600, room: null });
   const players: Player[] = [];
   const calls: string[] = [];
   const heard: string[] = [];
@@ -266,6 +268,7 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     auditFile: options.auditFile,
     // Undefined unless a test asks: authoring must never write into the repository's real overlay.
     overridesFile: options.overridesFile,
+    authoredRoomsFile: options.authoredRoomsFile,
     itemOverridesFile: options.itemOverridesFile,
     facts: { protocol: 9, tickMs: 100, roundMs: 3000, startedAt: Date.now() },
   };
@@ -1230,5 +1233,132 @@ describe('zones and mobs, live — A4', () => {
 
     const actions = readFileSync(auditFile, 'utf8').trim().split('\n').map((l) => (JSON.parse(l) as { action: string }).action);
     assert.deepEqual(actions, ['mob.spawn', 'mob.slay', 'door.work']);
+  });
+});
+
+/**
+ * A8 — building a room in a gap the source left.
+ *
+ * The fixture is the shape the whole slice exists for: three rooms in a row with the middle cell
+ * empty, so a room put there fills a hole inside an extent that already reaches past it. Widening
+ * the grid is what shifts every saved `seen` index, and this cannot do it.
+ */
+describe('creating a room', () => {
+  /** Rooms at (0,0) and (2,0), a gap at (1,0), and 6001's east exit deliberately unspoken for. */
+  function gappyZone(): Zone {
+    const rooms: Room[] = [
+      { id: 6001, zone: 600, name: 'A Mossy Hollow', sector: 'forest', pos: { x: 0, y: 0, z: 0 }, exits: {} },
+      { id: 6003, zone: 600, name: 'A Far Bank', sector: 'forest', pos: { x: 2, y: 0, z: 0 }, exits: {} },
+    ];
+    return { id: 600, name: 'Test Hollow', rooms, bounds: boundsOf(rooms), entryRoom: 6001 };
+  }
+
+  const good = { name: 'A Hidden Dell', sector: 'cave', x: 1, y: 0, level: 0, exits: ['west', 'east'] };
+
+  it('fills the gap, joins both neighbours, and hands back an id of its own', () => {
+    const { api } = makeRig({ zone: gappyZone() });
+    const response = api.route(req('POST', '/zones/600/rooms', good));
+    assert.equal(response.status, 200);
+
+    const { room } = response.body as { room: { id: number; name: string; exits: { dir: string; to: number }[] } };
+    assert.ok(room.id >= AUTHORED_ROOM_BASE, `${room.id} is ours, not the harvest's`);
+    assert.equal(room.name, 'A Hidden Dell');
+    assert.deepEqual(
+      [...room.exits].sort((a, b) => a.dir.localeCompare(b.dir)),
+      [{ dir: 'east', to: 6003 }, { dir: 'west', to: 6001 }],
+    );
+  });
+
+  it('writes the far side too, so the room can be walked out of as well as into', () => {
+    const { api } = makeRig({ zone: gappyZone() });
+    const created = api.route(req('POST', '/zones/600/rooms', good));
+    const id = (created.body as { room: { id: number } }).room.id;
+
+    const back = api.route(req('GET', '/rooms/6001')).body as { exits: { dir: string; to: number }[] };
+    assert.deepEqual(back.exits.find((e) => e.dir === 'east')?.to, id);
+  });
+
+  it("refuses the world's objections with 409 and the request's own faults with 400", () => {
+    const { api } = makeRig({ zone: gappyZone() });
+
+    // Outside the extent — the one refusal the whole build order exists to keep.
+    const wide = api.route(req('POST', '/zones/600/rooms', { ...good, x: 5, exits: ['west'] }));
+    assert.equal(wide.status, 409);
+    assert.match((wide.body as { error: string }).error, /outside level 0's extent/);
+
+    // A cell somebody already has.
+    const taken = api.route(req('POST', '/zones/600/rooms', { ...good, x: 0, exits: ['east'] }));
+    assert.equal(taken.status, 409);
+    assert.match((taken.body as { error: string }).error, /already holds room 6001/);
+
+    // A direction with nothing beside it.
+    const nowhere = api.route(req('POST', '/zones/600/rooms', { ...good, exits: ['north'] }));
+    assert.equal(nowhere.status, 409);
+
+    // Malformed drafts are the request's fault, not the world's.
+    assert.equal(api.route(req('POST', '/zones/600/rooms', { ...good, sector: 'forrest' })).status, 400);
+    assert.equal(api.route(req('POST', '/zones/600/rooms', { ...good, exits: [] })).status, 400);
+    assert.equal(api.route(req('POST', '/zones/999/rooms', good)).status, 404);
+  });
+
+  it('spends no id on a refused draft', () => {
+    const { api } = makeRig({ zone: gappyZone() });
+    api.route(req('POST', '/zones/600/rooms', { ...good, x: 5, exits: ['west'] }));
+    const created = api.route(req('POST', '/zones/600/rooms', good));
+    assert.equal((created.body as { room: { id: number } }).room.id, AUTHORED_ROOM_BASE);
+  });
+
+  it('sends an edit to the created room back to its own record, never to rooms.json', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mygame-a8-'));
+    const overridesFile = join(dir, 'rooms.json');
+    const authoredRoomsFile = join(dir, 'rooms-authored.json');
+    const { api } = makeRig({ zone: gappyZone(), overridesFile, authoredRoomsFile });
+
+    const id = (api.route(req('POST', '/zones/600/rooms', good)).body as { room: { id: number } }).room.id;
+    assert.equal(api.route(req('PATCH', `/rooms/${id}`, { description: 'Ferns crowd the walls.' })).status, 200);
+
+    const authored = JSON.parse(readFileSync(authoredRoomsFile, 'utf8')) as { rooms: Record<string, { description: string }> };
+    assert.equal(authored.rooms[String(id)]?.description, 'Ferns crowd the walls.');
+    // A6b's rule, in its second home: two overlays claiming one room is a state where the answer
+    // depends on load order. `rooms.json` is never even created — the harvested path is the only
+    // writer of it, and this edit never went down that path.
+    assert.equal(existsSync(overridesFile), false);
+  });
+
+  it('refuses to unauthor a field of a created room — there is nothing underneath to restore', () => {
+    const { api } = makeRig({ zone: gappyZone() });
+    const id = (api.route(req('POST', '/zones/600/rooms', good)).body as { room: { id: number } }).room.id;
+
+    const cleared = api.route(req('PATCH', `/rooms/${id}`, { description: null }));
+    assert.equal(cleared.status, 400);
+    assert.match((cleared.body as { error: string }).error, /no harvested room underneath/);
+  });
+
+  it('survives a reload — which is the completion test', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mygame-a8-reload-'));
+    const authoredRoomsFile = join(dir, 'rooms-authored.json');
+    const { api } = makeRig({ zone: gappyZone(), authoredRoomsFile });
+    const id = (api.route(req('POST', '/zones/600/rooms', good)).body as { room: { id: number } }).room.id;
+
+    // A second world built from the same file and a *fresh* zone — which is what `npm run worldgen`
+    // produces, and the thing an overlay has to survive.
+    const reloaded = new GameWorld([gappyZone()], { zone: 600, room: null }, [], new Map(), loadAuthoredRooms(authoredRoomsFile));
+    const located = reloaded.locate(id);
+    assert.ok(located, 'the room came back');
+    assert.equal(located.room.name, 'A Hidden Dell');
+    assert.equal(located.room.exits.west?.to, 6001);
+    assert.equal(reloaded.zone(600)!.rooms.find((r) => r.id === 6001)!.exits.east?.to, id, 'and so did the far side');
+    assert.deepEqual(reloaded.authoredRefusals, []);
+  });
+
+  it('audits the build', () => {
+    const auditDir = mkdtempSync(join(tmpdir(), 'mygame-a8-audit-'));
+    const auditFile = join(auditDir, 'audit.jsonl');
+    const { api } = makeRig({ zone: gappyZone(), auditFile });
+    api.route(req('POST', '/zones/600/rooms', good));
+
+    const line = JSON.parse(readFileSync(auditFile, 'utf8').trim()) as { action: string; exits: string[] };
+    assert.equal(line.action, 'room.create');
+    assert.deepEqual([...line.exits].sort(), ['east', 'west']);
   });
 });

@@ -28,6 +28,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname } from 'node:path';
 
 import {
+  AUTHORED_ROOM_BASE,
   AUTHORED_VNUM_BASE,
   AffectFlag,
   LPC_ART,
@@ -53,7 +54,8 @@ import {
 import { LIGHT_SOURCES, lightSource, type LightSource } from '@mygame/shared/light.ts';
 
 import { draftDescription, listModels, ollamaReachable } from './ollama.ts';
-import { saveRoomOverrides } from './overrides.ts';
+import { saveRoomOverrides, type RoomOverride } from './overrides.ts';
+import { draftAuthoredRoom, saveAuthoredRooms } from './room-authoring.ts';
 import { readDice, saveItemOverrides, type ItemOverride, type ItemOverrides } from './item-overrides.ts';
 import type { AuthoredItems, ItemDraft } from './item-authoring.ts';
 import { seenTileCount, slugify, type PlayerStore, type StoredSummary } from './players.ts';
@@ -307,6 +309,13 @@ export interface AdminDeps {
   readonly overridesFile: string | undefined;
   /** Where authored items are saved, or undefined to edit the live catalogue without persisting. */
   readonly itemOverridesFile: string | undefined;
+  /**
+   * Where **created** rooms are saved, or undefined to build in the live world without persisting.
+   *
+   * A separate path from {@link overridesFile} because they are separate files, and separate files
+   * because their lifecycles are opposite — `room-authoring.ts`'s table has the four rules.
+   */
+  readonly authoredRoomsFile: string | undefined;
   /** Boot-time constants the dashboard reports. */
   readonly facts: {
     readonly protocol: number;
@@ -447,6 +456,11 @@ export class AdminApi {
     }
     if (head === 'zones' && slug !== undefined && action === 'repop' && parts.length === 3 && request.method === 'POST') {
       return this.repop(slug);
+    }
+    // A8. Creating a room is scoped to the zone it goes in — the extent it must fit inside and the
+    // neighbours it joins are that zone's, and there is no world-level answer to where a room goes.
+    if (head === 'zones' && slug !== undefined && action === 'rooms' && parts.length === 3 && request.method === 'POST') {
+      return this.createRoom(slug, request.body);
     }
     // A4. `/mobs` is the template catalogue (a read, searched) and `/mobs/:id` one live instance.
     if (head === 'mobs' && parts.length === 1 && request.method === 'GET') return this.mobs(request.query);
@@ -1465,80 +1479,16 @@ export class AdminApi {
     const located = this.deps.world.locate(id as RoomId);
     if (!located) return { status: 404, body: { error: `no room ${id} in the loaded world` } };
 
-    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-      return { status: 400, body: { error: 'PATCH body must be a JSON object' } };
-    }
-    const patch = body as Record<string, unknown>;
-    const keys = Object.keys(patch);
-    if (keys.length === 0) return { status: 400, body: { error: 'empty patch' } };
-    for (const key of keys) {
-      if (!ROOM_PATCH_KEYS.has(key)) {
-        return {
-          status: 400,
-          body: {
-            error:
-              `"${key}" is not authorable — one of: ${[...ROOM_PATCH_KEYS].join(', ')}. ` +
-              `A room's id, position and exits are geometry, not content.`,
-          },
-        };
-      }
-    }
+    const read = this.readRoomPatch(body);
+    if ('refused' in read) return read.refused;
+    const { next, cleared, keys } = read;
 
-    // Validated whole before anything is written, so an edit either lands or does not.
-    const next: {
-      name?: string;
-      description?: string;
-      sector?: Sector;
-      flags?: readonly RoomFlag[];
-      by?: string;
-      brief?: string;
-    } = {};
-    const cleared: string[] = [];
-
-    // Provenance rides along with a save rather than being written at generation time, because the
-    // draft is only ever *offered* — nothing is authored until a person presses Save, and recording
-    // "written by qwen2.5:14b" against prose that was then rejected would be a lie about the world.
-    for (const key of ROOM_META_KEYS) {
-      const value = patch[key];
-      if (value === undefined) continue;
-      if (value === null) cleared.push(key);
-      else if (typeof value !== 'string') return { status: 400, body: { error: `${key} must be a string or null` } };
-      else next[key as 'by' | 'brief'] = value.slice(0, BRIEF_MAX);
-    }
-
-    if (patch.name !== undefined) {
-      if (patch.name === null) cleared.push('name');
-      else if (typeof patch.name !== 'string' || !patch.name.trim()) {
-        return { status: 400, body: { error: 'name must be a non-empty string, or null to unauthor it' } };
-      } else if (patch.name.length > ROOM_NAME_MAX) {
-        return { status: 400, body: { error: `name must be at most ${ROOM_NAME_MAX} characters` } };
-      } else next.name = patch.name.trim();
-    }
-    if (patch.description !== undefined) {
-      if (patch.description === null) cleared.push('description');
-      else if (typeof patch.description !== 'string') {
-        return { status: 400, body: { error: 'description must be a string, or null to unauthor it' } };
-      } else if (patch.description.length > ROOM_PROSE_MAX) {
-        return { status: 400, body: { error: `description must be at most ${ROOM_PROSE_MAX} characters` } };
-      } else next.description = patch.description;
-    }
-    if (patch.sector !== undefined) {
-      if (patch.sector === null) cleared.push('sector');
-      else if (typeof patch.sector !== 'string' || !(SECTORS as readonly string[]).includes(patch.sector)) {
-        return { status: 400, body: { error: `sector must be one of: ${SECTORS.join(', ')}` } };
-      } else next.sector = patch.sector as Sector;
-    }
-    if (patch.flags !== undefined) {
-      if (patch.flags === null) cleared.push('flags');
-      else if (!Array.isArray(patch.flags)) {
-        return { status: 400, body: { error: 'flags must be an array' } };
-      } else {
-        const bad = patch.flags.filter((f) => typeof f !== 'string' || !(ROOM_FLAGS as readonly string[]).includes(f));
-        if (bad.length > 0) {
-          return { status: 400, body: { error: `unknown flags ${JSON.stringify(bad)} — one of: ${ROOM_FLAGS.join(', ')}` } };
-        }
-        next.flags = [...new Set(patch.flags as RoomFlag[])];
-      }
+    // **One Save for both kinds of room, and the *server* decides which it is.** A created room has
+    // no harvest to patch, so an edit to one rewrites its own record in the other overlay — A6b's
+    // dispatch, and the id range is the discriminator here exactly as it is on disk. The panel calls
+    // one route and cannot get the choice wrong.
+    if (this.deps.world.isAuthoredRoom(id as RoomId)) {
+      return this.reauthorRoom(id as RoomId, next, cleared, keys);
     }
 
     // **Read before anything moves.** Whether the tilemap must be re-carved is decided by comparing
@@ -1567,6 +1517,207 @@ export class AdminApi {
         room: { id: applied.room.id, name: applied.room.name, sector: applied.room.sector },
         regrid,
         authored: this.deps.world.overrides.get(id as RoomId) ?? null,
+      },
+    };
+  }
+
+  /**
+   * The four fields a builder writes, validated whole before any of them is applied.
+   *
+   * Split out when A8 gave the same patch a second destination: a created room's edit lands in
+   * `rooms-authored.json` and a harvested room's in `rooms.json`, and validating the body twice is
+   * how one of them quietly starts accepting a flag the other rejects.
+   *
+   * `null` is how a field is *unauthored*, and it is not the same as `""` — see {@link authorRoom}.
+   */
+  private readRoomPatch(
+    body: unknown,
+  ):
+    | { readonly next: RoomOverride; readonly cleared: string[]; readonly keys: string[] }
+    | { readonly refused: AdminResponse } {
+    const refuse = (error: string) => ({ refused: { status: 400, body: { error } } } as const);
+
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return refuse('PATCH body must be a JSON object');
+    }
+    const patch = body as Record<string, unknown>;
+    const keys = Object.keys(patch);
+    if (keys.length === 0) return refuse('empty patch');
+    for (const key of keys) {
+      if (!ROOM_PATCH_KEYS.has(key)) {
+        return refuse(
+          `"${key}" is not authorable — one of: ${[...ROOM_PATCH_KEYS].join(', ')}. ` +
+            `A room's id, position and exits are geometry, not content.`,
+        );
+      }
+    }
+
+    // Validated whole before anything is written, so an edit either lands or does not.
+    const next: {
+      name?: string;
+      description?: string;
+      sector?: Sector;
+      flags?: readonly RoomFlag[];
+      by?: string;
+      brief?: string;
+    } = {};
+    const cleared: string[] = [];
+
+    // Provenance rides along with a save rather than being written at generation time, because the
+    // draft is only ever *offered* — nothing is authored until a person presses Save, and recording
+    // "written by qwen2.5:14b" against prose that was then rejected would be a lie about the world.
+    for (const key of ROOM_META_KEYS) {
+      const value = patch[key];
+      if (value === undefined) continue;
+      if (value === null) cleared.push(key);
+      else if (typeof value !== 'string') return refuse(`${key} must be a string or null`);
+      else next[key as 'by' | 'brief'] = value.slice(0, BRIEF_MAX);
+    }
+
+    if (patch.name !== undefined) {
+      if (patch.name === null) cleared.push('name');
+      else if (typeof patch.name !== 'string' || !patch.name.trim()) {
+        return refuse('name must be a non-empty string, or null to unauthor it');
+      } else if (patch.name.length > ROOM_NAME_MAX) {
+        return refuse(`name must be at most ${ROOM_NAME_MAX} characters`);
+      } else next.name = patch.name.trim();
+    }
+    if (patch.description !== undefined) {
+      if (patch.description === null) cleared.push('description');
+      else if (typeof patch.description !== 'string') {
+        return refuse('description must be a string, or null to unauthor it');
+      } else if (patch.description.length > ROOM_PROSE_MAX) {
+        return refuse(`description must be at most ${ROOM_PROSE_MAX} characters`);
+      } else next.description = patch.description;
+    }
+    if (patch.sector !== undefined) {
+      if (patch.sector === null) cleared.push('sector');
+      else if (typeof patch.sector !== 'string' || !(SECTORS as readonly string[]).includes(patch.sector)) {
+        return refuse(`sector must be one of: ${SECTORS.join(', ')}`);
+      } else next.sector = patch.sector as Sector;
+    }
+    if (patch.flags !== undefined) {
+      if (patch.flags === null) cleared.push('flags');
+      else if (!Array.isArray(patch.flags)) {
+        return refuse('flags must be an array');
+      } else {
+        const bad = patch.flags.filter((f) => typeof f !== 'string' || !(ROOM_FLAGS as readonly string[]).includes(f));
+        if (bad.length > 0) {
+          return refuse(`unknown flags ${JSON.stringify(bad)} — one of: ${ROOM_FLAGS.join(', ')}`);
+        }
+        next.flags = [...new Set(patch.flags as RoomFlag[])];
+      }
+    }
+
+    return { next, cleared, keys };
+  }
+
+  /**
+   * Rewrites a created room's own record — the other half of {@link authorRoom}'s dispatch.
+   *
+   * **`null` is refused here, and that is the difference between the two overlays in one line.** On a
+   * harvested room null means *unauthor*: drop the override and let the generated value show through.
+   * Under a created room there is nothing to show through, so the same request would either blank a
+   * field the room must have or delete an entry that is the room. A6b's table, third row.
+   */
+  private reauthorRoom(id: RoomId, next: RoomOverride, cleared: readonly string[], keys: readonly string[]): AdminResponse {
+    if (cleared.length > 0) {
+      return {
+        status: 400,
+        body: {
+          error:
+            `room ${id} was created here, so ${cleared.join(', ')} cannot be unauthored — there is no ` +
+            `harvested room underneath it to restore. Write the field instead.`,
+        },
+      };
+    }
+
+    const before = this.deps.world.locate(id)?.room.sector;
+    const applied = this.deps.world.reauthorRoom(id, next, new Date().toISOString());
+    if (!applied) return { status: 404, body: { error: `no room ${id} created here` } };
+    if (this.deps.authoredRoomsFile) {
+      saveAuthoredRooms(this.deps.world.authoredRooms, this.deps.authoredRoomsFile);
+    }
+
+    const regrid = applied.room.sector !== before;
+    if (regrid) this.deps.world.dropGrid(applied.place);
+    this.deps.live.publishRoom(applied.room, applied.place, regrid);
+
+    this.audit('room.reauthor', { room: id, fields: keys, regrid });
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        room: { id: applied.room.id, name: applied.room.name, sector: applied.room.sector },
+        regrid,
+        created: true,
+      },
+    };
+  }
+
+  /**
+   * Builds a room in a gap the source left — A8's first slice, and its whole write surface.
+   *
+   * **Refusals are 409 rather than 400 when the world is what said no.** A malformed draft is the
+   * request's fault; a cell already occupied, an extent that does not reach, or a neighbour whose exit
+   * is already spoken for are all facts about the zone that were true before the request arrived and
+   * that an operator fixes by picking a different cell. Telling the two apart is what lets the panel
+   * say *"try somewhere else"* rather than *"you typed it wrong"*.
+   *
+   * The id is allocated inside `GameWorld.createRoom`, once the room is certain — so the base is
+   * passed here only to satisfy the draft validator's own range rule, and is replaced. That is worth
+   * saying out loud because the alternative reads fine and is wrong: allocating first and validating
+   * after burns a number on every rejected form submission.
+   */
+  private createRoom(slug: string, body: unknown): AdminResponse {
+    const zoneId = Number(slug);
+    if (!Number.isInteger(zoneId)) return { status: 400, body: { error: `"${slug}" is not a zone id` } };
+    if (!this.deps.world.zone(zoneId as ZoneId)) {
+      return { status: 404, body: { error: `zone ${zoneId} is not loaded` } };
+    }
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return { status: 400, body: { error: 'POST body must be a JSON object' } };
+    }
+    const draft = body as Record<string, unknown>;
+
+    const drafted = draftAuthoredRoom(AUTHORED_ROOM_BASE, { ...draft, zone: zoneId });
+    if ('error' in drafted) return { status: 400, body: { error: drafted.error } };
+
+    const by = typeof draft.by === 'string' ? draft.by.slice(0, BRIEF_MAX) : undefined;
+    const brief = typeof draft.brief === 'string' ? draft.brief.slice(0, BRIEF_MAX) : undefined;
+    const created = this.deps.world.createRoom(zoneId as ZoneId, drafted, {
+      at: new Date().toISOString(),
+      ...(by ? { by } : {}),
+      ...(brief ? { brief } : {}),
+    });
+    if ('error' in created) return { status: 409, body: { error: created.error } };
+
+    if (this.deps.authoredRoomsFile) {
+      saveAuthoredRooms(this.deps.world.authoredRooms, this.deps.authoredRoomsFile);
+    }
+    // Always a regrid: the room is a new block of floor on a grid that was carved without it, and
+    // every client standing on this Place is holding the old one.
+    this.deps.live.publishRoom(created.room, created.place, true);
+
+    this.audit('room.create', {
+      room: created.room.id,
+      zone: zoneId,
+      pos: created.room.pos,
+      exits: Object.keys(created.room.exits),
+    });
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        room: {
+          id: created.room.id,
+          name: created.room.name,
+          sector: created.room.sector,
+          x: created.room.pos.x,
+          y: created.room.pos.y,
+          level: created.room.pos.z,
+          exits: Object.entries(created.room.exits).map(([dir, exit]) => ({ dir, to: exit.to })),
+        },
       },
     };
   }

@@ -61,6 +61,15 @@ export interface ZoneMapOptions {
   readonly level: number;
   readonly selected: number | undefined;
   readonly onPick: (roomId: number) => void;
+  /**
+   * Picking an empty cell — A8's placement gesture, and the reason the map is where this lives.
+   *
+   * Omitted, no gap is drawn at all: the map is also a live view of a running world, and a grid of
+   * clickable holes over it would turn reading the zone into dodging the editor.
+   */
+  readonly onGap?: (x: number, y: number) => void;
+  /** The gap being filled in, drawn as picked so the form and the map agree about where. */
+  readonly gap?: { readonly x: number; readonly y: number };
 }
 
 /** Which cell a compass direction points at, or nothing for the two that leave the plane. */
@@ -109,6 +118,55 @@ export function drawZoneMap(options: ZoneMapOptions): SVGElement {
     cx: room.x * CELL + CELL / 2,
     cy: room.y * CELL + CELL / 2,
   });
+
+  // **Gaps first of all, so everything else draws over them.** A8: a cell inside this level's extent
+  // with no room in it is somewhere a room can be built, and the map is the only place where "which
+  // cell" is a question with an obvious gesture rather than two numbers typed into a form.
+  //
+  // **Only gaps that touch a room are offered, and that is a rule rather than a saving.** A created
+  // room must be joined to a neighbour — one you cannot walk into is not a room — so a cell with
+  // nothing beside it is a cell where the server would refuse. Offering it would be offering a
+  // refusal. It also bounds the drawing: a sparse level's extent can be thousands of cells, and
+  // nearly all of them are nowhere near anything.
+  if (options.onGap) {
+    const minX = here.reduce((min, room) => Math.min(min, room.x), Infinity);
+    const minY = here.reduce((min, room) => Math.min(min, room.y), Infinity);
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        if (byCell.has(`${x},${y}`)) continue;
+        const touches = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ].some(([dx, dy]) => byCell.has(`${x + dx!},${y + dy!}`));
+        if (!touches) continue;
+
+        const cx = x * CELL + CELL / 2;
+        const cy = y * CELL + CELL / 2;
+        const picked = options.gap?.x === x && options.gap.y === y;
+        const group = svg('g', { class: 'zone-map-gap', tabindex: 0 });
+        group.append(
+          svg('rect', {
+            x: cx - ROOM / 2,
+            y: cy - ROOM / 2,
+            width: ROOM,
+            height: ROOM,
+            rx: 2,
+            class: picked ? 'picked' : '',
+          }),
+        );
+        const title = svg('title', {});
+        title.textContent = `empty — build a room at ${x},${y}`;
+        group.append(title);
+        group.addEventListener('click', () => options.onGap!(x, y));
+        group.addEventListener('keydown', (event) => {
+          if ((event as KeyboardEvent).key === 'Enter') options.onGap!(x, y);
+        });
+        root.append(group);
+      }
+    }
+  }
 
   // Exits first, so the room squares sit on top of their own lines.
   for (const room of here) {

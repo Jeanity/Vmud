@@ -17,6 +17,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  AUTHORED_ROOM_BASE,
   OPPOSITE,
   buildZoneTilemap,
   placeKey,
@@ -42,6 +43,15 @@ import {
   type RoomOverride,
   type RoomOverrides,
 } from './overrides.ts';
+import {
+  attachAuthoredRoom,
+  composeAuthoredRooms,
+  loadAuthoredRooms,
+  placementRefusal,
+  resolveExits,
+  takeAuthoredRoomId,
+  type AuthoredRoomStore,
+} from './room-authoring.ts';
 
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -302,6 +312,25 @@ export class GameWorld {
   readonly roomsAuthored: number;
 
   /**
+   * Rooms that were **created** here, as opposed to edited. A8, and a different overlay entirely —
+   * see `room-authoring.ts` for the four rules that differ.
+   *
+   * Held for the same reason {@link overrides} is: the panel writes *this*, not the zone files, and a
+   * creation adds to this store, saves it, and hangs the room in the live zone in one motion.
+   */
+  readonly authoredRooms: AuthoredRoomStore;
+
+  /**
+   * What the overlay asked for and could not have, said once at boot.
+   *
+   * Empty in every ordinary session. It fills when a hand-edited record puts a room outside its
+   * level's extent, on a cell somebody else took, or against a neighbour that has since moved — all
+   * three of which are silent otherwise, and the last of which is what storing an exit's far end
+   * exists to make visible.
+   */
+  readonly authoredRefusals: readonly { readonly id: RoomId; readonly why: string }[];
+
+  /**
    * What each authored room said *before* anybody wrote on it.
    *
    * The whole of "revert", and the reason it cannot fail. The alternative — re-reading the zone file
@@ -334,10 +363,13 @@ export class GameWorld {
     spawn: SpawnConfig,
     populate: readonly ZoneId[] = [],
     overrides: RoomOverrides = new Map(),
+    authoredRooms: AuthoredRoomStore = { rooms: new Map(), next: AUTHORED_ROOM_BASE },
   ) {
     this.populate = populate;
     this.spawn = spawn;
     this.overrides = overrides;
+    this.authoredRooms = authoredRooms;
+    const refusals: { id: RoomId; why: string }[] = [];
     let relaxed = 0;
     let authored = 0;
     for (const zone of zones) {
@@ -351,6 +383,12 @@ export class GameWorld {
       // sectors. Composing after the fact would leave the map showing the terrain the harvest had.
       // The snapshot is taken first, inside, so `revertRoom` can undo what is about to be applied.
       authored += applyOverridesToZone(zone, overrides, (room) => this.remember(room));
+      // **After the patches and before the index**, which is `DESIGN-zone-geometry.md` decision 5's
+      // order exactly: the harvest, then what was written over it, then whole records appended. A
+      // created room is not patched by `rooms.json` and never will be — an edit to one is a re-draft
+      // of its own record, which `reauthorRoom` does, so the two overlays cannot both claim a room.
+      const composed = composeAuthoredRooms(zone, authoredRooms.rooms);
+      refusals.push(...composed.refused);
 
       const levels = new Set<number>();
       for (const room of zone.rooms) {
@@ -363,9 +401,10 @@ export class GameWorld {
     }
     this.locksRelaxed = relaxed;
     this.roomsAuthored = authored;
+    this.authoredRefusals = refusals;
   }
 
-  /** Loads every zone named in the config, with the authored overlay composed on top. */
+  /** Loads every zone named in the config, with both authored overlays composed on top. */
   static load(configPath: string = CONFIG_PATH): GameWorld {
     const config = loadWorldConfig(configPath);
     return new GameWorld(
@@ -373,6 +412,7 @@ export class GameWorld {
       config.spawn,
       config.populate,
       loadRoomOverrides(),
+      loadAuthoredRooms(),
     );
   }
 
@@ -478,6 +518,96 @@ export class GameWorld {
       if (surviving) applyRoomOverride(located.room, surviving);
     }
     return { room: located.room, place: located.place };
+  }
+
+  /**
+   * Builds a room and hangs it in its zone, live — A8's one write.
+   *
+   * Everything is checked before anything is joined, so a refusal leaves the world exactly as it was:
+   * a half-added room would be in the index and off the grid, which is a room a player can be told
+   * about and cannot walk to. The three questions are asked in the order that makes each answer
+   * meaningful — the zone must be loaded before its extent means anything, the cell must be free
+   * before the neighbours are worth looking at, and the exits must all resolve before one of them is
+   * written.
+   *
+   * **The id comes from the store's counter, and only once the room is certain to be built.** An
+   * allocation spent on a refused draft would leave a gap in the numbering, which costs nothing, but
+   * it would also advance a counter for a room that never existed — and this is the one number the
+   * whole overlay's safety rests on.
+   *
+   * Persisting is the caller's job, as it is for {@link authorRoom}: this class does no I/O. Dropping
+   * the Place's grid is *not* — the room is on it, and a cached tilemap carved before it existed has
+   * no floor where the room stands.
+   */
+  createRoom(
+    zoneId: ZoneId,
+    draft: { readonly room: Room; readonly dirs: readonly Direction[] },
+    meta: { readonly at: string; readonly by?: string; readonly brief?: string },
+  ): { room: Room; place: Place } | { error: string } {
+    const zone = this.zonesById.get(zoneId);
+    if (!zone) return { error: `zone ${zoneId} is not loaded` };
+
+    const pos = draft.room.pos;
+    const refusal = placementRefusal(zone.rooms, pos);
+    if (refusal) return { error: refusal };
+
+    const resolved = resolveExits(zone.rooms, pos, draft.dirs);
+    if ('error' in resolved) return resolved;
+
+    const id = takeAuthoredRoomId(this.authoredRooms);
+    const room: Room = {
+      ...draft.room,
+      id,
+      zone: zoneId,
+      exits: Object.fromEntries(Object.entries(resolved.exits).map(([dir, to]) => [dir, { to }])),
+    };
+
+    // The store holds the room the zone holds, not a copy of it. One object means a later re-draft
+    // cannot leave the file and the running world disagreeing, and it means a reverse exit written
+    // by a room authored *next* to this one is part of the record rather than derived twice.
+    this.authoredRooms.rooms.set(id, {
+      room,
+      at: meta.at,
+      ...(meta.by ? { by: meta.by } : {}),
+      ...(meta.brief ? { brief: meta.brief } : {}),
+    });
+    attachAuthoredRoom(zone, room);
+
+    const place = placeOf(room);
+    this.index.set(id, { room, place });
+    this.dropGrid(place);
+    return { room, place };
+  }
+
+  /**
+   * Rewrites a created room's own record, which is what an edit to one *is*.
+   *
+   * A6b's dispatch, in its second home: a created thing has no harvest underneath it, so there is
+   * nothing to patch and `rooms.json` must never gain an entry for it — two overlays claiming one
+   * room is a state where the answer depends on load order. The id range is the discriminator, here
+   * as on disk.
+   *
+   * Only content, never geometry: position and exits are what {@link createRoom} settled against the
+   * zone's extent and its neighbours, and moving a room is a delete and an add against the same id —
+   * `DESIGN-zone-geometry.md`'s own note on what it does not decide.
+   */
+  reauthorRoom(roomId: RoomId, patch: RoomOverride, now: string): { room: Room; place: Place } | undefined {
+    const located = this.index.get(roomId);
+    const authored = this.authoredRooms.rooms.get(roomId);
+    if (!located || !authored) return undefined;
+    applyRoomOverride(located.room, patch);
+    this.authoredRooms.rooms.set(roomId, {
+      ...authored,
+      at: now,
+      ...(patch.by !== undefined ? { by: patch.by } : {}),
+      ...(patch.brief !== undefined ? { brief: patch.brief } : {}),
+    });
+    return { room: located.room, place: located.place };
+  }
+
+  /** Whether this room was created here rather than harvested. The one question the API dispatches on. */
+  isAuthoredRoom(roomId: RoomId): boolean {
+    return this.authoredRooms.rooms.has(roomId);
   }
 
   /** Snapshots a room's authorable fields, once, before the first thing is written over them. */
