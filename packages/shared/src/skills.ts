@@ -87,6 +87,11 @@ export const SKILL_IDS = [
   'unarmed',
   // Phase 19 slice 3. Not weapon skills: these are the two **verbs**, and they are notched by using them
   // rather than by swinging. `TAR_PHYS` like everything else here, so they share the physical cooldown.
+  // Phase 19 slice 2. Notched on the **defender** — you learn these by being swung at rather than by
+  // swinging, which is why they sit apart from the nine weapon skills and why `notchFromSwing` could not
+  // simply be pointed at them.
+  'dodge',
+  'parry',
   'bash',
   'kick',
 ] as const;
@@ -117,6 +122,8 @@ export const SKILLS: Readonly<Record<SkillId, Skill>> = {
   'flaying-2h': { id: 'flaying-2h', name: '2h flaying', category: 'physical' },
   'reach': { id: 'reach', name: 'reach weapons', category: 'physical' },
   'unarmed': { id: 'unarmed', name: 'unarmed damage', category: 'physical' },
+  'dodge': { id: 'dodge', name: 'dodge', category: 'physical' },
+  'parry': { id: 'parry', name: 'parry', category: 'physical' },
   'bash': { id: 'bash', name: 'bash', category: 'physical' },
   'kick': { id: 'kick', name: 'kick', category: 'physical' },
 };

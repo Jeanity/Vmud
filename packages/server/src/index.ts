@@ -49,7 +49,11 @@ import {
   AffectFlag,
   newAffect,
   ceilingFor,
+  DODGE_NOTCH_CHANCE,
+  PARRY_NOTCH_CHANCE,
+  defenceVerb,
   learnedAt,
+  mobDefenceSkill,
   notchChance,
   NOTCH_COOLDOWN_MS,
   rollNotch,
@@ -215,6 +219,7 @@ import {
   openingTarget,
   type AssistEvent,
   type AttackOutcome,
+  type DefenceSkills,
   type Death,
   type LedgerBook,
   type TargetSwitch,
@@ -1764,8 +1769,25 @@ function announceAttack(outcome: AttackOutcome): void {
     };
   };
 
-  const line = (who: string, whom: string, person: 'second' | 'third'): string => {
+  const line = (who: string, whoPlain: string, whom: string, person: 'second' | 'third'): string => {
     const said = form(person);
+    // **Phase 19 slice 2: a defended blow reads from the defender's side.** Every other line in this
+    // function is *the attacker did something to the target*; a dodge is the one event where the
+    // interesting party is the one who did not get hit, and the source's own sentence is built that way
+    // (`victDodge` says *“you dodge X's attack”*, not *“X misses you”*). So the two names swap places
+    // and the person swaps with them — which is why this is a branch and not a third `said` verb.
+    if (outcome.defended) {
+      const { kind, ease } = outcome.defended;
+      const second = person === 'second';
+      // `person` describes the *attacker* upstream. The defender is therefore in the other person, and
+      // an onlooker sees both in the third.
+      const verb = defenceVerb(kind, ease, !second);
+      // **`whoPlain`, not `who`.** The attacker's name arrives capitalised because every other sentence
+      // here starts with it; in this one it is mid-sentence — *"You parry a kobold's attack"* — and
+      // "A kobold's" would be wrong. Uncapitalising the string would be worse, since a player's name is
+      // a proper noun, so the caller hands over both forms.
+      return `${whom === 'you' ? 'You' : capitalise(whom)} ${verb} ${second ? 'your' : `${whoPlain}'s`} attack. ${roll}`;
+    }
     return outcome.hit
       ? `${who} ${said.hit} ${whom} for ${outcome.damage} damage. ${roll}`
       : `${who} ${said.miss} ${whom}. ${roll}`;
@@ -1781,9 +1803,10 @@ function announceAttack(outcome: AttackOutcome): void {
     const whom = observer.id === target.id ? 'you' : seesTarget ? target.name : 'something';
     // Second person for the one swinging, third for everyone watching — chosen here rather than
     // patched in afterwards. See `form` above for what that replaced and why it had to go.
+    const plain = seesAttacker ? attacker.name : 'something';
     const text = observer.id === attacker.id
-      ? line('You', whom, 'second')
-      : line(who, whom, 'third');
+      ? line('You', 'your', whom, 'second')
+      : line(who, plain, whom, 'third');
     send(observer.id, { t: 'log', channel: 'combat', text: bracket(observer, outcome, text) });
 
     // The structured form too, so the client can animate rather than parse prose.
@@ -1797,7 +1820,19 @@ function announceAttack(outcome: AttackOutcome): void {
       natural: outcome.natural,
       // Only the four that have mechanisms behind them. `dodged`, `parried` and `blocked` wait for the
       // defence skills in Phase 19; the client is told to treat anything it does not know as a miss.
-      outcome: outcome.critical ? 'critical' : outcome.fumble ? 'fumble' : outcome.hit ? 'hit' : 'miss',
+      // The two that were declared and unproduced since Phase 11 now have a producer, which is the whole
+      // shape this list was written for: *“they are declared and unproduced”* rather than absent.
+      outcome: outcome.defended
+        ? outcome.defended.kind === 'dodge'
+          ? 'dodged'
+          : 'parried'
+        : outcome.critical
+          ? 'critical'
+          : outcome.fumble
+            ? 'fumble'
+            : outcome.hit
+              ? 'hit'
+              : 'miss',
     });
   }
 
@@ -4541,6 +4576,60 @@ function refitCombat(player: Player): void {
  * `refitCombat` at the end is what makes the notch worth anything — `attackBonus` is folded from the
  * skill, so a point that never reached the profile would be a number going up on a sheet.
  */
+/**
+ * What a defender brings to the dodge and parry rolls — **Phase 19 slice 2**.
+ *
+ * The one place a player's skills and a mob's are both answered, which is why `combat.ts` takes it as a
+ * lookup rather than reading either: a second copy of this is a second chance for the two to drift.
+ *
+ * **A player's numbers come through `learnedAt`**, so the level floor applies exactly as it does to a
+ * weapon skill — nobody has to have practised dodging to have some. **A mob's is the source's own NPC
+ * branch**, `BOUNDED(0, level * 2, 100)`, which at level 8 is 16 and gives a 3% dodge before the crowd
+ * penalty: present, and small enough that it is not a stealth rebalance of every fight in the world.
+ *
+ * **Parry is zero for every mob**, and that is transcription rather than an omission. The source reads
+ * `else if (IS_WARRIOR(vict))`, so a non-warrior NPC parries nothing at all — and we have no classes
+ * until Phase 21, so every mob takes the `else`. Same shape as `attackBonusFor`'s untaken `martial`
+ * branch, erring the same safe way, and it becomes true for warriors the day the class column is read.
+ */
+function defenceOf(defender: Actor): DefenceSkills {
+  if (!isPlayer(defender)) {
+    return { dodge: mobDefenceSkill(defender.level), parry: 0, weapon: 0, armed: false };
+  }
+  const weaponSkill = weaponSkillFor(defender.equipped.mainHand);
+  return {
+    dodge: learnedAt(defender.skills.get('dodge'), defender.level, 'dodge'),
+    parry: learnedAt(defender.skills.get('parry'), defender.level, 'parry'),
+    weapon: weaponSkill === undefined ? 0 : learnedAt(defender.skills.get(weaponSkill), defender.level, weaponSkill),
+    // **`unarmed` is a weapon skill but not a weapon.** `weaponSkillFor` answers `unarmed` for an empty
+    // hand by design — that is the skill you swing *with* — but `getCharParryVal` refuses outright
+    // without an object: *you do not parry a sword with your arm*. So this reads the hand, not the skill.
+    armed: defender.equipped.mainHand !== undefined,
+  };
+}
+
+/**
+ * A defensive skill notched because it just failed — **the mirror of {@link notchFromSwing}**.
+ *
+ * Two differences from the offensive notch, both from the source. It fires on the **defender** rather
+ * than the attacker, so being fought teaches you something even on a round where you never landed a
+ * blow. And the base chances are `skill.notch.defensive` — **17 for dodge, 25 for parry** — rather than
+ * the weapon notch's 6.67; `combat.ts` has already applied the source's own coin flip, so what reaches
+ * here is the half of failed rolls that get to try.
+ *
+ * The same three gates the offensive notch keeps, and for the same reasons: nothing is learned from a
+ * level-1 creature, nothing is learned in a safe room, and only players learn.
+ */
+function notchFromDefence(outcome: AttackOutcome): void {
+  const skill = outcome.defenceNotch;
+  if (skill === undefined) return;
+  const { attacker, target } = outcome;
+  if (!isPlayer(target)) return;
+  if (attacker.level < 2) return;
+  if (sim.room(target.roomId)?.flags?.includes('safe')) return;
+  notchSkill(target, skill, skill === 'dodge' ? DODGE_NOTCH_CHANCE : PARRY_NOTCH_CHANCE);
+}
+
 function notchFromSwing(outcome: AttackOutcome): void {
   const { attacker, target } = outcome;
   if (!isPlayer(attacker) || !outcome.hit) return;
@@ -6812,15 +6901,28 @@ setInterval(() => {
   // The last argument is Phase 14's morale check, injected the way `advanceAssists` takes `perceives`:
   // `combat.ts` decides *when* a mob's nerve is tested (its own round boundary) and this decides what
   // happens when it goes — the same `runFlee` a player's own `flee` runs.
-  const combat = advanceCombat(sim, scheduler, threat, ledger, combatRng, TICK_MS, (mob) => {
-    const outcome = runFlee(mob);
-    return outcome.kind === 'fled';
-  });
+  const combat = advanceCombat(
+    sim,
+    scheduler,
+    threat,
+    ledger,
+    combatRng,
+    TICK_MS,
+    (mob) => {
+      const outcome = runFlee(mob);
+      return outcome.kind === 'fled';
+    },
+    defenceOf,
+  );
   for (const outcome of combat.attacks) announceAttack(outcome);
   // **Phase 19: you get better at what you do.** Only on a blow that landed, only for a player, and
   // through the same `combatRng` that rolled the blow — a skill that rose because `Math.random()` said
   // so would make a fight unreplayable, which is `CLAUDE.md` §3.
   for (const outcome of combat.attacks) notchFromSwing(outcome);
+  // **And you get better at what is done to you** — slice 2, the other half. Separate from the line
+  // above rather than folded into it because they fire on opposite bodies for opposite reasons: one on
+  // the attacker for a blow that landed, one on the defender for a defence that did not.
+  for (const outcome of combat.attacks) notchFromDefence(outcome);
   for (const change of combat.switches) announceSwitch(change);
   for (const death of combat.deaths) resolveDeath(death);
 

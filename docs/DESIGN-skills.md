@@ -217,9 +217,19 @@ Each slice is driveable on its own, and the first cannot break anything that exi
    arithmetic: **+19 at level 30** (15 from the level, **+4** from the 40% floor) against **+2 at level
    1** (2 + **0**) — §5's claim that the bottom band 14b calibrated is untouched, observed rather than
    argued.
-2. **Being attacked teaches you too** — `dodge` and `parry`, notched on the defender (17 and 25 in the
-   source). Both need a *defence roll* we do not have: our AC is passive, and dodge/parry are an active
-   second gate. That is a combat change, not a skill change, and it wants its own slice.
+2. **Being attacked teaches you too** ✅ **done 2026-08-06** — `dodge` and `parry`, notched on the
+   defender (17 and 25). This entry was right that it is a combat change rather than a skill one: the
+   rolls are an **active second gate** that fires only once the to-hit has already beaten the armour
+   class, exactly as `new_combat.c` runs them inside the branch the to-hit won. Dodge first, parry only
+   if the dodge failed, and the notch attaches to whichever failed you — on the source's own coin flip,
+   so you learn from the blow that got through rather than from the one you avoided. **Parry needs a
+   weapon** (`getCharParryVal` returns 0 without one) and is half the parry skill, half the skill of the
+   thing in your hand. Four things the build found that this entry did not raise: the crowd penalty's
+   `else` **charges a lone attacker 14%**, because the chain is `if`/`else if`/`else` and being attacked
+   at all is the default case; the critical bonus is added **after** the modifiers and not before, which
+   a test caught; `number(1, 101)` means even a perfect score fails one time in 101; and **`DODGE_CAP` is
+   unreachable** — the arithmetic ceiling is 50, and the 60 exists for the drow/halfling doubling we have
+   no races for. Dropped and named: ability scores, size, haste/slow, terrain, riposte.
 3. **`bash` and `kick`** ✅ **done 2026-08-06** — the first skills with verbs of their own, and the crux
    was not the verbs. Researched, written up, and then built in two commits: the seam, then the abilities.
 

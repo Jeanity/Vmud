@@ -27,6 +27,7 @@
  */
 
 import {
+  DEFENCE_NOTCH_ODDS,
   HP_DEAD_BELOW,
   MIN_ROUND_MS,
   NO_CONTRIBUTION,
@@ -38,9 +39,15 @@ import {
   markParticipant,
   pickByThreat,
   pickByWeakness,
+  defenceEase,
+  dodgeChance,
+  parryChance,
+  randomInt,
   resolveAttack,
   rollDamage,
+  type DefenceEase,
   type EntityId,
+  type SkillId,
   type Contribution,
   type Rng,
   type ThreatTable,
@@ -64,6 +71,22 @@ export interface AttackOutcome {
   readonly total: number;
   /** Set when this blow took the target below the threshold and ended the fight. */
   readonly incapacitated?: boolean;
+  /**
+   * **Phase 19 slice 2.** Set when the blow beat the armour class and the defender still got out of it.
+   *
+   * A defended blow has `hit: false` and no damage, so everything downstream treats it as a miss and
+   * nothing has to learn a third state — but it is a *different* miss and the log says so, which is the
+   * whole point of an active defence. `chance` rides along because the source's prose grades on it: see
+   * `defenceEase`, which describes how good you are at this rather than how close that one was.
+   */
+  readonly defended?: { readonly kind: 'dodge' | 'parry'; readonly ease: DefenceEase; readonly chance: number };
+  /**
+   * A defensive skill the **defender** should roll a notch for, because it just failed them.
+   *
+   * Reported rather than applied, for the reason `Death` carries a ledger rather than paying it: writing
+   * a skill means a message, a save and an `attackBonus` refit, none of which this file knows about.
+   */
+  readonly defenceNotch?: SkillId;
 }
 
 /** What a combat tick produced. */
@@ -349,7 +372,13 @@ export function incapacitated(actor: Actor): boolean {
  * rolls the d20 and applies the natural-20-always-hits and natural-1-always-misses rules, and `rollDamage`
  * doubles the dice on a critical. This function's own job is only to decide *who* and to apply the result.
  */
-function swing(rng: Rng, attacker: Actor, target: Actor): AttackOutcome {
+function swing(
+  rng: Rng,
+  attacker: Actor,
+  target: Actor,
+  defence: DefenceSkills | undefined,
+  attackers: number,
+): AttackOutcome {
   const result = resolveAttack(rng, {
     attackBonus: attacker.combat.attackBonus,
     targetAc: target.combat.armourClass,
@@ -358,7 +387,17 @@ function swing(rng: Rng, attacker: Actor, target: Actor): AttackOutcome {
   // stopped showing dice on the last few blows would be worse than one that shows a die that could not
   // have failed. What changes is only the verdict. See {@link cannotDefend}.
   const helpless = cannotDefend(target);
-  const hit = helpless || result.hit;
+  const beatArmour = helpless || result.hit;
+
+  // **The second gate, and only once the first has been passed.** `new_combat.c` runs dodge and parry
+  // *inside* the branch that the to-hit already won, so a blow that missed stays a miss and cannot be
+  // dodged — you do not get to duck something that was never going to reach you. A helpless body does not
+  // defend at all, which is `canCharDodgeParry`'s own gate reading the same status ladder.
+  const defended = beatArmour && !helpless && defence
+    ? rollDefence(rng, defence, attackers, result.critical ? Math.floor((result.natural - 20 + result.total) / 2) : 0)
+    : undefined;
+
+  const hit = beatArmour && !defended;
   const damage = hit ? rollDamage(rng, attacker.combat.damage, result.critical) : 0;
   // **The damage is not applied here.** It used to be, and moving it into {@link landBlow} is what lets an
   // ability share one path with a swing — see that function. This one decides *what* a blow is worth; what
@@ -375,7 +414,56 @@ function swing(rng: Rng, attacker: Actor, target: Actor): AttackOutcome {
     damage,
     natural: result.natural,
     total: result.total,
+    ...(defended?.defended ? { defended: defended.defended } : {}),
+    ...(defended?.notch ? { defenceNotch: defended.notch } : {}),
   };
+}
+
+/**
+ * Dodge, then parry — the two rolls in the source's order, with the failed one's notch.
+ *
+ * **Dodge first and parry only if it failed**, which is not interchangeable: they are two chances rather
+ * than one, so a defender with both gets both, and a defender who dodges never rolls parry at all. The
+ * notch attaches to whichever *failed you*, on the source's own coin flip — you learn from the blow that
+ * got through your dodge, not from the one you avoided.
+ *
+ * `overshoot` is the critical quirk from `defence.ts`'s module note, computed by the caller and zero for
+ * an ordinary hit.
+ */
+function rollDefence(
+  rng: Rng,
+  skills: DefenceSkills,
+  attackers: number,
+  overshoot: number,
+): { defended?: AttackOutcome['defended']; notch?: SkillId } {
+  const dodge = dodgeChance({ skill: skills.dodge, attackers, criticalOvershoot: overshoot });
+  // `number(1, 101)` in the source — a 101-sided roll against a chance capped at 100, so even a perfect
+  // score fails one time in a hundred and one. Transcribed rather than tidied to `1..100`: a defence that
+  // never, ever fails is a different game.
+  if (randomInt(rng, 1, 101) <= dodge) {
+    return { defended: { kind: 'dodge', ease: defenceEase(dodge), chance: dodge } };
+  }
+  const dodgeNotch = rng() < DEFENCE_NOTCH_ODDS ? ('dodge' as SkillId) : undefined;
+
+  const parry = parryChance({
+    parrySkill: skills.parry,
+    weaponSkill: skills.weapon,
+    attackers,
+    armed: skills.armed,
+  });
+  if (randomInt(rng, 1, 101) <= parry) {
+    // The dodge notch is dropped here rather than kept, and deliberately: the source rolls its coin,
+    // notches, and then goes on to the parry — but only one skill can be reported per blow through
+    // `defenceNotch`, and the one the defender actually needed is the one that saved them. Naming the
+    // parry would be wrong (it succeeded), so a blow that is parried teaches nothing, which is the same
+    // rule the successful dodge above follows.
+    return { defended: { kind: 'parry', ease: defenceEase(parry), chance: parry } };
+  }
+  const parryNotch = rng() < DEFENCE_NOTCH_ODDS ? ('parry' as SkillId) : undefined;
+
+  // Both failed. Dodge is offered first because it was rolled first; a blow teaches at most one thing.
+  const notch = dodgeNotch ?? parryNotch;
+  return notch === undefined ? {} : { notch };
 }
 
 /**
@@ -388,6 +476,27 @@ function swing(rng: Rng, attacker: Actor, target: Actor): AttackOutcome {
  * fight means.
  */
 export type MoraleCheck = (mob: Mob) => boolean;
+
+/**
+ * What a defender brings to the two rolls — **Phase 19 slice 2**.
+ *
+ * Injected the way `MoraleCheck` is, and for the same reason: resolving these means reading a player's
+ * skill map through `learnedAt`, and a mob's through its level and its class-that-does-not-exist-yet.
+ * This file knows about neither, and a second copy of that resolution would be a second chance for a
+ * player's dodge and a mob's to drift apart.
+ */
+export interface DefenceSkills {
+  /** `SKILL_DODGE`, 0–100. */
+  readonly dodge: number;
+  /** `SKILL_PARRY`, 0–100. Half of the parry chance; the other half is {@link weapon}. */
+  readonly parry: number;
+  /** The skill of whatever is in the defender's hand — `getWeaponSkillNumb(weapon)`. */
+  readonly weapon: number;
+  /** Whether there is anything in that hand at all. **No weapon, no parry.** */
+  readonly armed: boolean;
+}
+
+export type DefenceLookup = (defender: Actor) => DefenceSkills;
 
 /** What a landed blow did to the world. See {@link landBlow}. */
 export interface BlowResult {
@@ -509,6 +618,8 @@ export function advanceCombat(
   rng: Rng,
   elapsedMs: number,
   morale?: MoraleCheck,
+  /** Phase 19 slice 2. Absent means nobody dodges or parries — combat exactly as it was before. */
+  defence?: DefenceLookup,
 ): CombatTick {
   const attacks: AttackOutcome[] = [];
   const changed: Actor[] = [];
@@ -614,7 +725,10 @@ export function advanceCombat(
       continue;
     }
 
-    const outcome = swing(rng, attacker, target);
+    // How many people are on this defender right now — the one modifier from the source's hundred lines
+    // that we have the number for, and the one that matters: it is why ganging up works.
+    const crowd = defence ? attackersOn(sim, target) : 1;
+    const outcome = swing(rng, attacker, target, defence?.(target), crowd);
     const landed = landBlow({ sim, scheduler, book, ledger }, attacker, target, outcome.damage);
     for (const actor of landed.changed) changed.push(actor);
     if (landed.death) deaths.push(landed.death);
@@ -631,6 +745,13 @@ export function advanceCombat(
   }
 
   return { attacks, changed, switches, deaths };
+}
+
+/** How many bodies in the room are currently fighting this one. `GET_OPPONENT(tch) == vict`, verbatim. */
+function attackersOn(sim: Simulation, defender: Actor): number {
+  let count = 0;
+  for (const actor of sim.actorsIn(defender.roomId)) if (actor.fighting === defender.id) count++;
+  return count;
 }
 
 /** Everyone a mob could legally be swinging at right now: same room, and still a target. */
