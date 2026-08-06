@@ -9,7 +9,9 @@ import {
   expiresTo,
   isRoomMode,
   lightSource,
+  naturalLightTiles,
   rollScatteredLight,
+  roomLightsItself,
   roomLightTiles,
   toCarriedLight,
   type LightSource,
@@ -486,3 +488,45 @@ describe('toCarriedLight', () => {
     assert.equal(toCarriedLight(LIGHT_SOURCES['torch']!, -5).remainingMs, 0);
   });
 });
+
+describe("rooms that light themselves — the owner's ask, 2026-08-06", () => {
+  it('treats an unflagged room as lit and a `dark` one as not', () => {
+    // The flag was harvested from the start and read by nothing; 2,283 of 46,508 rooms carry it, so this
+    // predicate is what turns 95% of the world from pitch black into daylight.
+    assert.equal(roomLightsItself({}), true);
+    assert.equal(roomLightsItself({ flags: [] }), true);
+    assert.equal(roomLightsItself({ flags: ['safe', 'no_mob'] }), true, 'other flags say nothing about light');
+    assert.equal(roomLightsItself({ flags: ['dark'] }), false);
+    assert.equal(roomLightsItself({ flags: ['safe', 'dark'] }), false);
+  });
+
+  it('says a room that does not exist is not lit, rather than throwing', () => {
+    // `locate` misses for a room this server does not load — a cross-zone stub. Dark is the safe answer:
+    // it means "your own light is all you have", which is what it was before this rule existed.
+    assert.equal(roomLightsItself(undefined), false);
+  });
+
+  it("lights the room's own floor and not its neighbours", () => {
+    // A lit hall does not light the passage off it. Same derivation as a beacon at zero room-steps, which
+    // is why there is no second lighting model to keep in step.
+    const zone = twoRooms();
+    const grid = buildZoneTilemap(zone);
+    const here = naturalLightTiles(grid, zone, 9001 as RoomId);
+    const beacon = roomLightTiles(grid, zone, 9001 as RoomId, 0);
+    assert.deepEqual([...here].sort((a, b) => a - b), [...beacon].sort((a, b) => a - b));
+
+    // The neighbour's own floor is outside it, which is the whole of "not its neighbours".
+    const next = naturalLightTiles(grid, zone, 9002 as RoomId);
+    for (const tile of next) assert.equal(here.has(tile), false, 'no tile of the far room is lit from here');
+    assert.ok(here.size > 0 && next.size > 0);
+  });
+});
+
+/** Two linked rooms side by side, the smallest fixture that can tell "this room" from "the next one". */
+function twoRooms(): Zone {
+  const rooms: Room[] = [
+    { id: 9001 as RoomId, zone: 900, name: 'Here', sector: 'inside', pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 9002 as RoomId } } },
+    { id: 9002 as RoomId, zone: 900, name: 'There', sector: 'inside', pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 9001 as RoomId } } },
+  ];
+  return { id: 900, name: 'Pair', rooms, bounds: boundsOf(rooms), entryRoom: 9001 as RoomId };
+}

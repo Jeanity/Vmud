@@ -68,7 +68,7 @@ import {
  *
  * Not exported from the package index, so it is imported by path like `vision.ts` is.
  */
-import { LIGHT_SOURCES, roomLightTiles } from '@mygame/shared/light.ts';
+import { LIGHT_SOURCES, naturalLightTiles, roomLightsItself, roomLightTiles } from '@mygame/shared/light.ts';
 
 import type { LogPanel } from './log.ts';
 import type { Net } from './net.ts';
@@ -975,6 +975,13 @@ export class WorldScene extends Phaser.Scene {
    * change under a beacon, both force a recompute, without a second early-return to keep in step.
    */
   private visibleRoom: RoomId | undefined;
+  /**
+   * The room the natural-light half of {@link visible} was computed for.
+   *
+   * Separate from {@link visibleRoom}, which is the *beacon* key and is undefined whenever no beacon is
+   * carried — natural light applies with any light or none, so it needs a key of its own.
+   */
+  private visibleNaturalRoom: RoomId | undefined;
   /**
    * How far this character can see, in tiles, straight off `SelfView`.
    *
@@ -2617,15 +2624,36 @@ export class WorldScene extends Phaser.Scene {
     const beaconRoom =
       light && light.mode === 'rooms' && zone !== undefined ? this.selfRoomId : undefined;
 
-    if (tx === this.visibleTx && ty === this.visibleTy && beaconRoom === this.visibleRoom) return;
+    // The room is in the key as well as the tile. Crossing a room boundary always crosses a tile, so
+    // this cannot *miss* a change — but a server correction can move `selfRoomId` without the predicted
+    // tile moving, and a natural-light set keyed on the tile alone would then describe the room behind.
+    if (
+      tx === this.visibleTx &&
+      ty === this.visibleTy &&
+      beaconRoom === this.visibleRoom &&
+      this.selfRoomId === this.visibleNaturalRoom
+    ) {
+      return;
+    }
 
     this.visibleTx = tx;
     this.visibleTy = ty;
     this.visibleRoom = beaconRoom;
-    this.visible =
+    this.visibleNaturalRoom = this.selfRoomId;
+    const lit =
       zone !== undefined && light !== undefined && beaconRoom !== undefined
         ? roomLightTiles(grid, zone, beaconRoom, light.radius)
         : computeVisible(grid, tx, ty, this.lightRadius);
+    // **A room that lights itself, unioned in — the same shared derivation the server folds into `seen`.**
+    // Both sides call `naturalLightTiles` for the reason both already call `computeVisible`: a tile the two
+    // disagree about is ground the player can see and cannot walk to. Copied into a fresh set rather than
+    // mutated, because `roomLightTiles` and `computeVisible` both hand back sets this frame owns — and the
+    // union is skipped entirely for a dark room, which is what the whole model was built for.
+    const room = zone?.rooms.find((r) => r.id === this.selfRoomId);
+    this.visible =
+      zone !== undefined && this.selfRoomId !== undefined && roomLightsItself(room)
+        ? new Set([...lit, ...naturalLightTiles(grid, zone, this.selfRoomId)])
+        : lit;
     this.invalidateFog();
   }
 

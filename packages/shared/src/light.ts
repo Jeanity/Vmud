@@ -596,3 +596,54 @@ export function toCarriedLight(source: LightSource, remainingMs?: number): Carri
     ...(remainingMs === undefined ? {} : { remainingMs: Math.max(0, Math.round(remainingMs)) }),
   };
 }
+
+/* -------------------------------------------------------------------------- */
+/* Rooms that light themselves                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Whether a room lights itself — **the owner's ask, 2026-08-06, and a flag we already harvest.**
+ *
+ * *"Some zones should have naturally lit areas that wouldn't even need a light source at all."* The data
+ * was already on disk: `'dark'` is in `world.ts`'s room-flag catalogue, and until now **its only
+ * occurrence in the whole codebase was that declaration**. Nothing read it, so the visibility model
+ * treated all 46,508 rooms as pitch black and a personal light was always required.
+ *
+ * Measured over the harvest: **2,283 rooms carry `dark` — 4.9%**, so Duris' own builders marked 95.1% of
+ * the world as lit. In the loaded zones it is 41 of IceCrag's 219 and 37 of the Kobold Settlement's 99,
+ * which is exactly the shape the ask describes: a newbie area needing no torch except for the handful of
+ * dark rooms a found torch then opens up.
+ *
+ * ## How much of Duris' rule this is, and what is deliberately left out
+ *
+ * The source's own answer is `IS_LIGHT_ROOM` / `IS_TWILIGHT_ROOM` (`utility.c:6199`) and it is richer than
+ * one flag: **twilight** as a third state, `ROOM_MAGIC_LIGHT` / `ROOM_MAGIC_DARK` from spells, sector
+ * defaults where forest and swamp are lit *only while the sun is up*, and `IS_NIGHT`. **We have no clock**,
+ * so the time-of-day half cannot be transcribed at all, and twilight is a third visibility state this
+ * engine does not have. The flag is the half that is both faithful and complete on its own: a room either
+ * lights itself or it does not.
+ *
+ * **An unmatched zone carries no flags at all**, so it is lit. That is the right default for the two
+ * inferred forest zones — an open wood in daylight — and it is also the honest one: absent data must not
+ * become a claim that somewhere is dark.
+ */
+export function roomLightsItself(room: { readonly flags?: readonly string[] } | undefined): boolean {
+  if (!room) return false;
+  return !(room.flags?.includes('dark') ?? false);
+}
+
+/**
+ * The tiles a naturally lit room lights on its own: **its own floor and nothing beyond it.**
+ *
+ * `roomLightTiles` at zero room-steps, which is exactly this room — so natural light and a beacon are the
+ * same derivation at different reaches, and there is no second lighting model to keep in step. A lit room
+ * does **not** light its neighbours: standing in a lit hall you can see the hall, and the passage off it
+ * is as dark as it is.
+ *
+ * **Both sides call this**, and that is not a convenience: the server folds the result into `seen` and
+ * gates clicks on it while the client paints fog from it, so a tile the two disagree about is ground the
+ * player can see and cannot walk to. Same argument the `roomLightTiles` header makes.
+ */
+export function naturalLightTiles(grid: TileGrid, zone: Zone, roomId: RoomId): ReadonlySet<number> {
+  return roomLightTiles(grid, zone, roomId, 0);
+}

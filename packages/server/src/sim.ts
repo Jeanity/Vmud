@@ -104,6 +104,7 @@ import {
   type LightSource,
 } from '@mygame/shared/light.ts';
 import { DEFAULT_LIGHT_RADIUS, computeVisible } from '@mygame/shared/vision.ts';
+import { naturalLightTiles, roomLightsItself } from '@mygame/shared/light.ts';
 
 import { LOCKS_HOLD, placeOf, type GameWorld } from './world.ts';
 
@@ -1180,6 +1181,27 @@ export class Simulation {
    * Called on arrival too, because {@link relocate} invalidates the cache — the same tile numbers on
    * a different Place's grid are a different place entirely.
    */
+  /**
+   * Adds the room's own light to a lit set, when the room has any.
+   *
+   * Reads the room out of the zone rather than the tile under the character's feet, for the reason
+   * `refreshRoomLight` gives: `roomAtTile` reports −1 in a corridor and `roomId` holds the last real
+   * room, which is the room a character in a doorway is standing in as far as every other rule is
+   * concerned.
+   *
+   * Returns the original set untouched when the room is dark, so the common case — a dark dungeon, which
+   * is what the whole visibility model was built for — allocates nothing.
+   */
+  private withNaturalLight(player: Player, lit: Set<number>): Set<number> {
+    const located = this.world.locate(player.roomId);
+    if (!located || !roomLightsItself(located.room)) return lit;
+    const grid = this.world.grid(player.place);
+    const zone = this.world.zone(player.place.zone);
+    if (!grid || !zone) return lit;
+    for (const tile of naturalLightTiles(grid, zone, player.roomId)) lit.add(tile);
+    return lit;
+  }
+
   refreshVisible(player: Player): boolean {
     // A `rooms`-mode source is a different *kind* of seeing, not a bigger number, so it takes a
     // different derivation and a different cache key. Everything downstream — `seen`, the click
@@ -1195,7 +1217,12 @@ export class Simulation {
     const grid = this.world.grid(player.place);
     if (!grid) return false;
 
-    player.visible = computeVisible(grid, tx, ty, player.lightRadius);
+    // **A room that lights itself lights it for everyone in it** — the owner's ask, 2026-08-06, and a
+    // union rather than a branch: your own light still reaches past the room's floor (through a doorway,
+    // down a corridor), so the two are additive and neither can take anything away. In a lit room the
+    // disc adds nothing and the union is the room; in a dark one the room adds nothing and it is the
+    // disc; in a lit room with a torch you see the room *and* what the torch reaches beyond it.
+    player.visible = this.withNaturalLight(player, computeVisible(grid, tx, ty, player.lightRadius));
     player.visibleTx = tx;
     player.visibleTy = ty;
     player.visibleRadius = player.lightRadius;
@@ -1232,7 +1259,10 @@ export class Simulation {
     const zone = this.world.zone(player.place.zone);
     if (!grid || !zone) return false;
 
-    player.visible = roomLightTiles(grid, zone, player.roomId, source.radius);
+    // Unioned here too. A beacon already lights this room, so in practice this changes nothing — but
+    // leaving it out would make natural light a property of *which light you carry*, which is exactly
+    // the kind of rule that is discovered later by somebody standing in a lit room holding a beacon.
+    player.visible = this.withNaturalLight(player, roomLightTiles(grid, zone, player.roomId, source.radius));
     player.visibleRoom = player.roomId;
     player.visibleRadius = player.lightRadius;
     // See above: exactly one key is live, so the tile key is retired while this one is.

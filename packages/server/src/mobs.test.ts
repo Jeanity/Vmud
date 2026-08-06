@@ -35,8 +35,12 @@ import { GameWorld } from './world.ts';
 /** Two rooms side by side, which is all a test about who-can-see-whom needs. */
 function testZone(): Zone {
   const rooms: Room[] = [
-    { id: 8000, zone: 800, name: 'The Watch Post', sector: 'hills', pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 8001 } } },
-    { id: 8001, zone: 800, name: 'The Next One Over', sector: 'hills', pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 8000 } } },
+    // **Both `dark`, and that is now a statement rather than a default.** Natural room light (2026-08-06)
+    // makes an unflagged room light itself, which is right for 95% of the harvested world and wrong for a
+    // fixture whose subject is *what a carried light reveals* — three of the tests below are about a mob
+    // being unlit at range. Marking them dark is what they always meant.
+    { id: 8000, zone: 800, name: 'The Watch Post', sector: 'hills', flags: ['dark'], pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 8001 } } },
+    { id: 8001, zone: 800, name: 'The Next One Over', sector: 'hills', flags: ['dark'], pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 8000 } } },
   ];
   return { id: 800, name: 'Test Watch', rooms, bounds: boundsOf(rooms), entryRoom: 8000 };
 }

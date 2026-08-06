@@ -40,11 +40,16 @@ import { GameWorld } from './world.ts';
  * on each. A stale visible set is therefore detectable rather than merely suspected.
  */
 function testZone(): Zone {
+  // **Every room here is `dark`, and that is now a statement rather than a default.** Natural room light
+  // (2026-08-06) makes an unflagged room light itself — right for 95% of the harvested world, wrong for a
+  // fixture whose whole subject is what a *carried* light reveals. Before that change, "no flags" happened
+  // to mean the same thing; now it has to be said.
   const rooms: Room[] = [
     {
       id: 7001,
       zone: 700,
       name: 'West Hollow',
+      flags: ['dark'],
       sector: 'forest',
       pos: { x: 0, y: 0, z: 0 },
       exits: { east: { to: 7002 }, up: { to: 7003, portal: true } },
@@ -53,6 +58,7 @@ function testZone(): Zone {
       id: 7002,
       zone: 700,
       name: 'East Hollow',
+      flags: ['dark'],
       sector: 'forest',
       pos: { x: 1, y: 0, z: 0 },
       exits: { west: { to: 7001 } },
@@ -61,6 +67,7 @@ function testZone(): Zone {
       id: 7003,
       zone: 700,
       name: 'A Rope Bridge',
+      flags: ['dark'],
       sector: 'forest',
       pos: { x: 0, y: 0, z: 1 },
       exits: { down: { to: 7001, portal: true } },
