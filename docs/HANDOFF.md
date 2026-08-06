@@ -13,6 +13,19 @@ going for — a graphical MUD."* MUD mechanisms are the specification. It render
 Entirely independent of anything under `E:\` (Jeanity, InstaPost, SIG, …). Do not import context or
 skills from those projects.
 
+## Where the project lives
+
+**`F:\MyGame` is the checkout.** On 2026-08-06 the directory `D:\MyGame` — which held four git worktrees
+and which several sessions had been building in — **disappeared mid-session**. Nothing was lost: every
+commit had been fast-forwarded into `main` here as it landed, and `git worktree list` simply reports the
+four D: entries as `prunable`. Two things follow for anyone picking this up:
+
+- `git worktree prune` will clear the stale registrations when somebody wants the paths back. It removes
+  metadata only; the branches and their commits are untouched.
+- **`npm install` first.** The workspace links under `node_modules/@mygame/` were junctions pointing into
+  `D:\MyGame\packages\*`, so every build here failed with *"Cannot find package '@mygame/shared'"* until
+  they were rebuilt. That is gotcha 7 wearing a different hat.
+
 ## Run it
 
 ```bash
@@ -386,13 +399,22 @@ with nothing unblocked skips its turn rather than inventing work.
 **Round 11 is closed**: A6c filled the admin slot, `bash` and `kick` the mechanic slot, and Track V skipped
 its turn (V1–V7 are all done, and §2b says a track with nothing unblocked skips rather than inventing work).
 
-**Two things the drives turned up that are worth fixing and are not fixed.** First, **an admin teleport does
-not tell the client what is in the room it arrives in**: `visible` is correct (measured — 81 tiles on the
-lit spawn field, 162 after teleporting into a second lit room, so the natural-light union is right), the
-server resolves `bash kobold` against the mob perfectly well, and yet no `entityEnter` reaches the client,
-so the room looks empty. It is a notification gap rather than a visibility one, it has cost four separate
-drives this session, and it is the same seam as the *stale `visible`* note below. Second, `look` does not
-re-seed it either, which narrows where to look.
+**A correction, and it retracts two notes this file carried earlier today.** Both claimed a bug in how a
+client learns what is in a room — that an admin teleport left `visible` stale, and that no entity reached
+the client on arrival. **Neither is true.** They were diagnosed with a probe that listened for
+`entityEnter` and never read the message the server actually uses: `describeRoom` sends the room's
+occupants **inside the `room` message** (`view.entities`), which the client replaces its entity list from
+wholesale, and `entityEnter` exists only for things that arrive *afterwards*. Measured with a corrected
+probe: on login the room view lists *the kobold shaman*, and after a **bare** teleport — no light patch,
+nothing forcing a recompute — it lists *three kobold youths*. The light patch that appeared to "fix" it was
+only making `applyRelight` emit the one message the probe was watching for.
+
+**The lesson is the reusable part**, and it cost four drives: a socket probe must read the room view, not
+just the entity deltas — `{ t: 'room', view: { room, entities, adjacent } }`. The two suspicious signs were
+both visible at the time and both misread: the *server* resolved `bash kobold` against a mob the probe
+claimed was not there, and `visible` measured correct (81 tiles on the lit spawn field, 162 after a
+teleport into a second lit room). When the server can see something the client "cannot", suspect the
+instrument.
 
 **Round 11 was, as it was open:** — V1–V7 are all done, and §2b says a track with nothing
 unblocked skips rather than inventing work. **A6c filled the admin slot** (see the table row). The mechanic
@@ -488,12 +510,10 @@ will otherwise be rediscovered:
    fight together **without** grouping are unwalled, and the low one earns a full contribution share.
    The hole is older than this phase (contribution has paid strangers since Phase 13) and closing it
    means changing what an *ungrouped* kill pays, which is a decision, not a patch.
-2. **An admin teleport can leave a character's `visible` set describing the room they left**, so they
-   arrive seeing nobody. Reproduced repeatedly: patch a light *then* teleport and the destination's
-   mobs never arrive; teleport *then* patch and they do, because the relight forces the recompute. It
-   costs twenty minutes of any drive that stages a fight, and the fix is one recompute in a testing
-   seam — `sim.relocate` + `announceArrival` is the same path walking takes, so the interesting part is
-   why walking does not show it.
+2. ~~**An admin teleport can leave a character's `visible` set describing the room they left.**~~
+   **Retracted 2026-08-06** — there was no such bug. See the correction in the *start here* section: the
+   drive probe was reading `entityEnter` and ignoring the room view, which is where a room's occupants
+   actually arrive. A teleport tells the client exactly what is there, with nothing forcing it.
 3. **A death prints two lines.** *"X is dead!"* comes from the blow that drops the body (`index.ts`
    around the engagement break) *and* from `resolveDeath`, so an onlooker reads it twice. Pre-existing,
    harmless, and one of the two is redundant.
