@@ -29,6 +29,9 @@ import { fileURLToPath } from 'node:url';
 import {
   AffectFlag,
   APPLY_LOCATIONS,
+  ceilingFor,
+  isSkillId,
+  type SkillId,
   STARTING_CAPACITY,
   CURRENCIES,
   emptyInventory,
@@ -176,6 +179,19 @@ export interface PlayerRecord {
    * restoring as an empty purse — nothing was carried, so nothing is lost.
    */
   purse: Purse | undefined;
+  /**
+   * Skill proficiency, **sparse** — Phase 19.
+   *
+   * Only skills whose learned value has been ground **above the level's floor** are here. The floor is a
+   * pure function of level (`skillFloor` in `skills.ts`), so a character who has never held an axe has an
+   * axe skill that is derivable and does not need a row — and a level gain drags every skill up with no
+   * write at all, which is `update_skills` for free.
+   *
+   * An absent map and an empty one mean the same thing, which is what a new character is. A skill id this
+   * build does not know is dropped on load, the treatment `affects` gets and for the same reason: these
+   * files are hand-editable and a name nothing can resolve must not stop a character logging in.
+   */
+  skills: Map<SkillId, number> | undefined;
 }
 
 /**
@@ -216,6 +232,8 @@ interface StoredRecord {
   inventory?: unknown;
   /** Coin by currency. Absent before Phase 15c, and for anyone who has never found any. */
   purse?: unknown;
+  /** Skills ground above their floor, by id. Absent before Phase 19 and for anyone who has ground none. */
+  skills?: Record<string, number>;
   /** Base64 bitset per {@link placeKey}. */
   seen?: Record<string, string>;
   /** Ground pickup keys this character has collected. Absent in any save written before v5. */
@@ -355,6 +373,7 @@ export class PlayerStore {
       equipped: undefined,
       inventory: undefined,
       purse: undefined,
+      skills: undefined,
     };
     if (slug) {
       try {
@@ -370,6 +389,7 @@ export class PlayerStore {
         equipped: readEquipped(stored.equipped),
         inventory: stored.inventory === undefined ? undefined : readInventory(stored.inventory, readItem),
         purse: readPurse(stored.purse),
+        skills: decodeSkills(stored.skills),
         };
         // A save written by the previous version has room ids and no bitsets. Refusing to load it
         // would lock a character out of their own account over a data format; this converts what it
@@ -529,6 +549,28 @@ export class PlayerStore {
   }
 
   /**
+   * Records a character's skills. See {@link PlayerRecord.skills}.
+   *
+   * Takes the live map and stores a **copy**, the discipline {@link setEquipped} follows: a record that
+   * aliased live state would be edited by the next notch without ever being marked dirty.
+   *
+   * Only values above the level's floor are kept, which is what makes the storage sparse — the caller
+   * passes the floor rather than the level, because this file has no opinion about how a floor is
+   * derived and `skills.ts` is the one place that does.
+   */
+  setSkills(record: PlayerRecord, learned: ReadonlyMap<SkillId, number>, floor: number): void {
+    const kept = new Map<SkillId, number>();
+    for (const [id, value] of learned) if (value > floor) kept.set(id, value);
+    const next = JSON.stringify(Object.fromEntries([...kept].sort(([a], [b]) => a.localeCompare(b))));
+    const before = JSON.stringify(
+      Object.fromEntries([...(record.skills ?? new Map())].sort(([a], [b]) => a.localeCompare(b))),
+    );
+    if (before === next) return;
+    record.skills = kept.size === 0 ? undefined : kept;
+    this.touch(record);
+  }
+
+  /**
    * Records what a character is carrying. See {@link PlayerRecord.inventory}.
    *
    * Round-tripped through `readInventory` rather than stored by reference, for the reason
@@ -683,6 +725,12 @@ export class PlayerStore {
         : {}),
       // Omitted for a character who has never found a coin, like every other absent-means-nothing field.
       ...(record.purse && !purseIsEmpty(record.purse) ? { purse: record.purse } : {}),
+      // Sparse, and omitted entirely when nothing has been ground: see {@link PlayerRecord.skills}. An
+      // object rather than an array of pairs, because a save read by hand should answer "how good am I
+      // with a longsword" without counting.
+      ...(record.skills && record.skills.size > 0
+        ? { skills: Object.fromEntries([...record.skills].sort(([a], [b]) => a.localeCompare(b))) }
+        : {}),
       savedAt: new Date().toISOString(),
     };
     try {
@@ -764,6 +812,7 @@ export class PlayerStore {
         equipped: readEquipped(stored.equipped),
         inventory: stored.inventory === undefined ? undefined : readInventory(stored.inventory, readItem),
         purse: readPurse(stored.purse),
+        skills: decodeSkills(stored.skills),
       };
       out.push({
         slug,
@@ -1131,6 +1180,30 @@ function decodeMissing(stored: unknown): { hp: number; mana: number; move: numbe
   // would grow the file for no information.
   if (missing.hp === 0 && missing.mana === 0 && missing.move === 0) return undefined;
   return missing;
+}
+
+/**
+ * Rebuilds the sparse skill map, dropping anything this build cannot resolve.
+ *
+ * Three sanitisations, and each of them is a hand-edited file waiting to happen: an id nothing knows is
+ * **dropped** (the `affects` treatment — a name we cannot resolve must not stop a login), a value is
+ * rounded and floored at zero, and it is **clamped to the ceiling**, because a `999` typed into a save
+ * would otherwise be a permanent master of everything.
+ *
+ * A row at or below the floor is kept rather than pruned here: the floor depends on the character's
+ * level, which this function does not know, and `learnedAt` takes the maximum anyway. Pruning happens
+ * naturally the next time the value is written.
+ */
+function decodeSkills(stored: unknown): Map<SkillId, number> | undefined {
+  if (typeof stored !== 'object' || stored === null) return undefined;
+  const out = new Map<SkillId, number>();
+  for (const [id, value] of Object.entries(stored as Record<string, unknown>)) {
+    if (!isSkillId(id)) continue;
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+    const learned = Math.min(ceilingFor(id), Math.max(0, Math.round(value)));
+    if (learned > 0) out.set(id, learned);
+  }
+  return out.size === 0 ? undefined : out;
 }
 
 /** How many bytes a base64 string decodes to, ignoring padding and anything outside the alphabet. */

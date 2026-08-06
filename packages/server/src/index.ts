@@ -33,6 +33,21 @@ import {
   OPPOSITE,
   divideExperience,
   groupedShare,
+  AffectFlag,
+  newAffect,
+  ceilingFor,
+  learnedAt,
+  notchChance,
+  NOTCH_COOLDOWN_MS,
+  rollNotch,
+  SKILL_CATEGORIES,
+  SKILL_CEILING,
+  SKILL_IDS,
+  SKILLS,
+  skillFloor,
+  toHitFrom,
+  weaponSkillFor,
+  WEAPON_NOTCH_CHANCE,
   armourToAc,
   attackBonusFor,
   parseDice,
@@ -1167,6 +1182,9 @@ function rememberProgress(player: Player): void {
   // And the coin, since 15c. Money that evaporated on logout would teach players to spend it before
   // quitting, which is a mechanic nobody designed.
   store.setPurse(record, player.purse);
+  // Phase 19, and the floor is passed rather than the level because the *store* has no business
+  // deriving one: only values above it are worth a row, which is what keeps the file sparse.
+  store.setSkills(record, player.skills, skillFloor(player.level));
 }
 
 /**
@@ -1193,6 +1211,11 @@ function restoreProgress(player: Player, record: PlayerRecord): void {
   // with a raised capacity is still a fact about the character — see `PlayerStore.save`.
   if (record.inventory) player.inventory = record.inventory;
   if (record.purse) player.purse = record.purse;
+  // Phase 19. **Before the level is read below and before `refitCombat` at the end**, and both orders
+  // matter: what a skill is worth depends on the level's floor, and the attack bonus is folded from the
+  // skill. A record with none restores an empty map, which is not "no skills" — every skill is at the
+  // floor, derived.
+  if (record.skills) player.skills = new Map(record.skills);
 
   const progress = record.progress;
   if (progress) {
@@ -3662,6 +3685,7 @@ function runCommand(player: Player, line: string): void {
     case 'group': return groupCommand(player, rest);
     case 'gsay': return groupSay(player, rest);
     case 'disband': return disbandCommand(player);
+    case 'skills': return listSkills(player);
     // Never destroys on this pass: an unconfirmed junk arms the question and returns.
     case 'junk': return junkFromBag(player, rest, false);
     case 'wear': return wearFromBag(player, rest);
@@ -4056,13 +4080,105 @@ function refitCombat(player: Player): void {
   // gear), and the damroll is Duris' own, summed across every slot rather than read off the weapon.
   // Both land on `Dice.bonus`, which already existed and is not doubled by a critical — the SRD's rule,
   // and the right one here: a crit should reward the weapon rather than the character sheet.
+  // **Phase 19: what you are good at.** `floor(learned / 10)` for the skill this weapon trains — see
+  // `skills.ts` for why that number is a division of `getChartoHitSkillMod` rather than a choice. Folded
+  // here rather than read at swing time because this is already the one seam every kit change passes
+  // through, and a notch calls it too: the six callers become seven and the fight loop learns nothing.
+  const skill = weaponSkillFor(player.equipped.mainHand);
+  const skillBonus = skill === undefined ? 0 : toHitFrom(learnedAt(player.skills.get(skill), player.level, skill));
   player.combat = {
     ...base,
     armourClass: base.armourClass + armourClassFrom(player.equipped),
-    attackBonus: base.attackBonus + hitrollFrom(player.equipped),
+    attackBonus: base.attackBonus + hitrollFrom(player.equipped) + skillBonus,
     damage: { ...weapon, bonus: weapon.bonus + player.damageBonus + damrollFrom(player.equipped) },
   };
   player.roundMs = base.roundMs;
+}
+
+/**
+ * A landing blow teaches the arm that threw it — **Phase 19's whole Seen when**.
+ *
+ * Every gate here is the source's, and the order they are in matters:
+ *
+ * - **Players only.** A mob's proficiency is a pure function of its level (`mobWeaponSkill`), so there is
+ *   nothing to raise; `notch_skill` returns on `IS_NPC` for exactly this reason.
+ * - **The blow has to have landed.** `new_combat.c` notches inside the damage branch, and it is the right
+ *   place: swinging at air teaches nothing.
+ * - **Not in a safe room.** `notch_skill` refuses `ROOM_GUILD | ROOM_SAFE` — you cannot grind in
+ *   sanctuary, which is what stops the one safe room in the world becoming a training hall.
+ * - **Not against something helpless or trivial.** The source refuses a target below level 2 and a
+ *   player's own pet, both anti-farming: *"This prevents players from notching up skills using images and
+ *   summoned pets."* We have no pets, so the level floor is the half that transcribes.
+ *
+ * The **cooldown is read before the roll and written after it**, which is the shape `guild.c` has and the
+ * only shape that behaves: reading it after would let one swing both notch and re-arm at full chance.
+ *
+ * `refitCombat` at the end is what makes the notch worth anything — `attackBonus` is folded from the
+ * skill, so a point that never reached the profile would be a number going up on a sheet.
+ */
+function notchFromSwing(outcome: AttackOutcome): void {
+  const { attacker, target } = outcome;
+  if (!isPlayer(attacker) || !outcome.hit) return;
+  if (target.level < 2) return;
+  if (sim.room(attacker.roomId)?.flags?.includes('safe')) return;
+
+  const skill = weaponSkillFor(attacker.equipped.mainHand);
+  if (skill === undefined) return;
+  const category = SKILLS[skill].category;
+  const cooldown = category === 'physical' ? 'notch_physical' : 'notch_mental';
+
+  const learned = learnedAt(attacker.skills.get(skill), attacker.level, skill);
+  const chance = notchChance(WEAPON_NOTCH_CHANCE, learned, ceilingFor(skill), {
+    onCooldown: sim.affectsOf(attacker, cooldown).length > 0,
+  });
+  if (!rollNotch(combatRng, chance)) return;
+
+  attacker.skills.set(skill, learned + 1);
+  sim.addAffect(
+    attacker,
+    newAffect({ type: cooldown, durationMs: NOTCH_COOLDOWN_MS[category], flags: AffectFlag.NoShow }),
+  );
+  // The source's own line, colour and all: `"&+cYou feel your skill in %s improving."`
+  send(attacker.id, {
+    t: 'log',
+    channel: 'combat',
+    text: `&+cYou feel your skill in ${SKILLS[skill].name} improving.&N`,
+  });
+  refitCombat(attacker);
+  send(attacker.id, { t: 'self', view: sim.selfViewOf(attacker) });
+  rememberProgress(attacker);
+}
+
+/**
+ * `skills` — what you are good at, and how good.
+ *
+ * Every skill is listed, not only the ones ground past the floor, and that is the interface decision
+ * worth stating: the floor means a character *has* all nine from level 1, so a list that hid the ones at
+ * the floor would read as skills you have not unlocked. The floor is marked instead, which teaches the
+ * mechanic — *"1h slashing 40% (free)"* says both what you have and where the earning starts.
+ */
+function listSkills(player: Player): void {
+  const floor = skillFloor(player.level);
+  const rows = SKILL_IDS.map((id) => {
+    const learned = learnedAt(player.skills.get(id), player.level, id);
+    const ceiling = ceilingFor(id);
+    const note = learned >= ceiling ? ' &+Y(mastered)&N' : learned <= floor ? " &+L(at your level's floor)&N" : '';
+    return `  ${SKILLS[id].name.padEnd(16)} ${String(learned).padStart(3)}%${note}`;
+  });
+  // The cooldown is said out loud when it is up, because a player whose skills stopped rising deserves
+  // the reason rather than a theory.
+  const held = SKILL_CATEGORIES.filter((c) => sim.affectsOf(player, c === 'physical' ? 'notch_physical' : 'notch_mental').length > 0);
+  send(player.id, {
+    t: 'log',
+    channel: 'system',
+    text: [
+      `Your skills (the ceiling is ${SKILL_CEILING}%):`,
+      ...rows,
+      ...(held.length > 0
+        ? [`&+LYou have learnt something ${held.join(' and ')} recently, and are learning more slowly.&N`]
+        : []),
+    ].join('\n'),
+  });
 }
 
 /**
@@ -6119,6 +6235,10 @@ setInterval(() => {
     return outcome.kind === 'fled';
   });
   for (const outcome of combat.attacks) announceAttack(outcome);
+  // **Phase 19: you get better at what you do.** Only on a blow that landed, only for a player, and
+  // through the same `combatRng` that rolled the blow — a skill that rose because `Math.random()` said
+  // so would make a fight unreplayable, which is `CLAUDE.md` §3.
+  for (const outcome of combat.attacks) notchFromSwing(outcome);
   for (const change of combat.switches) announceSwitch(change);
   for (const death of combat.deaths) resolveDeath(death);
 

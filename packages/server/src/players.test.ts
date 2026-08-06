@@ -556,6 +556,56 @@ describe('the admin edits', () => {
   });
 });
 
+describe('the skills on disk — Phase 19', () => {
+  it('round-trips what was ground, and writes nothing for what was not', () => {
+    const { store, dir } = makeStore();
+    const record = store.load('Swordhand');
+    // Level 30's floor is 40, so only the first of these is worth a row: the other two are exactly what
+    // the level already gives for free, and storing them would say nothing.
+    store.setSkills(record, new Map([['slashing-1h', 61], ['piercing-1h', 40], ['unarmed', 12]]), 40);
+    store.flush(record);
+
+    const saved = readSaved(dir, 'Swordhand');
+    assert.deepEqual(saved['skills'], { 'slashing-1h': 61 });
+
+    const reloaded = new PlayerStore({ dir }).load('Swordhand');
+    assert.deepEqual([...(reloaded.skills ?? [])], [['slashing-1h', 61]]);
+  });
+
+  it('writes no key at all for a character who has ground nothing', () => {
+    const { store, dir } = makeStore();
+    const record = store.load('Novice');
+    store.setSkills(record, new Map([['slashing-1h', 1]]), 1);
+    assert.equal(record.skills, undefined, 'at the floor is not a fact worth storing');
+    store.flush(record);
+    assert.equal('skills' in readSaved(dir, 'Novice'), false);
+  });
+
+  it('drops an id this build does not know rather than refusing the login', () => {
+    const { dir } = makeStore();
+    // A hand-edited save, or one written by a build whose skill list has since changed. `longsword` is
+    // exactly the sort of thing somebody would write, because Duris' *live* combat names it — and
+    // `DESIGN-skills.md` §4 is why we do not.
+    writeFileSync(
+      join(dir, 'oldhand.json'),
+      JSON.stringify({ name: 'Oldhand', skills: { 'slashing-1h': 55, longsword: 90, __proto__: 99 } }),
+    );
+    const record = new PlayerStore({ dir }).load('Oldhand');
+    assert.deepEqual([...(record.skills ?? [])], [['slashing-1h', 55]]);
+  });
+
+  it('clamps a value a hand edit invented', () => {
+    const { dir } = makeStore();
+    writeFileSync(
+      join(dir, 'cheater.json'),
+      JSON.stringify({ name: 'Cheater', skills: { 'slashing-1h': 999, 'reach': -5, 'unarmed': 'lots' } }),
+    );
+    const record = new PlayerStore({ dir }).load('Cheater');
+    // The ceiling holds, a negative is dropped rather than stored, and a string is not a percentage.
+    assert.deepEqual([...(record.skills ?? [])], [['slashing-1h', 95]]);
+  });
+});
+
 describe('the progress on disk', () => {
   it('round-trips level and experience, flat in the file', () => {
     const { store, dir } = makeStore();

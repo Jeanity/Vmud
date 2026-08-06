@@ -312,6 +312,15 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
     ...(light ? { light } : {}),
     ...(damage ? { damage } : {}),
     ...(twoHanded ? { twoHanded: true as const } : {}),
+    // **Phase 19, and the field this file has been reading and discarding since the harvest landed.**
+    // `values[0]` is the weapon class (`objmisc.h:362`, 1-20) and it is what decides which skill a
+    // swing trains — `weaponSkillFor` in `skills.ts` is the reader, in the same commit, which is the
+    // rule a new field on `ItemTemplate` is allowed to exist under.
+    //
+    // Weapons only, and **absent for class 0**: 6 of the 2,841 carry no class, and the source's own
+    // mapping gives those no skill rather than a wrong one. Writing a `0` here would put a number on
+    // 13,580 non-weapons to say nothing.
+    ...(isWeapon && (raw.values[0] ?? 0) > 0 ? { weaponClass: raw.values[0] } : {}),
     ...(hitroll === 0 ? {} : { hitroll }),
     ...(damroll === 0 ? {} : { damroll }),
     size: sizeFrom(raw.weight),

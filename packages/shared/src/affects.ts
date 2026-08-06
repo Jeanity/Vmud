@@ -197,14 +197,14 @@ export interface AffectKind {
 }
 
 /**
- * Every affect type in the game. Three, and each of them has a live consumer.
+ * Every affect type in the game. Five, and each of them has a live consumer.
  *
  * The list and the table are separate for the same reason `COMMANDS` and `COMMAND_REQUIREMENTS` are:
  * the list is the type and the table is the data, so a row added to one without the other is a type
  * error rather than a silent gap. It is also the only way to have {@link AffectKind.id} typed as an
  * affect type at all — a table that derived its own key type from itself would reference itself.
  */
-export const AFFECT_TYPE_IDS = ['light', 'settling', 'second_wind'] as const;
+export const AFFECT_TYPE_IDS = ['light', 'settling', 'second_wind', 'notch_physical', 'notch_mental'] as const;
 
 export type AffectType = (typeof AFFECT_TYPE_IDS)[number];
 
@@ -254,6 +254,29 @@ export const AFFECT_TYPES: Readonly<Record<AffectType, AffectKind>> = {
     id: 'second_wind',
     name: 'second wind',
     wearOff: 'Your second wind fades.',
+  },
+  /**
+   * The two skill-notch cooldowns — **Phase 19**, and they are two rather than one on purpose.
+   *
+   * Duris keeps exactly this pair (`TAG_PHYS_SKILL_NOTCH`, `TAG_MENTAL_SKILL_NOTCH`) at 5 and 10 real
+   * minutes, so learning something physical does not slow learning something mental. A single shared
+   * cooldown would make the two-category design in `skills.ts` unobservable, and an unobservable design
+   * is one nobody can build on later.
+   *
+   * **Shown rather than `NoShow`**, on `settling`'s argument in its other form: a mechanic that rewards
+   * patience has to say how much patience is left, or a player whose skills stopped rising concludes the
+   * game is broken. And **saved**, which matters more than it looks — an unsaved cooldown would make
+   * reconnecting the fastest way to grind.
+   */
+  notch_physical: {
+    id: 'notch_physical',
+    name: 'learning (physical)',
+    wearOff: 'You feel ready to learn something new.',
+  },
+  notch_mental: {
+    id: 'notch_mental',
+    name: 'learning (mental)',
+    wearOff: 'Your mind feels ready to learn again.',
   },
 };
 

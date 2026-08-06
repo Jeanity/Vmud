@@ -131,6 +131,9 @@ export const COMMANDS = [
   'group',
   'gsay',
   'disband',
+  // Phase 19. `s` is south and `sa`/`si`/`sl`/`st` are say, sit, sleep and stand/stop — all above — so
+  // `sk` is the shortest thing that reaches this, and nothing moves. Duris spells it `skills` too.
+  'skills',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -337,6 +340,11 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   group: { status: 'resting', posture: 'prone' },
   gsay: { status: 'resting', posture: 'prone' },
   disband: { status: 'sleeping', posture: 'prone' },
+  // Interface rather than action, so it sits with `help`, `who`, `affects` and `inventory` at the floor
+  // of the ladder: reading what you are good at while something is killing you is exactly when you want
+  // to. Duris has no `skills` command to transcribe — proficiency is printed inside `practice` at a
+  // guild — and inventing the row is the same call `affects` made for the same reason.
+  skills: { status: 'dead', posture: 'prone' },
 };
 
 /* -------------------------------------------------------------------------- */

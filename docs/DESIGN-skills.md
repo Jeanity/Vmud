@@ -2,7 +2,9 @@
 
 _2026-08-06. Written before any code, the way `DESIGN-zone-geometry.md` was written before A8, and for
 the same reason: three of the six decisions below turn on **which branch of the source is actually
-compiled**, and getting that wrong would produce a phase that looks transcribed and is not._
+compiled**, and getting that wrong would produce a phase that looks transcribed and is not. **Slice 1
+then landed the same day** and corrected two things in here — §0 gained a third finding and §4 changed
+which skills exist because of it, which is the note earning its keep rather than failing._
 
 `ROADMAP.md` Phase 19 is one sentence — *"percentages notched by use, per-category rate limits, a
 level-driven floor; mobs derive proficiency from level and store nothing"* — and its **Seen when** is
@@ -10,10 +12,10 @@ level-driven floor; mobs derive proficiency from level and store nothing"* — a
 
 ---
 
-## 0. Two things in our own documentation are citing dead code
+## 0. Three things are wired to code the shipped source does not compile
 
-Both were found by grepping for the `#if` guards rather than by reading the functions, and both change
-what "transcribed from the source" means for this phase.
+All three were found by grepping for the `#if` guards rather than by reading the functions, and each
+changes what "transcribed from the source" means for this phase.
 
 **`NEW_COMBAT` is defined** (`new_combat_def.h:2`). So `fight.c`'s combat — including
 `required_weapon_skill`, `WeaponSkill` and the `chance_to_hit` path — sits inside `#ifndef NEW_COMBAT`
@@ -22,6 +24,16 @@ and **is compiled out**. The live combat is `new_combat.c` / `new_combat_util.c`
 proficiency is `BOUNDED(0, level << 1, class_ceiling)`"* is the dead branch's formula too. The
 reference is not wrong about the *shape* of anything; it is citing the wrong file for the arithmetic,
 and this note supersedes it for skills. **Fix §1.6 and §2's citations when this phase lands.**
+
+**And the live scheme's skills do not exist.** Found while writing the code, and it is the finding that
+decided §4: `getWeaponSkillNumb` returns `SKILL_LONGSWORD`, `SKILL_DAGGER` and sixteen more, and **every
+one of those ids appears exactly once in the whole source — as that function's return value.** None is
+ever `SKILL_CREATE`d, so none has a name, a category or a `maxlearn`; `GET_LVL_FOR_SKILL` therefore
+returns 0, `update_skills` zeroes both `learned` and `taught`, and the live combat's weapon-skill
+contribution is **0 for every player character in the shipped game**, with `notch_skill` refusing at its
+first branch (`l >= t` → `0 >= 0`). The eight **damage-class** skills the *dead* path uses are the ones
+that are fully registered, with names, `TAR_PHYS` and per-class ceiling tables. Duris has two weapon-skill
+schemes and they are wired to each other's opposite.
 
 **`wipe2011` is defined nowhere.** `guild.c:183–233` is `#if wipe2011`, and it contains the whole of
 the interesting behaviour: the intelligence bonus, the `level * 2.5 + 5` cap, the diminishing curve
@@ -47,9 +59,12 @@ level-30 character is *functional for free* at 40%, and everything above 40 must
 means the floor, not the grind, is what makes a character competent — the grind is what makes them
 better than competent. At level 27 the floor caps out; below that it is `1.5` per level.
 
-**We take this exactly**, including that it applies at every level gain rather than only at creation,
-and including that a lost level lowers it (`update_skills` recomputes rather than remembering a high
-water mark — which is consistent with Phase 14b's death cost, where a level can go).
+**We take this exactly**, including that it applies at every level gain rather than only at creation —
+with one divergence the implementation forced and it is worth stating precisely. Duris **writes** the
+floor into `learned`, so a character who loses a level keeps the higher number; we **derive** it
+(`learnedAt` takes the maximum of the floor and what is stored), which is what lets storage be sparse and
+a level-up cost no writes at all. The two differ only below level 27, where a lost level costs 1.5% of
+every unpractised skill — consistent with Phase 14b, where a lost level costs what a level is worth.
 
 ## 2. The rate limit: we adopt the compiled-out branch, deliberately
 
@@ -97,43 +112,45 @@ weighed and only one keeps the phase honest:
 somewhere the game can later put a teacher, a quest or a class specialisation. A ceiling reached by
 grinding alone leaves nothing for any of them.
 
-## 4. Which skills exist, and the mapping is per weapon *type*
+## 4. Which skills exist: the eight damage classes, not the eighteen weapon shapes
 
-The live mapping is `getWeaponSkillNumb` (`new_combat_util.c:829`) and it is one `switch` on
-`value[0]`, the weapon class. It is **not** the eight damage-class skills (`SKILL_1H_SLASHING` and
-friends) — those are `required_weapon_skill` in the dead branch. Measured over all **2,841** harvested
-weapons, the 20 weapon classes collapse to **18 skills**, and class 0 (6 weapons) falls through the
-`switch` to `SKILL_CLUB`:
+The two schemes are described in §0. We take `required_weapon_skill`'s (`fight.c:6896`) — 1h and 2h ×
+slashing / piercing / bludgeon / flaying, plus **reach weapons** for a two-handed spear, trident or
+polearm, plus **unarmed** for bare hands. Nine in all, and the reasons are cumulative:
+
+- They are **the only weapon skills the source defines**. The per-type ids have no name, no category and
+  no ceiling — transcribing them would faithfully reproduce a mechanism that does nothing.
+- Their **ceiling table is real data** (warrior 100, ranger 100, bard 90, assassin 85, ethermancer 70 …),
+  which is exactly what {@link ceilingFor} grows into at Phase 21.
+- **Nine categories is a shape a player can hold in their head** where eighteen weapon shapes is a
+  spreadsheet — and a *category* of weapon as your proficiency is the SRD's own instinct too.
+
+Measured over all 2,841 harvested weapons:
 
 | Skill | Weapons | | Skill | Weapons |
 | --- | --- | --- | --- | --- |
-| dagger | 675 | | staff | 91 |
-| longsword | 529 | | pick (spear) | 45 |
-| club | 258 (+6 fallback) | | lance | 42 |
-| twohanded sword | 223 | | flail | 39 |
-| shortsword | 206 | | fork (trident) | 22 |
-| mace | 173 | | sickle | 18 |
-| hammer | 165 | | horn | 6 |
-| axe | 137 | | numchucks | 4 |
-| polearm | 110 | | *barehanded* | no weapon |
-| whip | 92 | | | |
+| 1h slashing | 851 | | 1h flaying | 128 |
+| 1h piercing | 728 | | reach weapons | 81 |
+| 1h bludgeon | 571 | | 2h flaying | 7 |
+| 2h slashing | 310 | | *(no skill)* | 7 |
+| 2h bludgeon | 158 | | | |
 
-Two things fall out of that table and both matter. **Dagger and longsword are 42% of every weapon in
-the world**, so a player realistically grinds two or three of these and the long tail is flavour — which
-is an argument for storing skills **sparsely** (decision 6) rather than eighteen rows per character.
-And **`mace` and `club` each absorb a "should be removed" duplicate class** (`SPIKED_MACE`,
-`SPIKED_CLUB`), which is the source tidying its own history; we inherit the tidying, not the
-duplicates.
+Three skills cover **76%** of the world, which is why a player realistically has a main and a sideline.
+The seven with no skill are six weapons carrying no class at all and **one two-handed dagger**, which
+`required_weapon_skill` refuses after writing a builder-error log line — both get no skill rather than a
+wrong one, and swing perfectly well without one.
 
-`SKILL_ATTACK` also exists and is notched separately on the same blow (1-in-3 at chance 20), and it
-does something distinct: a *failed* attack-skill roll multiplies damage by `number(3,9)/10`. That is a
-second mechanism (skill as a damage floor, not a hit bonus) and it belongs to a later slice, because it
-changes damage numbers that `DESIGN-progression.md` §8 has already calibrated.
+**One deliberate divergence, toward our own consistency.** Duris asks `IS_SET(extra_flags, ITEM_TWOHANDS)`
+here while `wield` asks its *other* question, `flag || class == WEAPON_2HANDSWORD` — and those disagree
+about **22 two-handed swords that carry no flag**. We use the disjunction in both places, so which hand a
+weapon takes and which skill it trains can never disagree; a greatsword that needed both hands and trained
+the one-handed skill would be indefensible in a way the source's own inconsistency is not.
 
-**One thing our data does not have yet.** `ItemTemplate` carries `twoHanded` but **not the weapon
-class** — worldgen reads `values[0]` (`objects.ts:274`, for the two-handed disjunction) and drops it. So
-the first slice must harvest `weaponClass`, and it will have a reader the same commit, which is the rule
-that field is allowed to exist under.
+**Two things our data did not have.** `ItemTemplate` and `Item` now carry `weaponClass` — worldgen has read
+`values[0]` since the harvest landed (for the two-handed disjunction) and kept nothing, and this gives it a
+reader. And the **four starter weapons** carry a class of their own, chosen from the names they already
+have (dagger 2, shortsword 9, club 10, hand axe 1): without it a fresh character's entire first level
+would train nothing, because a synthesised item has no `.obj` file to read a class from.
 
 ## 5. A percentage meeting a d20, and the arithmetic is not a choice
 
@@ -187,12 +204,19 @@ phase, which is also how the migration is free.
 
 Each slice is driveable on its own, and the first cannot break anything that exists.
 
-1. **Skills exist and combat notches them.** `weaponClass` harvested; a pure `shared/src/skills.ts`
-   (catalogue, floor, ceiling, notch chance, the to-hit contribution); per-character `learned`,
-   persisted and floored at level-up; the notch on a landing blow through the sim's **seeded RNG**; the
-   physical/mental cooldown as an ordinary Phase 5b affect; a `skills` command; and the to-hit bonus,
-   measured as §5 requires. **Seen when:** *"You feel your skill in longsword improving"*, and `skills`
-   shows 41%.
+1. **Skills exist and combat notches them** ✅ **done 2026-08-06.** `weaponClass` harvested and carried
+   onto the instance; `shared/src/skills.ts`; per-character `learned`, sparse and persisted; the notch on
+   a landing blow through the sim's seeded RNG; the two cooldowns as ordinary Phase 5b affects, **saved**
+   so a reconnect is not a way to grind; a `skills` command; and `floor(learned / 10)` folded into
+   `refitCombat`, which was already the one seam every kit change passes through.
+   **Driven live:** at level 5 every skill read 7% (the floor), seven landing blows later *"You feel your
+   skill in 1h slashing improving"* and that row alone read **8%** with its floor marker gone, the
+   cooldown said so in the `skills` output, and the save file held `{"slashing-1h": 8}` plus a surviving
+   `notch_physical` — one row, because the other eight were exactly what the level already gave.
+   **The bonus was read straight out of the combat log**, where `[d20 natural → total]` makes it
+   arithmetic: **+19 at level 30** (15 from the level, **+4** from the 40% floor) against **+2 at level
+   1** (2 + **0**) — §5's claim that the bottom band 14b calibrated is untouched, observed rather than
+   argued.
 2. **Being attacked teaches you too** — `dodge` and `parry`, notched on the defender (17 and 25 in the
    source). Both need a *defence roll* we do not have: our AC is passive, and dodge/parry are an active
    second gate. That is a combat change, not a skill change, and it wants its own slice.

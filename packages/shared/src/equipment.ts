@@ -109,6 +109,14 @@ export interface Item {
    * catalogue edit: the greatsword in your save file is the greatsword you wielded.
    */
   readonly twoHanded?: true;
+  /**
+   * Duris' weapon class, which decides **which skill swinging this trains** — Phase 19.
+   *
+   * On the item for the reason `twoHanded` is, and the argument is the same sentence with a different
+   * noun: the greatsword in your save file has to still train the two-handed slashing skill after a
+   * restart, and an **authored** item (A6b) has no catalogue entry to look it up in at all.
+   */
+  readonly weaponClass?: number;
   /** What wearing it adds to accuracy and to damage — Duris' `APPLY_HITROLL` / `APPLY_DAMROLL`. */
   readonly hitroll?: number;
   readonly damroll?: number;
@@ -152,6 +160,14 @@ interface StarterEntry {
   readonly acMin: number;
   readonly acMax: number;
   readonly damage?: Dice;
+  /**
+   * Duris' weapon class, so a starting weapon **trains a skill from the first swing** — Phase 19.
+   *
+   * Not decoration: without it a fresh character's whole first level would train nothing, because
+   * `weaponSkillFor` reads this and a synthesised item has no `.obj` file to read it from. Each of the
+   * four is already *named* after one of Duris' classes, so there is nothing to invent.
+   */
+  readonly weaponClass?: number;
   /** Slots in a bag. Light kit, so 1–3 of a starting 20 — see `DESIGN-inventory.md` §2. */
   readonly size: number;
 }
@@ -177,10 +193,10 @@ interface StarterEntry {
  */
 const STARTER_KIT: Readonly<Partial<Record<EquipSlot, readonly StarterEntry[]>>> = {
   mainHand: [
-    { id: 'dagger', name: 'a notched iron dagger', acMin: 0, acMax: 1, size: 1, damage: { count: 2, sides: 4, bonus: 0 } },
-    { id: 'shortsword', name: 'a short sword with a worn grip', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 5, bonus: 0 } },
-    { id: 'club', name: 'a knotted wooden club', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 6, bonus: 0 } },
-    { id: 'handaxe', name: 'a chipped hand axe', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 2 } },
+    { id: 'dagger', name: 'a notched iron dagger', acMin: 0, acMax: 1, size: 1, damage: { count: 2, sides: 4, bonus: 0 }, weaponClass: 2 },
+    { id: 'shortsword', name: 'a short sword with a worn grip', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 5, bonus: 0 }, weaponClass: 9 },
+    { id: 'club', name: 'a knotted wooden club', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 6, bonus: 0 }, weaponClass: 10 },
+    { id: 'handaxe', name: 'a chipped hand axe', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 2 }, weaponClass: 1 },
   ],
   chest: [
     { id: 'leather_tunic', name: 'a leather tunic', acMin: 1, acMax: 3, size: 3 },
@@ -233,6 +249,10 @@ export function rollStarterKit(rng: Rng): Equipped {
       ac: between(rng, pick.acMin, pick.acMax),
       size: pick.size,
       ...(pick.damage ? { damage: pick.damage } : {}),
+      // Phase 19: which skill this trains. Two of the four rolls are `piercing-1h` and `slashing-1h`,
+      // and the club and the axe put a character on `bludgeon-1h` and `slashing-1h` — so a starting
+      // character's first weapon already decides what their first level teaches them.
+      ...(pick.weaponClass === undefined ? {} : { weaponClass: pick.weaponClass }),
     };
   }
   return kit;
@@ -355,6 +375,9 @@ export function readItem(raw: unknown, slot?: EquipSlot): Item | undefined {
     // Same rule as those two: a persisted field with no line here is deleted on the next login, and a
     // greatsword that quietly became one-handed over a restart would let a shield in beside it.
     ...(item.twoHanded === true ? { twoHanded: true as const } : {}),
+    // Phase 19, and the same rule again: without this line a sword reloaded from disk would train no
+    // skill and lose its to-hit bonus, silently, and only for characters who had logged out.
+    ...(typeof item.weaponClass === 'number' && item.weaponClass > 0 ? { weaponClass: item.weaponClass } : {}),
     // Read back for the reason `stackLimit` is: a persisted field with no line here is deleted at the
     // next login, and a sword that quietly lost its damroll would be a bug nobody could reproduce.
     ...(typeof item.hitroll === 'number' && item.hitroll !== 0 ? { hitroll: item.hitroll } : {}),

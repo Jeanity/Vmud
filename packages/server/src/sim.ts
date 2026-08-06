@@ -87,6 +87,7 @@ import {
   stepMovement,
   type Posture,
   type Status,
+  type SkillId,
 } from '@mygame/shared';
 // Subpath imports: `vision` and `light` are not re-exported from the package barrel.
 import {
@@ -430,6 +431,19 @@ export interface Player extends Actor {
    * fresh character, because §8's bands give nothing below level 6.
    */
   damageBonus: number;
+  /**
+   * Skill proficiency ground **above the level's floor** — Phase 19.
+   *
+   * Sparse, and the sparseness is the design rather than a saving: the floor is a pure function of level
+   * (`skillFloor`), so a skill with no entry here is not "unknown", it is *at the floor* — and a level
+   * gain therefore drags every skill up without touching this map at all. `learnedAt` is the one road
+   * from this to a number, and nothing should read the map directly.
+   *
+   * A `Map` on the player rather than a store of its own, unlike `following` and `grouping`: this is a
+   * fact **about one character**, the same kind of thing as `experience` and `damageBonus`, and the
+   * separate-store argument only applies to facts *between* characters.
+   */
+  skills: Map<SkillId, number>;
   /**
    * What this character is wearing and wielding. Phase 14b.
    *
@@ -808,6 +822,8 @@ export class Simulation {
       // §8 gives nothing below level 6, so a fresh character genuinely starts at zero rather than
       // starting at a number nobody rolled.
       damageBonus: 0,
+      // Empty, and empty is not "no skills" — every skill is at this level's floor, derived. Phase 19.
+      skills: new Map(),
       // On your feet and awake. Both axes start at the top; everything that lowers them is either a
       // command or damage, and damage does not exist yet.
       posture: 'standing',
@@ -1431,6 +1447,14 @@ export class Simulation {
         if (!isResting(actor.status)) return [];
         this.addAffect(actor, settlingAffect());
         return this.affectsOf(actor, 'settling');
+
+      // Phase 19's two skill-notch cooldowns chain to nothing — they are pure timers whose lapsing *is*
+      // their meaning. Listed rather than left to a `default`, and the value of that showed immediately:
+      // adding them to `AFFECT_TYPE_IDS` made this function a type error until they were handled, which
+      // is exactly the guard a wall of cases is for.
+      case 'notch_physical':
+      case 'notch_mental':
+        return [];
     }
   }
 

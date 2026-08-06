@@ -456,6 +456,18 @@ export interface ItemTemplate {
    */
   readonly twoHanded?: true;
   /**
+   * Duris' weapon class — `value[0]` of a weapon, `objmisc.h:362`'s 1–20 ladder.
+   *
+   * **Parsed and thrown away until Phase 19.** `objects.ts` has read `values[0]` since the harvest
+   * landed (for the two-handed disjunction) and kept nothing; this is what **decides which skill a
+   * swing trains**, through `weaponSkillFor` in `skills.ts`, so it now has a reader — which is the rule
+   * a field on this shape is allowed to exist under.
+   *
+   * Absent on everything that is not a weapon, and on the **6 weapons with no class at all**: those
+   * train no skill rather than a wrong one, which is the source's own answer.
+   */
+  readonly weaponClass?: number;
+  /**
    * Duris' `APPLY_HITROLL` / `APPLY_DAMROLL`, summed over the item's `A` blocks.
    *
    * **This is the gear-side power curve §8 leaves room for**, and it was parsed and discarded until
@@ -523,6 +535,9 @@ export function instantiate(template: ItemTemplate): Item {
     // a save file has to still need two hands after a restart, and `readItem` reads this back for the
     // same reason it reads `stackLimit` — a field with no line in its reader is deleted, silently.
     ...(template.twoHanded ? { twoHanded: true as const } : {}),
+    // Phase 19: which skill this trains follows the object, not the catalogue — the same argument the
+    // line above makes, and `readItem` reads it back for the same reason.
+    ...(template.weaponClass === undefined ? {} : { weaponClass: template.weaponClass }),
     ...(template.hitroll ? { hitroll: template.hitroll } : {}),
     ...(template.damroll ? { damroll: template.damroll } : {}),
   };

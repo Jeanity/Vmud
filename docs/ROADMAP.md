@@ -94,7 +94,8 @@ a new idea still answers the three questions; its second question now also picks
 | **6 — under way** | A7c — the art picker ✅, then A7d — bag and floor icons | Phase 16 ✅ — light from what you hold, craftsmanship on AC, encumbrance, water you cannot wade | A4 ✅ — mobs live, then A4c — their loot |
 | **7 — closed** | V3 — speech in the world ✅ | Phase 17 — shops ✅ | A8 — zone geometry ✅ (infill, deletion, extent changes) |
 | **8 — closed** | V4 — Places as a graph ✅ | dropped-item decay ✅ and `junk` ✅ | A4c — loot on a mob ✅ |
-| **9 — under way** | V5 — arrival cards ✅ | Phase 18 — following ✅, grouping ✅ | A7e/A7f — recolour, or A7d-bag |
+| **9 ✅** | V5 — arrival cards ✅ | Phase 18 — following ✅, grouping ✅ | A4c — loot on a mob ✅ |
+| **10 — under way** | *(Track V is complete; §2b says a track with nothing unblocked skips its turn)* | Phase 19 — skills: slice 1 ✅, four to go | A7e/A7f, A7d-bag, then A8d / A9 / A9b |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
 A5, because A5's prose editor is a colour editor and building the palette before the renderer would
@@ -1186,11 +1187,18 @@ because taking one hit from a level 50 mob *is* contribution and a share of that
 1's entire career. Verified live in a single fight with three contributors, two grouped and one not:
 the ungrouped one earned exactly its contribution share and the grouped pair exactly 1.6× theirs.
 
-#### Phase 19 — Skills — **design note written 2026-08-06, not started**
+#### Phase 19 — Skills — **slice 1 done 2026-08-06**
 
 Percentages notched by use, per-category rate limits, a level-driven floor. Mobs derive proficiency
 from level and store nothing.
 **Seen when.** A skill percentage rises because you used it.
+
+**Slice 1 landed 2026-08-06: skills exist and combat notches them.** A landing blow can raise the skill
+its weapon trains, the raise is announced in the source's own words, the value persists sparsely, and the
+skill is worth `floor(learned / 10)` on the attack bonus. Driven live — see the note's §8 for the numbers,
+including the bonus read straight out of the combat log at levels 30 and 1. Four slices remain there, and
+the next one (`dodge` and `parry`) needs an **active defence roll**, which is a combat change rather than a
+skill change.
 
 **[DESIGN-skills.md](DESIGN-skills.md) is the thing to read first**, and it exists because three of its
 six decisions turn on **which branch of the source is compiled**. Two findings shaped the whole phase:
@@ -1665,6 +1673,22 @@ order.
     drafts and the human commits**. The prize beyond one item: every catalogue entry already carries
     the builder's own name, so a pass could propose art *and* ramp for a whole zone's loot without
     anybody retyping a description.
+- **A8d — A zone from nothing** (owner, 2026-08-06). Create a whole zone in the panel, not just rooms
+  inside one. **Three cases A8's rules cannot express**: an authored *zone* id from a reserved base with
+  a stored counter (ids are the join key and must never be recycled), a Place with **no rooms and
+  therefore no extent** — the first room has no neighbour to touch, which is the one placement A8
+  refuses — and `world.config.json`, which is deliberately *data*, so either the operator adds the id or
+  `GameWorld` learns to load a zone live. See the parking lot for the fourth thing: a zone nobody can
+  walk to is invisible.
+- **A9 — Editing a mob** (owner, 2026-08-06). Name, keywords, level, hit points, damage, sprite,
+  aggression and flags, through the overlay A4c already built for loot. **Per template**, so it changes
+  every instance the world spawns and none of those already standing — the sentence A4c had to put in
+  the panel, and for the same reason. Note what it also is: level, hit points and damage are what 14b
+  calibrated combat against, so this is the fastest way to make a zone unwinnable, and the panel should
+  say so where somebody can read it.
+- **A9b — Mobs you make yourself** (owner, 2026-08-06), after A9. A6b's shape for mobs: an authored vnum
+  from a reserved base, a **stored** counter, and a spawn-table entry with no `.mob` file behind it —
+  which is a case `buildZoneSpawns` has never had to handle.
 - **A4c — Loot: assigning items to mobs** ✅ **done 2026-08-05, round 8.** `server/src/mob-overrides.ts`
   is the fourth overlay, and the two things this entry said to settle were both settled the way it
   guessed. Kit is per **template** and the panel says so out loud, reporting how many instances are
@@ -1763,6 +1787,9 @@ mentioned and forgotten comes back every month.
 | **Combat outcome vocabulary — dodged, parried, shield blocked, casting** | **Agreed, and it splits.** The *mechanisms* are later: dodge, parry and shield block are defence skills (Phase 19) and casting is Phase 20. But the *wire shape* is §4's first question exactly — a reason on `attackResolved` costs one optional field now and a rewrite of every combat message site later, so the field is reserved in Phase 11 and the rolls that can populate it arrive with the skills | Field in Phase 11; dodge/parry/block in Phase 19; casting in Phase 20 |
 | **`loot` targets the nearest unlooted corpse** (owner, 2026-08-02) | **Done — landed with Phase 14**, as a targeting refinement of Phase 13's own command rather than a phase of its own. Nearest unlooted first, then next-nearest, and only then a looted one, which keeps the "already picked clean" line reachable. `nearestLootable` in `corpses.ts` | Phase 14 ✅ |
 | **Bash — a warrior's shield opening that knocks the target down, doubling damage until it stands** (owner, 2026-08-02) | **Agreed, and it is two things.** The *skill* is Phase 19's shape exactly: an opening attack, a knockdown roll, and it needs posture (built), the dying-window damage rules (built) and a skill system (Phase 19) to hang from — inventing it early would be the fifth tested-and-never-called mechanism. The *surface* — a menu offering it on a click — is V2, which grows a row per mechanic as the mechanics land | Skill in Phase 19; its button arrives with whatever V2 offers by then |
+| **Create a new zone from the panel** (owner, 2026-08-06) | **Agreed, and it is A8's next question rather than a repeat of it.** A8 builds rooms *inside* a Place that already exists; a zone from nothing hits three cases its rules cannot express. **(1) The id.** Zone and room ids are the MUD's own numbers and are the join key between every data source we have (`CLAUDE.md`), so an authored zone needs an id no future Duris drop can claim — the argument `AUTHORED_VNUM_BASE` settled for items and `rooms-authored.json`'s stored counter settled for rooms, and the answer is the same shape: a reserved base, and a counter that is **stored rather than derived** so deleting the highest zone cannot recycle its number. **(2) A Place with no rooms has no extent.** Every grid is sized from `boundsOf` the rooms on its level, and `placementRefusal` requires a new room to touch an existing one — so the *first* room of a new zone is the one case A8 has no rule for, and it needs an explicit origin rather than a neighbour. **(3) Which zones load is a file, not a route.** `world.config.json` is data by design; a panel that wrote it would either need a restart to matter or would have to teach `GameWorld` to add a zone live, and those are different sizes of job. Also worth deciding before building: a zone nobody can walk to is invisible, and A8 refuses vertical links by name, so **the first exit into a new zone is its own problem** — probably the honest first version is *the panel creates it, the operator adds the id to the config, and the first link is authored like any other exit* | **Track A, as A8d** — after A7e/A7f, because it is the largest remaining geometry job and the three A8 slices are what make it safe |
+| **Edit existing mobs, and create new ones** (owner, 2026-08-06) | **Agreed, and half the machinery is already built.** A4c wrote `server/src/mob-overrides.ts` — the fourth overlay — to author a mob's *loot*, and everything about its shape (per template, additive, refuses a slot the game does not model, reports how many instances are already standing) applies unchanged to a mob's own fields. So **editing** is A5-for-mobs: extend the existing overlay past `outfit` to name, keywords, level, hit points, damage, sprite, aggression and flags, with the same before/after snapshot A5 uses for revert. Two things to say out loud in the panel, both learned from A4c: an edit is **per template**, so it changes every instance the world spawns from now on and **none** of the ones already standing (A4's Repop is what turns it into something to look at); and level, hit points and damage are what 14b calibrated the whole combat scale against, so the editor is also the fastest way to make an unwinnable zone. **Creating** a mob is A6b's shape for mobs — an authored vnum from a reserved base, a stored counter, and a `spawns/` entry with no `.mob` file behind it, which is the case `buildZoneSpawns` has never seen | **Track A, as A9 (editing) and A9b (creating)**, in that order and after A8d: editing is a field editor over an overlay that exists, creating needs an id space and a reset-table entry that does not |
+| **Quest authoring in the panel** (owner, 2026-08-06) | **Already placed, and the placement is the answer: it cannot come first.** Quests are Phase 21's mechanism (§3, Act VI — *classes, races, quests, channels*) and the original *"content editors: mobs, items, zones, quests"* row above already routed the authoring half into Track A **after** the phase that gives a quest a shape: you cannot write a field editor for a record whose fields nobody has decided. What this row adds is the sequence, so nobody has to rediscover it — **Phase 21 defines what a quest is, then Track A gets the editor**, exactly as A5 followed rooms, A6 followed items and A9 follows mobs. Worth noting the one thing already in place: `DESIGN-mobs-and-movement.md` reserves the quest *hooks* on a mob, so a quest that starts by talking to somebody has somewhere to attach | **Track A, after Phase 21** — recorded now so the order is not re-litigated when it comes up |
 
 ---
 

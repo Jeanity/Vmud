@@ -160,8 +160,12 @@ describe('COMMAND_REQUIREMENTS', () => {
     // sleep, and reading a roster to enrol people is not.
     const asleep = { posture: 'prone', status: 'sleeping' } as const;
     const allowed = COMMANDS.filter((c) => meets(asleep, COMMAND_REQUIREMENTS[c]));
+    // Phase 19 added `skills` to the list, and it belongs there for `affects`' reason: what you are good
+    // at is interface, not action, and reading it while something is killing you is exactly when you want
+    // to.
     assert.deepEqual([...allowed].sort(), [
-      'affects', 'buy', 'consent', 'disband', 'help', 'list', 'sell', 'sleep', 'stop', 'value', 'wake', 'who',
+      'affects', 'buy', 'consent', 'disband', 'help', 'list', 'sell', 'skills', 'sleep', 'stop', 'value',
+      'wake', 'who',
     ]);
   });
 
