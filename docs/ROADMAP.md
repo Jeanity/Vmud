@@ -1697,7 +1697,8 @@ order.
     only its hem. Live, that took `cape-solid`'s icon from an 11-pixel sliver to the whole hanging
     cloak. The floor icons still use row 2 and want the same treatment, in `artgen` where it can be
     measured once per sheet.
-  - **A7e — recolour** (owner, 2026-08-05). Pick a sheet and a named colour ramp, and stage the
+  - **A7e — recolour** ✅ **done 2026-08-06.** Built as **render-time**, not staged: see the handoff row for the four reasons and for the three measurements that changed. Original entry follows.
+  - ↳ *(original entry)* (owner, 2026-08-05). Pick a sheet and a named colour ramp, and stage the
     result as new authored art: *"if I need a fiery red cloak I can select the black one and change
     the colors."* **Not an image editor** — ULPC ships the whole palette system
     (`PALETTE_RECOLOR_GUIDE.md`, `palette_definitions/`). See the parking lot for the four things to

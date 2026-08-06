@@ -38,6 +38,7 @@ import {
   SECTORS,
   UNLIMITED_DURATION,
   AUTHORED_MOB_BASE,
+  isKnownArt,
   newAffect,
   parseDice,
   parseDirection,
@@ -1192,7 +1193,7 @@ export class AdminApi {
     }
     if (patch.art !== undefined) {
       if (patch.art === null || patch.art === '') cleared.push('art');
-      else if (typeof patch.art !== 'string' || !LPC_ART_BY_ID.has(patch.art)) {
+      else if (typeof patch.art !== 'string' || !isKnownArt(patch.art, LPC_ART_BY_ID)) {
         // Named, not merely refused: the index is generated, so a bad id is a typo or a sheet somebody
         // removed, and neither is guessable from "invalid art".
         return {

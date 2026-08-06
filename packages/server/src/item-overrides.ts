@@ -32,7 +32,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { LPC_ART_BY_ID, type Dice, type ItemTemplate } from '@mygame/shared';
+import { LPC_ART_BY_ID, isKnownArt, type Dice, type ItemTemplate } from '@mygame/shared';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -133,7 +133,7 @@ export function loadItemOverrides(file = ITEMS_FILE): ItemOverrides {
       ...(typeof patch.cost === 'number' && Number.isInteger(patch.cost) && patch.cost >= 0 ? { cost: patch.cost } : {}),
       // Checked against the generated index, not merely for being a string: an art id with no sheet
       // behind it is a magenta box on somebody's body three systems away from this file.
-      ...(typeof patch.art === 'string' && LPC_ART_BY_ID.has(patch.art) ? { art: patch.art } : {}),
+      ...(typeof patch.art === 'string' && isKnownArt(patch.art, LPC_ART_BY_ID) ? { art: patch.art } : {}),
       ...(readAuthoredLight(patch.light) ? { light: readAuthoredLight(patch.light)! } : {}),
       ...(typeof patch.at === 'string' ? { at: patch.at } : {}),
       ...(typeof patch.by === 'string' ? { by: patch.by } : {}),

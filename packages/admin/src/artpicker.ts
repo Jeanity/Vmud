@@ -33,6 +33,8 @@
  * for the operator that a `waist` item may only wear belts.
  */
 
+import { formatArtId, parseArtId, splitRamp } from '@mygame/shared';
+
 import { call } from './api.ts';
 import { el, render } from './dom.ts';
 
@@ -44,6 +46,8 @@ export interface ArtRow {
   readonly slot?: string;
   readonly sheet: string;
   readonly z: number;
+  /** **A7e** — the ramps this sheet may be recoloured into, or absent if it may not be. */
+  readonly recolours?: { readonly material: string; readonly base: string; readonly ramps: readonly string[] };
   readonly authors: readonly string[];
   readonly licences: readonly string[];
 }
@@ -125,13 +129,19 @@ export function artThumb(sheet: string, scale = 2): HTMLElement {
 }
 
 export function artPicker(options: ArtPickerOptions): ArtPicker {
-  let chosen = options.value;
+  // **A7e: the id and the ramp are held apart and joined only on the way out.** An `art` value is
+  // `cape-solid#cloth_ulpc.red`, but a picker that stored that string would have to re-split it on every
+  // repaint and on every slot change — and the two halves are chosen by two different controls.
+  const opened = parseArtId(options.value ?? '');
+  let chosen = options.value === undefined ? undefined : opened.id;
+  let ramp = opened.ramp;
   let slotFilter = options.slot;
 
   const current = el('div', { class: 'art-current' });
   const choose = el('button', { type: 'button' }, 'Choose art…') as HTMLButtonElement;
   const clearBtn = el('button', { type: 'button' }, 'None') as HTMLButtonElement;
   const browser = el('div', { class: 'art-browser', style: 'display:none' });
+  const rampRow = el('div', { class: 'row' });
   const grid = el('div', { class: 'art-grid' });
   const term = el('input', { type: 'search', placeholder: 'name, kind or id' }) as HTMLInputElement;
   const everything = el('input', { type: 'checkbox' }) as HTMLInputElement;
@@ -179,6 +189,45 @@ export function artPicker(options: ArtPickerOptions): ArtPicker {
           : null,
       ),
     );
+  };
+
+  /**
+   * The colour control — **A7e**, owner's ask 2026-08-05: *"if I need a fiery red cloak I can select the
+   * black one and change the colors."*
+   *
+   * **Shown only for art that can actually take one.** 168 of the 346 indexed sheets declare no
+   * `recolors`, and offering a dropdown that silently does nothing is worse than offering none — the
+   * roadmap's point (3), and the reason the index carries the field rather than the panel guessing.
+   *
+   * The ramps are named `table.name` because that is what they are, and the label says the family out
+   * loud: an operator picking *red* wants to know whether they are getting cloth's red or metal's, and
+   * the same word means two quite different things across the pack's twelve tables.
+   */
+  const paintRamps = (): void => {
+    const entry = chosen === undefined ? undefined : index?.find((a) => a.id === chosen);
+    render(rampRow);
+    if (!entry?.recolours) {
+      // Nothing said when there is nothing to offer. A line reading *"this cannot be recoloured"* on 178
+      // of 346 sheets would be noise on the commonest case rather than information.
+      ramp = undefined;
+      return;
+    }
+    const select = el('select', {}, el('option', { value: '' }, `original — ${entry.recolours.base}`)) as HTMLSelectElement;
+    for (const option of entry.recolours.ramps) {
+      const parts = splitRamp(option);
+      select.append(
+        el(
+          'option',
+          { value: option, ...(ramp === option ? { selected: true } : {}) },
+          parts ? `${parts.name} (${parts.table.replace('_', ' ')})` : option,
+        ),
+      );
+    }
+    select.addEventListener('change', () => {
+      ramp = select.value || undefined;
+      options.onPick?.(formatArtId(chosen!, ramp));
+    });
+    rampRow.append(el('label', {}, 'colour'), select, el('span', { class: 'muted' }, `${entry.recolours.ramps.length} ramps`));
   };
 
   const paintGrid = (): void => {
@@ -232,7 +281,12 @@ export function artPicker(options: ArtPickerOptions): ArtPicker {
       );
       tile.addEventListener('click', () => {
         chosen = entry.id;
+        // **A ramp belongs to the art it was chosen for.** `cloth_ulpc.red` on a cape means nothing on a
+        // steel helm, and carrying it across would either recolour from the wrong base or silently do
+        // nothing — so a new picture starts in its own colour.
+        ramp = undefined;
         paintCurrent();
+        paintRamps();
         paintGrid();
         options.onPick?.(chosen);
       });
@@ -249,6 +303,9 @@ export function artPicker(options: ArtPickerOptions): ArtPicker {
     index = result.body.art;
     // The current selection may only now be nameable — the row was painted before the index arrived.
     paintCurrent();
+    // A7e: and only now can we know whether it has ramps at all, which is why this is here rather than
+    // beside the first `paintCurrent`.
+    paintRamps();
     paintGrid();
   };
 
@@ -266,7 +323,9 @@ export function artPicker(options: ArtPickerOptions): ArtPicker {
 
   clearBtn.addEventListener('click', () => {
     chosen = undefined;
+    ramp = undefined;
     paintCurrent();
+    paintRamps();
     paintGrid();
     options.onPick?.(undefined);
   });
@@ -292,12 +351,26 @@ export function artPicker(options: ArtPickerOptions): ArtPicker {
 
   paintCurrent();
 
+  // **A7e changed when the index is needed, and the old rule had to bend.** It was fetched on the
+  // chooser's *first open*, deliberately: the editor opens on every row click in a 16,421-row catalogue
+  // and almost none of those are about art. But the colour control is the one thing an operator reaches
+  // for *without* re-picking art — the whole ask is "select the black one and change the colours" — and a
+  // dropdown that appears only after you open a browser you did not want is a control nobody finds.
+  //
+  // So: eagerly **only when the item already has art**, which is the case that has ramps to offer. An
+  // item with none still costs nothing, and that is the majority the original rule was protecting.
+  if (chosen !== undefined) loading ??= load();
+
   return {
-    node: el('div', { class: 'art-picker' }, el('div', { class: 'row' }, current, choose, clearBtn), browser),
-    value: () => chosen,
+    node: el('div', { class: 'art-picker' }, el('div', { class: 'row' }, current, choose, clearBtn), rampRow, browser),
+    // **Joined here and nowhere else**, so an unrecoloured art returns exactly the bare id it always did.
+    value: () => (chosen === undefined ? undefined : formatArtId(chosen, ramp)),
     set: (id: string | undefined) => {
-      chosen = id;
+      const parsed = parseArtId(id ?? '');
+      chosen = id === undefined ? undefined : parsed.id;
+      ramp = parsed.ramp;
       paintCurrent();
+      paintRamps();
       paintGrid();
     },
     setSlot: (slot: string | undefined) => {

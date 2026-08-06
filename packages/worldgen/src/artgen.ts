@@ -49,6 +49,7 @@ const PACK = process.env.GAME_LPC_PACK
   : join(REPO_ROOT, 'assets', 'ulpc');
 const DEFINITIONS = join(PACK, 'sheet_definitions');
 const SPRITESHEETS = join(PACK, 'spritesheets');
+const PALETTES = join(PACK, 'palette_definitions');
 const STAGED = join(REPO_ROOT, 'packages', 'client', 'public', 'lpc');
 const INDEX_FILE = join(REPO_ROOT, 'packages', 'shared', 'src', 'lpc-art.ts');
 const ATTRIBUTION = join(STAGED, 'ATTRIBUTION-generated.md');
@@ -127,6 +128,23 @@ interface RawDefinition {
   readonly name?: string;
   readonly type_name?: string;
   readonly variants?: readonly string[];
+  /**
+   * **A7e** — what this sheet may be recoloured into. `{ material, base?, palettes: [...] }`.
+   *
+   * Note the field is `recolors` and not `palettes`; `palettes` is the array *inside* it, and an earlier
+   * count of “424 with palettes” was counting this. **424 of 769 definitions carry it**, confirmed.
+   *
+   * A palette entry is `[family.]version` — a bare `"ulpc"` resolves against `material`, while
+   * `"cloth.ulpc"` and `"all.lpcr"` name a family outright, so one sheet can offer ramps from more than
+   * one family. Measured 2026-08-06: **all 1,048 references across the pack resolve to a file that
+   * exists**, which retires the roadmap's worry that an art could declare recolours resolving to nothing.
+   */
+  readonly recolors?: {
+    readonly material?: string;
+    /** Overrides the family's own base ramp. `arms_hands_ring_stud` is `cloth` but declares `teal`. */
+    readonly base?: string;
+    readonly palettes?: readonly string[];
+  };
   readonly credits?: readonly {
     readonly authors?: readonly string[];
     readonly licenses?: readonly string[];
@@ -157,6 +175,14 @@ export interface ArtEntry {
   readonly kind: string;
   /** The slot this would ordinarily go in, for filtering a picker. Not enforced anywhere. */
   readonly slot?: string;
+  /**
+   * **A7e** — what this sheet may be recoloured into, or absent if it may not be.
+   *
+   * Declared here as well as in the emitted index because this file writes that one: the two are the
+   * same shape by construction, and a field added to one and not the other is a type error rather than
+   * a silent gap — the same rule `SKILL_IDS` and `SKILLS` keep.
+   */
+  readonly recolours?: { readonly material: string; readonly base: string; readonly ramps: readonly string[] };
   /**
    * The sheet a *thumbnail* should use, and the front-most layer of the art.
    *
@@ -260,6 +286,106 @@ function previouslyGenerated(): ReadonlySet<string> {
   }
 }
 
+/**
+ * Every ramp the pack ships, by table — `cloth_ulpc`, `metal_ulpc`, `all_lpcr` and nine more.
+ *
+ * **Baked into the generated index rather than fetched**, which measurement 5 makes free: the whole set
+ * is 215 ramps in 12 files, 28 KB of JSON before minification. A route to serve it would be a route to
+ * keep working, an ordering problem at boot, and a failure mode where the picker loads and the colours do
+ * not — for a payload smaller than one sprite sheet.
+ */
+export function readPalettes(): Record<string, Record<string, readonly string[]>> {
+  const out: Record<string, Record<string, readonly string[]>> = {};
+  let families: string[];
+  try {
+    families = readdirSync(PALETTES, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+  } catch {
+    return out;
+  }
+  for (const family of families) {
+    for (const file of readdirSync(join(PALETTES, family))) {
+      // `meta_<family>.json` is the family's own record — its label and, crucially, its **base** ramp.
+      // Read separately by `readPaletteBases`; skipped here so it cannot be mistaken for a ramp table.
+      if (file.startsWith('meta_') || !file.endsWith('.json')) continue;
+      try {
+        const table = JSON.parse(readFileSync(join(PALETTES, family, file), 'utf8')) as Record<string, unknown>;
+        const ramps: Record<string, readonly string[]> = {};
+        for (const [name, value] of Object.entries(table)) {
+          if (!Array.isArray(value) || value.some((c) => typeof c !== 'string')) continue;
+          ramps[name] = value as string[];
+        }
+        if (Object.keys(ramps).length > 0) out[file.replace(/\.json$/, '')] = ramps;
+      } catch {
+        // A malformed palette file is dropped rather than fatal, the posture every reader here takes.
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Each family's **base** ramp — the one its sheets are actually drawn in.
+ *
+ * This is the half of the recolour that cannot be guessed: cloth's is `white`, body's `light`, hair's
+ * `orange`, wood's `maple`, metal's `steel`. Recolouring maps *these* six colours onto the target's,
+ * index by index, so reading the wrong base recolours the wrong pixels and the sheet comes out muddy
+ * rather than wrong-in-an-obvious-way.
+ */
+export function readPaletteBases(): Record<string, string> {
+  const out: Record<string, string> = {};
+  let families: string[];
+  try {
+    families = readdirSync(PALETTES, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+  } catch {
+    return out;
+  }
+  for (const family of families) {
+    try {
+      const meta = JSON.parse(readFileSync(join(PALETTES, family, `meta_${family}.json`), 'utf8')) as {
+        base?: unknown;
+      };
+      if (typeof meta.base === 'string') out[family] = meta.base;
+    } catch {
+      // No metadata is a family with no declared base, which `recoloursOf` then declines to offer.
+    }
+  }
+  return out;
+}
+
+/**
+ * What one definition may be recoloured into, resolved against the ramp tables that actually exist.
+ *
+ * Three things are settled here rather than left to the panel. The **material** decides which family's
+ * base the sheet is drawn in. The **base** comes from the definition first and the family second — the
+ * measurement the roadmap's five did not have, and the one that would otherwise recolour
+ * `arms_hands_ring_stud` from `white` when it is drawn in `teal`. And a palette reference is expanded to
+ * every **named ramp inside it**, because `"cloth.ulpc"` is a table of 24 and a picker wants the 24.
+ */
+export function recoloursOf(
+  raw: RawDefinition,
+  tables: Readonly<Record<string, Record<string, readonly string[]>>>,
+  bases: Readonly<Record<string, string>>,
+): { material: string; base: string; ramps: string[] } | undefined {
+  const material = raw.recolors?.material;
+  if (!material) return undefined;
+  const base = raw.recolors?.base ?? bases[material];
+  if (!base) return undefined;
+
+  const ramps: string[] = [];
+  for (const reference of raw.recolors?.palettes ?? []) {
+    const key = reference.includes('.') ? reference.replace('.', '_') : `${material}_${reference}`;
+    const table = tables[key];
+    if (!table) continue;
+    for (const name of Object.keys(table)) {
+      const ramp = `${key}.${name}`;
+      if (!ramps.includes(ramp)) ramps.push(ramp);
+    }
+  }
+  // A sheet whose every reference missed offers nothing, and the entry carries no `recolors` at all —
+  // which is what lets the picker say *this one cannot be recoloured* from the index alone.
+  return ramps.length > 0 ? { material, base, ramps } : undefined;
+}
+
 export function buildArtIndex(): ArtgenResult {
   try {
     readdirSync(DEFINITIONS);
@@ -272,6 +398,10 @@ export function buildArtIndex(): ArtgenResult {
   }
   const entries: ArtEntry[] = [];
   const seen = new Set<string>();
+  // Read once for the whole run rather than per definition: 424 of them ask, and the answer is 28 KB
+  // that does not change between files.
+  const tables = readPalettes();
+  const bases = readPaletteBases();
   const ours = previouslyGenerated();
   const collisions: string[] = [];
   let considered = 0;
@@ -324,6 +454,7 @@ export function buildArtIndex(): ArtgenResult {
       continue;
     }
 
+    const recolours = recoloursOf(raw, tables, bases);
     const authors = [...new Set((raw.credits ?? []).flatMap((c) => c.authors ?? []))].sort();
     const licences = [...new Set((raw.credits ?? []).flatMap((c) => c.licenses ?? []))].sort();
 
@@ -348,6 +479,7 @@ export function buildArtIndex(): ArtgenResult {
       name: raw.name ?? id,
       kind,
       ...(SLOT_FOR_TYPE[kind] ? { slot: SLOT_FOR_TYPE[kind] } : {}),
+      ...(recolours ? { recolours } : {}),
       sheet: front.sheet,
       z: front.z,
       layers,
@@ -361,18 +493,41 @@ export function buildArtIndex(): ArtgenResult {
 }
 
 /** The generated module. A `.ts` const rather than JSON, so no import attributes and it typechecks. */
-function writeIndex(entries: readonly ArtEntry[]): void {
+function writeIndex(entries: readonly ArtEntry[], palettes: Record<string, Record<string, readonly string[]>>): void {
+  // One line per table rather than pretty-printed: 215 ramps of six hex strings is unreadable either way,
+  // and a table per line at least makes a diff say *which family changed* when the pack is updated.
+  const paletteBody = Object.keys(palettes)
+    .sort()
+    .map((table) => `  ${JSON.stringify(table)}: ${JSON.stringify(palettes[table])},`)
+    .join('\n');
   const body = entries
     .map((e) => {
       const slot = e.slot ? `, slot: '${e.slot}'` : '';
+      const recolours = e.recolours
+        ? `, recolours: { material: '${e.recolours.material}', base: '${e.recolours.base}', ` +
+          `ramps: ${JSON.stringify(e.recolours.ramps)} }`
+        : '';
       const layers = e.layers.map((l) => `{ sheet: '${l.sheet}', z: ${l.z} }`).join(', ');
       return (
-        `  { id: '${e.id}', name: ${JSON.stringify(e.name)}, kind: '${e.kind}'${slot}, ` +
+        `  { id: '${e.id}', name: ${JSON.stringify(e.name)}, kind: '${e.kind}'${slot}${recolours}, ` +
         `sheet: '${e.sheet}', z: ${e.z}, layers: [${layers}], authors: ${JSON.stringify(e.authors)}, ` +
         `licences: ${JSON.stringify(e.licences)} },`
       );
     })
     .join('\n');
+
+  const paletteBlock =
+    `\n/**\n` +
+    ` * **A7e** — every colour ramp the pack ships, by table. \`cloth_ulpc.red\` is \`LPC_PALETTES.cloth_ulpc.red\`.\n` +
+    ` *\n` +
+    ` * Baked in rather than served: the whole set is 215 ramps across 12 files, 28 KB of JSON — smaller\n` +
+    ` * than one sprite sheet. A route would be a route to keep working, an ordering problem at boot, and a\n` +
+    ` * failure mode where the picker loads and the colours do not.\n` +
+    ` *\n` +
+    ` * A ramp is **ordered dark to light**, and that order is the recolour: position 0 maps to position 0,\n` +
+    ` * so the shading survives and only the hue moves. Six entries everywhere except \`eye\`, which is three.\n` +
+    ` */\n` +
+    `export const LPC_PALETTES: Readonly<Record<string, Readonly<Record<string, Ramp>>>> = {\n${paletteBody}\n};\n`;
 
   writeFileSync(
     INDEX_FILE,
@@ -387,6 +542,8 @@ function writeIndex(entries: readonly ArtEntry[]): void {
  * are CC-BY-SA 3.0 / GPL / OGA-BY and attribution is mandatory — see \`CLAUDE.md\`.
  */
 
+import type { Ramp, Recolours } from './recolour.ts';
+
 /** One indexed piece of art. */
 export interface ArtEntry {
   readonly id: string;
@@ -395,6 +552,13 @@ export interface ArtEntry {
   readonly kind: string;
   /** Where it would ordinarily be worn. A hint for filtering a picker, enforced nowhere. */
   readonly slot?: string;
+  /**
+   * **A7e** — what this sheet may be recoloured into, or absent if it may not be.
+   *
+   * Absent is the useful half: 345 of the pack's 769 definitions declare no \`recolors\` at all, and a
+   * picker offering a ramp for one of them would be offering a control that silently does nothing.
+   */
+  readonly recolours?: Recolours;
   /**
    * The front-most layer's texture key — what a **thumbnail** should draw.
    *
@@ -423,7 +587,7 @@ ${body}
 
 /** By id, for the one question everything asks: is this a real piece of art, and which sheet is it? */
 export const LPC_ART_BY_ID: ReadonlyMap<string, ArtEntry> = new Map(LPC_ART.map((a) => [a.id, a]));
-`,
+${paletteBlock}`,
   );
 }
 
@@ -459,7 +623,7 @@ function writeAttribution(entries: readonly ArtEntry[]): void {
 const invokedDirectly = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
 if (invokedDirectly) {
   const { entries, considered, skipped, collisions } = buildArtIndex();
-  writeIndex(entries);
+  writeIndex(entries, readPalettes());
   writeAttribution(entries);
   const byKind = new Map<string, number>();
   for (const entry of entries) byKind.set(entry.kind, (byKind.get(entry.kind) ?? 0) + 1);

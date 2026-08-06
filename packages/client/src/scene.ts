@@ -73,6 +73,7 @@ import { LIGHT_SOURCES, naturalLightTiles, roomLightsItself, roomLightTiles } fr
 import type { LogPanel } from './log.ts';
 import type { Net } from './net.ts';
 import { bagIcon } from './bagicon.ts';
+import { artIdForSheet, layerKeysFor, readLayerKey, recolouredSheet, swapsForArt } from './recolour.ts';
 import { paint } from './paint.ts';
 import { TargetMenu, type TargetVerb } from './targetmenu.ts';
 
@@ -3287,7 +3288,9 @@ export class WorldScene extends Phaser.Scene {
     // **An art id can be several sheets**, so this queues by *layer* rather than by id — otherwise a
     // cape asked for its shoulders and its cloak never arrived. An id with no index entry is the
     // starter kit, whose key is its own sheet.
-    for (const sheet of LPC_ART_BY_ID.get(key)?.layers.map((l) => l.sheet) ?? [key]) {
+    // A7e: `layerKeysFor` is the one function that knows an id may carry a `#ramp`. A plain id resolves
+    // exactly as it did before, which is what keeps every unrecoloured item on the path it was on.
+    for (const { key: sheet } of layerKeysFor(key)) {
       if (this.textures.exists(sheet) || this.loadingSheets.has(sheet) || this.wantedSheets.has(sheet)) continue;
       this.wantedSheets.add(sheet);
     }
@@ -3303,16 +3306,63 @@ export class WorldScene extends Phaser.Scene {
     if (this.wantedSheets.size === 0 || this.load.isLoading()) return;
     for (const key of this.wantedSheets) {
       this.loadingSheets.add(key);
+      const { sheet, ramp } = readLayerKey(key);
+      if (ramp) {
+        // **A7e: recoloured sheets do not go through the loader at all.** There is no URL for them —
+        // the pixels are made here from a sheet that does exist — so they are built on a canvas and
+        // registered as a texture directly. Everything downstream sees an ordinary texture key.
+        void this.buildRecolouredSheet(key, sheet, ramp);
+        continue;
+      }
       this.load.spritesheet(key, `lpc/${key}.png`, { frameWidth: LPC_FRAME, frameHeight: LPC_FRAME });
       this.load.once(`filecomplete-spritesheet-${key}`, () => {
         this.loadingSheets.delete(key);
-        for (const entity of this.entities.values()) {
-          if (entity.view.wearing && Object.values(entity.view.wearing).includes(key)) this.redressEntity(entity);
-        }
+        this.redressWearers(key);
       });
     }
     this.wantedSheets.clear();
-    this.load.start();
+    // Only if something was actually queued: a pass that produced nothing but recolours must not start an
+    // empty load, which would leave `isLoading` true and stall the next real one behind it.
+    if (this.load.list.size > 0 || this.load.inflight.size > 0) this.load.start();
+  }
+
+  /**
+   * Makes a recoloured texture and registers it under its own key — **A7e**.
+   *
+   * Falls back to the **uncoloured** sheet when the recolour cannot be made, rather than leaving the
+   * layer absent: a hat in the wrong colour is a far smaller failure than a person with no hat, and it is
+   * visible enough that somebody reports it.
+   */
+  private async buildRecolouredSheet(key: string, sheet: string, ramp: string): Promise<void> {
+    try {
+      const swaps = swapsForArt(artIdForSheet(sheet), ramp);
+      const canvas = swaps.length > 0 ? await recolouredSheet(sheet, swaps) : null;
+      if (canvas && !this.textures.exists(key)) {
+        this.textures.addSpriteSheet(key, canvas as unknown as HTMLImageElement, {
+          frameWidth: LPC_FRAME,
+          frameHeight: LPC_FRAME,
+        });
+      } else if (!canvas && !this.textures.exists(key) && this.textures.exists(sheet)) {
+        // The base is already loaded and the recolour came to nothing — the commonest reason being that
+        // the chosen ramp *is* the base. Aliasing rather than copying keeps one set of pixels.
+        this.textures.addSpriteSheet(key, this.textures.get(sheet).getSourceImage() as HTMLImageElement, {
+          frameWidth: LPC_FRAME,
+          frameHeight: LPC_FRAME,
+        });
+      }
+    } catch (cause) {
+      this.log.write('error', `Could not recolour ${sheet} as ${ramp}: ${String(cause)}`);
+    } finally {
+      this.loadingSheets.delete(key);
+      this.redressWearers(key);
+    }
+  }
+
+  /** Redresses anybody wearing this texture key — art that arrived after their body was built. */
+  private redressWearers(key: string): void {
+    for (const entity of this.entities.values()) {
+      if (entity.view.wearing && Object.values(entity.view.wearing).includes(key)) this.redressEntity(entity);
+    }
   }
 
   /**

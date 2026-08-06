@@ -44,6 +44,7 @@ import {
   DURIS_ITEM_TYPES,
   EQUIP_SLOTS,
   LPC_ART_BY_ID,
+  isKnownArt,
   MAX_ITEM_SIZE,
   stackLimitFor,
   type ContainerAccepts,
@@ -224,7 +225,7 @@ export function draftAuthoredItem(vnum: number, draft: ItemDraft): { item: ItemT
   // somebody removed, and both want saying out loud.
   let art: string | undefined;
   if (draft.art !== undefined && draft.art !== null && draft.art !== '') {
-    if (typeof draft.art !== 'string' || !LPC_ART_BY_ID.has(draft.art)) {
+    if (typeof draft.art !== 'string' || !isKnownArt(draft.art, LPC_ART_BY_ID)) {
       return { error: `no such art: ${String(draft.art)} — run npm run artgen to see what is indexed` };
     }
     art = draft.art;
