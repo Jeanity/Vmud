@@ -152,6 +152,7 @@ import {
   type TileGrid,
   AUTHORED_MOB_BASE,
   type MobTemplate,
+  type ResetCommand,
   type ZoneSpawns,
   type TilePoint,
 } from '@mygame/shared';
@@ -282,6 +283,7 @@ import {
   type ItemDraft,
 } from './item-authoring.ts';
 import { ROOMS_FILE } from './overrides.ts';
+import { PLACEMENTS_FILE, loadPlacements, placementResets } from './placements.ts';
 import {
   AUTHORED_MOBS_FILE,
   draftAuthoredMob,
@@ -476,6 +478,62 @@ const authoredMobs = loadAuthoredMobs();
 for (const [vnum, authored] of authoredMobs.mobs) mobTemplates.set(vnum, authored.mob);
 if (authoredMobs.mobs.size > 0) {
   console.log(`[mobs] ${authoredMobs.mobs.size} creature(s) made here, numbered from ${AUTHORED_MOB_BASE}`);
+}
+
+/**
+ * Rebuilds every zone's reset table from its harvest plus the authored placements as they now stand.
+ *
+ * **Called on every placement write**, because a `ZoneClock` holds the `ZoneSpawns` it was made with:
+ * editing only the overlay would be a change that took effect on the next server start and not before,
+ * which is the class of "I saved it and nothing happened" this project keeps paying for.
+ *
+ * Rebuilt from `harvestedResets` rather than appended to what is there, so removing a placement removes
+ * it — appending would make the table grow by one on every save.
+ */
+function repopulateResets(): void {
+  const byZone = placementResets(placements, (room) => world.zoneOf(room));
+  for (const clock of zoneClocks) {
+    const base = harvestedResets.get(clock.spawns.zone) ?? clock.spawns.resets;
+    clock.spawns = { ...clock.spawns, resets: [...base, ...(byZone.get(clock.spawns.zone) ?? [])] };
+  }
+}
+
+/** Each zone's reset table as the harvest left it — what a placement rebuild starts from. */
+const harvestedResets = new Map<number, readonly ResetCommand[]>();
+
+/**
+ * A9c: authored placements, merged into the reset tables the zone clocks will run.
+ *
+ * **After** the created-mob fold above, which is the ordering that makes the whole thing work: `runReset`
+ * looks a command's vnum up in `mobTemplates`, so a placement naming 9,000,000 finds a real template and
+ * needs no special case anywhere in the executor.
+ *
+ * **Appended, never interleaved.** A zone file's order is load-bearing — `G` and `E` attach to *the last
+ * mobile loaded* — so an authored `M` inserted mid-table would hand somebody else's sword to a creature
+ * we added. At the end, with `ifPrevious: false`, it can neither steal a cursor nor be skipped by one.
+ *
+ * A placement in a zone this server did not load is kept in the file and simply has nowhere to go; the
+ * write path refuses such a room up front, so that only happens when a zone leaves `world.config.json`
+ * underneath an overlay written earlier.
+ */
+const placements = loadPlacements();
+for (const spawns of loadedSpawns) harvestedResets.set(spawns.zone, spawns.resets);
+{
+  const byZone = placementResets(placements, (room) => world.zoneOf(room));
+  for (let i = 0; i < loadedSpawns.length; i++) {
+    const spawns = loadedSpawns[i]!;
+    const extra = byZone.get(spawns.zone);
+    if (!extra || extra.length === 0) continue;
+    loadedSpawns[i] = { ...spawns, resets: [...spawns.resets, ...extra] };
+  }
+  const placed = [...placements.values()].reduce((sum, rows) => sum + rows.length, 0);
+  const homeless = placed - [...byZone.values()].reduce((sum, rows) => sum + rows.length, 0);
+  if (placed > 0) {
+    console.log(
+      `[mobs] ${placed} authored placement(s) across ${byZone.size} zone(s)` +
+        (homeless > 0 ? ` — ${homeless} in rooms this server has not loaded` : ''),
+    );
+  }
 }
 
 if (mobOverrides.size > 0) {
@@ -6090,6 +6148,25 @@ const adminLive: LiveOps = {
     return { name: authored.mob.name, standing: sim.countOf(vnum) };
   },
 
+  placements() {
+    return placements;
+  },
+
+  /**
+   * A9c: where a creature lives. Returns what it now stands at, or nothing for a vnum with no template.
+   *
+   * **Applied to the live reset tables as well as the map**, which is the difference between a placement
+   * that works and one that works after a restart: `newZoneClock` copied the table at boot, so writing
+   * only the overlay would leave every clock in the process running the population it started with.
+   */
+  placeMob(vnum, rows) {
+    if (!mobTemplates.has(vnum)) return undefined;
+    if (rows.length === 0) placements.delete(vnum);
+    else placements.set(vnum, [...rows]);
+    repopulateResets();
+    return placements.get(vnum) ?? [];
+  },
+
   giveItem(player, vnum) {
     const template = itemCatalogue.get(vnum);
     if (!template) return { error: `no item ${vnum} in the catalogue` };
@@ -6375,6 +6452,7 @@ const admin = new AdminApi({
   overridesFile: ROOMS_FILE,
   authoredRoomsFile: AUTHORED_ROOMS_FILE,
   mobOverridesFile: MOBS_FILE,
+  placementsFile: PLACEMENTS_FILE,
   authoredMobsFile: AUTHORED_MOBS_FILE,
   facts: { protocol: PROTOCOL_VERSION, tickMs: TICK_MS, roundMs: ROUND_MS, startedAt: Date.now() },
 });

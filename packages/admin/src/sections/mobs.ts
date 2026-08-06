@@ -58,6 +58,14 @@ interface TemplateRow {
   readonly created?: boolean;
 }
 
+/** A9c: one room a creature is authored to appear in, named and located by the server. */
+interface PlacementRow {
+  readonly room: number;
+  readonly limit: number;
+  readonly name?: string;
+  readonly zone?: number;
+}
+
 /** A9: the whole authorable record, which is what the field editor opens on. */
 interface MobRecord {
   readonly vnum: number;
@@ -175,8 +183,13 @@ export const mobsSection = {
      * confirmation is the whole point of the save: it is the sentence that says how many of these are
      * already standing and unchanged. So the intent survives the repaint and the editor reopens against
      * freshly fetched data, which is the Items page's own answer to the same problem.
+     *
+     * **A9c added `which`, and it was a bug before it was a field.** A row has three drawers now, and an
+     * intent that only named the vnum reopened whichever one the repaint happened to build — so saving a
+     * placement reopened the *field* editor, and the confirmation it carried appeared under a form that
+     * had nothing to do with it. The drawer that was open is part of what has to survive the repaint.
      */
-    let reopen: { vnum: number; message: string } | undefined;
+    let reopen: { vnum: number; message: string; which: 'fields' | 'placements' } | undefined;
 
     let pending = 0;
     const searchTemplates = (): void => {
@@ -241,6 +254,19 @@ export const mobsSection = {
               render(drawer, await fieldEditor(template.vnum, refill));
             })();
           });
+          // A9c. Its own drawer again, for the reason Edit has one beside Loot: three different kinds of
+          // fact through three different routes, and one form posting to three endpoints is a save that
+          // can partly succeed.
+          const lives = el('button', { type: 'button' }, 'Lives in…');
+          lives.addEventListener('click', () => {
+            if (drawer.childElementCount > 0) {
+              render(drawer);
+              return;
+            }
+            void (async () => {
+              render(drawer, await placementEditor(template.vnum, template.name, refill));
+            })();
+          });
           templateList.append(
             el(
               'div',
@@ -254,24 +280,30 @@ export const mobsSection = {
               template.edited?.length ? el('span', { class: 'pill' }, `✎ ${template.edited.join(', ')}`) : null,
               edit,
               loot,
+              lives,
               spawn,
             ),
             drawer,
           );
           if (reopen?.vnum === template.vnum) {
-            const { message } = reopen;
+            const { message, which } = reopen;
             reopen = undefined;
             void (async () => {
-              render(drawer, await fieldEditor(template.vnum, refill, message));
+              render(
+                drawer,
+                which === 'placements'
+                  ? await placementEditor(template.vnum, template.name, refill, message)
+                  : await fieldEditor(template.vnum, refill, message),
+              );
             })();
           }
         }
       })();
     };
 
-    /** Repaints the template list, carrying an editor's confirmation across the repaint. */
-    const refill = (message?: string, vnum?: number): void => {
-      if (message !== undefined && vnum !== undefined) reopen = { vnum, message };
+    /** Repaints the template list, carrying an editor's confirmation — and which editor — across it. */
+    const refill = (message?: string, vnum?: number, which: 'fields' | 'placements' = 'fields'): void => {
+      if (message !== undefined && vnum !== undefined) reopen = { vnum, message, which };
       searchTemplates();
     };
 
@@ -318,7 +350,9 @@ export const mobsSection = {
             'hit points, damage, armour class, experience, wimpy threshold and sprite — which lands on ' +
             'every one the world spawns from then on and on none of those already standing. Aggression ' +
             'is not offered: it is a rule rather than a field, and all but one of its clauses have ' +
-            'nothing to evaluate until races and alignment exist.',
+            'nothing to evaluate until races and alignment exist. Lives in… is the difference between ' +
+            'a body somebody put down and population a zone has: it writes the creature into that ' +
+            'zone\u2019s reset table, so it comes back on every repop and survives a restart.',
         ),
       ),
     );
@@ -513,7 +547,7 @@ function lootEditor(template: TemplateRow, done: () => void): HTMLElement {
  */
 async function fieldEditor(
   vnum: number,
-  done: (message?: string, forVnum?: number) => void,
+  done: (message?: string, forVnum?: number, which?: 'fields' | 'placements') => void,
   opening?: string,
 ): Promise<HTMLElement> {
   const opened = await call<{
@@ -610,6 +644,7 @@ async function fieldEditor(
         `Saved. ${result.body.spawned} of these are already standing and are unchanged — ` +
           `repop the zone to meet the new one.`,
         vnum,
+        'fields',
       );
     })();
   });
@@ -661,7 +696,7 @@ async function fieldEditor(
         flash.textContent = cleared.error ?? 'refused';
         return;
       }
-      done('Harvest restored. The loot is a separate button and is untouched.', vnum);
+      done('Harvest restored. The loot is a separate button and is untouched.', vnum, 'fields');
     })();
   });
 
@@ -807,6 +842,141 @@ function makeCard(done: () => void): HTMLElement {
         'then on it is an ordinary template — searchable, editable, lootable, spawnable. It will not ' +
         'repop yet: a zone\u2019s population is a worldgen output, so placing one permanently is the next ' +
         'piece of work.',
+    ),
+  );
+}
+
+/**
+ * Where a creature **lives** — **A9c**, owner's ask 2026-08-06: *"the mob needs to be assigned a room in a
+ * zone and not just dropped by hand."*
+ *
+ * A9b's Spawn button puts one body somewhere, once, and loses it on the next restart. This says where the
+ * creature *belongs*, which is a different kind of fact: it is written to an overlay, merged into the
+ * zone's own reset table, and honoured on every repop from then on.
+ *
+ * ## The zone is never asked for
+ *
+ * A room already knows which zone it is in. Asking for both would be a second thing to get wrong, and a
+ * disagreement between them would file a reset in a table that never runs — so the room id is the only
+ * thing typed, and the server answers with the room's name and zone so an operator can see they got the
+ * one they meant.
+ *
+ * ## The limit is world-wide, and the note says so
+ *
+ * It is Duris' `arg2` and it is global rather than per room, which is what makes a lured mob suppress its
+ * own replacement. Two rooms therefore share one budget — surprising enough to state on screen rather
+ * than leave somebody to deduce from a zone that never fills up.
+ */
+async function placementEditor(
+  vnum: number,
+  name: string,
+  done: (message?: string, forVnum?: number, which?: 'fields' | 'placements') => void,
+  opening?: string,
+): Promise<HTMLElement> {
+  const opened = await call<{ placements: PlacementRow[]; standing: number }>('GET', `/mobs/${vnum}/placements`);
+  if (!opened.ok || !opened.body) {
+    return el('p', { class: 'flash err' }, opened.error ?? 'could not read its placements');
+  }
+  const rows: { room: number; limit: number; name?: string; zone?: number }[] = [...opened.body.placements];
+  // A message carried across the repaint lands here, the same way the field editor's does.
+  const flash = el('p', { class: 'note' }, opening ?? '');
+  const list = el('div', { class: 'rows' });
+
+  const redraw = (): void => {
+    render(list);
+    if (rows.length === 0) {
+      list.append(el('p', { class: 'muted' }, 'Nowhere — this one only exists where somebody spawns it by hand.'));
+    }
+    rows.forEach((row, index) => {
+      const limit = el('input', { type: 'number', min: '1', max: '99', value: String(row.limit) }) as HTMLInputElement;
+      limit.addEventListener('change', () => {
+        row.limit = Number(limit.value);
+      });
+      const drop = el('button', { type: 'button', class: 'danger' }, '×');
+      drop.addEventListener('click', () => {
+        rows.splice(index, 1);
+        redraw();
+      });
+      list.append(
+        el(
+          'div',
+          { class: 'row' },
+          el('span', { class: 'vnum' }, String(row.room)),
+          // The room's own name, which is the only way to tell 41260 from 41261 without a second window.
+          el('span', {}, row.name ?? `room ${row.room}`),
+          row.zone === undefined ? null : el('span', { class: 'muted' }, `zone ${row.zone}`),
+          el('label', {}, 'at most'),
+          limit,
+          drop,
+        ),
+      );
+    });
+  };
+  redraw();
+
+  const roomId = el('input', { type: 'number', placeholder: 'room id' }) as HTMLInputElement;
+  const add = el('button', { type: 'button' }, 'Add room');
+  add.addEventListener('click', () => {
+    const room = Number(roomId.value);
+    if (!Number.isInteger(room)) {
+      flash.className = 'flash err';
+      flash.textContent = 'type a room id first';
+      return;
+    }
+    if (rows.some((row) => row.room === room)) {
+      // Refused here as well as on the server, because a duplicate is a mistake worth catching before a
+      // round trip — and the reason is the same: two rows for one room share one global cap.
+      flash.className = 'flash err';
+      flash.textContent = `room ${room} is already on the list — raise its limit instead`;
+      return;
+    }
+    rows.push({ room, limit: 1 });
+    roomId.value = '';
+    flash.className = 'note';
+    flash.textContent = '';
+    redraw();
+  });
+
+  const save = el('button', { class: 'primary' }, 'Save placements') as HTMLButtonElement;
+  save.addEventListener('click', () => {
+    void (async () => {
+      save.disabled = true;
+      const result = await call<{ standing: number }>('PUT', `/mobs/${vnum}/placements`, {
+        placements: rows.map((row) => ({ room: row.room, limit: row.limit })),
+      });
+      save.disabled = false;
+      if (!result.ok || !result.body) {
+        flash.className = 'flash err';
+        flash.textContent = result.error ?? 'refused';
+        return;
+      }
+      done(
+        rows.length === 0
+          ? 'Unplaced. Nothing new will spawn; what is standing lives out its life.'
+          : `Placed in ${rows.length} room${rows.length === 1 ? '' : 's'}. ` +
+            `${result.body.standing} are standing now — repop the zone to see them arrive.`,
+        vnum,
+        'placements',
+      );
+    })();
+  });
+
+  return el(
+    'div',
+    { class: 'card item-editor' },
+    el('h3', {}, 'Where ', coloured(name), ' lives ', el('span', { class: 'pill' }, `#${vnum}`)),
+    el('span', { class: 'field-label' }, 'rooms'),
+    list,
+    el('div', { class: 'row' }, el('label', {}, 'add a room'), roomId, add),
+    el('div', { class: 'row' }, save, flash),
+    el(
+      'p',
+      { class: 'note' },
+      'Saved here, this creature is part of the zone: it arrives on every repop, in these rooms, and ' +
+        'survives a restart — unlike Spawn here, which puts one body down once. The limit is ' +
+        'world-wide rather than per room, so two rooms share one budget and a creature lured away ' +
+        'suppresses its own replacement until it dies. Nothing appears the moment you save; repop the ' +
+        'zone on the Zones page to see them arrive.',
     ),
   );
 }

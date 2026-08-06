@@ -51,7 +51,15 @@ import type { Mob, Simulation } from './sim.ts';
 
 /** A zone's live reset state: how old it is, and how old it gets to be this time round. */
 export interface ZoneClock {
-  readonly spawns: ZoneSpawns;
+  /**
+   * The population this zone resets to.
+   *
+   * **Mutable since A9c**, and deliberately: a clock copies the table at boot, so an authored placement
+   * that only reached the overlay file would take effect on the next server start and not before. Every
+   * write rebuilds this from the harvest plus the placements as they now stand — rebuilt rather than
+   * appended, or the table would grow by one every time somebody pressed Save.
+   */
+  spawns: ZoneSpawns;
   /** Ticks since the last reset. */
   age: number;
   /** Ticks until the next one, re-rolled from the band after every reset. */

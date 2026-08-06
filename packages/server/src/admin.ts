@@ -63,6 +63,13 @@ import { draftDescription, listModels, ollamaReachable } from './ollama.ts';
 import { saveRoomOverrides, type RoomOverride } from './overrides.ts';
 import { saveAuthoredMobs, type AuthoredMobStore, type MobDraft } from './mob-authoring.ts';
 import {
+  MAX_PLACEMENTS_PER_MOB,
+  MAX_PLACEMENT_LIMIT,
+  savePlacements,
+  type Placement,
+  type Placements,
+} from './placements.ts';
+import {
   MAX_AUTHORED_AC,
   MAX_AUTHORED_EXPERIENCE,
   MAX_AUTHORED_LEVEL,
@@ -335,6 +342,17 @@ export interface LiveOps {
   /** A9b: unmake a created mob. Nothing already standing is touched; nothing new spawns. */
   unmakeMob(vnum: number): { name: string; standing: number } | undefined;
 
+  /** A9c: where each mob is authored to live. Read for the panel and for saving. */
+  placements(): Placements;
+
+  /**
+   * A9c: assign a creature its rooms, replacing whatever it had. An empty list unplaces it.
+   *
+   * **Applied to the live reset tables as well as the overlay**, which is the difference between a
+   * placement that works and one that works after a restart — a zone clock copies its table at boot.
+   */
+  placeMob(vnum: number, rows: readonly Placement[]): readonly Placement[] | undefined;
+
   /** The operator switches as they currently stand. See `settings.ts`. */
   settings(): WorldSettings;
   /** The authored item overlay — read for edited marks and for saving; never mutated here. */
@@ -436,6 +454,8 @@ export interface AdminDeps {
   readonly mobOverridesFile: string | undefined;
   /** A9b: where created mobs are written. Absent in tests that assert without touching disk. */
   readonly authoredMobsFile?: string | undefined;
+  /** A9c: where placements are written. Absent in tests that assert without touching disk. */
+  readonly placementsFile?: string | undefined;
   /** Boot-time constants the dashboard reports. */
   readonly facts: {
     readonly protocol: number;
@@ -679,6 +699,12 @@ export class AdminApi {
     // took that path for an **entity id**, and one path whose id space depends on the verb is exactly what
     // the note above says not to build. `/loot` and `/template` are both “this kind of mob”; `/mobs/:id`
     // is “that body”.
+    // A9c. Beside `/loot` and `/template` and for the same reason: all three are facts about *this kind of
+    // mob*, keyed by vnum, where `/mobs/:id` is that body over there.
+    if (head === 'mobs' && slug !== undefined && action === 'placements' && parts.length === 3) {
+      if (request.method === 'GET') return this.mobPlacements(slug);
+      if (request.method === 'PUT') return this.placeMob(slug, request.body);
+    }
     if (head === 'mobs' && slug !== undefined && action === 'template' && parts.length === 3) {
       if (request.method === 'GET') return this.mobTemplate(slug);
       if (request.method === 'PATCH') return this.authorMob(slug, request.body);
@@ -2459,6 +2485,127 @@ export class AdminApi {
 
     this.audit('mob.delete', { vnum, name: stripColour(gone.name), standing: gone.standing });
     return { status: 200, body: { ok: true, standing: gone.standing } };
+  }
+
+  /** `GET /mobs/:vnum/placements` — the rooms a creature is authored to appear in. **A9c.** */
+  private mobPlacements(slug: string): AdminResponse {
+    const vnum = Number(slug);
+    if (!Number.isInteger(vnum)) return { status: 400, body: { error: `"${slug}" is not a mob vnum` } };
+    if (!this.deps.live.mobTemplateOf(vnum)) {
+      return { status: 404, body: { error: `no mob ${vnum} among the loaded templates` } };
+    }
+    return { status: 200, body: { vnum, placements: this.placementRows(vnum), standing: this.deps.live.liveCountOf(vnum) } };
+  }
+
+  /**
+   * `PUT /mobs/:vnum/placements` — **A9c**, where a creature lives.
+   *
+   * Owner's ask, 2026-08-06: *"the mob needs to be assigned a room in a zone and not just dropped by
+   * hand."* A9b made a creature that could be spawned; this is what makes it *population* — it appears
+   * on every repop, in the rooms it was given, and survives a restart.
+   *
+   * **PUT rather than PATCH, and the whole list rather than one row.** A placement has no identity of its
+   * own to address — it is a room and a number — so *the set of rooms this thing lives in* is the smallest
+   * thing that can be stated without inventing row ids. An empty list unplaces it, which is the same
+   * shape the loot route already uses for the same reason.
+   *
+   * ## The zone is derived, never asked for
+   *
+   * A room already knows which zone it is in; asking the caller to repeat it is a second thing they can
+   * get wrong, and a disagreement between the two would be a reset filed in a table that never runs. So a
+   * room is refused when the world does not have it, and refused **by name** when its zone has no
+   * population file — that zone has no reset table for the command to live in, and a placement that
+   * quietly never fires is indistinguishable from the feature not working.
+   *
+   * ## What it does not do
+   *
+   * It does not spawn anything by itself, and the response says so with `standing`. Placement is what the
+   * *next repop* does, exactly as authored loot is — and Repop on the Zones page is the button that turns
+   * *nothing happened* into *there it is*. Unplacing likewise leaves what is standing standing: those are
+   * ordinary creatures in ordinary fights, and vanishing one mid-round is not a path the game has.
+   */
+  private placeMob(slug: string, body: unknown): AdminResponse {
+    const vnum = Number(slug);
+    if (!Number.isInteger(vnum)) return { status: 400, body: { error: `"${slug}" is not a mob vnum` } };
+    if (!this.deps.live.mobTemplateOf(vnum)) {
+      return { status: 404, body: { error: `no mob ${vnum} among the loaded templates` } };
+    }
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return { status: 400, body: { error: 'PUT body must be a JSON object' } };
+    }
+    const raw = (body as { placements?: unknown }).placements;
+    if (!Array.isArray(raw)) return { status: 400, body: { error: 'body must be {"placements": [...]}' } };
+    if (raw.length > MAX_PLACEMENTS_PER_MOB) {
+      return { status: 400, body: { error: `at most ${MAX_PLACEMENTS_PER_MOB} rooms` } };
+    }
+
+    // Validated whole before anything is written, so an edit either lands or does not.
+    const rows: Placement[] = [];
+    for (const entry of raw as unknown[]) {
+      if (typeof entry !== 'object' || entry === null) {
+        return { status: 400, body: { error: 'each placement must be {"room": <id>, "limit": <count>}' } };
+      }
+      const row = entry as { room?: unknown; limit?: unknown };
+      if (typeof row.room !== 'number' || !Number.isInteger(row.room)) {
+        return { status: 400, body: { error: 'each placement needs an integer room id' } };
+      }
+      const located = this.deps.world.locate(row.room as RoomId);
+      if (!located) return { status: 404, body: { error: `no room ${row.room} in the loaded world` } };
+      // Named rather than merely refused: a zone with no population file has no reset table, so the
+      // command would have nowhere to live and would never fire. That is worth saying out loud.
+      // `repopIn` answers exactly the question that matters: a zone has a clock if and only if it has a
+      // reset table, so an undefined answer is a zone whose commands nothing would ever run.
+      const zone = this.deps.world.zoneOf(row.room as RoomId);
+      if (zone === undefined || this.deps.live.repopIn(zone as ZoneId) === undefined) {
+        return {
+          status: 400,
+          body: {
+            error:
+              `room ${row.room} is in a zone this server does not populate, so a placement there would ` +
+              `never fire. Add the zone to world.config.json first.`,
+          },
+        };
+      }
+      const limit = row.limit === undefined || row.limit === null ? 1 : row.limit;
+      if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > MAX_PLACEMENT_LIMIT) {
+        return { status: 400, body: { error: `limit must be a whole number from 1 to ${MAX_PLACEMENT_LIMIT}` } };
+      }
+      if (rows.some((already) => already.room === row.room)) {
+        // Two rows for one room would be two `M` commands sharing a global cap — the second could only
+        // ever be the one that finds the limit met. Refused rather than deduplicated, so nobody believes
+        // they placed two.
+        return { status: 400, body: { error: `room ${row.room} is listed twice — raise its limit instead` } };
+      }
+      rows.push({ room: row.room as RoomId, limit });
+    }
+
+    const applied = this.deps.live.placeMob(vnum, rows);
+    if (!applied) return { status: 404, body: { error: `no mob ${vnum} among the loaded templates` } };
+    if (this.deps.placementsFile) savePlacements(this.deps.live.placements(), this.deps.placementsFile);
+
+    this.audit('mob.place', { vnum, rooms: rows.map((row) => row.room) });
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        vnum,
+        placements: this.placementRows(vnum),
+        /** How many are standing right now. A placement lands on the **next repop**, not on this second. */
+        standing: this.deps.live.liveCountOf(vnum),
+      },
+    };
+  }
+
+  /** A vnum's placements, each with the room's own name — an id alone is not something to check work in. */
+  private placementRows(vnum: number): { room: number; limit: number; name: string; zone: number | undefined }[] {
+    return [...(this.deps.live.placements().get(vnum) ?? [])].map((row) => ({
+      room: row.room,
+      limit: row.limit,
+      // Named here because only this side has the world. The overlay stores the id — that is the join key
+      // and the only thing that should be persisted — but a list of bare numbers is one nobody can read.
+      name: this.deps.world.locate(row.room)?.room.name ?? `room ${row.room}`,
+      zone: this.deps.world.zoneOf(row.room),
+    }));
   }
 
   /** Persists the created-mob overlay, if this server was given somewhere to put it. */

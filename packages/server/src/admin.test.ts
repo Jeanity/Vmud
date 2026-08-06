@@ -33,6 +33,7 @@ import {
 import { AdminApi, type AdminDeps, type AdminRequest, type AnnounceScope, type LiveOps } from './admin.ts';
 import { applyItemOverride, loadItemOverrides, mergeItemOverride, type ItemOverrides } from './item-overrides.ts';
 import { draftAuthoredMob, type AuthoredMobStore } from './mob-authoring.ts';
+import { loadPlacements, type Placements } from './placements.ts';
 import { applyMobOverride, mergeMobOverride } from './mob-overrides.ts';
 import {
   draftAuthoredItem,
@@ -104,7 +105,7 @@ interface Rig {
   scopes: AnnounceScope[];
 }
 
-function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string; itemOverridesFile?: string; authoredRoomsFile?: string; mobOverridesFile?: string; authoredMobsFile?: string; noPopulation?: boolean; zone?: Zone; occupants?: { players: string[]; mobs: string[]; corpses: string[] }; resets?: Record<string, number> } = {}): Rig {
+function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string; itemOverridesFile?: string; authoredRoomsFile?: string; mobOverridesFile?: string; authoredMobsFile?: string; placementsFile?: string; noPopulation?: boolean; zone?: Zone; occupants?: { players: string[]; mobs: string[]; corpses: string[] }; resets?: Record<string, number> } = {}): Rig {
   const dir = mkdtempSync(join(tmpdir(), 'mygame-admin-'));
   const store = new PlayerStore({ dir });
   const world = new GameWorld([options.zone ?? testZone()], { zone: 600, room: null });
@@ -251,7 +252,9 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     kick: (player) => void calls.push(`kick ${player.name}`),
     // A3's two reads, answered with fixtures: what these tests check is that the router asks and
     // shapes the reply, not that the simulation can count bodies.
-    repopIn: (zone) => (zone === 600 ? 90_000 : undefined),
+    // A9c reads this as "does anything ever run this zone's reset table", which is what `noPopulation`
+    // means here: a zone the world has, with no clock behind it.
+    repopIn: (zone) => (zone === 600 && !options.noPopulation ? 90_000 : undefined),
     occupantsOf: () => options.occupants ?? { players: ['Ravi'], mobs: ['a sentry'], corpses: [] },
     // A8 slice 2. Recorded rather than simulated: what these tests check is that the router refuses,
     // orders and reports — whether a mob is actually gone is `sim`'s to prove, not the router's.
@@ -263,6 +266,17 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     // A4c. The overlay lives in the rig, so a test can assert what was written without a file.
     mobOverrides: () => mobLoot,
     liveCountOf: () => 3,
+    // A9c. A plain map, because the interesting half of placement is the router's validation — the
+    // merge into live reset tables is `index.ts`'s and is driven rather than unit-tested, exactly as the
+    // teleport and `giveItem` are.
+    placements: () => placed,
+    placeMob: (vnum, rows) => {
+      if (!mobRecords.has(vnum)) return undefined;
+      if (rows.length === 0) placed.delete(vnum);
+      else placed.set(vnum, [...rows]);
+      calls.push(`placeMob ${vnum} x${rows.length}`);
+      return placed.get(vnum) ?? [];
+    },
     // A9b. The rig runs the real store and the real validator, so a router test is also a test of the
     // record it wrote — a draft that lands wrong shows up as a bad template rather than as a call log
     // that looks right.
@@ -341,6 +355,9 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     [62, { vnum: 62, keywords: ['kobold', 'shaman'], name: '&+ya kobold shaman&N', room: 'A shaman mutters here.', level: 23, hp: '23d10+60', sprite: 'kobold', aggro: passiveRule(23), pursuit: noPursuit(), combat: readCombatStats({ level: 23, armour: 10, damage: '3d8' }), experience: 9000, wimpyAt: 138 }],
   ]);
   const pristineMobs = new Map<number, MobTemplate>();
+  // A9c: where each mob is authored to live. Empty to start, exactly as a fresh server's is.
+  const placed: Placements = new Map();
+
   // A9b: the created-mob store. Empty to start, exactly as a fresh server's is.
   const madeHere: AuthoredMobStore = { mobs: new Map(), next: AUTHORED_MOB_BASE };
 
@@ -363,6 +380,7 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     authoredRoomsFile: options.authoredRoomsFile,
     mobOverridesFile: options.mobOverridesFile,
     authoredMobsFile: options.authoredMobsFile,
+    placementsFile: options.placementsFile,
     itemOverridesFile: options.itemOverridesFile,
     facts: { protocol: 9, tickMs: 100, roundMs: 3000, startedAt: Date.now() },
   };
@@ -1784,6 +1802,117 @@ describe('editing a mob template', () => {
  * no harvest behind it, it gets a number the caller may not choose, that number is never handed out twice,
  * and it can be deleted where a Duris creature cannot.
  */
+/**
+ * A9c — where a creature lives.
+ *
+ * Owner's ask, 2026-08-06: *"the mob needs to be assigned a room in a zone and not just dropped by hand."*
+ * The router's half is validation, and every one of these tests is a way the operator could otherwise end
+ * up with a placement that looks saved and never fires.
+ */
+describe('placing a mob in a room', () => {
+  it('assigns rooms and names them back', () => {
+    const { api, calls } = makeRig();
+    const response = quietly(() => api.route(req('PUT', '/mobs/61/placements', { placements: [{ room: 6001, limit: 3 }] })));
+    assert.equal(response.status, 200);
+    const body = response.body as { placements: { room: number; limit: number; name: string; zone: number }[] };
+    assert.equal(body.placements.length, 1);
+    assert.equal(body.placements[0]?.limit, 3);
+    // Named on the way out, because a list of bare room ids is one nobody can check their own work in.
+    assert.equal(body.placements[0]?.name, 'A Mossy Hollow');
+    assert.equal(body.placements[0]?.zone, 600);
+    assert.ok(calls.includes('placeMob 61 x1'));
+  });
+
+  it('defaults the limit to one, which is what a placement usually means', () => {
+    const { api } = makeRig();
+    const body = quietly(() => api.route(req('PUT', '/mobs/61/placements', { placements: [{ room: 6001 }] }))).body as {
+      placements: { limit: number }[];
+    };
+    assert.equal(body.placements[0]?.limit, 1);
+  });
+
+  it('reads them back, with how many are standing right now', () => {
+    const { api } = makeRig();
+    quietly(() => api.route(req('PUT', '/mobs/61/placements', { placements: [{ room: 6001, limit: 2 }] })));
+    const body = api.route(req('GET', '/mobs/61/placements')).body as { placements: unknown[]; standing: number };
+    assert.equal(body.placements.length, 1);
+    // The number that makes "I placed it and nothing appeared" answerable: a placement lands on the next
+    // repop, not this second.
+    assert.equal(body.standing, 3);
+  });
+
+  it('unplaces on an empty list, the shape the loot route already uses', () => {
+    const { api } = makeRig();
+    quietly(() => api.route(req('PUT', '/mobs/61/placements', { placements: [{ room: 6001 }] })));
+    quietly(() => api.route(req('PUT', '/mobs/61/placements', { placements: [] })));
+    const body = api.route(req('GET', '/mobs/61/placements')).body as { placements: unknown[] };
+    assert.deepEqual(body.placements, []);
+  });
+
+  it('refuses a room the world does not have', () => {
+    const { api } = makeRig();
+    const response = api.route(req('PUT', '/mobs/61/placements', { placements: [{ room: 999_999 }] }));
+    assert.equal(response.status, 404);
+    assert.match((response.body as { error: string }).error, /no room 999999/);
+  });
+
+  it('refuses a room in a zone nothing repops, and says why', () => {
+    // The failure this exists to prevent: a reset filed in a table no clock runs, which looks saved and
+    // never fires — indistinguishable from the feature not working.
+    const { api } = makeRig({ noPopulation: true });
+    const response = api.route(req('PUT', '/mobs/61/placements', { placements: [{ room: 6001 }] }));
+    assert.equal(response.status, 400);
+    assert.match((response.body as { error: string }).error, /does not populate/);
+  });
+
+  it('refuses one room listed twice rather than quietly deduplicating it', () => {
+    // Two `M` commands for one room share a *global* cap, so the second could only ever be the one that
+    // finds the limit met. Refusing is what stops somebody believing they placed two.
+    const { api } = makeRig();
+    const response = api.route(req('PUT', '/mobs/61/placements', {
+      placements: [{ room: 6001 }, { room: 6001, limit: 2 }],
+    }));
+    assert.equal(response.status, 400);
+    assert.match((response.body as { error: string }).error, /listed twice/);
+  });
+
+  it('refuses a limit outside the band', () => {
+    const { api } = makeRig();
+    assert.equal(api.route(req('PUT', '/mobs/61/placements', { placements: [{ room: 6001, limit: 0 }] })).status, 400);
+    assert.equal(api.route(req('PUT', '/mobs/61/placements', { placements: [{ room: 6001, limit: 500 }] })).status, 400);
+  });
+
+  it('validates the whole list before writing any of it', () => {
+    const { api, calls } = makeRig();
+    api.route(req('PUT', '/mobs/61/placements', { placements: [{ room: 6001 }, { room: 999_999 }] }));
+    assert.equal(calls.filter((c) => c.startsWith('placeMob')).length, 0, 'nothing was written');
+  });
+
+  it('refuses a template this server has not loaded', () => {
+    const { api } = makeRig();
+    assert.equal(api.route(req('PUT', '/mobs/999999/placements', { placements: [] })).status, 404);
+  });
+
+  it('writes the overlay to disk', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mygame-a9c-'));
+    const placementsFile = join(dir, 'placements.json');
+    const { api } = makeRig({ placementsFile });
+    quietly(() => api.route(req('PUT', '/mobs/61/placements', { placements: [{ room: 6001, limit: 4 }] })));
+    const back = loadPlacements(placementsFile);
+    assert.deepEqual(back.get(61), [{ room: 6001, limit: 4 }]);
+  });
+
+  it('audits it, because it changes what the world will spawn', () => {
+    const auditDir = mkdtempSync(join(tmpdir(), 'mygame-a9c-audit-'));
+    const auditFile = join(auditDir, 'audit.jsonl');
+    const { api } = makeRig({ auditFile });
+    quietly(() => api.route(req('PUT', '/mobs/61/placements', { placements: [{ room: 6001 }] })));
+    const line = JSON.parse(readFileSync(auditFile, 'utf8').trim()) as { action: string; rooms: number[] };
+    assert.equal(line.action, 'mob.place');
+    assert.deepEqual(line.rooms, [6001]);
+  });
+});
+
 describe('making a mob', () => {
   const HOUND = {
     name: 'a bone hound',
