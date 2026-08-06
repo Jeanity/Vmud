@@ -220,9 +220,44 @@ Each slice is driveable on its own, and the first cannot break anything that exi
 2. **Being attacked teaches you too** — `dodge` and `parry`, notched on the defender (17 and 25 in the
    source). Both need a *defence roll* we do not have: our AC is passive, and dodge/parry are an active
    second gate. That is a combat change, not a skill change, and it wants its own slice.
-3. **`bash` and `kick`**, the first skills with verbs of their own. Cheaper than they look: the handoff
-   already notes that a knocked-down body stays down because `canMove` is the gate, so bash's
-   *consequence* is built and what is missing is the roll and the verb.
+3. **`bash` and `kick`**, the first skills with verbs of their own — **and the crux is not the verbs.**
+   Researched 2026-08-06 and written up here so it starts cold.
+
+   **What the source gives, transcribed.** Both are `CMD_Y(… STAT_NORMAL + POS_STANDING …)`: on your
+   feet, allowed mid-fight. `chance_kick` (`actoff.c`) is the **skill percentage itself**, scaled by
+   `BOUNDED(80, DEX, 125) / 100` — we have no ability scores, so the scaling is dropped and named as
+   dropped. Kick damage is `MAX(STR/2, martial_arts) + kick_skill`, then `number(dam/2, dam)`; bash's is
+   `MAX(1, dam)`, which says what bash is *for* — the knockdown, not the damage. **Bash sits the victim
+   down** (`SET_POS(victim, POS_SITTING + GET_STAT(victim))`) and lags them a round (`CharWait(victim,
+   PULSE_VIOLENCE)`), while the basher takes a `SKILL_BASH` self-affect for **two** rounds that blocks a
+   follow-up kick — *"you haven't reoriented yourself yet enough for another kick"*. Kick lags its user
+   `PULSE_VIOLENCE * 3/2 ± 1s`. **One quirk worth keeping**: the hit test is
+   `if (!notch_skill(...) && (chance < number(1,100) || …))`, so **a successful notch forces the blow to
+   land**. Learning something and landing it are the same event.
+
+   **Three of the four pieces already exist.** A knocked-down body stays down because `canMove` is the
+   gate (the handoff says so). "Lag" is `scheduler.cancel(id, 'swing')` plus a fresh `schedule` — exactly
+   what `engage` does to make an opening blow wait a round. And the notch is slice 1's, unchanged.
+
+   **The missing piece is a shared way to land a blow, and it is the whole slice.** Damage application,
+   the contribution ledger, the threat table and death are all *inside* `advanceCombat`'s swing loop:
+   `swing` clamps to `HP_DEAD_BELOW - 1`, the loop records the ledger and threat, and `deaths` is
+   collected for `resolveDeath`. An ability that applied damage itself would be a **second damage path** —
+   which is how a mob ends up dying without paying experience, or a bash that kills leaving no corpse. So
+   the first commit of this slice is extracting `landBlow(...)` from that loop and having the swing use
+   it, with **no behaviour change and the existing combat tests as the proof**. Then the abilities are
+   small.
+
+   **Phase 20 needs the same seam**, which is the argument for extracting it properly rather than
+   threading an ability through the loop: a spell that does damage is the same question with a different
+   verb, and `DESIGN-progression.md` §8's calibration is what both have to stay inside.
+
+   **One scale decision to take before writing damage.** Duris' numbers are on its own 1–100 skill scale
+   and ours are SRD: a kick doing `skill` damage would hit for 95 at mastery where a level-30 weapon swing
+   does about 25. The established conversion is `floor(learned / 10)` (`toHitFrom`, §5), so a kick of
+   `1d6 + floor(learned/10)` and a bash of `1d4 + floor(learned/10)` stay inside the band 14b calibrated —
+   but the number wants the same rounds-to-kill measurement §5 asked for, and the alternative worth
+   weighing is scaling off the character's own damage bonus instead.
 4. **`rescue`**, which needs a group — and now has one (Phase 18). Taking a blow meant for somebody
    else is a threat-table operation, and the threat table exists.
 5. **`swim`**, last, because it is not really a skill problem. Phase 16 made deep water a wall that says

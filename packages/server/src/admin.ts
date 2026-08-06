@@ -65,7 +65,9 @@ import {
   type MobOverrides,
 } from './mob-overrides.ts';
 import { draftAuthoredRoom, narrowsExtent, saveAuthoredRooms } from './room-authoring.ts';
-import { readDice, saveItemOverrides, type ItemOverride, type ItemOverrides } from './item-overrides.ts';
+import {
+  MAX_AUTHORED_LIGHT_RADIUS,
+  readAuthoredLight, readDice, saveItemOverrides, type ItemOverride, type ItemOverrides } from './item-overrides.ts';
 import type { AuthoredItems, ItemDraft } from './item-authoring.ts';
 import { seenTileCount, slugify, type PlayerStore, type StoredSummary } from './players.ts';
 import type { WorldSettings } from './settings.ts';
@@ -431,7 +433,7 @@ const ROOM_PATCH_KEYS = new Set(['name', 'description', 'sector', 'flags', 'by',
  */
 // A7b adds `art`. It sits with the content fields rather than the refused behaviour ones because
 // choosing a sword's picture changes nothing about what the sword does.
-const ITEM_PATCH_KEYS = new Set(['name', 'keywords', 'ac', 'damage', 'cost', 'art', 'by']);
+const ITEM_PATCH_KEYS = new Set(['name', 'keywords', 'ac', 'damage', 'cost', 'art', 'light', 'by']);
 const ITEM_NAME_MAX = 120;
 const ITEM_KEYWORD_MAX = 30;
 const ITEM_AC_MAX = 50;
@@ -966,6 +968,7 @@ export class AdminApi {
       damage?: Dice;
       cost?: number;
       art?: string;
+      light?: { readonly radius: number; readonly durationMs?: number };
       by?: string;
     } = {};
     const cleared: string[] = [];
@@ -1030,6 +1033,29 @@ export class AdminApi {
           body: { error: `no such art: ${String(patch.art)}. GET /art lists what is indexed, or null to clear it` },
         };
       } else next.art = patch.art;
+    }
+    if (patch.light !== undefined) {
+      // A6c. `null` puts the light out — which for an item the *harvest* lit means restoring the harvest,
+      // and for one only the overlay lit means it stops being a light at all. Both fall out of the overlay
+      // being a patch over a pristine template rather than a copy of one.
+      if (patch.light === null) cleared.push('light');
+      else {
+        const light = readAuthoredLight(patch.light);
+        if (!light) {
+          // Named rather than merely refused, the rule the art error above follows: the caller sent
+          // *something*, and "invalid light" would not say which half of it was wrong.
+          return {
+            status: 400,
+            body: {
+              error:
+                'light must be {radius, durationMs?} with a numeric radius, or null to clear it. ' +
+                `radius is clamped to 1-${MAX_AUTHORED_LIGHT_RADIUS} (every light reaches as far as a torch — ` +
+                'duration is what separates a candle from a lantern), and an absent durationMs means it never goes out',
+            },
+          };
+        }
+        next.light = light;
+      }
     }
     if (patch.by !== undefined) {
       if (patch.by === null) cleared.push('by');
@@ -2483,6 +2509,9 @@ function itemRow(template: ItemTemplate): Record<string, unknown> {
     // belongs on the row: what the search shows is *which* of these have been given a picture, and a
     // row that could not say so made the picker's own work invisible the moment it was saved.
     ...(template.art ? { art: template.art } : {}),
+    // A6c. 64 of 16,421 entries emit light, so a row that carries one is saying something — and the
+    // editor needs it to show what is already there rather than making an author retype it.
+    ...(template.light ? { light: template.light } : {}),
     // Phase 16. Absent at average, which is two thirds of the catalogue — so a row that carries one
     // is saying something. **This is the reader that earns the field its place on the template**: the
     // bonus is already folded into `ac`, and without this nothing could answer "why is this steel

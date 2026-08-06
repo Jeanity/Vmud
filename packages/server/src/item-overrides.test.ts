@@ -16,7 +16,9 @@ import {
   applyItemOverride,
   itemAuthorsAnything,
   loadItemOverrides,
+  MAX_AUTHORED_LIGHT_RADIUS,
   mergeItemOverride,
+  readAuthoredLight,
   readDice,
   saveItemOverrides,
   type ItemOverrides,
@@ -115,5 +117,47 @@ describe('readDice', () => {
     for (const bad of ['2d6', { count: 0, sides: 6 }, { count: 2.5, sides: 6 }, { count: 2, sides: 6, bonus: 10_000 }, null]) {
       assert.equal(readDice(bad), undefined, JSON.stringify(bad));
     }
+  });
+});
+
+describe('authoring a light — A6c', () => {
+  it('clamps the radius to the shipped ladder rather than trusting a form', () => {
+    // The radius is not a free number: `light.ts` gives every light the same reach on purpose, so what
+    // separates a candle from a lantern is duration. A form that let somebody type 11 would be overriding
+    // a tuned relationship, and the server is the gate rather than the form.
+    assert.deepEqual(readAuthoredLight({ radius: 3 }), { radius: 3 });
+    assert.deepEqual(readAuthoredLight({ radius: 99 }), { radius: MAX_AUTHORED_LIGHT_RADIUS });
+    assert.deepEqual(readAuthoredLight({ radius: 0 }), { radius: 1 });
+    assert.deepEqual(readAuthoredLight({ radius: 2.6 }), { radius: 3 }, 'rounded, not truncated');
+  });
+
+  it('reads an absent or non-positive burn as unlimited, which is a state', () => {
+    // 32 of the harvested 64 never go out. A zero-duration light would gutter on the first tick, which
+    // nobody wants to author, so it means "no clock" rather than "no light".
+    assert.deepEqual(readAuthoredLight({ radius: 3 }), { radius: 3 });
+    assert.deepEqual(readAuthoredLight({ radius: 3, durationMs: 0 }), { radius: 3 });
+    assert.deepEqual(readAuthoredLight({ radius: 3, durationMs: -5 }), { radius: 3 });
+    assert.deepEqual(readAuthoredLight({ radius: 3, durationMs: 960_000 }), { radius: 3, durationMs: 960_000 });
+  });
+
+  it('refuses anything that is not a light at all', () => {
+    // These files are hand-editable, so every shape somebody might type has to resolve to nothing rather
+    // than to a light with a NaN radius.
+    assert.equal(readAuthoredLight(undefined), undefined);
+    assert.equal(readAuthoredLight(null), undefined);
+    assert.equal(readAuthoredLight({}), undefined);
+    assert.equal(readAuthoredLight({ radius: 'bright' }), undefined);
+    assert.equal(readAuthoredLight(3), undefined);
+  });
+
+  it('folds onto a template and can be cleared back to the harvest', () => {
+    const template: ItemTemplate = { ...SWORD, light: { radius: 3, durationMs: 240_000 } };
+    const lit = applyItemOverride(template, { light: { radius: 4 } });
+    assert.deepEqual(lit.light, { radius: 4 }, 'authored wins, and its absent burn means unlimited');
+
+    // Cleared, and the composition is always applied to the *pristine* template — so a clear restores the
+    // harvest's own light rather than whatever the last edit left.
+    const back = applyItemOverride(template, {});
+    assert.deepEqual(back.light, { radius: 3, durationMs: 240_000 });
   });
 });

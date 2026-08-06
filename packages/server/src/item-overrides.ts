@@ -53,6 +53,18 @@ export interface ItemOverride {
    * and `slot` is not. Choosing a sword's picture changes nothing about what the sword does.
    */
   readonly art?: string;
+  /**
+   * What this item is worth as a light — **A6c**, owner's ask 2026-08-06: *"some equipment will be light
+   * sources so that needs to be added to the item editor."*
+   *
+   * `radius` in tiles and `durationMs` for one that burns; **absent `durationMs` means it never goes
+   * out**, which is a state rather than a big number and is what 32 of the harvested 64 are.
+   *
+   * Authorable now because it finally *does* something anywhere: until the light redesign the same day, a
+   * light only lit you from a hand, so authoring a glowing helmet produced an item the game could not
+   * use — which is why this row waited for that one.
+   */
+  readonly light?: { readonly radius: number; readonly durationMs?: number };
   /** When it was last written, so the panel can say how stale an item's authoring is. */
   readonly at?: string;
   /** Who or what wrote it — the same provenance rule the room overlay records. */
@@ -122,6 +134,7 @@ export function loadItemOverrides(file = ITEMS_FILE): ItemOverrides {
       // Checked against the generated index, not merely for being a string: an art id with no sheet
       // behind it is a magenta box on somebody's body three systems away from this file.
       ...(typeof patch.art === 'string' && LPC_ART_BY_ID.has(patch.art) ? { art: patch.art } : {}),
+      ...(readAuthoredLight(patch.light) ? { light: readAuthoredLight(patch.light)! } : {}),
       ...(typeof patch.at === 'string' ? { at: patch.at } : {}),
       ...(typeof patch.by === 'string' ? { by: patch.by } : {}),
     };
@@ -154,7 +167,39 @@ export function applyItemOverride(template: ItemTemplate, override: ItemOverride
     ...(override.damage !== undefined ? { damage: override.damage } : {}),
     ...(override.cost !== undefined ? { cost: override.cost } : {}),
     ...(override.art !== undefined ? { art: override.art } : {}),
+    ...(override.light !== undefined ? { light: override.light } : {}),
   };
+}
+
+/**
+ * An authored light, sanitised — **A6c**.
+ *
+ * Three clamps, and each is a decision the project already took somewhere else:
+ *
+ * - **The radius is clamped to the shipped ladder**, because it is not a free number. `light.ts` gives
+ *   *every* light the same reach on purpose: Diku light is a boolean, so there is nothing to transcribe,
+ *   and `ROOM_GAP` makes 3 the distance at which a room's exits become findable — *"every light sees as
+ *   far as a torch and what separates a candle from a lantern is how long you keep it"*. An author typing
+ *   11 would be overriding a tuned relationship from a form, so the form does not let them; the four
+ *   catalogue radii are 1, 3 and 4, and the cap is {@link MAX_AUTHORED_LIGHT_RADIUS}.
+ * - **Duration is in milliseconds here and hours in the file it came from.** `light.ts` pinned one Duris
+ *   hour at ten seconds by making the two catalogues agree, so a form offering "hours" has to multiply.
+ *   This layer takes the resolved number and only checks it is a positive finite one.
+ * - **Absent means unlimited**, not zero. A zero-duration light would gutter on the first tick, which is
+ *   not a thing anybody wants to author, so a non-positive duration is read as *no clock at all*.
+ */
+export const MAX_AUTHORED_LIGHT_RADIUS = 4;
+
+export function readAuthoredLight(raw: unknown): { readonly radius: number; readonly durationMs?: number } | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const light = raw as { radius?: unknown; durationMs?: unknown };
+  if (typeof light.radius !== 'number' || !Number.isFinite(light.radius)) return undefined;
+  const radius = Math.min(MAX_AUTHORED_LIGHT_RADIUS, Math.max(1, Math.round(light.radius)));
+  const duration =
+    typeof light.durationMs === 'number' && Number.isFinite(light.durationMs) && light.durationMs > 0
+      ? Math.round(light.durationMs)
+      : undefined;
+  return { radius, ...(duration === undefined ? {} : { durationMs: duration }) };
 }
 
 /**

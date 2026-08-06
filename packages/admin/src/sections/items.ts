@@ -45,6 +45,8 @@ interface ItemRow {
   readonly ac: number;
   readonly size: number;
   readonly cost: number;
+  /** A6c: what it is worth as a light. Absent for the 16,357 entries that are not one. */
+  readonly light?: { readonly radius: number; readonly durationMs?: number };
   readonly damage?: string;
   readonly twoHanded?: boolean;
   readonly stackLimit?: number;
@@ -76,6 +78,8 @@ interface ItemBody {
     readonly cost: number;
     readonly damage?: { readonly count: number; readonly sides: number; readonly bonus: number };
     readonly art?: string;
+    /** A6c: what it is worth as a light, radius in tiles and the burn in milliseconds. */
+    readonly light?: { readonly radius: number; readonly durationMs?: number };
   };
   readonly authored: Record<string, unknown> | null;
   /** Present when there is no harvest under this item: a Delete rather than a Restore. */
@@ -258,6 +262,29 @@ export const itemsSection = {
       const dSides = el('input', { type: 'number', value: item.damage ? String(item.damage.sides) : '', placeholder: '—' }) as HTMLInputElement;
       const dBonus = el('input', { type: 'number', value: item.damage ? String(item.damage.bonus) : '', placeholder: '0' }) as HTMLInputElement;
 
+      // **A6c: a light, in two boxes.** Owner's ask (2026-08-06) once a light could come from any slot or
+      // the bag — before that the same fields would have authored an item the game could not use.
+      //
+      // The **radius is capped at 4** and the input says so, because it is not a free number: `light.ts`
+      // gives every light the same reach on purpose (Diku light is a boolean, and `ROOM_GAP` makes 3 the
+      // distance at which a room's exits become findable), so what separates a candle from a lantern is
+      // how long you keep it. The server clamps as well — a form is a convenience, never the gate.
+      //
+      // **Duration is typed in Duris' own hours**, because that is the unit the source's 64 lights are
+      // authored in and one hour is ten seconds of play (`light.ts` pinned that by making the two
+      // catalogues agree). Blank means **unlimited**, which is a state rather than a big number: 32 of
+      // the harvested lights never go out, and the placeholder says so rather than leaving it to be
+      // discovered.
+      const HOUR_MS = 10_000;
+      const litRadius = el('input', {
+        type: 'number', min: '1', max: '4', placeholder: '—',
+        value: item.light ? String(item.light.radius) : '',
+      }) as HTMLInputElement;
+      const litHours = el('input', {
+        type: 'number', min: '1', placeholder: 'never burns out',
+        value: item.light?.durationMs ? String(Math.round(item.light.durationMs / HOUR_MS)) : '',
+      }) as HTMLInputElement;
+
       // A7c. Offered on **every** item, harvested or created: `art` is content in the same sense the
       // name is — choosing a sword's picture changes nothing about what the sword does — which is why
       // `ITEM_PATCH_KEYS` has it beside `name` rather than among the refused behaviour fields. Opens
@@ -297,6 +324,17 @@ export const itemsSection = {
         // Emptying a box is how somebody starts retyping, not how they ask for nothing.
         if (ac.value.trim() && Number(ac.value) !== item.ac) patch.ac = Number(ac.value);
         if (cost.value.trim() && Number(cost.value) !== item.cost) patch.cost = Number(cost.value);
+
+        // A6c, and it follows the damage boxes' rule rather than the cost box's: a **blank radius** is how
+        // you say "not a light", because unlike a cost there is no sensible zero. So an emptied radius on
+        // something that *was* lit is a clear, and a blank one on something that never was says nothing.
+        if (litRadius.value.trim()) {
+          const hours = Number(litHours.value.trim() || 0);
+          const light = { radius: Number(litRadius.value), ...(hours > 0 ? { durationMs: hours * HOUR_MS } : {}) };
+          if (JSON.stringify(light) !== JSON.stringify(item.light ?? null)) patch.light = light;
+        } else if (item.light !== undefined) {
+          patch.light = null;
+        }
 
         const typedDice = dCount.value.trim() || dSides.value.trim();
         if (typedDice) {
@@ -433,6 +471,14 @@ export const itemsSection = {
         ...(madeHere
           ? [el('div', { class: 'row' }, el('label', {}, 'type'), type, el('label', {}, 'slot'), slot, el('label', {}, 'size'), size)]
           : []),
+        el(
+          'div',
+          { class: 'row' },
+          el('label', {}, 'light'), litRadius,
+          el('span', { class: 'muted' }, 'tiles, max 4'),
+          el('label', {}, 'burns'), litHours,
+          el('span', { class: 'muted' }, 'hours (blank = never)'),
+        ),
         el('div', { class: 'row' }, el('label', {}, 'art'), art.node),
         el('div', { class: 'row' }, save, madeHere ? destroy : revert, who, give, flash),
         el('p', { class: 'note' }, authoredNote),
