@@ -1236,6 +1236,14 @@ function restoreProgress(player: Player, record: PlayerRecord): void {
   }
 
   refitCombat(player);
+  // **And the light the restored kit is holding — found live 2026-08-06.** A character who logged out
+  // wielding a redwood torch logged back in at the bare radius of 2 with the torch still in their hand,
+  // and stayed there until they touched their kit. Phase 5b fixed this for a *finite* light by persisting
+  // its burn as an affect; an **unlimited** one has no affect to persist by design (`syncHeldLight`: *"one
+  // that never goes out is a standing fact about your equipment and needs no timer"*), so the only thing
+  // that can restore it is re-deriving it from the kit — which every other kit change already does
+  // through `afterKitChange`, and login was the one path that did not.
+  sim.syncHeldLight(player);
 }
 
 /**

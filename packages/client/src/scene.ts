@@ -1571,19 +1571,29 @@ export class WorldScene extends Phaser.Scene {
    * **Worn kit** arrives from Phase 14b: a rolled starting outfit, each piece with its own armour
    * value, which is why two level-1 characters are not the same character.
    *
-   * **A carried light overrides the main hand**, because `DESIGN-inventory.md` §6 says the
-   * carried-light field *is* an interim stand-in for "the best light among your equipped items" — and
-   * a torch is a hand item that costs you your weapon. Showing the light in the hand it occupies is
-   * the trade the design already makes; showing the dagger underneath it would be a lie about what
-   * the character is holding. Phase 15 collapses the two into one list and this special case goes.
+   * **A light no longer takes the main hand, and deleting that was overdue** — owner, 2026-08-06:
+   * *"move the ring of testing out my main hand; make it a light source like any other, it doesn't need
+   * to be held or worn."*
+   *
+   * 15a wrote the override and its own comment predicted this removal (*"Phase 15 collapses the two into
+   * one list and this special case goes"*). Phase 16 is what made it wrong rather than merely interim:
+   * light is now derived from what is actually in a light-bearing slot, so a torch you are holding **is**
+   * `equipped.mainHand` and the doll draws it from the kit unaided. What the override did after that was
+   * lie — a light that is *not* an equipped item (the dev ring, or a scattered pickup, both of which
+   * `syncHeldLight` deliberately leaves alone) painted itself into a hand holding a sword, and hid the
+   * sword.
+   *
+   * The useful half is kept: whichever slot holds the item the light *came from* is marked lit, matched
+   * on the id the wire already carries. So a torch still glows in the hand it occupies, and a light that
+   * occupies nothing glows nowhere — which is what it is. It has had its own HUD line since Phase 1.
    */
   private applyEquipment(light: CarriedLight | undefined, equipped: Equipped | undefined): void {
     const worn: Partial<Record<string, { readonly name: string; readonly lit?: boolean; readonly ac?: number }>> = {};
     for (const [slot, item] of Object.entries(equipped ?? {})) {
-      if (item) worn[slot] = { name: item.name, ac: item.ac };
+      // `lit` by identity rather than by slot: the id is what the server matched to derive the radius,
+      // so this cannot disagree with the light it is describing.
+      if (item) worn[slot] = { name: item.name, ac: item.ac, ...(light && item.id === light.id ? { lit: true } : {}) };
     }
-    // Last, so it takes the hand from whatever was in it.
-    if (light) worn.mainHand = { name: light.name, lit: true };
 
     for (const id of EQUIPMENT_SLOTS) {
       const cell = document.getElementById(`slot-${id}`);
@@ -2701,7 +2711,16 @@ export class WorldScene extends Phaser.Scene {
     this.lightHudKey = key;
 
     setText('hud-light-radius', radius);
-    setText('hud-light-source', source);
+    // **Painted, not assigned** — found while taking the light out of the main hand (2026-08-06): a
+    // wielded redwood torch read `&+ra redwo&+yod torc&+Yh&N` in the HUD while the paper doll three
+    // inches away rendered it correctly. An item's name is *authored text* and carries the MUD's own
+    // colour codes; V6 made every DOM surface paint them and this line was missed, because the six
+    // hand-authored lights `pickups.ts` scatters have no codes in them and the catalogue's 64 do.
+    const sourceCell = document.getElementById('hud-light-source');
+    if (sourceCell) {
+      if (light) paint(sourceCell, ` · ${light.name}`);
+      else sourceCell.textContent = '';
+    }
     setText('hud-light-remaining', clock);
 
     const element = document.getElementById('hud-light');
