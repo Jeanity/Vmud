@@ -40,6 +40,7 @@ import {
   AUTHORED_MOB_BASE,
   formatArtId,
   isKnownArt,
+  suggestColour,
   newAffect,
   parseArtId,
   parseDice,
@@ -62,7 +63,6 @@ import {
 // A subpath import, as `vision.ts` is in `players.ts`: the catalogue is not in the package barrel.
 import { LIGHT_SOURCES, lightSource, type LightSource } from '@mygame/shared/light.ts';
 
-import { suggestColour } from './artcolour.ts';
 import { askOnce, draftDescription, listModels, ollamaReachable } from './ollama.ts';
 import { saveRoomOverrides, type RoomOverride } from './overrides.ts';
 import { saveAuthoredMobs, type AuthoredMobStore, type MobDraft } from './mob-authoring.ts';

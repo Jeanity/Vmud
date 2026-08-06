@@ -27,6 +27,14 @@
  * (`belt-belly-brown`) that say nothing about the item. Here the colour word *is* the entire signal.
  * Same corpus, opposite question.
  *
+ * ## Where this lives, and why it moved
+ *
+ * It began in `server/src/` beside the admin route that calls it, and moved to `shared` when the bulk
+ * pass arrived: `worldgen` needs the same matcher to propose colours for a whole zone at once, and a
+ * worldgen script importing from the server would be a dependency the monorepo does not have and should
+ * not grow. Everything here is pure string logic over a closed vocabulary — no I/O, no Node API — which
+ * is exactly what `CLAUDE.md` says `shared` is for. The Ollama call stays on the server, where it belongs.
+ *
  * ## The model drafts and the human commits
  *
  * `DESIGN-admin-panel.md` §8's rule, which `ollama.ts` already keeps for room prose: this returns a
@@ -35,7 +43,7 @@
  * unreviewed colour on the world and, worse, make *not* keeping it the expensive path.
  */
 
-import { splitRamp } from '@mygame/shared';
+import { splitRamp } from './recolour.ts';
 
 /** Where a suggestion came from. Reported, because *the name said so* deserves more trust than a guess. */
 export type ColourSource = 'name' | 'model';
@@ -82,6 +90,19 @@ const SYNONYMS: Readonly<Record<string, string>> = {
   leathern: 'leather',
 };
 
+/**
+ * A word set with the synonyms folded in **as extras rather than replacements**, so *"a golden helm"*
+ * matches `gold` while *"a golden brown cloak"* can still reach `brown` if that is what the list has.
+ */
+function expand(words: readonly string[]): Set<string> {
+  const out = new Set(words);
+  for (const word of words) {
+    const synonym = SYNONYMS[word];
+    if (synonym) out.add(synonym);
+  }
+  return out;
+}
+
 /** The words a name offers, colour codes stripped. Unlike A7g's reader, **nothing is filtered out**. */
 export function colourWords(text: string): string[] {
   return text
@@ -107,30 +128,34 @@ export function rampFromName(
   keywords: readonly string[],
   ramps: readonly string[],
 ): { readonly ramp: string; readonly because: string } | undefined {
-  const words = new Set([...colourWords(name), ...keywords.flatMap((k) => colourWords(k))]);
-  // Synonyms are folded in as extra words rather than replacing the originals, so *"a golden helm"*
-  // matches `gold` while *"a golden brown cloak"* can still match `brown` if that is what the list has.
-  const wanted = new Set(words);
-  for (const word of words) {
-    const synonym = SYNONYMS[word];
-    if (synonym) wanted.add(synonym);
-  }
+  // **The display name is tried before the keywords, and a bulk run is what proved it necessary.**
+  // *"a silver-threaded satchel"* carries the keywords `[satchel, silver, threaded, leather]`, and with
+  // one pooled bag of words the ramp list's own order decided it — `cloth_ulpc.leather` sits early, so a
+  // satchel the builder called *silver* came out brown. The name is that builder's description of *this*
+  // item; keywords are search terms and routinely carry a material or a class word that describes what
+  // the thing is made of rather than what colour it is. So the name gets first refusal and the keywords
+  // are the fallback, which is what makes *"a large tar dipped torch"* still reach `oak` through its
+  // `wooden` keyword when its name offers nothing.
+  const fromName = expand(colourWords(name));
+  const fromEverything = expand([...colourWords(name), ...keywords.flatMap((k) => colourWords(k))]);
 
-  // **Compound names first, and the order is the whole subtlety.** `blue_violet` and `red_orange` are
-  // real ramps. Trying plain names first would give *"a blue violet robe"* plain `blue`, because *blue*
-  // matches and the search stops — so the more specific reading never gets a turn. Running compounds
-  // first cannot cost the plain case anything, since a compound needs **both** its halves present and
-  // *"a blue cloak"* has only one.
-  for (const ramp of ramps) {
-    const parts = splitRamp(ramp);
-    if (!parts || !parts.name.includes('_')) continue;
-    if (parts.name.split('_').every((half) => wanted.has(half))) {
-      return { ramp, because: parts.name.replace('_', ' ') };
+  for (const wanted of [fromName, fromEverything]) {
+    // **Compound names first within each pass**, and the order is the whole subtlety. `blue_violet` and
+    // `red_orange` are real ramps. Trying plain names first would give *"a blue violet robe"* plain
+    // `blue`, because *blue* matches and the search stops — so the more specific reading never gets a
+    // turn. Running compounds first cannot cost the plain case anything, since a compound needs **both**
+    // its halves present and *"a blue cloak"* has only one.
+    for (const ramp of ramps) {
+      const parts = splitRamp(ramp);
+      if (!parts || !parts.name.includes('_')) continue;
+      if (parts.name.split('_').every((half) => wanted.has(half))) {
+        return { ramp, because: parts.name.replace('_', ' ') };
+      }
     }
-  }
-  for (const ramp of ramps) {
-    const parts = splitRamp(ramp);
-    if (parts && wanted.has(parts.name)) return { ramp, because: parts.name };
+    for (const ramp of ramps) {
+      const parts = splitRamp(ramp);
+      if (parts && wanted.has(parts.name)) return { ramp, because: parts.name };
+    }
   }
   return undefined;
 }

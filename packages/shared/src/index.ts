@@ -16,6 +16,7 @@ export * from './attacks.ts';
 export * from './abilities.ts';
 export * from './defence.ts';
 export * from './recolour.ts';
+export * from './artcolour.ts';
 export * from './equipment.ts';
 export * from './items.ts';
 export * from './inventory.ts';

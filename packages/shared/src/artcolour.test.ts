@@ -70,6 +70,23 @@ describe('reading a colour out of the name', () => {
     assert.equal(rampFromName('a leather jerkin', [], RAMPS)?.ramp, 'cloth_ulpc.leather');
   });
 
+  it('lets the display name beat a keyword, which a bulk run proved necessary', () => {
+    // A real item: `["satchel", "silver", "threaded", "leather"]`. Pooled into one bag of words the ramp
+    // list's own order decided it and a satchel the builder called *silver* came out brown. The name is
+    // that builder's description of this item; keywords carry material words that describe what a thing
+    // is made of rather than what colour it is.
+    const ramps = ['cloth_ulpc.leather', 'cloth_ulpc.brown', 'all_lpcr.silver'];
+    const found = rampFromName('a silver-threaded satchel', ['satchel', 'silver', 'threaded', 'leather'], ramps);
+    assert.equal(found?.ramp, 'all_lpcr.silver');
+  });
+
+  it('still falls back to the keywords when the name offers nothing', () => {
+    // The other half of the same rule, and a real item too: *"a large tar dipped torch"* names no colour,
+    // so its `wooden` keyword is what reaches `oak`.
+    const found = rampFromName('a large tar dipped torch', ['torch', 'wooden', 'tar'], ['all_lpcr.oak', 'cloth_ulpc.red']);
+    assert.equal(found?.ramp, 'all_lpcr.oak');
+  });
+
   it('says nothing about a name with no colour in it', () => {
     assert.equal(rampFromName('a curious device', ['device'], RAMPS), undefined);
   });

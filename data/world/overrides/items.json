@@ -75,7 +75,7 @@
   },
   "41": {
     "art": "head-nose-big",
-    "at": "2026-08-06T11:22:59.761Z",
+    "at": "2026-08-06T12:46:21.431Z",
     "by": "artassign"
   },
   "43": {
@@ -189,9 +189,9 @@
     "by": "artassign"
   },
   "107": {
-    "art": "legs-leggings",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "legs-leggings#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "108": {
     "art": "cape-solid",
@@ -289,9 +289,9 @@
     "by": "artassign"
   },
   "188": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.cyan",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "189": {
     "art": "shield-heater-pattern-barry",
@@ -389,9 +389,9 @@
     "by": "artassign"
   },
   "215": {
-    "art": "torso-clothes-longsleeves",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeves#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "216": {
     "art": "torso-clothes-longsleeves",
@@ -749,9 +749,9 @@
     "by": "artassign"
   },
   "376": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "377": {
     "art": "backpack-basket-round",
@@ -779,9 +779,9 @@
     "by": "artassign"
   },
   "390": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "391": {
     "art": "shield-heater-pattern-barry",
@@ -804,14 +804,14 @@
     "by": "artassign"
   },
   "397": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.oak",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "398": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.oak",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "399": {
     "art": "shield-heater-pattern-barry",
@@ -1984,9 +1984,9 @@
     "by": "artassign"
   },
   "826": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "827": {
     "art": "shield-heater-pattern-barry",
@@ -3014,9 +3014,9 @@
     "by": "artassign"
   },
   "1400": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.shadow",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "1401": {
     "art": "weapon-blunt-flail-flail",
@@ -3034,9 +3034,9 @@
     "by": "artassign"
   },
   "1404": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.brown",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "1405": {
     "art": "arms-hands-ring-stud",
@@ -3049,9 +3049,9 @@
     "by": "artassign"
   },
   "1407": {
-    "art": "wrists-cuffs",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "wrists-cuffs#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "1408": {
     "art": "belt-belly-brown",
@@ -3094,19 +3094,19 @@
     "by": "artassign"
   },
   "1441": {
-    "art": "legs-armour",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "legs-armour#metal_ulpc.silver",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "1442": {
-    "art": "torso-clothes-longsleeves",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeves#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "1444": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "1451": {
     "art": "shield-crusader-crusader",
@@ -3368,9 +3368,9 @@
     "by": "artassign"
   },
   "1800": {
-    "art": "hat-headband-kerchief",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "hat-headband-kerchief#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "1801": {
     "art": "weapon-blunt-flail-flail",
@@ -3408,9 +3408,9 @@
     "by": "artassign"
   },
   "2005": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "2006": {
     "art": "shield-heater-pattern-barry",
@@ -3428,9 +3428,9 @@
     "by": "artassign"
   },
   "2009": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.white",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "2010": {
     "art": "shield-heater-pattern-barry",
@@ -3448,19 +3448,19 @@
     "by": "artassign"
   },
   "2020": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "2021": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "2023": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "2101": {
     "art": "shield-heater-pattern-barry",
@@ -4523,9 +4523,9 @@
     "by": "artassign"
   },
   "2805": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "2810": {
     "art": "shield-heater-pattern-barry",
@@ -4728,9 +4728,9 @@
     "by": "artassign"
   },
   "3036": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "3037": {
     "art": "shield-heater-pattern-barry",
@@ -4738,9 +4738,9 @@
     "by": "artassign"
   },
   "3038": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "3039": {
     "art": "shield-heater-pattern-barry",
@@ -4748,9 +4748,9 @@
     "by": "artassign"
   },
   "3040": {
-    "art": "torso-armour-plate",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "torso-armour-plate#metal_ulpc.steel",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "3041": {
     "art": "torso-clothes-longsleeve",
@@ -4778,9 +4778,9 @@
     "by": "artassign"
   },
   "3046": {
-    "art": "torso-armour-plate",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "torso-armour-plate#metal_ulpc.bronze",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "3050": {
     "art": "shield-heater-pattern-barry",
@@ -4828,14 +4828,14 @@
     "by": "artassign"
   },
   "3070": {
-    "art": "arms-gloves",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "arms-gloves#metal_ulpc.bronze",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "3071": {
-    "art": "arms-gloves",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "arms-gloves#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "3075": {
     "art": "hat-formal-tiara-tiara-bronze",
@@ -4853,9 +4853,9 @@
     "by": "artassign"
   },
   "3080": {
-    "art": "legs-leggings",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "legs-leggings#all_lpcr.bronze",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "3081": {
     "art": "legs-cuffed",
@@ -4863,9 +4863,9 @@
     "by": "artassign"
   },
   "3085": {
-    "art": "torso-clothes-longsleeves",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeves#all_lpcr.bronze",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "3090": {
     "art": "shield-heater-pattern-barry",
@@ -4873,9 +4873,9 @@
     "by": "artassign"
   },
   "3091": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.wine",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "3092": {
     "art": "shield-heater-pattern-barry",
@@ -4973,9 +4973,9 @@
     "by": "artassign"
   },
   "3234": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#metal_ulpc.bronze",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "3235": {
     "art": "shield-heater-pattern-barry",
@@ -5343,9 +5343,9 @@
     "by": "artassign"
   },
   "3703": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.oak",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "3704": {
     "art": "neck-scarf-black",
@@ -5363,9 +5363,9 @@
     "by": "artassign"
   },
   "3801": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.slate",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "3802": {
     "art": "shield-heater-pattern-barry",
@@ -5373,9 +5373,9 @@
     "by": "artassign"
   },
   "3803": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.coral",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "3804": {
     "art": "shield-heater-pattern-barry",
@@ -5403,9 +5403,9 @@
     "by": "artassign"
   },
   "3809": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "3810": {
     "art": "shield-heater-pattern-barry",
@@ -5413,9 +5413,9 @@
     "by": "artassign"
   },
   "3811": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "3812": {
     "art": "shield-heater-pattern-barry",
@@ -5433,9 +5433,9 @@
     "by": "artassign"
   },
   "3815": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "3816": {
     "art": "weapon-sword-arming-brass",
@@ -5443,9 +5443,9 @@
     "by": "artassign"
   },
   "3817": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "3821": {
     "art": "arms-hands-ring-stud",
@@ -5514,7 +5514,7 @@
   },
   "3835": {
     "art": "head-nose-big",
-    "at": "2026-08-06T11:22:59.762Z",
+    "at": "2026-08-06T12:46:21.430Z",
     "by": "artassign"
   },
   "3836": {
@@ -5548,9 +5548,9 @@
     "by": "artassign"
   },
   "4007": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.purple",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "4010": {
     "art": "tool-axe",
@@ -5563,14 +5563,14 @@
     "by": "artassign"
   },
   "4016": {
-    "art": "wrists-cuffs",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "wrists-cuffs#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "4017": {
-    "art": "wrists-cuffs",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "wrists-cuffs#all_lpcr.amber",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "4025": {
     "art": "wrists-cuffs",
@@ -5578,9 +5578,9 @@
     "by": "artassign"
   },
   "4026": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.white",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "4028": {
     "art": "torso-clothes-longsleeves",
@@ -5703,14 +5703,14 @@
     "by": "artassign"
   },
   "4405": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "4410": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "4415": {
     "art": "weapon-blunt-flail-flail",
@@ -5728,24 +5728,24 @@
     "by": "artassign"
   },
   "4435": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "4440": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "4445": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "4450": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "4455": {
     "art": "tool-hammer",
@@ -5773,9 +5773,9 @@
     "by": "artassign"
   },
   "4550": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "4560": {
     "art": "shield-heater-pattern-barry",
@@ -5793,24 +5793,24 @@
     "by": "artassign"
   },
   "4590": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "4600": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "4630": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.gray",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "4640": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "4655": {
     "art": "torso-clothes-longsleeve",
@@ -5823,9 +5823,9 @@
     "by": "artassign"
   },
   "4665": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "4791": {
     "art": "arms-hands-ring-stud",
@@ -5863,9 +5863,9 @@
     "by": "artassign"
   },
   "4809": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "4810": {
     "art": "shield-heater-pattern-barry",
@@ -5873,9 +5873,9 @@
     "by": "artassign"
   },
   "4811": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "4901": {
     "art": "weapon-blunt-flail-flail",
@@ -5953,24 +5953,24 @@
     "by": "artassign"
   },
   "5006": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "5007": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "5008": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "5009": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "5010": {
     "art": "shield-heater-pattern-barry",
@@ -6038,9 +6038,9 @@
     "by": "artassign"
   },
   "5024": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "5025": {
     "art": "shield-heater-pattern-barry",
@@ -6088,19 +6088,19 @@
     "by": "artassign"
   },
   "5034": {
-    "art": "torso-armour-plate",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "torso-armour-plate#metal_ulpc.gold",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "5036": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "5037": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "5038": {
     "art": "facial-earrings-emerald-blue",
@@ -6133,9 +6133,9 @@
     "by": "artassign"
   },
   "5053": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "5054": {
     "art": "arms-gloves",
@@ -6158,9 +6158,9 @@
     "by": "artassign"
   },
   "5058": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "5060": {
     "art": "tool-axe",
@@ -9363,9 +9363,9 @@
     "by": "artassign"
   },
   "9304": {
-    "art": "wrists-cuffs",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "wrists-cuffs#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "9305": {
     "art": "torso-clothes-robe-black",
@@ -9378,9 +9378,9 @@
     "by": "artassign"
   },
   "9308": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "9309": {
     "art": "wrists-cuffs",
@@ -9448,9 +9448,9 @@
     "by": "artassign"
   },
   "9326": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#metal_ulpc.iron",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "9327": {
     "art": "arms-gloves",
@@ -9468,9 +9468,9 @@
     "by": "artassign"
   },
   "9330": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "9331": {
     "art": "wrists-cuffs",
@@ -9493,14 +9493,14 @@
     "by": "artassign"
   },
   "9335": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#metal_ulpc.gold",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "9336": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "9337": {
     "art": "shield-heater-pattern-barry",
@@ -9583,9 +9583,9 @@
     "by": "artassign"
   },
   "9355": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "9356": {
     "art": "torso-clothes-robe-black",
@@ -9638,9 +9638,9 @@
     "by": "artassign"
   },
   "9368": {
-    "art": "wrists-cuffs",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "wrists-cuffs#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "9370": {
     "art": "weapon-sword-longsword-longsword",
@@ -9673,9 +9673,9 @@
     "by": "artassign"
   },
   "9376": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.pearl",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "9400": {
     "art": "weapon-sword-dagger-dagger",
@@ -10083,9 +10083,9 @@
     "by": "artassign"
   },
   "10323": {
-    "art": "torso-clothes-longsleeves",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeves#all_lpcr.bronze",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10325": {
     "art": "shield-heater-pattern-barry",
@@ -10153,9 +10153,9 @@
     "by": "artassign"
   },
   "10340": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "10341": {
     "art": "torso-aprons-apron-leather",
@@ -10183,9 +10183,9 @@
     "by": "artassign"
   },
   "10347": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10348": {
     "art": "torso-clothes-longsleeves",
@@ -10218,24 +10218,24 @@
     "by": "artassign"
   },
   "10354": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10355": {
-    "art": "torso-clothes-longsleeves",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeves#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10356": {
-    "art": "legs-cuffed",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "legs-cuffed#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10357": {
-    "art": "legs-skirt-belle",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "legs-skirt-belle#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10358": {
     "art": "arms-gloves",
@@ -10253,24 +10253,24 @@
     "by": "artassign"
   },
   "10361": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10363": {
-    "art": "legs-cuffed",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "legs-cuffed#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10364": {
-    "art": "legs-skirt-belle",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "legs-skirt-belle#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10365": {
-    "art": "arms-gloves",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "arms-gloves#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10366": {
     "art": "shield-crusader-crusader",
@@ -10293,9 +10293,9 @@
     "by": "artassign"
   },
   "10370": {
-    "art": "legs-cuffed",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "legs-cuffed#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10371": {
     "art": "legs-skirt-belle",
@@ -10323,9 +10323,9 @@
     "by": "artassign"
   },
   "10376": {
-    "art": "torso-clothes-longsleeves",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeves#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10377": {
     "art": "legs-cuffed",
@@ -10353,19 +10353,19 @@
     "by": "artassign"
   },
   "10382": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10383": {
-    "art": "torso-clothes-longsleeves",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeves#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10384": {
-    "art": "legs-cuffed",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "legs-cuffed#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10385": {
     "art": "legs-skirt-belle",
@@ -10373,9 +10373,9 @@
     "by": "artassign"
   },
   "10386": {
-    "art": "arms-gloves",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "arms-gloves#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10387": {
     "art": "shield-crusader-crusader",
@@ -10418,9 +10418,9 @@
     "by": "artassign"
   },
   "10395": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10396": {
     "art": "cape-solid",
@@ -10428,9 +10428,9 @@
     "by": "artassign"
   },
   "10397": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10398": {
     "art": "cape-solid",
@@ -10438,9 +10438,9 @@
     "by": "artassign"
   },
   "10399": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.762Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "10400": {
     "art": "weapon-sword-dagger-dagger",
@@ -11518,19 +11518,19 @@
     "by": "artassign"
   },
   "11538": {
-    "art": "torso-clothes-longsleeves",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeves#all_lpcr.bronze",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "11539": {
-    "art": "arms-gloves",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "arms-gloves#metal_ulpc.bronze",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "11540": {
-    "art": "legs-leggings",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "legs-leggings#all_lpcr.bronze",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "11541": {
     "art": "hat-formal-tiara-tiara-bronze",
@@ -11563,19 +11563,19 @@
     "by": "artassign"
   },
   "11550": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.wine",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "11551": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.wine",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "11552": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.wine",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "11556": {
     "art": "shield-heater-pattern-barry",
@@ -11588,14 +11588,14 @@
     "by": "artassign"
   },
   "11558": {
-    "art": "torso-armour-plate",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "torso-armour-plate#metal_ulpc.bronze",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "11559": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#metal_ulpc.bronze",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "11560": {
     "art": "shield-heater-pattern-barry",
@@ -11603,9 +11603,9 @@
     "by": "artassign"
   },
   "11562": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.gray",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "11563": {
     "art": "shield-heater-pattern-barry",
@@ -11628,14 +11628,14 @@
     "by": "artassign"
   },
   "11569": {
-    "art": "hat-headband-kerchief",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "hat-headband-kerchief#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "11570": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.oak",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "11571": {
     "art": "shield-heater-pattern-barry",
@@ -11863,14 +11863,14 @@
     "by": "artassign"
   },
   "12019": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.beige",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "12020": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.maroon",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "12021": {
     "art": "shield-heater-pattern-barry",
@@ -12063,9 +12063,9 @@
     "by": "artassign"
   },
   "12803": {
-    "art": "hat-helmet-close",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "hat-helmet-close#metal_ulpc.copper",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "12804": {
     "art": "torso-clothes-longsleeve",
@@ -12083,14 +12083,14 @@
     "by": "artassign"
   },
   "13002": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "13003": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "13004": {
     "art": "shield-heater-pattern-barry",
@@ -12118,9 +12118,9 @@
     "by": "artassign"
   },
   "13010": {
-    "art": "wrists-cuffs",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "wrists-cuffs#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "13011": {
     "art": "weapon-sword-dagger-dagger",
@@ -12213,9 +12213,9 @@
     "by": "artassign"
   },
   "13032": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "13033": {
     "art": "shield-heater-pattern-barry",
@@ -12248,9 +12248,9 @@
     "by": "artassign"
   },
   "13041": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.amber",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "13042": {
     "art": "shield-heater-pattern-barry",
@@ -12903,9 +12903,9 @@
     "by": "artassign"
   },
   "14008": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "14009": {
     "art": "cape-solid",
@@ -12913,9 +12913,9 @@
     "by": "artassign"
   },
   "14010": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.lavender",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "14016": {
     "art": "shield-heater-revised-wood",
@@ -12933,9 +12933,9 @@
     "by": "artassign"
   },
   "14019": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.amber",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "14020": {
     "art": "shield-heater-pattern-barry",
@@ -12958,9 +12958,9 @@
     "by": "artassign"
   },
   "14025": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "14026": {
     "art": "hat-formal-tiara-tiara-bronze",
@@ -12973,9 +12973,9 @@
     "by": "artassign"
   },
   "14028": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.walnut",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "14033": {
     "art": "belt-belly-brown",
@@ -12983,9 +12983,9 @@
     "by": "artassign"
   },
   "14034": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.white",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "14036": {
     "art": "arms-hands-ring-stud",
@@ -13018,9 +13018,9 @@
     "by": "artassign"
   },
   "14044": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "14045": {
     "art": "belt-belly-brown",
@@ -13043,9 +13043,9 @@
     "by": "artassign"
   },
   "14053": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "14054": {
     "art": "neck-amulet-cross-brass-blue",
@@ -13103,9 +13103,9 @@
     "by": "artassign"
   },
   "14070": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.forest",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "14071": {
     "art": "shield-heater-pattern-barry",
@@ -13123,9 +13123,9 @@
     "by": "artassign"
   },
   "14074": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "14075": {
     "art": "legs-leggings",
@@ -13163,9 +13163,9 @@
     "by": "artassign"
   },
   "14090": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.rose",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "14091": {
     "art": "hat-helmet-armet",
@@ -13178,9 +13178,9 @@
     "by": "artassign"
   },
   "14093": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.orange",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "14094": {
     "art": "shield-heater-pattern-barry",
@@ -13218,9 +13218,9 @@
     "by": "artassign"
   },
   "14101": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "14103": {
     "art": "weapon-magic-diamond-medium",
@@ -13918,9 +13918,9 @@
     "by": "artassign"
   },
   "14600": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.oak",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "14601": {
     "art": "shield-heater-pattern-barry",
@@ -13933,9 +13933,9 @@
     "by": "artassign"
   },
   "14604": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.white",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "14605": {
     "art": "belt-belly-brown",
@@ -14103,14 +14103,14 @@
     "by": "artassign"
   },
   "15100": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.indigo",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "15101": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.gray",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "15102": {
     "art": "shield-heater-pattern-barry",
@@ -14128,9 +14128,9 @@
     "by": "artassign"
   },
   "15105": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#all_lpcr.indigo",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "15106": {
     "art": "hat-helmet-close",
@@ -14143,9 +14143,9 @@
     "by": "artassign"
   },
   "15108": {
-    "art": "torso-clothes-longsleeve",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeve#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "15109": {
     "art": "hat-helmet-armet",
@@ -14153,14 +14153,14 @@
     "by": "artassign"
   },
   "15110": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "15111": {
-    "art": "torso-clothes-longsleeves",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeves#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "15112": {
     "art": "arms-hands-ring-stud",
@@ -14193,9 +14193,9 @@
     "by": "artassign"
   },
   "15118": {
-    "art": "legs-leggings",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "legs-leggings#all_lpcr.shadow",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "15120": {
     "art": "neck-amulet-cross-brass-blue",
@@ -14208,14 +14208,14 @@
     "by": "artassign"
   },
   "15122": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.gray",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "15125": {
-    "art": "hat-hood-cloth",
-    "at": "2026-08-06T11:22:59.763Z",
-    "by": "artassign"
+    "art": "hat-hood-cloth#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "15128": {
     "art": "tool-axe",
@@ -18263,9 +18263,9 @@
     "by": "artassign"
   },
   "19960": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "19970": {
     "art": "weapon-sword-longsword-longsword",
@@ -18273,9 +18273,9 @@
     "by": "artassign"
   },
   "19980": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.orange",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "19995": {
     "art": "hat-helmet-close",
@@ -20923,9 +20923,9 @@
     "by": "artassign"
   },
   "23402": {
-    "art": "hat-helmet-armet",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "hat-helmet-armet#metal_ulpc.steel",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "23403": {
     "art": "facial-earrings-emerald-blue",
@@ -20963,9 +20963,9 @@
     "by": "artassign"
   },
   "23411": {
-    "art": "torso-clothes-longsleeves",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeves#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "23412": {
     "art": "torso-clothes-longsleeves",
@@ -20973,9 +20973,9 @@
     "by": "artassign"
   },
   "23413": {
-    "art": "arms-gloves",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "arms-gloves#metal_ulpc.iron",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "23414": {
     "art": "wrists-cuffs",
@@ -20983,9 +20983,9 @@
     "by": "artassign"
   },
   "23415": {
-    "art": "arms-gloves",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "arms-gloves#metal_ulpc.iron",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "23416": {
     "art": "arms-gloves",
@@ -20993,9 +20993,9 @@
     "by": "artassign"
   },
   "23417": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#metal_ulpc.bronze",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "23418": {
     "art": "weapon-sword-longsword-longsword",
@@ -21323,19 +21323,19 @@
     "by": "artassign"
   },
   "25011": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "25012": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "25013": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.amethyst",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "25014": {
     "art": "shield-heater-pattern-barry",
@@ -21348,9 +21348,9 @@
     "by": "artassign"
   },
   "25016": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "25017": {
     "art": "weapon-blunt-flail-flail",
@@ -21383,9 +21383,9 @@
     "by": "artassign"
   },
   "25050": {
-    "art": "torso-clothes-longsleeve",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeve#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "25060": {
     "art": "belt-obi-black",
@@ -21403,9 +21403,9 @@
     "by": "artassign"
   },
   "25085": {
-    "art": "arms-gloves",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "arms-gloves#metal_ulpc.brass",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "25090": {
     "art": "weapon-sword-dagger-dagger",
@@ -21808,9 +21808,9 @@
     "by": "artassign"
   },
   "26002": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.swamp",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "26003": {
     "art": "hat-bandana",
@@ -21818,9 +21818,9 @@
     "by": "artassign"
   },
   "26004": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "26005": {
     "art": "shield-heater-pattern-barry",
@@ -21948,34 +21948,34 @@
     "by": "artassign"
   },
   "26219": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#cloth_ulpc.forest",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "26220": {
-    "art": "legs-leggings",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "legs-leggings#cloth_ulpc.forest",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "26221": {
-    "art": "torso-clothes-longsleeves",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeves#cloth_ulpc.forest",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "26222": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.white",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "26223": {
-    "art": "arms-gloves",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "arms-gloves#metal_ulpc.silver",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "26224": {
-    "art": "hat-helmet-armet",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "hat-helmet-armet#metal_ulpc.silver",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "26225": {
     "art": "belt-belly-brown",
@@ -22043,9 +22043,9 @@
     "by": "artassign"
   },
   "26409": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "26411": {
     "art": "shield-heater-pattern-barry",
@@ -22053,9 +22053,9 @@
     "by": "artassign"
   },
   "26412": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "26419": {
     "art": "shield-heater-pattern-barry",
@@ -22098,9 +22098,9 @@
     "by": "artassign"
   },
   "26427": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#metal_ulpc.gold",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "26429": {
     "art": "shield-heater-pattern-barry",
@@ -22138,9 +22138,9 @@
     "by": "artassign"
   },
   "26441": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.764Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.purple",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "26550": {
     "art": "shield-heater-pattern-barry",
@@ -25408,14 +25408,14 @@
     "by": "artassign"
   },
   "33309": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.purple",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "33310": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "33311": {
     "art": "shield-heater-pattern-barry",
@@ -25423,9 +25423,9 @@
     "by": "artassign"
   },
   "33312": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "33314": {
     "art": "belt-belly-brown",
@@ -25618,14 +25618,14 @@
     "by": "artassign"
   },
   "34020": {
-    "art": "legs-formal-striped",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "legs-formal-striped#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "34021": {
-    "art": "cape-tattered",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "cape-tattered#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "34022": {
     "art": "weapon-sword-arming-brass",
@@ -25643,9 +25643,9 @@
     "by": "artassign"
   },
   "34029": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.oak",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "34201": {
     "art": "torso-clothes-longsleeve",
@@ -25793,24 +25793,24 @@
     "by": "artassign"
   },
   "34402": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "34403": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "34404": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "34405": {
-    "art": "hat-hood-cloth",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "hat-hood-cloth#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "34407": {
     "art": "neck-gem-emerald-blue",
@@ -25828,9 +25828,9 @@
     "by": "artassign"
   },
   "34410": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "34414": {
     "art": "weapon-blunt-flail-flail",
@@ -25888,9 +25888,9 @@
     "by": "artassign"
   },
   "34465": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "34466": {
     "art": "torso-clothes-longsleeve",
@@ -25913,9 +25913,9 @@
     "by": "artassign"
   },
   "34471": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.ice",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "34472": {
     "art": "wrists-cuffs",
@@ -26173,9 +26173,9 @@
     "by": "artassign"
   },
   "35206": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "35207": {
     "art": "torso-clothes-longsleeve",
@@ -26203,9 +26203,9 @@
     "by": "artassign"
   },
   "35212": {
-    "art": "hat-helmet-armet",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "hat-helmet-armet#all_lpcr.white",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "35213": {
     "art": "neck-charm-box-steel",
@@ -26223,9 +26223,9 @@
     "by": "artassign"
   },
   "35225": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "35226": {
     "art": "backpack-black",
@@ -26263,9 +26263,9 @@
     "by": "artassign"
   },
   "35235": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "35236": {
     "art": "shield-crusader-crusader",
@@ -29668,9 +29668,9 @@
     "by": "artassign"
   },
   "40052": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "40056": {
     "art": "shield-heater-pattern-barry",
@@ -29688,9 +29688,9 @@
     "by": "artassign"
   },
   "40059": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "40060": {
     "art": "shield-heater-pattern-barry",
@@ -29728,14 +29728,14 @@
     "by": "artassign"
   },
   "40068": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "40069": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "40070": {
     "art": "shield-heater-pattern-barry",
@@ -29758,9 +29758,9 @@
     "by": "artassign"
   },
   "40074": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "cape-solid#all_lpcr.shadow",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "40075": {
     "art": "weapon-blunt-flail-flail",
@@ -29808,14 +29808,14 @@
     "by": "artassign"
   },
   "40208": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.apple",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "40209": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.765Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.orange",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "40211": {
     "art": "shield-heater-pattern-barry",
@@ -38368,14 +38368,14 @@
     "by": "artassign"
   },
   "66003": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "66004": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "66006": {
     "art": "hat-helmet-armet",
@@ -38453,9 +38453,9 @@
     "by": "artassign"
   },
   "66030": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "66031": {
     "art": "shield-heater-pattern-barry",
@@ -38513,19 +38513,19 @@
     "by": "artassign"
   },
   "66042": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "66043": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "66044": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.amethyst",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "66045": {
     "art": "shield-heater-pattern-barry",
@@ -38608,14 +38608,14 @@
     "by": "artassign"
   },
   "66061": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.yellow",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "66062": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#metal_ulpc.silver",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "66063": {
     "art": "facial-earrings-emerald-blue",
@@ -38623,9 +38623,9 @@
     "by": "artassign"
   },
   "66064": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#metal_ulpc.silver",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "66065": {
     "art": "facial-earrings-emerald-blue",
@@ -39608,9 +39608,9 @@
     "by": "artassign"
   },
   "67241": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.ice",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "67242": {
     "art": "weapon-magic-diamond-medium",
@@ -40538,9 +40538,9 @@
     "by": "artassign"
   },
   "70033": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70034": {
     "art": "backpack-basket-round",
@@ -40548,9 +40548,9 @@
     "by": "artassign"
   },
   "70035": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.oak",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70036": {
     "art": "shield-heater-pattern-barry",
@@ -40558,9 +40558,9 @@
     "by": "artassign"
   },
   "70037": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.oak",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70038": {
     "art": "shield-heater-pattern-barry",
@@ -40588,14 +40588,14 @@
     "by": "artassign"
   },
   "70043": {
-    "art": "legs-cuffed",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "legs-cuffed#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70044": {
-    "art": "torso-clothes-longsleeve",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeve#cloth_ulpc.yellow",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70045": {
     "art": "weapon-sword-dagger-dagger",
@@ -40613,9 +40613,9 @@
     "by": "artassign"
   },
   "70048": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70049": {
     "art": "shield-heater-pattern-barry",
@@ -40643,14 +40643,14 @@
     "by": "artassign"
   },
   "70054": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.brown",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70055": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#metal_ulpc.brass",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70057": {
     "art": "shield-heater-pattern-barry",
@@ -40673,9 +40673,9 @@
     "by": "artassign"
   },
   "70061": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70062": {
     "art": "feet-slippers",
@@ -40758,9 +40758,9 @@
     "by": "artassign"
   },
   "70082": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#metal_ulpc.iron",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70083": {
     "art": "legs-leggings",
@@ -40768,9 +40768,9 @@
     "by": "artassign"
   },
   "70084": {
-    "art": "torso-armour-plate",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "torso-armour-plate#metal_ulpc.steel",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70085": {
     "art": "torso-clothes-longsleeves",
@@ -40778,14 +40778,14 @@
     "by": "artassign"
   },
   "70086": {
-    "art": "hat-helmet-close",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "hat-helmet-close#metal_ulpc.iron",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70087": {
-    "art": "arms-gloves",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-gloves#metal_ulpc.steel",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70089": {
     "art": "shield-heater-pattern-barry",
@@ -41333,34 +41333,34 @@
     "by": "artassign"
   },
   "70901": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70902": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70903": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.yellow",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70904": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70905": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70906": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.gray",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70907": {
     "art": "shield-heater-pattern-barry",
@@ -41513,9 +41513,9 @@
     "by": "artassign"
   },
   "70937": {
-    "art": "arms-gloves",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-gloves#metal_ulpc.steel",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70938": {
     "art": "neck-necklace-beaded-large-steel",
@@ -41523,9 +41523,9 @@
     "by": "artassign"
   },
   "70939": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70940": {
     "art": "shield-heater-pattern-barry",
@@ -41708,9 +41708,9 @@
     "by": "artassign"
   },
   "70977": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70978": {
     "art": "weapon-sword-arming-brass",
@@ -41728,9 +41728,9 @@
     "by": "artassign"
   },
   "70981": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "70983": {
     "art": "shield-heater-pattern-barry",
@@ -42033,9 +42033,9 @@
     "by": "artassign"
   },
   "74000": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74001": {
     "art": "shield-heater-pattern-barry",
@@ -42133,14 +42133,14 @@
     "by": "artassign"
   },
   "74024": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74025": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74026": {
     "art": "shield-heater-pattern-barry",
@@ -42163,9 +42163,9 @@
     "by": "artassign"
   },
   "74030": {
-    "art": "hat-hood-cloth",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "hat-hood-cloth#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74031": {
     "art": "tool-axe",
@@ -42173,9 +42173,9 @@
     "by": "artassign"
   },
   "74032": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#all_lpcr.royal",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74033": {
     "art": "belt-belly-brown",
@@ -42258,24 +42258,24 @@
     "by": "artassign"
   },
   "74054": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74055": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74057": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74059": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74062": {
     "art": "weapon-blunt-flail-flail",
@@ -42328,14 +42328,14 @@
     "by": "artassign"
   },
   "74078": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74079": {
-    "art": "arms-gloves",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-gloves#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74080": {
     "art": "facial-earrings-emerald-blue",
@@ -42363,34 +42363,34 @@
     "by": "artassign"
   },
   "74085": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74086": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.purple",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74087": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74088": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.purple",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74089": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74090": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74091": {
     "art": "weapon-blunt-flail-flail",
@@ -42403,9 +42403,9 @@
     "by": "artassign"
   },
   "74093": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74094": {
     "art": "neck-charm-box-steel",
@@ -42433,9 +42433,9 @@
     "by": "artassign"
   },
   "74099": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#metal_ulpc.gold",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74100": {
     "art": "arms-hands-ring-stud",
@@ -42448,19 +42448,19 @@
     "by": "artassign"
   },
   "74102": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74103": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#metal_ulpc.silver",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74104": {
-    "art": "wrists-cuffs",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "wrists-cuffs#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74105": {
     "art": "arms-hands-ring-stud",
@@ -42468,24 +42468,24 @@
     "by": "artassign"
   },
   "74106": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74107": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74108": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.gray",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74109": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74110": {
     "art": "arms-hands-ring-stud",
@@ -42528,19 +42528,19 @@
     "by": "artassign"
   },
   "74118": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74119": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#metal_ulpc.silver",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74120": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#metal_ulpc.gold",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74121": {
     "art": "arms-hands-ring-stud",
@@ -42548,9 +42548,9 @@
     "by": "artassign"
   },
   "74122": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#metal_ulpc.steel",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74123": {
     "art": "arms-hands-ring-stud",
@@ -42568,9 +42568,9 @@
     "by": "artassign"
   },
   "74126": {
-    "art": "hat-helmet-close",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "hat-helmet-close#metal_ulpc.steel",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74127": {
     "art": "hat-formal-tiara-tiara-bronze",
@@ -42613,9 +42613,9 @@
     "by": "artassign"
   },
   "74135": {
-    "art": "hat-bandana",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "hat-bandana#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74136": {
     "art": "hat-cap-leather-base",
@@ -42623,9 +42623,9 @@
     "by": "artassign"
   },
   "74137": {
-    "art": "hat-headband-kerchief",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "hat-headband-kerchief#cloth_ulpc.purple",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74138": {
     "art": "hat-cap-bonnie-black",
@@ -42638,9 +42638,9 @@
     "by": "artassign"
   },
   "74140": {
-    "art": "hat-hood-cloth",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "hat-hood-cloth#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74141": {
     "art": "hat-hood-cloth",
@@ -42663,9 +42663,9 @@
     "by": "artassign"
   },
   "74145": {
-    "art": "hat-hood-cloth",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "hat-hood-cloth#cloth_ulpc.purple",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74146": {
     "art": "hat-hood-cloth",
@@ -42763,19 +42763,19 @@
     "by": "artassign"
   },
   "74168": {
-    "art": "feet-armour",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "feet-armour#all_lpcr.brown",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74169": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74170": {
-    "art": "feet-armour",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "feet-armour#all_lpcr.oak",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74171": {
     "art": "feet-boots-basic",
@@ -42788,9 +42788,9 @@
     "by": "artassign"
   },
   "74173": {
-    "art": "legs-leggings",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "legs-leggings#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74174": {
     "art": "legs-leggings",
@@ -42853,9 +42853,9 @@
     "by": "artassign"
   },
   "74186": {
-    "art": "wrists-cuffs",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "wrists-cuffs#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74187": {
     "art": "wrists-cuffs",
@@ -42923,9 +42923,9 @@
     "by": "artassign"
   },
   "74201": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.brown",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74202": {
     "art": "hat-cap-leather-base",
@@ -42933,14 +42933,14 @@
     "by": "artassign"
   },
   "74203": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.oak",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74204": {
-    "art": "feet-sandals",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "feet-sandals#cloth_ulpc.forest",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74205": {
     "art": "shield-heater-pattern-barry",
@@ -42958,9 +42958,9 @@
     "by": "artassign"
   },
   "74208": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.purple",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74209": {
     "art": "shield-heater-pattern-barry",
@@ -42973,29 +42973,29 @@
     "by": "artassign"
   },
   "74211": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74212": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74213": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.purple",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74214": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.brown",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74215": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.purple",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74216": {
     "art": "shield-heater-pattern-barry",
@@ -43068,9 +43068,9 @@
     "by": "artassign"
   },
   "74230": {
-    "art": "wrists-cuffs",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "wrists-cuffs#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74231": {
     "art": "head-nose-big",
@@ -43083,9 +43083,9 @@
     "by": "artassign"
   },
   "74233": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.forest",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74235": {
     "art": "shield-heater-pattern-barry",
@@ -43103,9 +43103,9 @@
     "by": "artassign"
   },
   "74239": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74240": {
     "art": "shield-heater-pattern-barry",
@@ -43113,9 +43113,9 @@
     "by": "artassign"
   },
   "74241": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74242": {
     "art": "shield-heater-pattern-barry",
@@ -43133,14 +43133,14 @@
     "by": "artassign"
   },
   "74245": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.gray",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74246": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.pink",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74248": {
     "art": "shield-heater-pattern-barry",
@@ -43148,9 +43148,9 @@
     "by": "artassign"
   },
   "74249": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74250": {
     "art": "shield-heater-pattern-barry",
@@ -43173,9 +43173,9 @@
     "by": "artassign"
   },
   "74254": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74255": {
     "art": "shield-heater-pattern-barry",
@@ -43188,9 +43188,9 @@
     "by": "artassign"
   },
   "74257": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74258": {
     "art": "shield-heater-pattern-barry",
@@ -43228,24 +43228,24 @@
     "by": "artassign"
   },
   "74265": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.gray",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74266": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74267": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74268": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74269": {
     "art": "shield-heater-pattern-barry",
@@ -43253,9 +43253,9 @@
     "by": "artassign"
   },
   "74270": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74271": {
     "art": "shield-heater-pattern-barry",
@@ -43288,9 +43288,9 @@
     "by": "artassign"
   },
   "74277": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74278": {
     "art": "arms-gloves",
@@ -43328,9 +43328,9 @@
     "by": "artassign"
   },
   "74286": {
-    "art": "hat-helmet-armet",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "hat-helmet-armet#metal_ulpc.iron",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74287": {
     "art": "belt-leather-brown",
@@ -43358,9 +43358,9 @@
     "by": "artassign"
   },
   "74295": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "74298": {
     "art": "quiver-quiver",
@@ -43378,9 +43378,9 @@
     "by": "artassign"
   },
   "75003": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "75004": {
     "art": "feet-boots-basic",
@@ -43408,9 +43408,9 @@
     "by": "artassign"
   },
   "75009": {
-    "art": "arms-bracers",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "arms-bracers#metal_ulpc.iron",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "75010": {
     "art": "shield-heater-pattern-barry",
@@ -43433,9 +43433,9 @@
     "by": "artassign"
   },
   "75014": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "75015": {
     "art": "weapon-polearm-spear-medium",
@@ -45883,9 +45883,9 @@
     "by": "artassign"
   },
   "78455": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.768Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "78456": {
     "art": "shield-heater-pattern-barry",
@@ -52542,9 +52542,9 @@
     "by": "artassign"
   },
   "88806": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.wine",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "88807": {
     "art": "neck-charm-box-steel",
@@ -52562,9 +52562,9 @@
     "by": "artassign"
   },
   "88810": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.white",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "88811": {
     "art": "neck-charm-box-steel",
@@ -52577,9 +52577,9 @@
     "by": "artassign"
   },
   "88813": {
-    "art": "hat-bandana",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "hat-bandana#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "88814": {
     "art": "weapon-blunt-flail-flail",
@@ -52602,9 +52602,9 @@
     "by": "artassign"
   },
   "88818": {
-    "art": "arms-gloves",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "arms-gloves#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "88819": {
     "art": "shield-heater-pattern-barry",
@@ -52637,9 +52637,9 @@
     "by": "artassign"
   },
   "88829": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.pink",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "88831": {
     "art": "shield-heater-pattern-barry",
@@ -53487,9 +53487,9 @@
     "by": "artassign"
   },
   "90003": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "90006": {
     "art": "neck-charm-box-steel",
@@ -53512,14 +53512,14 @@
     "by": "artassign"
   },
   "90017": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.white",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "90018": {
-    "art": "torso-clothes-longsleeve",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeve#cloth_ulpc.white",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "90019": {
     "art": "neck-necklace-beaded-large-steel",
@@ -53532,9 +53532,9 @@
     "by": "artassign"
   },
   "90021": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#metal_ulpc.silver",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "90023": {
     "art": "shield-heater-pattern-barry",
@@ -53542,9 +53542,9 @@
     "by": "artassign"
   },
   "90024": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.oak",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "90027": {
     "art": "cape-solid",
@@ -53552,9 +53552,9 @@
     "by": "artassign"
   },
   "90029": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.yellow",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "90030": {
     "art": "hat-helmet-close",
@@ -53902,9 +53902,9 @@
     "by": "artassign"
   },
   "92001": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.oak",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "92005": {
     "art": "shield-heater-pattern-barry",
@@ -53937,9 +53937,9 @@
     "by": "artassign"
   },
   "92014": {
-    "art": "torso-armour-plate",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "torso-armour-plate#metal_ulpc.iron",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "92015": {
     "art": "neck-charm-box-steel",
@@ -53952,9 +53952,9 @@
     "by": "artassign"
   },
   "92017": {
-    "art": "legs-armour",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "legs-armour#all_lpcr.leather",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "92020": {
     "art": "weapon-sword-longsword-longsword",
@@ -54002,9 +54002,9 @@
     "by": "artassign"
   },
   "92033": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.white",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "92034": {
     "art": "weapon-sword-dagger-dagger",
@@ -54022,9 +54022,9 @@
     "by": "artassign"
   },
   "92040": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.oak",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "92041": {
     "art": "shield-heater-pattern-barry",
@@ -54052,9 +54052,9 @@
     "by": "artassign"
   },
   "92048": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.wine",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "92049": {
     "art": "shield-heater-pattern-barry",
@@ -54067,9 +54067,9 @@
     "by": "artassign"
   },
   "92051": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.brown",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "92053": {
     "art": "shield-heater-pattern-barry",
@@ -54267,9 +54267,9 @@
     "by": "artassign"
   },
   "92098": {
-    "art": "hat-helmet-armet",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "hat-helmet-armet#metal_ulpc.gold",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "92099": {
     "art": "legs-leggings",
@@ -54282,9 +54282,9 @@
     "by": "artassign"
   },
   "92101": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.purple",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "92102": {
     "art": "neck-charm-box-steel",
@@ -54307,9 +54307,9 @@
     "by": "artassign"
   },
   "92113": {
-    "art": "torso-clothes-longsleeves",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeves#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "92114": {
     "art": "torso-clothes-longsleeve",
@@ -54322,9 +54322,9 @@
     "by": "artassign"
   },
   "92116": {
-    "art": "torso-clothes-longsleeve",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeve#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "92117": {
     "art": "weapon-sword-dagger-dagger",
@@ -54352,9 +54352,9 @@
     "by": "artassign"
   },
   "92123": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.769Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.oak",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "92124": {
     "art": "weapon-blunt-flail-flail",
@@ -55777,9 +55777,9 @@
     "by": "artassign"
   },
   "96007": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.ice",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "96008": {
     "art": "neck-amulet-cross-brass-blue",
@@ -55822,9 +55822,9 @@
     "by": "artassign"
   },
   "96018": {
-    "art": "torso-clothes-longsleeve",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeve#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "96019": {
     "art": "arms-hands-ring-stud",
@@ -55837,9 +55837,9 @@
     "by": "artassign"
   },
   "96021": {
-    "art": "legs-leggings",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "legs-leggings#cloth_ulpc.white",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "96022": {
     "art": "cape-solid",
@@ -55907,9 +55907,9 @@
     "by": "artassign"
   },
   "96036": {
-    "art": "wrists-cuffs",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "wrists-cuffs#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "96037": {
     "art": "shield-crusader-crusader",
@@ -55952,9 +55952,9 @@
     "by": "artassign"
   },
   "96045": {
-    "art": "torso-clothes-longsleeves",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeves#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "96046": {
     "art": "wrists-cuffs",
@@ -55962,9 +55962,9 @@
     "by": "artassign"
   },
   "96047": {
-    "art": "arms-gloves",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "arms-gloves#metal_ulpc.copper",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "96049": {
     "art": "facial-earrings-emerald-blue",
@@ -56007,9 +56007,9 @@
     "by": "artassign"
   },
   "96060": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.ice",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "96061": {
     "art": "shield-heater-pattern-barry",
@@ -56077,9 +56077,9 @@
     "by": "artassign"
   },
   "96081": {
-    "art": "wrists-cuffs",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "wrists-cuffs#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "96403": {
     "art": "cape-solid",
@@ -56092,9 +56092,9 @@
     "by": "artassign"
   },
   "96405": {
-    "art": "feet-armour",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "feet-armour#metal_ulpc.copper",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "96406": {
     "art": "torso-jacket-collared-black",
@@ -56117,9 +56117,9 @@
     "by": "artassign"
   },
   "96410": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#metal_ulpc.gold",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "96411": {
     "art": "belt-leather-brown",
@@ -56137,14 +56137,14 @@
     "by": "artassign"
   },
   "96414": {
-    "art": "hat-helmet-armet",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "hat-helmet-armet#all_lpcr.red",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "96415": {
-    "art": "hat-helmet-armet",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "hat-helmet-armet#all_lpcr.black",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "96416": {
     "art": "wrists-cuffs",
@@ -56152,9 +56152,9 @@
     "by": "artassign"
   },
   "96420": {
-    "art": "torso-clothes-longsleeves",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeves#cloth_ulpc.purple",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "96422": {
     "art": "legs-cuffed",
@@ -56177,9 +56177,9 @@
     "by": "artassign"
   },
   "96430": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "96431": {
     "art": "shield-heater-pattern-barry",
@@ -56187,9 +56187,9 @@
     "by": "artassign"
   },
   "96432": {
-    "art": "arms-gloves",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "arms-gloves#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.431Z",
+    "by": "colourassign"
   },
   "96433": {
     "art": "cape-solid",
@@ -56437,9 +56437,9 @@
     "by": "artassign"
   },
   "97002": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97003": {
     "art": "shield-heater-pattern-barry",
@@ -56477,9 +56477,9 @@
     "by": "artassign"
   },
   "97010": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97011": {
     "art": "shield-heater-pattern-barry",
@@ -56497,9 +56497,9 @@
     "by": "artassign"
   },
   "97015": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97020": {
     "art": "cape-solid",
@@ -56515,9 +56515,9 @@
     "at": "2026-08-05T23:01:38.906Z"
   },
   "97024": {
-    "art": "torso-clothes-longsleeve",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeve#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97025": {
     "art": "neck-charm-box-steel",
@@ -56535,33 +56535,34 @@
     "by": "artassign"
   },
   "97032": {
-    "art": "torso-armour-plate",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "torso-armour-plate#all_lpcr.blue",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97033": {
-    "art": "arms-gloves",
-    "at": "2026-08-05T22:57:54.862Z"
+    "art": "arms-gloves#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97034": {
-    "art": "feet-boots-basic",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "feet-boots-basic#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97035": {
-    "art": "hat-bandana",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "hat-bandana#cloth_ulpc.white",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97036": {
-    "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "arms-hands-ring-stud#cloth_ulpc.purple",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97037": {
-    "art": "wrists-cuffs",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "wrists-cuffs#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97039": {
     "art": "dress-bodice-black",
@@ -56574,9 +56575,9 @@
     "by": "artassign"
   },
   "97041": {
-    "art": "hat-bandana",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "hat-bandana#cloth_ulpc.brown",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97042": {
     "art": "torso-clothes-longsleeve",
@@ -56584,9 +56585,9 @@
     "by": "artassign"
   },
   "97043": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.brown",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97044": {
     "art": "weapon-polearm-spear-medium",
@@ -56594,14 +56595,14 @@
     "by": "artassign"
   },
   "97045": {
-    "art": "feet-armour",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "feet-armour#all_lpcr.gray",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97046": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.brown",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97047": {
     "art": "torso-jacket-collared-black",
@@ -56629,9 +56630,9 @@
     "by": "artassign"
   },
   "97052": {
-    "art": "legs-armour",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "legs-armour#metal_ulpc.steel",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97053": {
     "art": "weapon-blunt-flail-flail",
@@ -56639,9 +56640,9 @@
     "by": "artassign"
   },
   "97055": {
-    "art": "torso-clothes-longsleeve",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeve#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97056": {
     "art": "neck-charm-box-steel",
@@ -56694,19 +56695,19 @@
     "by": "artassign"
   },
   "97071": {
-    "art": "legs-cuffed",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "legs-cuffed#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97072": {
-    "art": "torso-clothes-longsleeve",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeve#cloth_ulpc.white",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97073": {
-    "art": "legs-cuffed",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "legs-cuffed#cloth_ulpc.white",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97074": {
     "art": "torso-clothes-robe-black",
@@ -56719,14 +56720,14 @@
     "by": "artassign"
   },
   "97076": {
-    "art": "torso-clothes-longsleeve",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeve#cloth_ulpc.purple",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97077": {
-    "art": "legs-cuffed",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "legs-cuffed#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97078": {
     "art": "shield-heater-pattern-barry",
@@ -56734,14 +56735,14 @@
     "by": "artassign"
   },
   "97079": {
-    "art": "cape-solid",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "cape-solid#cloth_ulpc.yellow",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97080": {
-    "art": "legs-skirt-overskirt",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "legs-skirt-overskirt#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97081": {
     "art": "neck-charm-box-steel",
@@ -56749,9 +56750,9 @@
     "by": "artassign"
   },
   "97082": {
-    "art": "torso-clothes-longsleeve",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeve#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97083": {
     "art": "belt-obi-black",
@@ -56769,9 +56770,9 @@
     "by": "artassign"
   },
   "97086": {
-    "art": "feet-slippers",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "feet-slippers#cloth_ulpc.blue",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97090": {
     "art": "shield-crusader-crusader",
@@ -56784,9 +56785,9 @@
     "by": "artassign"
   },
   "97092": {
-    "art": "torso-clothes-longsleeve",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "torso-clothes-longsleeve#cloth_ulpc.black",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97093": {
     "art": "tool-axe",
@@ -56794,9 +56795,9 @@
     "by": "artassign"
   },
   "97094": {
-    "art": "feet-armour",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "feet-armour#all_lpcr.black",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97098": {
     "art": "shield-heater-pattern-barry",
@@ -56804,9 +56805,9 @@
     "by": "artassign"
   },
   "97108": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#all_lpcr.silver",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97112": {
     "art": "weapon-blunt-flail-flail",
@@ -56849,19 +56850,19 @@
     "by": "artassign"
   },
   "97125": {
-    "art": "wrists-cuffs",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "wrists-cuffs#cloth_ulpc.leather",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97127": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.red",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97128": {
-    "art": "shield-heater-pattern-barry",
-    "at": "2026-08-06T11:22:59.772Z",
-    "by": "artassign"
+    "art": "shield-heater-pattern-barry#cloth_ulpc.green",
+    "at": "2026-08-06T12:46:21.430Z",
+    "by": "colourassign"
   },
   "97137": {
     "art": "shield-heater-pattern-barry",

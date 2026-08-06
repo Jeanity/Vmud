@@ -17,7 +17,8 @@
     "test": "npm run test --workspaces --if-present",
     "worldgen": "node --disable-warning=ExperimentalWarning packages/worldgen/src/index.ts",
     "artgen": "node --disable-warning=ExperimentalWarning packages/worldgen/src/artgen.ts",
-    "artassign": "node --disable-warning=ExperimentalWarning packages/worldgen/src/artassign.ts"
+    "artassign": "node --disable-warning=ExperimentalWarning packages/worldgen/src/artassign.ts",
+    "colourassign": "node --disable-warning=ExperimentalWarning packages/worldgen/src/colourassign.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
