@@ -92,6 +92,14 @@ export interface DraftRequest {
   readonly nearby: readonly ProseSample[];
   /** Real descriptions from the same zone, verbatim. The style, shown. */
   readonly samples: readonly ProseSample[];
+  /**
+   * **A7f** — a prompt built by the caller, used verbatim in place of {@link buildPrompt}.
+   *
+   * Absent for room prose, which is what this type was written for. Present for a classification, where
+   * the scaffolding is not merely unnecessary but harmful: style samples and a *do not address the
+   * reader* rule around a question whose whole correct answer is one word.
+   */
+  readonly prompt?: string;
 }
 
 /**
@@ -294,6 +302,24 @@ export async function draftDescription(
   return { ok: true, description: second.text, model: request.model, ms: now() - started, retriedFor: broken };
 }
 
+/**
+ * One prompt, one answer, no prose rules — **A7f's door in.**
+ *
+ * `draftDescription` is built around room prose: it validates against `violations` and retries with the
+ * fault named. A classification has neither — there is one right shape of answer and it is *one word* —
+ * so it needs the transport and none of the ceremony. Sharing `generateOnce` means the timeout, the
+ * unreachable-Ollama message and the pass-through of Ollama's own error text are written once.
+ */
+export async function askOnce(
+  model: string,
+  prompt: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ ok: true; text: string } | DraftFailure> {
+  // `buildPrompt` is bypassed by handing the request a prompt that is already whole: the room-prose
+  // scaffolding would bury a one-word question in style samples and a "do not address the reader" rule.
+  return generateOnce({ model, brief: prompt, room: { name: '', sector: '', zone: '' }, nearby: [], samples: [], prompt }, fetchImpl);
+}
+
 /** One call to the model, with the failure modes an operator needs told apart. */
 async function generateOnce(
   request: DraftRequest,
@@ -304,7 +330,8 @@ async function generateOnce(
     response = await fetchImpl(`${OLLAMA_URL}/api/generate`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ model: request.model, prompt: buildPrompt(request), stream: false }),
+      // A whole prompt supplied by the caller wins over the room-prose scaffolding — see `askOnce`.
+      body: JSON.stringify({ model: request.model, prompt: request.prompt ?? buildPrompt(request), stream: false }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (err) {

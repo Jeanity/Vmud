@@ -1726,7 +1726,8 @@ order.
     client already reads pixels back off a loaded texture — that is what A7d's icon crop does. A ramp
     is also arguably part of *what the thing is*, so `cape-solid#red` in `wearing` would need no
     protocol change at all. Cheaper, and closer to what ULPC ships; decide it before writing code.
-  - **A7f — Ollama picks the ramp from a description.** Strictly after A7e: a model cannot draw, but
+  - **A7f — Ollama picks the ramp from a description** ✅ **done 2026-08-06.** Built with the model as the *fallback* rather than the first resort — see the handoff row. Original entry follows.
+  - ↳ *(original entry)* Strictly after A7e: a model cannot draw, but
     mapping *"a fiery red cloak"* onto one of two dozen ramp names is classification over a closed
     vocabulary, which is what a small local model is good at — and it is §8's rule again, **the model
     drafts and the human commits**. The prize beyond one item: every catalogue entry already carries

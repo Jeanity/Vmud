@@ -289,7 +289,7 @@ export const itemsSection = {
       // name is — choosing a sword's picture changes nothing about what the sword does — which is why
       // `ITEM_PATCH_KEYS` has it beside `name` rather than among the refused behaviour fields. Opens
       // on the item's own slot, so editing boots shows boots.
-      const art = artPicker({ value: item.art, slot: item.slot });
+      const art = artPicker({ value: item.art, slot: item.slot, vnum });
 
       // **Only a created item gets these.** On a harvested one `slot`, `type` and `size` come from the
       // source's own bits and the server refuses to author them — offering boxes the save would reject

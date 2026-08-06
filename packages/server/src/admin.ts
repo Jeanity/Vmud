@@ -38,8 +38,10 @@ import {
   SECTORS,
   UNLIMITED_DURATION,
   AUTHORED_MOB_BASE,
+  formatArtId,
   isKnownArt,
   newAffect,
+  parseArtId,
   parseDice,
   parseDirection,
   placeKey,
@@ -60,7 +62,8 @@ import {
 // A subpath import, as `vision.ts` is in `players.ts`: the catalogue is not in the package barrel.
 import { LIGHT_SOURCES, lightSource, type LightSource } from '@mygame/shared/light.ts';
 
-import { draftDescription, listModels, ollamaReachable } from './ollama.ts';
+import { suggestColour } from './artcolour.ts';
+import { askOnce, draftDescription, listModels, ollamaReachable } from './ollama.ts';
 import { saveRoomOverrides, type RoomOverride } from './overrides.ts';
 import { saveAuthoredMobs, type AuthoredMobStore, type MobDraft } from './mob-authoring.ts';
 import {
@@ -649,6 +652,12 @@ export class AdminApi {
     if (head === 'ollama' && parts.length === 1 && request.method === 'GET') return this.ollama();
     if (head === 'rooms' && slug !== undefined && action === 'describe' && parts.length === 3 && request.method === 'POST') {
       return this.describe(slug, request.body);
+    }
+    // A7f. On the async branch beside `describe`, because it may talk to Ollama — and for the same
+    // reason `ollama.ts` gives: a model is the least deterministic thing on the machine and must never
+    // sit on a path the tick can wait on.
+    if (head === 'items' && slug !== undefined && action === 'colour' && parts.length === 3 && request.method === 'POST') {
+      return this.suggestItemColour(slug, request.body);
     }
     return this.route(request);
   }
@@ -1598,6 +1607,78 @@ export class AdminApi {
    * drift between what an operator sees and what is actually sent — and so the same context the
    * editor already displays is the context the model gets.
    */
+  /**
+   * `POST /items/:vnum/colour` — **A7f**, a colour proposed from the item's own description.
+   *
+   * Owner's ask, 2026-08-05: *"it would be great if we can have ollama do the edits based on the
+   * description."* What a model can actually do here is pick one of a closed list of ramp names, which
+   * `artcolour.ts` explains — and it is asked **only when the item's own name does not already say**,
+   * which is the majority of the interesting cases and costs no round trip at all.
+   *
+   * **Suggests and writes nothing.** §8's rule, the same one room prose keeps: the answer lands in the
+   * picker's dropdown, and the ordinary `PATCH /items/:vnum` is what commits it. A model that saved
+   * would put unreviewed colour on the world and make *not* keeping it the expensive path.
+   *
+   * `model` is optional here where `describe` requires it — the deterministic half needs no model, so
+   * asking for one up front would make the cheap path impossible to reach with Ollama uninstalled.
+   */
+  private async suggestItemColour(slug: string, body: unknown): Promise<AdminResponse> {
+    const vnum = Number(slug);
+    if (!Number.isInteger(vnum)) return { status: 400, body: { error: `"${slug}" is not an item vnum` } };
+    const item = this.deps.items.get(vnum);
+    if (!item) return { status: 404, body: { error: `no item ${vnum} in the catalogue` } };
+    if (!item.art) {
+      return { status: 400, body: { error: 'give it art first — a colour is a ramp of the art it wears' } };
+    }
+    const entry = LPC_ART_BY_ID.get(parseArtId(item.art).id);
+    if (!entry?.recolours) {
+      return { status: 400, body: { error: `${item.art} cannot be recoloured — its sheet declares no palettes` } };
+    }
+
+    const model = typeof (body as { model?: unknown })?.model === 'string'
+      ? ((body as { model: string }).model).trim()
+      : undefined;
+    const suggestion = await suggestColour(
+      { name: item.name, keywords: item.keywords },
+      entry.recolours.ramps,
+      model
+        ? async (prompt) => {
+            const answer = await askOnce(model, prompt);
+            return answer.ok ? answer.text : undefined;
+          }
+        : undefined,
+    );
+
+    if (!suggestion) {
+      // 200 rather than 404: *nothing suggests itself* is a real answer about this item, not a failure
+      // of the route, and the panel says so rather than showing an error where a colour belongs.
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          ramp: null,
+          reason: model
+            ? 'neither the name nor the model matched a ramp this art offers'
+            : 'the name names no colour — pick a model to ask, or choose one by hand',
+        },
+      };
+    }
+
+    this.audit('item.colour', { vnum, ramp: suggestion.ramp, how: suggestion.how });
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        ramp: suggestion.ramp,
+        // **Which half answered**, because *the builder's own name said black* deserves more trust than
+        // a model's guess, and an operator reviewing a hundred of these wants to know which is which.
+        how: suggestion.how,
+        ...(suggestion.because ? { because: suggestion.because } : {}),
+        art: formatArtId(parseArtId(item.art).id, suggestion.ramp),
+      },
+    };
+  }
+
   private async describe(slug: string, body: unknown): Promise<AdminResponse> {
     const id = Number(slug);
     if (!Number.isInteger(id)) return { status: 400, body: { error: `"${slug}" is not a room id` } };

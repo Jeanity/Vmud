@@ -82,6 +82,30 @@ export interface ArtPickerOptions {
   readonly slot?: string | undefined;
   /** Raised on every change, including a clear. */
   readonly onPick?: (id: string | undefined) => void;
+  /** **A7f** — the item this picker is editing. Absent on the New-item form, which has no vnum yet. */
+  readonly vnum?: number;
+}
+
+/**
+ * The model to ask, if any is installed — **A7f**, looked up once per tab.
+ *
+ * **No dropdown, and that is the point.** The name-matching half needs no model at all and answers most
+ * items, so a model *chooser* beside the colour control would be a decision an operator has to make
+ * before finding out whether one is even needed. This asks the server what is installed the first time
+ * somebody presses Suggest, sends the first one, and sends nothing when Ollama is not running — which
+ * degrades to the deterministic half rather than to an error.
+ *
+ * A room-prose draft still has its own chooser, and rightly: which model writes your world's prose is a
+ * real choice. Which model picks between *red* and *maroon* is not.
+ */
+let modelLookup: Promise<{ model?: string }> | undefined;
+async function preferredModel(): Promise<{ model?: string }> {
+  modelLookup ??= (async () => {
+    const result = await call<{ models?: { name: string }[] }>('GET', '/ollama');
+    const first = result.body?.models?.[0]?.name;
+    return first ? { model: first } : {};
+  })();
+  return modelLookup;
 }
 
 /**
@@ -227,7 +251,49 @@ export function artPicker(options: ArtPickerOptions): ArtPicker {
       ramp = select.value || undefined;
       options.onPick?.(formatArtId(chosen!, ramp));
     });
-    rampRow.append(el('label', {}, 'colour'), select, el('span', { class: 'muted' }, `${entry.recolours.ramps.length} ramps`));
+    // **A7f: Suggest, beside the dropdown it fills in.** §8's rule made visible — it proposes into the
+    // control an operator was already looking at, so keeping the suggestion costs a Save and dropping it
+    // costs nothing at all. Offered only when the picker was given a vnum, because the server reads the
+    // item's own name to answer and a New-item form has no vnum to read.
+    const flash = el('span', { class: 'muted' }, `${entry.recolours.ramps.length} ramps`);
+    const suggest = el('button', { type: 'button' }, 'Suggest') as HTMLButtonElement;
+    suggest.addEventListener('click', () => {
+      void (async () => {
+        suggest.disabled = true;
+        flash.textContent = 'thinking…';
+        const answer = await call<{ ramp: string | null; how?: string; because?: string; reason?: string }>(
+          'POST',
+          `/items/${options.vnum}/colour`,
+          // The model is optional by design: the name is tried first and needs nothing installed, so a
+          // machine with no Ollama still gets the common case.
+          { ...(await preferredModel()) },
+        );
+        suggest.disabled = false;
+        if (!answer.ok || !answer.body) {
+          flash.textContent = answer.error ?? 'refused';
+          return;
+        }
+        if (!answer.body.ramp) {
+          flash.textContent = answer.body.reason ?? 'nothing suggested itself';
+          return;
+        }
+        select.value = answer.body.ramp;
+        ramp = answer.body.ramp;
+        options.onPick?.(formatArtId(chosen!, ramp));
+        // Says **which half answered**: the builder's own word deserves more trust than a model's guess,
+        // and somebody reviewing a run of these wants to tell them apart at a glance.
+        flash.textContent = answer.body.how === 'name'
+          ? `from the name: “${answer.body.because}”`
+          : 'suggested by the model — worth a look';
+      })();
+    });
+
+    rampRow.append(
+      el('label', {}, 'colour'),
+      select,
+      ...(options.vnum === undefined ? [] : [suggest]),
+      flash,
+    );
   };
 
   const paintGrid = (): void => {
