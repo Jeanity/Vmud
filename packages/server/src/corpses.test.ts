@@ -24,6 +24,7 @@ import {
 } from '@mygame/shared';
 
 import {
+  corpseAnswersTo,
   nearestLootable,
   CORPSE_DECAY_MS,
   CORPSE_WARN_MS,
@@ -329,5 +330,43 @@ describe('which body a loot means', () => {
 
   it('has nothing to say about an empty floor', () => {
     assert.equal(nearestLootable([], 0, 0), undefined);
+  });
+});
+
+/**
+ * The one rule every corpse verb names a body by. Shared from the day `get <thing> <corpse>` shipped,
+ * because two verbs disagreeing about which body a word means is a way to rob a protected one.
+ */
+describe('naming a body', () => {
+  const of = (name: string) => ({ of: name } as unknown as Corpse);
+
+  it('answers to the dead thing\u2019s own keywords', () => {
+    // `loot sentry` on "the corpse of a sentry", without the phrase being typed.
+    assert.ok(corpseAnswersTo(of('a sentry'), 'sentry'));
+  });
+
+  it('answers to a substring of its name', () => {
+    assert.ok(corpseAnswersTo(of('a kobold wet nurse'), 'kobold'));
+    assert.ok(corpseAnswersTo(of('a kobold wet nurse'), 'nurse'));
+  });
+
+  it('answers to the bare word "corpse"', () => {
+    // The case the name match alone cannot serve — `of` holds the dead thing's name and never the word
+    // "corpse" — and the one somebody standing over a single body actually types.
+    assert.ok(corpseAnswersTo(of('a sentry'), 'corpse'));
+  });
+
+  it('answers to nothing given, which is a bare `loot`', () => {
+    assert.ok(corpseAnswersTo(of('a sentry'), ''));
+    assert.ok(corpseAnswersTo(of('a sentry'), '   '));
+  });
+
+  it('does not answer to somebody else\u2019s name', () => {
+    assert.equal(corpseAnswersTo(of('a sentry'), 'kobold'), false);
+  });
+
+  it('does not care about case or stray spaces', () => {
+    // Every caller used to trim and lower its own copy — three chances for one to stop doing it.
+    assert.ok(corpseAnswersTo(of('a Sentry'), '  SENTRY '));
   });
 });

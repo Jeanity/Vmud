@@ -176,7 +176,6 @@ import {
   directionOf,
   findTarget,
   isName,
-  keywordsFromName,
   lookupCommand,
   newCommandBudget,
   parseTargetRef,
@@ -225,6 +224,7 @@ import {
   nearestLootable,
   lootCorpse,
   lootRefusal,
+  corpseAnswersTo,
   corpseName,
   makeCorpse,
   withinReach,
@@ -3890,7 +3890,12 @@ function runCommand(player: Player, line: string): void {
       // two are different acts against different stores that happen to share a verb — which is what
       // Diku does too (`do_get` branches on the argument count).
       const from = /^(.*?)\s+from\s+(.+)$/i.exec(rest.trim());
-      if (from) return getFromContainer(player, from[1]!, from[2]!);
+      if (from) return getFromSomething(player, from[1]!, from[2]!);
+      // `get axe corpse` — two words and no `from`, which is how Diku writes it and how a player's fingers
+      // will. Only read that way when the last word names something to take *from*, so `get long sword` on
+      // a floor holding one stays a pickup rather than becoming "there is no long in your sword".
+      const pair = /^(.*\S)\s+(\S+)$/.exec(rest.trim());
+      if (pair && namesSomethingToTakeFrom(player, pair[2]!)) return getFromSomething(player, pair[1]!, pair[2]!);
       return getFromGround(player, rest);
     }
     case 'put': return putInContainer(player, rest);
@@ -4015,12 +4020,9 @@ function lootByKeyword(player: Player, rest: string): void {
     });
     return;
   }
-  // Matched on the dead thing's own name, so `loot sentry` works on "the corpse of a sentry" without
-  // the player having to type the whole phrase. Same whole-word rule target resolution uses.
-  const wanted = rest.trim().toLowerCase();
-  const matching = wanted
-    ? here.filter((c) => keywordsFromName(c.of).some((k) => k === wanted) || c.of.toLowerCase().includes(wanted))
-    : here;
+  // `corpseAnswersTo` is the shared rule, so `loot sentry` and `get axe corpse` cannot disagree about
+  // which body a word means. An empty `rest` matches every one of them, which is a bare `loot`.
+  const matching = here.filter((c) => corpseAnswersTo(c, rest));
   // **Nearest unlooted first** — the owner's rule, and it applies to `loot sentry` as much as to a
   // bare `loot`: three dead guards on one floor are three bodies with the same name.
   const corpse = nearestLootable(matching, player.x, player.y);
@@ -4110,6 +4112,95 @@ function searchCorpse(player: Player, corpse: Corpse): void {
     });
   }
   actToRoom(player, 'room', (who) => `${who} searches ${corpseName(corpse)}.`);
+  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+  rememberProgress(player);
+  syncCorpseView(corpse);
+}
+
+/**
+ * `get <thing> <corpse>` — **one item off a body, and leave the rest.**
+ *
+ * Owner's ask, 2026-08-06: *"so it just gets the axe and leaves everything else — as a way to not overload
+ * your inventory."* It is the other half of the corpse listing that shipped an hour before it: you look at a
+ * body, see what is on it, and take the one thing you came for. Without it `loot` is all-or-nothing, and a
+ * twenty-slot bag turns a rich corpse into a problem rather than a reward.
+ *
+ * **Diku spells it this way, so it needs no new verb.** `do_get` takes `get <obj> <container>` where the
+ * container may be a corpse — `get axe corpse` and `get axe from corpse` both land here, through the same
+ * `from` split `get` already used for containers.
+ *
+ * ## Every refusal is `searchCorpse`'s, called rather than restated
+ *
+ * `lootRefusal` for whose body it is, and the reach test `lootByKeyword` applies around it — note that
+ * `lootRefusal` deliberately does *not* check distance, because it is pure and reach is the caller's. Two
+ * loot verbs with two ideas of whose corpse it is would be a way to rob a protected body by typing the
+ * longer command.
+ *
+ * ## Coin comes off as coin, even when it is asked for by name
+ *
+ * A money pile is an *item* in `contents` until something converts it, and `searchCorpse` converts it on
+ * the way past — `DESIGN-inventory.md` §8, so that a mob's four platinum cannot fill a bag slot. Naming it
+ * here has to do the same, or `get coins corpse` would be the one path in the game that carries money.
+ */
+function getFromCorpse(player: Player, wanted: string, corpse: Corpse): void {
+  const refusal = lootRefusal(corpse, player, settings.pvp);
+  if (refusal || !withinReach(corpse, player.x, player.y)) {
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text: refusal === 'someone-elses'
+        ? 'That is not yours to take — player corpses are protected while PvP is off.'
+        : refusal === 'gone'
+          ? 'That is not here.'
+          : `You are not close enough to ${corpseName(corpse)}. Step over to it.`,
+    });
+    return;
+  }
+  // You kneel to the body you are taking from, not the one you were last looking at.
+  faceToward(player, corpse.x, corpse.y);
+
+  const word = wanted.trim().toLowerCase();
+  // Matched on the item's own keywords, the rule `get` off the floor and out of a container both use, so
+  // `get axe corpse` works on "a chipped hand axe" without anybody typing the adjectives.
+  const at = corpse.contents.findIndex((item) => item.id === word || wordsFor(item).includes(word));
+  if (at === -1) {
+    send(player.id, { t: 'log', channel: 'error', text: `There is no ${wanted} on ${corpseName(corpse)}.` });
+    return;
+  }
+  const item = corpse.contents[at]!;
+
+  if (isMoney(templateOf(item)?.type)) {
+    const gained = templateOf(item)?.coins ?? {};
+    player.purse = addCoins(player.purse, gained);
+    corpse.contents.splice(at, 1);
+    send(player.id, {
+      t: 'log',
+      channel: 'system',
+      text: `You get &+Y${describePurse(gained)}&N from ${corpseName(corpse)}.`,
+    });
+  } else {
+    const result = carry(player.inventory, item);
+    if (!('stacks' in result)) {
+      send(player.id, {
+        t: 'log',
+        channel: 'error',
+        text: `You have no room for ${item.name} — ${result.free} slot${result.free === 1 ? '' : 's'} free.`,
+      });
+      return;
+    }
+    // **Off the body before it reaches the bag**, the ordering `getFromContainer` keeps and for the same
+    // reason: nothing between the two may leave one item in two places.
+    corpse.contents.splice(at, 1);
+    sim.setInventory(player, result);
+    send(player.id, { t: 'log', channel: 'system', text: `You get ${item.name} from ${corpseName(corpse)}.` });
+  }
+
+  // **Emptied, not searched.** `looted` drives the sprite and 15b's note is explicit that it means *empty* —
+  // so taking the last thing is what turns the pile into bones, while taking one of three leaves a pile,
+  // which is exactly what tells the next person along there is still something here.
+  if (corpse.contents.length === 0) corpse.looted = true;
+
+  actToRoom(player, 'room', (who) => `${who} takes ${item.name} from ${corpseName(corpse)}.`);
   send(player.id, { t: 'self', view: sim.selfViewOf(player) });
   rememberProgress(player);
   syncCorpseView(corpse);
@@ -4917,6 +5008,40 @@ function putInContainer(player: Player, rest: string): void {
 }
 
 /** `get <item> from <container>`: take something back out, of yours or of one lying here. */
+/**
+ * The corpse in the room a word names, if any — **nearest still worth searching**, `loot`'s own rule.
+ *
+ * Not filtered by reach, deliberately: a body across the floor still *is* what `get axe corpse` meant, and
+ * answering "step over to it" is worth more than falling through to the container path and saying you are
+ * carrying no corpse.
+ */
+function corpseNamed(player: Player, word: string): Corpse | undefined {
+  // A word has to be given here, unlike `loot`: this is the *second* term of `get axe <here>`, and an
+  // empty one meaning "any corpse" would make `get axe` alone start rifling bodies.
+  if (!word.trim()) return undefined;
+  const matching = corpsesIn(graveyard, player.roomId).filter((c) => corpseAnswersTo(c, word));
+  return nearestLootable(matching, player.x, player.y);
+}
+
+/**
+ * Whether a word names something a player could take *from* — a corpse or a container.
+ *
+ * Read before `get <a> <b>` is treated as the two-word form, so the ambiguity falls the safe way. Being
+ * wrong in the other direction costs more than a refusal does: it turns a perfectly good floor pickup into
+ * a player being told there is no "long" in their sword.
+ */
+function namesSomethingToTakeFrom(player: Player, word: string): boolean {
+  if (corpseNamed(player, word)) return true;
+  return resolveContainer(player, word).found === 'container';
+}
+
+/** Sends `get <thing> <where>` to the body or the container that `where` names. */
+function getFromSomething(player: Player, wanted: string, target: string): void {
+  const corpse = corpseNamed(player, target);
+  if (corpse) return getFromCorpse(player, wanted, corpse);
+  return getFromContainer(player, wanted, target);
+}
+
 function getFromContainer(player: Player, wanted: string, target: string): void {
   const lookup = resolveContainer(player, target);
   if (lookup.found !== 'container') {

@@ -30,6 +30,7 @@ import {
   type RoomId,
 } from '@mygame/shared';
 
+import { keywordsFromName } from './commands.ts';
 import type { Actor } from './sim.ts';
 
 /* -------------------------------------------------------------------------- */
@@ -289,6 +290,29 @@ export function corpsesIn(yard: Graveyard, roomId: RoomId): Corpse[] {
 /** Whether a character is standing close enough to reach one. Loot is a room action, so this is generous. */
 export function withinReach(corpse: Corpse, x: number, y: number): boolean {
   return Math.hypot(corpse.x - x, corpse.y - y) <= TILE_SIZE * 3;
+}
+
+/**
+ * Whether a word names this body — the one rule every corpse verb matches on.
+ *
+ * Shared rather than written per verb, because `loot sentry`, `get axe corpse` and anything after them
+ * disagreeing about which body a word means is a way to rob a corpse the other verb protects.
+ *
+ * **Three ways to name one, in widening order.** The dead thing's own keywords, so `loot sentry` works on
+ * *the corpse of a sentry* without the phrase being typed. A substring of its name, so `loot kobold`
+ * finds *a kobold wet nurse*. And the bare word **`corpse`**, which names any of them — what somebody
+ * standing over a single body actually types, and which the name match alone cannot answer, since `of`
+ * holds the dead thing's name and never the word "corpse".
+ *
+ * Takes the raw word and lowercases it here: every caller had trimmed and lowered its own copy, which is
+ * three chances for one of them to stop doing it.
+ */
+export function corpseAnswersTo(corpse: Corpse, word: string): boolean {
+  const wanted = word.trim().toLowerCase();
+  if (!wanted) return true;
+  if (wanted === 'corpse') return true;
+  if (keywordsFromName(corpse.of).some((k) => k === wanted)) return true;
+  return corpse.of.toLowerCase().includes(wanted);
 }
 
 /**
