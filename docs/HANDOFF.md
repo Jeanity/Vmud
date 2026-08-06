@@ -389,7 +389,41 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-### Start here — round 9 is closed, and Phase 18 with it (2026-08-06)
+### Start here — where the evening of 2026-08-06 left it
+
+**`main` at `abd3d90`, tree clean, 1,539 tests green** (854 server / 570 shared / 115 worldgen).
+
+**Read the combat regression row first.** Phase 19 slice 2 shipped earlier the same day with *every blow
+missing* — `swing` tested `rollDefence`'s wrapper instead of its `defended` field — and it survived a
+drive because the tally said `{miss: 40, parried: 1, dodged: 2, …}` and **nobody read past the two words
+they went looking for.** Fixed, with a test that runs the loop the way `index.ts` runs it. The reusable
+part is the habit, not the line: *when a drive shows what you went looking for, read the rest of it.*
+
+**What landed today, newest first.** The whole A7 art thread closed — **A7e** recolour (render-time, not
+staged), **A7f** colour from a description (name first, model only as fallback), **A7g** art for all
+13,248 slotted items, **A7h** colour for 361 items across 49 zones. Track A's mob work closed too —
+**A9** editing, **A9b** creating, **A9c** placing in a zone so a made creature repops and survives a
+restart. Plus `get <item> <corpse>`, and **Phase 19 slice 2** (dodge and parry).
+
+**Three things to pick from tomorrow, cheapest first.**
+
+1. **A7g quality, surfaced by A7h.** *"silver-plated leg plates"* correctly wears `legs-armour` (metal)
+   while *"arm plates"* wears `torso-clothes-longsleeves` (cloth). The colour pass reads as a review of
+   the art pass, and there are likely more like it — worth a sweep of the 8,077 fallback assignments
+   before trusting them. Cheap, and the panel is the tool.
+2. **A8d — a zone from nothing.** The largest remaining Track A piece; three cases A8's rules cannot
+   express, all written up in the roadmap entry.
+3. **Mob art.** The cheap half is done — `race` is now on all 1,503 templates and 289 of them stopped
+   saying *hit*. What is left needs **drawing**, not code: LPC ships no non-human body, so a kobold looks
+   like a man until somebody makes a kobold. See the reference-image and ComfyUI rows for the pipeline
+   that was designed but not built.
+
+**Machine note.** The Sett backup drive is **F:** now, not D: — a new internal HDD took that letter on
+2026-08-06 and both backup chains had to be repointed (`E:\ClaudeDen`, fixed and journalled). `MyGame`
+itself lives on **F:\MyGame**. Ollama's models are on F: too; `OLLAMA_MODELS` had to be repointed and
+now lists nine.
+
+### Before that — round 9 is closed, and Phase 18 with it (2026-08-06)
 
 **Grouping landed 2026-08-06**, so **Phase 18 is done** — 21 of 25 phases — and round 9 has all three
 of its slots: V5 the arrival cards, Phase 18 (following, then grouping), and A4c. See the table row for
