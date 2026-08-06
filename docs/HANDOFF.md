@@ -383,7 +383,28 @@ What is left of the phase is four slices, and the next one is not really a skill
 `parry` are notched on the **defender** in the source (17 and 25), and both need an *active defence roll*,
 where our AC is passive. That is a combat change with its own drive.
 
-**Three roadmap items were placed on 2026-08-06 and not built** (owner): **create a new zone from the
+**Three more were placed on 2026-08-06 and not built** (owner), and two of them are cheap:
+
+- **Looking at a corpse should list what can be taken from it.** A refinement, not a phase — the same
+  shape `loot`-targets-the-nearest was. Every piece exists: `Corpse.contents` since 15b, and 15c's
+  `look <container>` listing to copy. The one decision: it goes on **`look`**, a deliberate act aimed at
+  one body, and *not* on the entity feed — V2's target menu deliberately says *is a container* rather than
+  *what is in it*, and a corpse is the opposite case because a mob's kit **is** the reward. It must list
+  the **visible subset** from the first version, or the hidden-item work below changes what it promised.
+- **Hidden items you find by searching a corpse.** The source has all of it — `search` is a real command
+  (standing, refused in combat), `do_search` covers containers and corpses, hidden is `ITEM_SECRET`
+  (`BIT_13`), and the reveal is `find_chance`: `(INT + WIS + LUK) / 3 > number(1, 101)`. **That roll is
+  the blocker: there are no ability scores.** Either wait for them, or ship a flat placeholder chance and
+  swap the roll in — the owner's call. `ITEM_SECRET` is not harvested today.
+- **Attack verbs — V7, and the data landed the same day it was asked for.** *"You slash the kobold"*
+  rather than *"You hit"*. `attack_hit_text[]` is Diku's own eleven-type table and `get_weapon_msg` picks
+  from `value[0]` — the `weaponClass` Phase 19 harvested hours earlier — so the weapon half is a lookup
+  and a sentence with **no protocol change**. Six verbs: slash, pierce, crush, bludgeon, whip, hit. **Do
+  not merge it with Phase 19's grouping**: hammer and mace share one *skill* but split into crush and
+  bludgeon as *prose*, and a polearm is `reach` for skills and always slash here. The mob half wants one
+  more harvested field (`npc->attack_type`) or every clawed thing punches.
+
+**And three placed earlier the same day** (owner): **create a new zone from the
 panel** (A8d — it is A8's next question rather than a repeat: an authored zone id from a reserved base, a
 Place with no rooms and therefore no extent for the first room to be placed in, and `world.config.json`
 being deliberately *data*), **edit and create mobs** (A9 and A9b — the overlay A4c built for loot already
