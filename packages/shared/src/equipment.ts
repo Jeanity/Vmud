@@ -117,6 +117,20 @@ export interface Item {
    * restart, and an **authored** item (A6b) has no catalogue entry to look it up in at all.
    */
   readonly weaponClass?: number;
+  /**
+   * What this thing is worth as a light — radius in tiles, and the burn in milliseconds if it has one.
+   *
+   * **On the item since 2026-08-06, and it is what makes light cost nothing.** Owner's rule: *"light
+   * should come with no space, weight or slot cost"*, so a light lights you from wherever it is — a hand,
+   * a hat, or the bottom of your bag — and the bag does not charge bulk for it. Both of those need to be
+   * answerable *locally*: `stackSlots` is pure arithmetic in `shared` and cannot be handed a catalogue
+   * resolver, and `syncLight` has to look at the bag rather than at two slots.
+   *
+   * The same argument `twoHanded` and `weaponClass` make, one noun over: a lantern in a save file has to
+   * still be a lantern after a restart, and an **authored** item (A6b, and A6c's light editor) has no
+   * catalogue entry to look one up in.
+   */
+  readonly light?: { readonly radius: number; readonly durationMs?: number };
   /** What wearing it adds to accuracy and to damage — Duris' `APPLY_HITROLL` / `APPLY_DAMROLL`. */
   readonly hitroll?: number;
   readonly damroll?: number;
@@ -378,6 +392,18 @@ export function readItem(raw: unknown, slot?: EquipSlot): Item | undefined {
     // Phase 19, and the same rule again: without this line a sword reloaded from disk would train no
     // skill and lose its to-hit bonus, silently, and only for characters who had logged out.
     ...(typeof item.weaponClass === 'number' && item.weaponClass > 0 ? { weaponClass: item.weaponClass } : {}),
+    // Read back, or a lantern in a save file comes home as a stick. The radius is required and the burn
+    // is not: an unlimited light simply has none, which is 32 of the catalogue's 64.
+    ...(typeof (item.light as { radius?: unknown } | undefined)?.radius === 'number'
+      ? {
+          light: {
+            radius: (item.light as { radius: number }).radius,
+            ...(typeof (item.light as { durationMs?: unknown }).durationMs === 'number'
+              ? { durationMs: (item.light as { durationMs: number }).durationMs }
+              : {}),
+          },
+        }
+      : {}),
     // Read back for the reason `stackLimit` is: a persisted field with no line here is deleted at the
     // next login, and a sword that quietly lost its damroll would be a bug nobody could reproduce.
     ...(typeof item.hitroll === 'number' && item.hitroll !== 0 ? { hitroll: item.hitroll } : {}),

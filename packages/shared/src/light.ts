@@ -196,18 +196,18 @@ export const LIGHT_SOURCES: Readonly<Record<string, LightSource>> = {
 /* -------------------------------------------------------------------------- */
 
 /**
- * The slots a light has to be in before it lights you — **Duris' own rule, not ours.**
+ * **Removed 2026-08-06: light is no longer a property of your hands.**
  *
- * `handler.c:431` is the whole of it: `if (((i >= WIELD) && (i <= HOLD)) && (ch->equipment[i]->type
- * == ITEM_LIGHT) && ch->equipment[i]->value[2])`. A lantern in your bag lights nothing; a lantern in
- * your hand lights the room. That single line is what Phase 16 is transcribing, and it is why the
- * interim `carriedLight` — a field beside the inventory rather than a fact about it — had to go.
+ * This used to be `['mainHand', 'offHand']`, transcribing Duris' `handler.c:431` — *"a lantern in your bag
+ * lights nothing"*. The owner's rule replaces it: *"light should come with no space, weight or slot cost;
+ * they can light from the inventory."* So every slot and the whole bag are searched
+ * (`Simulation.carriedLightsOf`), and the constant is gone rather than left sitting there describing a
+ * rule nothing follows — which is how a reader ends up trusting it.
  *
- * Two slots rather than Duris' three, because `WIELD`, `HOLD` and the light position between them
- * collapse onto the two hands we model. A shield in the off hand therefore costs you your lantern,
- * which is the trade the rule exists to create.
+ * The measurement that made the old rule untenable anyway: of the 64 catalogue entries that emit light,
+ * **11 could never work** — five glowing earrings, a set of golden horseshoes, and five with no wear slot
+ * at all. The world already contained worn lights that lit nothing.
  */
-export const LIGHT_BEARING_SLOTS = ['mainHand', 'offHand'] as const;
 
 /**
  * A catalogue item turned into a light source, or nothing for anything that is not one.

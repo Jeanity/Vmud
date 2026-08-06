@@ -84,6 +84,16 @@ export function totalUses(stack: Stack): number | undefined {
  * that they become weightless doing it.
  */
 export function stackSlots(stack: Stack, limit: number): number {
+  // **A light costs no slots** — owner's rule, 2026-08-06: *"light should come with no space, weight or
+  // slot cost."* It is charged nothing rather than given a size of zero, because `size` is the item's own
+  // fact and a lantern is not weightless; what changed is that carrying light is no longer a trade.
+  //
+  // **This is a deliberate reversal of `DESIGN-inventory.md` §6**, which argued that light nobody has to
+  // hold is free light for ever. That argument was right while every room was pitch black. It is not any
+  // more: 95% of the world lights itself, so light is no longer a resource you ration — it is the key to
+  // the 5% that is dark, and the interesting question moved from *do I carry one* to *where is it dark*.
+  // §6 says so now rather than the opposite.
+  if (stack.item.light) return 0;
   const per = Math.max(1, limit);
   return Math.ceil(stack.count / per) * Math.max(1, stack.item.size);
 }

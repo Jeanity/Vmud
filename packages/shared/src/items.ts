@@ -538,6 +538,9 @@ export function instantiate(template: ItemTemplate): Item {
     // Phase 19: which skill this trains follows the object, not the catalogue — the same argument the
     // line above makes, and `readItem` reads it back for the same reason.
     ...(template.weaponClass === undefined ? {} : { weaponClass: template.weaponClass }),
+    // And what it is worth as a light. Copied down for the same reason, and it is what lets the bag and
+    // `syncLight` answer "is this a light" without a catalogue in hand — see `Item.light`.
+    ...(template.light === undefined ? {} : { light: template.light }),
     ...(template.hitroll ? { hitroll: template.hitroll } : {}),
     ...(template.damroll ? { damroll: template.damroll } : {}),
   };

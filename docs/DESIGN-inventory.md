@@ -160,34 +160,51 @@ The in-combat rule differs between the two and is transcribed rather than chosen
 `CMD_N` for wear at sitting and **`CMD_Y` for wield at prone**. Drawing a weapon is one motion you can
 manage flat on your back with something standing over you; buckling on a breastplate is not.
 
-### There is no light slot — light is a property of items
+### There is no light slot, and since 2026-08-06 there is no light *cost* either
 
-A dedicated light slot would be free light forever. Instead, **any equipped item may emit light**,
-and a character's radius is the best light among everything they have equipped.
+**This section used to say the opposite, and the reversal is the owner's — recorded here rather than
+quietly bypassed, because a design note nobody trusts is worse than none.**
 
-That makes light a *trade-off against combat capability*, which is the whole point:
+What it said: *"a dedicated light slot would be free light forever"*, so light lived in a **hand** and
+was a trade against combat capability — a torch cost you a weapon or a shield, and a glowing amulet was
+a power spike because it freed the hand. It gave light a second progression axis beyond reach: what it
+costs you to carry.
 
-| Source | Slot it costs | What you give up |
-| --- | --- | --- |
-| Torch, lantern | Main or off hand | A weapon, or a shield |
-| Glowing amulet | Neck | Whatever that neck slot held |
-| Glowing ring | Ring | A ring |
+What it says now (owner, 2026-08-06): **light costs nothing.** No hand, no slot, no bulk. A light lights
+you from wherever it is — worn, wielded, or at the bottom of your bag — and `stackSlots` charges nothing
+for it.
 
-The owner's framing: a glowing necklace replacing a lantern **frees a hand**, which opens up dual
-wielding or a shield. So a body-slot light is not merely a brighter light — it is a different class
-of item, and finding one is a real power spike even at the *same* radius.
+**Why the old argument stopped holding.** It was correct while *every room in the world was pitch
+black*: light was the resource that let you play at all, so making it free removed a real decision. That
+premise is gone. Natural room light (the same day) reads the `dark` flag Duris' builders set, and
+**2,283 of 46,508 rooms carry it — 4.9%**. So 95% of the world lights itself, and light is no longer
+something you ration to see: it is the **key to the 5% that is dark**. The interesting question moved
+from *do I carry a light* to *where is it dark*, which is a question about the world rather than about
+your inventory — and a better one, because the answer changes as you explore instead of once at level 1.
 
-This gives light a second progression axis beyond how far it reaches: **what it costs you to carry.**
-An early character chooses between seeing and fighting well; a later one stops having to. Body-slot
-lights should therefore be correspondingly rare, and a hand-slot light at a given radius should be
-much easier to come by than a neck-slot one at the same radius.
+**Two things the old rule was measurably costing us.** Of the 64 catalogue entries that emit light, the
+hands-only rule left **11 that could never work**: five glowing earrings, a set of golden horseshoes, and
+five with no wear slot at all. The world already contained worn lights that lit nothing, and a player
+finding a glowing earring learned that the game was broken rather than that they were lucky.
+
+**What survives from the old section, and it is the good half**: light is still a **property of an item**
+and never a slot on a character, and a character's radius is still the *best* light among everything they
+have. `bestLight()` is unchanged. What widened is only the set of candidates — every slot and the bag,
+containers included — and `LIGHT_BEARING_SLOTS` is deleted rather than left describing a rule nothing
+follows.
+
+**What is lost, honestly stated**: the progression axis. A brighter light is now the only kind of upgrade
+a light can be, where before a *cheaper* one was too. If that turns out to matter, the place to put the
+cost back is duration rather than slots — `light.ts` already makes duration the thing that separates a
+candle from a lantern, and every one of the harvested 64 has the same radius of 3.
 
 Consequences for the implementation:
 
 - Light is a **property on an item type**, not a slot on a character: `{ radius, mode, durationMs,
   expiresTo }` hanging off any equippable.
-- `bestLight()` gathers candidates from **every equipped item** and picks the best. It already takes
-  a candidate list rather than a single source, so this needs no change to its shape.
+- `bestLight()` gathers candidates from **every equipped item and everything in the bag** and picks the
+  best. It already takes a candidate list rather than a single source, so this needed no change to its
+  shape — only a wider walk feeding it (`Simulation.carriedLightsOf`).
 - The carried-light field being built right now is an interim stand-in for "the best light among your
   equipment". It should collapse into that when equipment lands, not survive alongside it.
 - Two-handed weapons implicitly forbid a hand-held light, which is a real and interesting cost that

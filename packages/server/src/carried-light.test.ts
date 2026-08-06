@@ -32,7 +32,7 @@ import {
   type TileGrid,
   type Zone,
 } from '@mygame/shared';
-import { makeRng } from '@mygame/shared';
+import { makeRng, slotsUsed } from '@mygame/shared';
 import { LIGHT_SOURCES, effectiveRadius, type LightSource } from '@mygame/shared/light.ts';
 import type { Item } from '@mygame/shared';
 import { DEFAULT_LIGHT_RADIUS } from '@mygame/shared/vision.ts';
@@ -468,13 +468,32 @@ function withCatalogue(): { sim: Simulation; player: Player } {
   return made;
 }
 
-const item = (id: string): Item => ({ id, name: HELD[id]!.name, slot: 'offHand', ac: 0, size: 1 });
+/**
+ * A carried light, with its light **on the item** — which is where it lives since 2026-08-06.
+ *
+ * The fixture used to leave it off and lean on `sim.lightOf`, modelling a world where only the catalogue
+ * knew what a light was. `instantiate` copies it down now, because the bag and the light scan both have to
+ * answer "is this a light" without a catalogue in hand.
+ */
+const item = (id: string, slot: Item['slot'] = 'offHand'): Item => {
+  const source = HELD[id]!;
+  return {
+    id,
+    name: source.name,
+    ...(slot ? { slot } : {}),
+    ac: 0,
+    size: 1,
+    light: { radius: source.radius, ...(source.durationMs === undefined ? {} : { durationMs: source.durationMs }) },
+  };
+};
 
-describe('a light in your hand — Phase 16', () => {
-  it('lights you from the hand and not from the bag, which is Duris’ own rule', () => {
-    // `handler.c:431` gates on the equipment slot being between WIELD and HOLD. A lantern you own is
-    // not a lantern you are holding, and before this the distinction did not exist: light was a field
-    // beside the inventory rather than a fact about it.
+describe('a light you are carrying — Phase 16, rewritten 2026-08-06', () => {
+  it('lights you from a hand, from any other slot, and from the bag', () => {
+    // **The reversal.** This test used to assert Duris' own rule — `handler.c:431` gates on the slot being
+    // between WIELD and HOLD, so *"a lantern in your bag lights nothing"* — and the owner replaced it:
+    // *"light should come with no space, weight or slot cost; they can light from the inventory."* The
+    // measurement that made the old rule untenable anyway is that 11 of the catalogue's 64 lights could
+    // never work under it, including five glowing earrings and a set of golden horseshoes.
     const { sim, player } = withCatalogue();
     assert.equal(player.lightRadius, DEFAULT_LIGHT_RADIUS);
 
@@ -483,10 +502,50 @@ describe('a light in your hand — Phase 16', () => {
     assert.equal(player.lightRadius, DEFAULT_LIGHT_RADIUS + 1, 'in the hand');
     assert.equal(player.light?.id, 'obj:399');
 
+    // An ear. This is the case the world already contained and could not express.
     delete player.equipped.offHand;
+    player.equipped.ear1 = item('obj:399', 'ear1');
     sim.syncHeldLight(player);
-    assert.equal(player.lightRadius, DEFAULT_LIGHT_RADIUS, 'and out of it');
+    assert.equal(player.lightRadius, DEFAULT_LIGHT_RADIUS + 1, 'a glowing earring lights you');
+
+    // And the bag, which is the half that reverses `DESIGN-inventory.md` §6.
+    delete player.equipped.ear1;
+    player.inventory = { ...player.inventory, stacks: [{ item: item('obj:399', undefined), count: 1 }] };
+    sim.syncHeldLight(player);
+    assert.equal(player.lightRadius, DEFAULT_LIGHT_RADIUS + 1, 'and so does one in the bag');
+
+    player.inventory = { ...player.inventory, stacks: [] };
+    sim.syncHeldLight(player);
+    assert.equal(player.lightRadius, DEFAULT_LIGHT_RADIUS, 'with nothing anywhere, the bare eye');
     assert.equal(player.light, undefined);
+  });
+
+  it('finds a light inside a container, because a lantern in a quiver is one you are carrying', () => {
+    const { sim, player } = withCatalogue();
+    const sack: Item = { id: 'obj:500', name: 'a sack', ac: 0, size: 2 };
+    player.inventory = {
+      ...player.inventory,
+      stacks: [
+        {
+          item: sack,
+          count: 1,
+          held: { rule: { capacity: 10, accepts: 'any' }, contents: [{ item: item('obj:2011', undefined), count: 1 }] },
+        },
+      ],
+    };
+    sim.syncHeldLight(player);
+    assert.equal(player.lightRadius, DEFAULT_LIGHT_RADIUS + 1, 'one level down still counts');
+  });
+
+  it('costs no slots, wherever it is', () => {
+    // The other half of the owner's rule: no space, no weight, no slot cost. A lantern is size 1 and
+    // charges nothing, so a bag of twenty lanterns is as empty as a bag of none.
+    const { player } = withCatalogue();
+    player.inventory = {
+      ...player.inventory,
+      stacks: [{ item: item('obj:399', undefined), count: 1 }, { item: item('obj:2011', undefined), count: 1 }],
+    };
+    assert.equal(slotsUsed(player.inventory), 0);
   });
 
   it('gives a finite light a burn clock and an unlimited one none', () => {

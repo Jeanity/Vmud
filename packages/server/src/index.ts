@@ -1213,6 +1213,10 @@ function restoreProgress(player: Player, record: PlayerRecord): void {
   if (record.equipped && Object.keys(record.equipped).length > 0) player.equipped = record.equipped;
   // And the bag. Restored unconditionally when present, *including an empty one*, because an empty bag
   // with a raised capacity is still a fact about the character — see `PlayerStore.save`.
+  // Assigned directly rather than through `sim.setInventory`, and it is the one place that is correct:
+  // `refitCombat` and `syncHeldLight` both run at the end of this function, so re-deriving here would do
+  // the same work twice on every login. A restored bag holding a lantern still lights the character —
+  // that is what the `syncHeldLight` call at the bottom is for.
   if (record.inventory) player.inventory = record.inventory;
   if (record.purse) player.purse = record.purse;
   // Phase 19. **Before the level is read below and before `refitCombat` at the end**, and both orders
@@ -1742,7 +1746,7 @@ function reapPlayer(player: Player): void {
   // Flattened: a stack of five arrows is five arrows on the body, not one entry.
   const carried = loose(player.inventory);
   const corpse = makeCorpse(graveyard, player, true, carried);
-  player.inventory = emptyInventory(player.inventory.capacity);
+  sim.setInventory(player, emptyInventory(player.inventory.capacity));
 
   const cost = applyDeathCost({ level: player.level, experience: player.experience, maxHp: player.maxHp });
   player.level = cost.level;
@@ -3918,7 +3922,7 @@ function searchCorpse(player: Player, corpse: Corpse): void {
   }
 
   const result = lootCorpse(corpse, player.inventory);
-  player.inventory = result.inventory;
+  sim.setInventory(player, result.inventory);
 
   for (const item of result.taken) {
     send(player.id, { t: 'log', channel: 'system', text: `You get ${item.name} from ${corpseName(corpse)}.` });
@@ -4356,7 +4360,7 @@ function pickUp(player: Player, id: EntityId): void {
   // bag, and an item that leaves the world is the one inventory bug you cannot apologise your way out
   // of.
   takeItem(ground, entry.id);
-  player.inventory = result;
+  sim.setInventory(player, result);
 
   faceToward(player, entry.x, entry.y);
   send(player.id, { t: 'log', channel: 'system', text: `You pick up ${entry.item.name}.` });
@@ -4494,7 +4498,7 @@ function setHeld(player: Player, index: number, held: Held): void {
   const stack = stacks[index];
   if (!stack) return;
   stacks[index] = { ...stack, held };
-  player.inventory = { stacks, capacity: player.inventory.capacity };
+  sim.setInventory(player, { stacks, capacity: player.inventory.capacity });
 }
 
 /**
@@ -4707,7 +4711,7 @@ function putInContainer(player: Player, rest: string): void {
     // do nothing rather than turning some innocent item into a sack.
     if (!container || container.item.id !== ref.item.id) return;
     stacks[at] = { ...container, held: { rule: ref.held.rule, contents } };
-    player.inventory = { stacks, capacity: player.inventory.capacity };
+    sim.setInventory(player, { stacks, capacity: player.inventory.capacity });
   } else {
     // **The floor is written first, and the bag only if that succeeded.** The other order hands the
     // item to a sack that may have been picked up in the meantime, and the item is then in neither
@@ -4716,7 +4720,7 @@ function putInContainer(player: Player, rest: string): void {
       send(player.id, { t: 'log', channel: 'error', text: `${capitalise(ref.item.name)} is not there any more.` });
       return;
     }
-    player.inventory = { stacks, capacity: player.inventory.capacity };
+    sim.setInventory(player, { stacks, capacity: player.inventory.capacity });
   }
 
   send(player.id, { t: 'log', channel: 'system', text: `You put ${item.name} in ${containerPhrase(ref)}.` });
@@ -4769,7 +4773,7 @@ function getFromContainer(player: Player, wanted: string, target: string): void 
     send(player.id, { t: 'log', channel: 'error', text: `${capitalise(ref.item.name)} is not there any more.` });
     return;
   }
-  player.inventory = result;
+  sim.setInventory(player, result);
 
   send(player.id, { t: 'log', channel: 'system', text: `You get ${stack.item.name} from ${containerPhrase(ref)}.` });
   if (ref.where === 'ground') {
@@ -4835,7 +4839,7 @@ function junkFromBag(player: Player, rest: string, confirmed: boolean): void {
 
   const removed = removeAt(player.inventory, index);
   if (!removed) return;
-  player.inventory = removed.inventory;
+  sim.setInventory(player, removed.inventory);
 
   // **What was inside goes with it, and that is the one place this deliberately parts company with
   // every other way a thing leaves your hands.** A corpse spills, a decaying container spills, a drop
@@ -4877,7 +4881,7 @@ function dropFromBag(player: Player, rest: string): void {
   const held = player.inventory.stacks[index]?.held;
   const removed = removeAt(player.inventory, index);
   if (!removed) return;
-  player.inventory = removed.inventory;
+  sim.setInventory(player, removed.inventory);
   // **One to two tiles away, in a random direction** — owner's rule, 2026-08-05. Not the room's
   // centre, and no longer the character's exact feet: A7d gave items real pictures and three things
   // on one tile read as one object with a fringe. The distance is bounded by the pickup reach it
@@ -5006,7 +5010,7 @@ function equipFromBag(player: Player, rest: string, mode: 'wear' | 'wield'): voi
     displaced.push(worn);
   }
 
-  player.inventory = bag;
+  sim.setInventory(player, bag);
   const kit = { ...player.equipped };
   for (const cleared of clears) delete kit[cleared];
   player.equipped = { ...kit, [slot]: item };
@@ -5054,7 +5058,7 @@ function removeWorn(player: Player, rest: string): void {
     });
     return;
   }
-  player.inventory = stowed;
+  sim.setInventory(player, stowed);
   const next = { ...player.equipped };
   delete next[wornSlot];
   player.equipped = next;
@@ -5192,7 +5196,7 @@ function buyFromShop(player: Player, rest: string): void {
     keeperSays(player, here.mob, `You have nowhere to put that — ${stowed.free} slot${stowed.free === 1 ? '' : 's'} free.`);
     return;
   }
-  player.inventory = stowed;
+  sim.setInventory(player, stowed);
   player.purse = paid;
 
   keeperSays(player, here.mob, `Thank you, that will be ${stripColour(describePurse(purseFromValue(price)))}.`);
@@ -5228,7 +5232,7 @@ function sellToShop(player: Player, rest: string): void {
     send(player.id, { t: 'log', channel: 'error', text: 'You no longer have that.' });
     return;
   }
-  player.inventory = taken.inventory;
+  sim.setInventory(player, taken.inventory);
   player.purse = addCoins(player.purse, purseFromValue(paid));
 
   keeperSays(player, here.mob, `I will give you ${stripColour(describePurse(purseFromValue(paid)))} for that.`);
@@ -5657,7 +5661,7 @@ const adminLive: LiveOps = {
         error: `${player.name} has nowhere to put ${item.name} — ${stowed.free} slot${stowed.free === 1 ? '' : 's'} free`,
       };
     }
-    player.inventory = stowed;
+    sim.setInventory(player, stowed);
     // Told, not slipped in. A bag that gains something silently is indistinguishable from a bug, and the
     // operator watching is not the only person who should know.
     send(player.id, { t: 'log', channel: 'system', text: `${item.name} appears in your hands.` });

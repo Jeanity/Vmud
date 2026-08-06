@@ -91,7 +91,6 @@ import {
 } from '@mygame/shared';
 // Subpath imports: `vision` and `light` are not re-exported from the package barrel.
 import {
-  LIGHT_BEARING_SLOTS,
   bestLight,
   brightestLight,
   burnRemaining,
@@ -99,12 +98,14 @@ import {
   expiresTo,
   isRoomMode,
   lightSource,
+  lightSourceFrom,
+  naturalLightTiles,
+  roomLightsItself,
   roomLightTiles,
   toCarriedLight,
   type LightSource,
 } from '@mygame/shared/light.ts';
 import { DEFAULT_LIGHT_RADIUS, computeVisible } from '@mygame/shared/vision.ts';
-import { naturalLightTiles, roomLightsItself } from '@mygame/shared/light.ts';
 
 import { LOCKS_HOLD, placeOf, type GameWorld } from './world.ts';
 
@@ -942,6 +943,42 @@ export class Simulation {
   }
 
   /**
+   * Every light this character is carrying, **wherever it is** — worn, wielded, or in the bag.
+   *
+   * Owner's rule, 2026-08-06: *"light should come with no space, weight or slot cost… they can light from
+   * the inventory."* So the two-hand rule below is gone, and with it the reason **11 of the catalogue's 64
+   * lights could never work** — five glowing earrings, a set of golden horseshoes, and five with no wear
+   * slot at all, which could not be equipped anywhere.
+   *
+   * **Read off the item rather than through `lightOf`**, which is what makes this possible: `Item.light`
+   * carries the radius and the burn, so a bag walk needs no catalogue and an authored item works with no
+   * entry in one. `lightOf` survives for the affect path, where all there is to go on is an id.
+   *
+   * Containers are searched too. A lantern in a quiver is a lantern you are carrying, and a rule that
+   * stopped one level down would be a rule nobody could hold in their head.
+   */
+  private *carriedLightsOf(player: Player): Generator<LightSource> {
+    for (const item of Object.values(player.equipped)) {
+      if (!item?.light) continue;
+      const source = lightSourceFrom(item.id, item.name, item.light);
+      if (source) yield source;
+    }
+    yield* this.bagLights(player.inventory.stacks);
+  }
+
+  /** The lights in a bag, and inside anything in it. Depth is bounded at 2 by `containers.ts`. */
+  private *bagLights(stacks: readonly Stack[]): Generator<LightSource> {
+    for (const stack of stacks) {
+      if (stack.item.light) {
+        const source = lightSourceFrom(stack.item.id, stack.item.name, stack.item.light);
+        if (source) yield source;
+      }
+      const inside = stack.held?.contents;
+      if (inside && inside.length > 0) yield* this.bagLights(inside);
+    }
+  }
+
+  /**
    * The light sources in a character's hands — Duris' `handler.c:431`, transcribed.
    *
    * *"if (((i >= WIELD) && (i <= HOLD)) && (ch->equipment[i]->type == ITEM_LIGHT) &&
@@ -954,18 +991,14 @@ export class Simulation {
    * unit test has no catalogue and must not need one to run a fight.
    */
   private heldLights(actor: Actor): LightSource[] {
-    const of = this.lightOf;
-    if (!of || !isPlayer(actor)) return [];
+    if (!isPlayer(actor)) return [];
     const out: LightSource[] = [];
-    for (const slot of LIGHT_BEARING_SLOTS) {
-      const item = actor.equipped[slot];
-      if (!item) continue;
-      const source = of(item.id);
+    for (const source of this.carriedLightsOf(actor)) {
       // **Only the ones that never go out.** A finite light is represented by its burn affect and by
       // nothing else, so that when the affect expires the light actually stops — with the item still
-      // sitting in the hand, which is what Duris does (`value[2]` hits zero and the torch stays a
+      // sitting where it was, which is what Duris does (`value[2]` hits zero and the torch stays a
       // burnt-out torch). Listing it here as well would mean a guttered torch that never dims.
-      if (source && source.durationMs === undefined) out.push(source);
+      if (source.durationMs === undefined) out.push(source);
     }
     return out;
   }
@@ -982,7 +1015,24 @@ export class Simulation {
   }
 
   /**
-   * Re-derives the burn clock after anything moves in or out of a hand.
+   * The one writer for a character's bag — **assign through this and the light cannot go stale.**
+   *
+   * Since 2026-08-06 a light lights you from **the bag** as well as from a slot, which turned every bag
+   * write into a light change. There were twelve of them and four re-derived; the other eight would each
+   * have needed a call, which is precisely the shape `afterKitChange`'s own comment warns about: *"a rule
+   * installed at any one of those would be missing from the other five."*
+   *
+   * So the assignment is the seam. `player.inventory = x` outside this method is the bug, and the only
+   * places that still do it are the ones building a character from nothing (`spawn`) where there is no
+   * light to derive yet.
+   */
+  setInventory(player: Player, next: Inventory): void {
+    player.inventory = next;
+    this.syncHeldLight(player);
+  }
+
+  /**
+   * Re-derives the burn clock after anything moves in or out of the kit **or the bag**.
    *
    * **Only finite lights get an affect.** One that never goes out is a standing fact about your
    * equipment and needs no timer; giving it one would put a clock on the HUD that never moves and an
@@ -995,15 +1045,12 @@ export class Simulation {
    * on `context`, which is the item's own id.
    */
   syncHeldLight(actor: Actor): void {
-    const of = this.lightOf;
     // Typed as *definitely* finite rather than filtered and asserted: the burn below is required, and
     // a cast there would be the one place a source that never expires could quietly acquire a clock.
     const finite: (LightSource & { readonly durationMs: number })[] = [];
-    if (of && isPlayer(actor)) {
-      for (const slot of LIGHT_BEARING_SLOTS) {
-        const item = actor.equipped[slot];
-        const source = item ? of(item.id) : undefined;
-        if (source && source.durationMs !== undefined) finite.push({ ...source, durationMs: source.durationMs });
+    if (isPlayer(actor)) {
+      for (const source of this.carriedLightsOf(actor)) {
+        if (source.durationMs !== undefined) finite.push({ ...source, durationMs: source.durationMs });
       }
     }
     // `bestLight` widens back to `LightSource`, so the winner is re-found in the list that knows it
