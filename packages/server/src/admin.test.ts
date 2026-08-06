@@ -19,7 +19,11 @@ import {
   DURIS_ITEM,
   LPC_ART,
   boundsOf,
+  noPursuit,
+  passiveRule,
+  readCombatStats,
   type ItemTemplate,
+  type MobTemplate,
   type Room,
   type RoomId,
   type Zone,
@@ -27,6 +31,7 @@ import {
 
 import { AdminApi, type AdminDeps, type AdminRequest, type AnnounceScope, type LiveOps } from './admin.ts';
 import { applyItemOverride, loadItemOverrides, mergeItemOverride, type ItemOverrides } from './item-overrides.ts';
+import { applyMobOverride, mergeMobOverride } from './mob-overrides.ts';
 import {
   draftAuthoredItem,
   takeAuthoredVnum,
@@ -253,6 +258,27 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     // A4c. The overlay lives in the rig, so a test can assert what was written without a file.
     mobOverrides: () => mobLoot,
     liveCountOf: () => 3,
+    // A9. The rig runs the real fold, so a test of the router is also a test of what it wrote: a patch
+    // that lands wrong here shows up as a wrong template rather than as a call log that looks right.
+    mobTemplateOf: (vnum) => mobRecords.get(vnum),
+    authorMob: (vnum, next, clearedKeys) => {
+      calls.push(`authorMob ${vnum} ${Object.keys(next).join(',')} -${clearedKeys.join(',')}`);
+      const current = mobRecords.get(vnum);
+      if (!current) return undefined;
+      const pristine = pristineMobs.get(vnum) ?? current;
+      const merged = mergeMobOverride(mobLoot.get(vnum), next, clearedKeys, 'test-time');
+      if (merged) {
+        pristineMobs.set(vnum, pristine);
+        mobLoot.set(vnum, merged);
+        const applied = applyMobOverride(pristine, merged);
+        mobRecords.set(vnum, applied);
+        return applied;
+      }
+      mobLoot.delete(vnum);
+      pristineMobs.delete(vnum);
+      mobRecords.set(vnum, pristine);
+      return pristine;
+    },
     authorMobLoot: (vnum, loot) => {
       calls.push(`authorMobLoot ${vnum} x${loot.length}`);
       if (loot.length === 0) {
@@ -277,8 +303,18 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     },
   };
 
-  // A4c: the authored-loot overlay this rig pretends to hold.
+  // A4c: the authored-loot overlay this rig pretends to hold. **A9 shares it** — one record per vnum
+  // holds a template's kit and its fields together, which is the thing that has to be true or a loot
+  // save would unauthor a name.
   const mobLoot: MobOverrides = new Map();
+
+  // A9: two synthetic templates, matching the summaries `mobTemplates` returns above. Full records
+  // rather than rows, because the field editor reads and writes the whole thing.
+  const mobRecords = new Map<number, MobTemplate>([
+    [61, { vnum: 61, keywords: ['kobold', 'guard'], name: 'a kobold guard', room: 'A kobold guard stands here.', level: 8, hp: '8d8+16', sprite: 'kobold', aggro: passiveRule(8), pursuit: noPursuit(), combat: readCombatStats({ level: 8, armour: 40, damage: '2d6+2' }), experience: 500, wimpyAt: 0 }],
+    [62, { vnum: 62, keywords: ['kobold', 'shaman'], name: '&+ya kobold shaman&N', room: 'A shaman mutters here.', level: 23, hp: '23d10+60', sprite: 'kobold', aggro: passiveRule(23), pursuit: noPursuit(), combat: readCombatStats({ level: 23, armour: 10, damage: '3d8' }), experience: 9000, wimpyAt: 138 }],
+  ]);
+  const pristineMobs = new Map<number, MobTemplate>();
 
   const deps: AdminDeps = {
     world,
@@ -1568,6 +1604,147 @@ describe('deleting a room', () => {
     assert.equal(line.action, 'room.delete');
     assert.equal(line.orphanedExits, 2);
     assert.equal(line.orphanedResets, 2);
+  });
+});
+
+/**
+ * A9 — editing what a mob **is**.
+ *
+ * Owner's ask, 2026-08-06: *"we need to be able to edit existing mobs."* The router's half is the same
+ * shape `authorItem` has, and the tests pin the three places a mob differs from an item: a level that
+ * drags derived numbers with it, a route that must not collide with the entity-id one already at
+ * `/mobs/:id`, and a Restore that has to leave the loot standing.
+ */
+describe('editing a mob template', () => {
+  it('reads the whole record, what is authored on it, and how many are standing', () => {
+    const { api } = makeRig();
+    const response = api.route(req('GET', '/mobs/61/template'));
+    assert.equal(response.status, 200);
+    const body = response.body as { mob: Record<string, unknown>; authored: unknown; spawned: number };
+    assert.equal(body.mob.name, 'a kobold guard');
+    assert.equal(body.mob.level, 8);
+    // Damage comes back as notation rather than as a record, because that is what goes in the box and
+    // what the next save posts back — and `writeDice` keeps the bonus, which a `${count}d${sides}` would
+    // silently drop the first time somebody opened the editor and pressed Save.
+    assert.equal(body.mob.damage, '2d6+2');
+    assert.equal(body.authored, null);
+    assert.equal(body.spawned, 3);
+  });
+
+  it('authors a field and leaves the others as the harvest left them', () => {
+    const { api } = makeRig();
+    const response = api.route(req('PATCH', '/mobs/61/template', { name: 'Gwark, the kobold king' }));
+    assert.equal(response.status, 200);
+    const body = response.body as { mob: Record<string, unknown>; spawned: number };
+    assert.equal(body.mob.name, 'Gwark, the kobold king');
+    assert.equal(body.mob.level, 8, 'untouched');
+    // Same number the loot route reports, for the same reason: an edit is per template.
+    assert.equal(body.spawned, 3);
+  });
+
+  it('moves the derived combat numbers with an authored level', () => {
+    const { api } = makeRig();
+    const before = (api.route(req('GET', '/mobs/61/template')).body as { mob: { level: number } }).mob;
+    assert.equal(before.level, 8);
+    api.route(req('PATCH', '/mobs/61/template', { level: 40 }));
+    const after = api.route(req('GET', '/mobs/61/template')).body as { mob: { level: number } };
+    assert.equal(after.mob.level, 40);
+  });
+
+  it('restores the harvest when the authored fields are cleared', () => {
+    const { api } = makeRig();
+    api.route(req('PATCH', '/mobs/61/template', { name: 'Gwark', level: 40 }));
+    const cleared = api.route(req('PATCH', '/mobs/61/template', { name: null, level: null }));
+    assert.equal(cleared.status, 200);
+    const body = cleared.body as { mob: Record<string, unknown>; authored: unknown };
+    assert.equal(body.mob.name, 'a kobold guard');
+    assert.equal(body.mob.level, 8);
+    // Nothing authored remains, so the entry is gone — which is what takes the mark off the row.
+    assert.equal(body.authored, null);
+  });
+
+  it('keeps a template\u2019s loot when its fields are restored', () => {
+    // The two live in one record and have two buttons. A Restore that quietly emptied a kit would be
+    // the worst kind of surprise, so it is asserted rather than left to the reader.
+    const { api } = makeRig();
+    api.route(req('PATCH', '/mobs/61/loot', { loot: [{ vnum: 100, slot: 'head' }] }));
+    api.route(req('PATCH', '/mobs/61/template', { level: 40 }));
+    api.route(req('PATCH', '/mobs/61/template', { level: null }));
+    const listed = api.route({ ...req('GET', '/mobs'), query: { q: '61' } }).body as { mobs: { vnum: number; loot?: unknown[] }[] };
+    assert.equal(listed.mobs.find((m) => m.vnum === 61)?.loot?.length, 1);
+  });
+
+  it('keeps a template\u2019s fields when its loot is emptied', () => {
+    // And the other way round, which A4c's replace-the-record write would have got wrong: clearing the
+    // kit must not unauthor a name somebody set an hour earlier.
+    const { api } = makeRig();
+    api.route(req('PATCH', '/mobs/61/template', { name: 'Gwark' }));
+    api.route(req('PATCH', '/mobs/61/loot', { loot: [{ vnum: 100 }] }));
+    api.route(req('PATCH', '/mobs/61/loot', { loot: [] }));
+    const body = api.route(req('GET', '/mobs/61/template')).body as { mob: { name: string } };
+    assert.equal(body.mob.name, 'Gwark');
+  });
+
+  it('marks the search row with which fields are authored', () => {
+    const { api } = makeRig();
+    api.route(req('PATCH', '/mobs/61/template', { level: 40, hp: '40d12+300' }));
+    const listed = api.route({ ...req('GET', '/mobs'), query: { q: '61' } }).body as { mobs: { vnum: number; edited?: string[] }[] };
+    const row = listed.mobs.find((m) => m.vnum === 61);
+    assert.deepEqual([...(row?.edited ?? [])].sort(), ['hp', 'level']);
+  });
+
+  it('refuses a number outside the band rather than clamping it', () => {
+    // The opposite of what the file loader does with the same number, and deliberately: a form is a
+    // person still holding the keyboard, and telling them is worth more than quietly storing 60.
+    const { api } = makeRig();
+    const response = api.route(req('PATCH', '/mobs/61/template', { level: 900 }));
+    assert.equal(response.status, 400);
+    assert.match((response.body as { error: string }).error, /level must be an integer from 1 to 60/);
+  });
+
+  it('refuses dice the game could not roll', () => {
+    const { api } = makeRig();
+    const response = api.route(req('PATCH', '/mobs/61/template', { hp: 'three d six' }));
+    assert.equal(response.status, 400);
+    assert.match((response.body as { error: string }).error, /dice the game can roll/);
+  });
+
+  it('names an unauthorable field rather than ignoring it', () => {
+    const { api } = makeRig();
+    const response = api.route(req('PATCH', '/mobs/61/template', { aggro: 'aggressive' }));
+    assert.equal(response.status, 400);
+    const { error } = response.body as { error: string };
+    assert.match(error, /"aggro" is not authorable/);
+    // And it says why, because "not authorable" on a field the roadmap lists reads as an oversight.
+    assert.match(error, /races and alignment/);
+  });
+
+  it('refuses a patch that changes nothing', () => {
+    const { api } = makeRig();
+    assert.equal(api.route(req('PATCH', '/mobs/61/template', {})).status, 400);
+  });
+
+  it('is a vnum here and an entity id at /mobs/:id, and the two do not collide', () => {
+    // `DELETE /mobs/999` kills the body with entity id 999; `PATCH /mobs/61/template` edits the idea of
+    // kobold guards. Different id spaces, so different paths — one path whose meaning depends on the
+    // verb is what the route note says not to build.
+    const { api } = makeRig();
+    // 700 is a body standing in the world; 61 is the idea of kobold guards. Each number is meaningless
+    // in the other space, and both routes say so rather than answering about the wrong thing.
+    assert.equal(api.route(req('GET', '/mobs/700/template')).status, 404, 'no template numbered 700');
+    assert.equal(api.route(req('GET', '/mobs/61/template')).status, 200, 'but there is a template 61');
+    assert.equal(api.route(req('DELETE', '/mobs/61')).status, 404, 'and no body with entity id 61');
+    assert.equal(quietly(() => api.route(req('DELETE', '/mobs/700'))).status, 200, 'while 700 is one');
+  });
+
+  it('writes the overlay to disk, fields and all', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mygame-a9-'));
+    const mobOverridesFile = join(dir, 'mobs.json');
+    const { api } = makeRig({ mobOverridesFile });
+    api.route(req('PATCH', '/mobs/61/template', { level: 40, sprite: 'kobold-king' }));
+    const written = JSON.parse(readFileSync(mobOverridesFile, 'utf8')) as Record<string, Record<string, unknown>>;
+    assert.equal(written['61']?.level, 40);
+    assert.equal(written['61']?.sprite, 'kobold-king');
   });
 });
 

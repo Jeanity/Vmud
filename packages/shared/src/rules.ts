@@ -74,6 +74,24 @@ export function parseDice(notation: string): Dice | undefined {
   return { count, sides, bonus: sign === '-' ? -magnitude : magnitude };
 }
 
+/**
+ * Dice back into notation — **`parseDice`'s exact inverse**, and it has to be exact.
+ *
+ * A9 gave the panel a mob's damage as a field somebody types into, which means the string this produces is
+ * fed straight back through `parseDice` on the next save. Anything it drops is a number that disappears
+ * the moment an operator opens the editor and presses Save without touching that box — which is how
+ * `"2d6+8"` would quietly become `"2d6"` and a mob would lose eight points of damage per swing to a
+ * round trip nobody made a decision in.
+ *
+ * A zero bonus is omitted rather than written as `+0`, because that is what the notation looks like
+ * everywhere else in the world files and re-parsing it gives the same record back either way.
+ */
+export function writeDice(dice: Dice): string {
+  const base = `${dice.count}d${dice.sides}`;
+  if (dice.bonus === 0) return base;
+  return `${base}${dice.bonus > 0 ? '+' : '-'}${Math.abs(dice.bonus)}`;
+}
+
 export function rollDice(rng: Rng, dice: Dice): number {
   let total = dice.bonus;
   for (let i = 0; i < dice.count; i++) total += randomInt(rng, 1, dice.sides);

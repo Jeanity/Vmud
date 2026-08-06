@@ -29,6 +29,7 @@
 import { EQUIP_SLOTS, parseColour } from '@mygame/shared';
 
 import { call, type ZonesBody } from '../api.ts';
+import { colourBox } from '../colourbox.ts';
 import { el, render } from '../dom.ts';
 
 interface MobRow {
@@ -51,6 +52,23 @@ interface TemplateRow {
   readonly keywords: readonly string[];
   /** A4c: what this template is authored to carry, folded into the search response by the server. */
   readonly loot?: readonly { readonly vnum: number; readonly slot?: string; readonly name?: string }[];
+  /** A9: which of its own fields are authored over the harvest. Absent when none are. */
+  readonly edited?: readonly string[];
+}
+
+/** A9: the whole authorable record, which is what the field editor opens on. */
+interface MobRecord {
+  readonly vnum: number;
+  readonly name: string;
+  readonly room: string;
+  readonly keywords: readonly string[];
+  readonly level: number;
+  readonly hp: string;
+  readonly damage: string;
+  readonly armourClass: number;
+  readonly experience: number;
+  readonly wimpyAt: number;
+  readonly sprite: string;
 }
 
 /** The server's own cap, mirrored so the panel can refuse a thirteenth piece before a round trip. */
@@ -144,6 +162,17 @@ export const mobsSection = {
     const templateCount = el('p', { class: 'note' }, 'searching…');
     const templateList = el('div', { class: 'rows' });
 
+    /**
+     * A9. A template whose editor should reopen after the next repaint, and what to say when it does.
+     *
+     * Saving refreshes the list so the row shows its new level and its ✎ mark — and the drawer lives
+     * *inside* that list, so the refresh takes the open editor and its confirmation with it. That
+     * confirmation is the whole point of the save: it is the sentence that says how many of these are
+     * already standing and unchanged. So the intent survives the repaint and the editor reopens against
+     * freshly fetched data, which is the Items page's own answer to the same problem.
+     */
+    let reopen: { vnum: number; message: string } | undefined;
+
     let pending = 0;
     const searchTemplates = (): void => {
       const seq = ++pending;
@@ -194,6 +223,19 @@ export const mobsSection = {
             }
             render(drawer, lootEditor(template, () => searchTemplates()));
           });
+          // A9. Its own button beside Loot rather than a tab inside one drawer, because they edit two
+          // different kinds of fact through two different routes — what a mob *is* against what it
+          // *carries* — and one form posting to two endpoints is a save that can half-succeed.
+          const edit = el('button', { type: 'button' }, 'Edit…');
+          edit.addEventListener('click', () => {
+            if (drawer.childElementCount > 0) {
+              render(drawer);
+              return;
+            }
+            void (async () => {
+              render(drawer, await fieldEditor(template.vnum, refill));
+            })();
+          });
           templateList.append(
             el(
               'div',
@@ -202,13 +244,29 @@ export const mobsSection = {
               coloured(template.name),
               el('span', { class: 'note' }, `level ${template.level}`),
               el('span', { class: 'muted' }, template.keywords.join(' ')),
+              // ✎ beside the row exactly where the Items browser puts it, and it names the fields.
+              template.edited?.length ? el('span', { class: 'pill' }, `✎ ${template.edited.join(', ')}`) : null,
+              edit,
               loot,
               spawn,
             ),
             drawer,
           );
+          if (reopen?.vnum === template.vnum) {
+            const { message } = reopen;
+            reopen = undefined;
+            void (async () => {
+              render(drawer, await fieldEditor(template.vnum, refill, message));
+            })();
+          }
         }
       })();
+    };
+
+    /** Repaints the template list, carrying an editor's confirmation across the repaint. */
+    const refill = (message?: string, vnum?: number): void => {
+      if (message !== undefined && vnum !== undefined) reopen = { vnum, message };
+      searchTemplates();
     };
 
     let debounce: ReturnType<typeof setTimeout> | undefined;
@@ -249,8 +307,11 @@ export const mobsSection = {
             'rolls hit points and a tile from the same seeded stream every other mob uses, so the ' +
             'world stays reproducible. Repop lives on the Zones page and is additive: nothing ' +
             'despawns, and the per-vnum world-wide limits still hold, so pressing it twice does not ' +
-            'double the population. Editing a template — name, level, combat numbers, aggression — ' +
-            'is A4c and needs a mob overlay first, the same shape items-authored.json gave items.',
+            'double the population. Edit… changes the template itself — name, room line, keywords, level, ' +
+            'hit points, damage, armour class, experience, wimpy threshold and sprite — which lands on ' +
+            'every one the world spawns from then on and on none of those already standing. Aggression ' +
+            'is not offered: it is a rule rather than a field, and all but one of its clauses have ' +
+            'nothing to evaluate until races and alignment exist.',
         ),
       ),
     );
@@ -416,5 +477,181 @@ function lootEditor(template: TemplateRow, done: () => void): HTMLElement {
     found,
     flash,
     el('div', { class: 'row' }, save),
+  );
+}
+
+/**
+ * What a mob **is** — **A9**, owner's ask 2026-08-06: *"we need to be able to edit existing mobs."*
+ *
+ * The Items editor's shape, deliberately: the whole record read from its own route rather than from the
+ * search row, `null` to clear a field back to the harvest, and **Restore harvested** clearing exactly what
+ * is authored rather than every box on the form.
+ *
+ * ## The two sentences this form has to say
+ *
+ * **Per template.** It changes every one the world spawns from now on and none of the ones already
+ * standing, because a mob is built from its template at spawn and never re-reads it. The save reports how
+ * many are walking around unaffected, for the reason the loot editor does: *"I saved it and nothing
+ * changed"* is otherwise the first thing anybody reports, and Repop on the Zones page is what turns it into
+ * *"nothing has changed yet"*.
+ *
+ * **These are the combat scale.** Level, hit points and damage are what Phase 14b calibrated the fight
+ * against, so this form is also the fastest way to make a zone unwinnable. That is a real power and the
+ * note says so where somebody can read it before they use it, rather than in a design document.
+ *
+ * ## Why there is no attack bonus or round length
+ *
+ * Both are functions of the level, re-derived by the server whenever one is authored. A box for either
+ * would be a box you could type into and watch be overwritten on save.
+ */
+async function fieldEditor(
+  vnum: number,
+  done: (message?: string, forVnum?: number) => void,
+  opening?: string,
+): Promise<HTMLElement> {
+  const opened = await call<{ mob: MobRecord; authored: Record<string, unknown> | null; spawned: number }>(
+    'GET',
+    `/mobs/${vnum}/template`,
+  );
+  if (!opened.ok || !opened.body) {
+    return el('p', { class: 'flash err' }, opened.error ?? 'could not read the template');
+  }
+  const { mob, authored, spawned } = opened.body;
+
+  // A message carried across a repaint by `reopen` lands here, which is what makes a save's confirmation
+  // outlive the list refresh that shows its result.
+  const flash = el('p', { class: opening ? 'note' : 'flash' }, opening ?? '');
+  const name = colourBox({ value: mob.name, placeholder: 'a kobold guard' });
+  const room = colourBox({ value: mob.room, placeholder: 'A kobold guard stands here.', multiline: true, rows: 2 });
+  const keywords = el('input', { type: 'text', value: mob.keywords.join(' ') }) as HTMLInputElement;
+  const level = el('input', { type: 'number', min: '1', max: '60', value: String(mob.level) }) as HTMLInputElement;
+  const hp = el('input', { type: 'text', value: mob.hp, placeholder: '8d8+16' }) as HTMLInputElement;
+  const damage = el('input', { type: 'text', value: mob.damage, placeholder: '2d6+2' }) as HTMLInputElement;
+  const armour = el('input', { type: 'number', min: '0', max: '40', value: String(mob.armourClass) }) as HTMLInputElement;
+  const experience = el('input', { type: 'number', min: '0', value: String(mob.experience) }) as HTMLInputElement;
+  const wimpy = el('input', { type: 'number', min: '0', value: String(mob.wimpyAt) }) as HTMLInputElement;
+  const sprite = el('input', { type: 'text', value: mob.sprite }) as HTMLInputElement;
+
+  const save = el('button', { class: 'primary' }, 'Save') as HTMLButtonElement;
+  save.addEventListener('click', () => {
+    const words = keywords.value.trim().split(/\s+/).filter((w) => w.length > 0);
+    if (words.length === 0) {
+      flash.className = 'flash err';
+      flash.textContent = 'a mob needs at least one keyword — it is what a player types at it';
+      return;
+    }
+    // **Only what actually changed**, measured against the record this form opened on.
+    //
+    // Posting every box every time works and is one line shorter, and it is wrong for two reasons that
+    // only show up later. The ✎ mark on the row would name all ten fields after any edit, which makes it
+    // useless as a reason to open one — the whole argument for naming them rather than counting them. And
+    // it would author the other nine, so a re-harvest that improved a room line this operator never
+    // touched would no longer reach the game. An overlay that records what somebody *decided* is the
+    // thing that lets the harvest keep moving underneath it.
+    //
+    // Typing the harvest's own value back therefore does not un-author a field; **Restore harvested** is
+    // the way back off, which is one button rather than a rule about equality nobody can see.
+    const patch: Record<string, unknown> = {};
+    const changed = <T>(key: string, now: T, before: T): void => {
+      if (JSON.stringify(now) !== JSON.stringify(before)) patch[key] = now;
+    };
+    changed('name', name.value(), mob.name);
+    changed('room', room.value(), mob.room);
+    changed('keywords', words, [...mob.keywords]);
+    changed('level', Number(level.value), mob.level);
+    changed('hp', hp.value.trim(), mob.hp);
+    changed('damage', damage.value.trim(), mob.damage);
+    changed('armourClass', Number(armour.value), mob.armourClass);
+    changed('experience', Number(experience.value), mob.experience);
+    changed('wimpyAt', Number(wimpy.value), mob.wimpyAt);
+    changed('sprite', sprite.value.trim(), mob.sprite);
+    if (Object.keys(patch).length === 0) {
+      // Said here rather than sent, because the server refuses an empty patch and *"nothing to change"*
+      // as an error reads like a failure when it is the honest description of pressing Save twice.
+      flash.className = 'note';
+      flash.textContent = 'Nothing changed.';
+      return;
+    }
+
+    void (async () => {
+      save.disabled = true;
+      const result = await call<{ spawned: number }>('PATCH', `/mobs/${vnum}/template`, patch);
+      save.disabled = false;
+      if (!result.ok || !result.body) {
+        flash.className = 'flash err';
+        flash.textContent = result.error ?? 'refused';
+        return;
+      }
+      done(
+        `Saved. ${result.body.spawned} of these are already standing and are unchanged — ` +
+          `repop the zone to meet the new one.`,
+        vnum,
+      );
+    })();
+  });
+
+  const authoredKeys = Object.keys(authored ?? {}).filter((k) => k !== 'at' && k !== 'by' && k !== 'loot');
+  const revert = el('button', { class: 'danger' }, 'Restore harvested') as HTMLButtonElement;
+  revert.addEventListener('click', () => {
+    if (authoredKeys.length === 0) {
+      flash.className = 'flash';
+      flash.textContent = 'nothing is authored on this mob';
+      return;
+    }
+    void (async () => {
+      // Clears exactly what is authored and **leaves the loot alone** — it is a separate route with a
+      // separate button, and a Restore that quietly emptied a kit would be the worst kind of surprise.
+      const cleared = await call<{ ok: boolean }>(
+        'PATCH',
+        `/mobs/${vnum}/template`,
+        Object.fromEntries(authoredKeys.map((k) => [k, null])),
+      );
+      if (!cleared.ok) {
+        flash.className = 'flash err';
+        flash.textContent = cleared.error ?? 'refused';
+        return;
+      }
+      done('Harvest restored. The loot is a separate button and is untouched.', vnum);
+    })();
+  });
+
+  return el(
+    'div',
+    { class: 'card item-editor' },
+    el('h3', {}, 'Edit ', coloured(mob.name), ' ', el('span', { class: 'pill' }, `#${vnum}`)),
+    el('div', { class: 'row' }, el('label', {}, 'name'), name.node),
+    el('div', { class: 'row' }, el('label', {}, 'room line'), room.node),
+    el('div', { class: 'row' }, el('label', {}, 'keywords'), keywords),
+    el(
+      'div',
+      { class: 'row' },
+      el('label', {}, 'level'), level,
+      el('label', {}, 'hp'), hp,
+      el('label', {}, 'damage'), damage,
+      el('label', {}, 'AC'), armour,
+    ),
+    el(
+      'div',
+      { class: 'row' },
+      el('label', {}, 'experience'), experience,
+      el('label', {}, 'flees below'), wimpy,
+      el('span', { class: 'muted' }, 'hp (0 never runs)'),
+      el('label', {}, 'sprite'), sprite,
+    ),
+    el('div', { class: 'row' }, save, revert, flash),
+    el(
+      'p',
+      { class: 'note' },
+      `Per template: this changes every one the world spawns from now on, and none of the ${spawned} ` +
+        'already standing. Level, hit points and damage are what the whole combat scale is calibrated ' +
+        'against — this is also the fastest way to make a zone unwinnable.',
+    ),
+    el(
+      'p',
+      { class: 'note' },
+      authoredKeys.length > 0
+        ? `authored: ${authoredKeys.join(', ')}${typeof authored?.at === 'string' ? ` (${authored.at.slice(0, 10)})` : ''}`
+        : 'nothing authored — every field is the harvest\u2019s',
+    ),
   );
 }

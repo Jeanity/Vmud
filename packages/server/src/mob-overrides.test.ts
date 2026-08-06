@@ -12,11 +12,22 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import type { Item, ItemTemplate } from '@mygame/shared';
+import {
+  attackBonusFor,
+  noPursuit,
+  passiveRule,
+  readCombatStats,
+  type Item,
+  type ItemTemplate,
+  type MobTemplate,
+} from '@mygame/shared';
 
 import {
+  applyMobOverride,
   applyOutfit,
   loadMobOverrides,
+  mergeMobOverride,
+  mobAuthorsAnything,
   outfitFor,
   saveMobOverrides,
   type MobOverrides,
@@ -97,5 +108,111 @@ describe('the mob overlay', () => {
     const mob = { equipped: {} as Record<string, Item>, carrying: [] as Item[] };
     assert.equal(applyOutfit(mob, outfitFor(undefined, CATALOGUE, instantiate)), 0);
     assert.deepEqual(mob.carrying, []);
+  });
+});
+
+/**
+ * A9 — what a mob *is*, authored over the harvest.
+ *
+ * The three things a reader would otherwise have to infer: that the record is a **patch** so one field
+ * moves without disturbing the rest, that an authored **level drags the derived combat numbers with it**
+ * rather than leaving a level-40 kobold swinging like a level-3, and that clearing the last authored field
+ * leaves nothing behind rather than an empty record that keeps answering *yes, this is authored*.
+ */
+describe('authoring what a mob is', () => {
+  const GUARD: MobTemplate = {
+    vnum: 61,
+    keywords: ['kobold', 'guard'],
+    name: 'a kobold guard',
+    room: 'A kobold guard stands here.',
+    level: 8,
+    hp: '8d8+16',
+    sprite: 'kobold',
+    aggro: passiveRule(8),
+    pursuit: noPursuit(),
+    combat: readCombatStats({ level: 8, armour: 40, damage: '2d6+2' }),
+    experience: 500,
+    wimpyAt: 0,
+  };
+
+  it('changes one field and leaves every other alone', () => {
+    const applied = applyMobOverride(GUARD, { name: 'Gwark, the kobold king' });
+    assert.equal(applied.name, 'Gwark, the kobold king');
+    assert.equal(applied.level, 8);
+    assert.equal(applied.hp, '8d8+16');
+    assert.deepEqual(applied.keywords, ['kobold', 'guard']);
+  });
+
+  it('drags the derived combat numbers along with an authored level', () => {
+    // The subtle one. A template stores the *derived* profile, and the attack bonus is a function of the
+    // level — so a level edit that left `combat` alone would produce a level-40 kobold that still hits
+    // like a level-8, and nobody would see it until the fight was already wrong.
+    const applied = applyMobOverride(GUARD, { level: 40 });
+    assert.equal(applied.level, 40);
+    assert.equal(applied.combat.attackBonus, attackBonusFor(40));
+    assert.notEqual(applied.combat.attackBonus, GUARD.combat.attackBonus);
+    // And nothing else about the fight moved: the damage and armour are still the harvest's.
+    assert.deepEqual(applied.combat.damage, GUARD.combat.damage);
+    assert.equal(applied.combat.armourClass, GUARD.combat.armourClass);
+  });
+
+  it('parses authored damage into the dice the fight reads', () => {
+    const applied = applyMobOverride(GUARD, { damage: '5d10+7' });
+    assert.deepEqual(applied.combat.damage, { count: 5, sides: 10, bonus: 7 });
+  });
+
+  it('is applied to the harvest and not to itself, so a clear is a real revert', () => {
+    // Two edits in sequence, the second dropping the first: applying against the *pristine* template is
+    // what makes the level come back as 8 rather than as whatever the last edit happened to leave.
+    const once = mergeMobOverride(undefined, { level: 40, name: 'Gwark' }, [], 'test-time');
+    assert.ok(once);
+    const twice = mergeMobOverride(once, {}, ['level'], 'test-time');
+    assert.ok(twice);
+    const applied = applyMobOverride(GUARD, twice);
+    assert.equal(applied.level, 8);
+    assert.equal(applied.combat.attackBonus, GUARD.combat.attackBonus);
+    assert.equal(applied.name, 'Gwark');
+  });
+
+  it('reports nothing left once the last authored field is cleared', () => {
+    const one = mergeMobOverride(undefined, { level: 40 }, [], 'test-time');
+    assert.ok(one);
+    // `undefined` rather than `{at}` — the caller deletes the entry, which is what takes the mark off
+    // the row. An empty record kept in the map would make every "is this authored" check answer yes.
+    assert.equal(mergeMobOverride(one, {}, ['level'], 'test-time'), undefined);
+  });
+
+  it('does not count its own metadata as authoring', () => {
+    assert.equal(mobAuthorsAnything({ at: 'test-time', by: 'somebody' }), false);
+    assert.equal(mobAuthorsAnything({ level: 40 }), true);
+    // Loot still counts, which is what stops A9 dropping every A4c record on the next save.
+    assert.equal(mobAuthorsAnything({ loot: [{ vnum: 200 }] }), true);
+  });
+
+  it('keeps a stats-only edit across a save and a reload', () => {
+    // A4c's saver gated on `loot`, so this record would have been written and then silently dropped.
+    const file = tempFile();
+    const overrides: MobOverrides = new Map([[61, { level: 40, hp: '40d12+300', at: 'test-time' }]]);
+    saveMobOverrides(overrides, file);
+    const back = loadMobOverrides(file);
+    assert.equal(back.get(61)?.level, 40);
+    assert.equal(back.get(61)?.hp, '40d12+300');
+  });
+
+  it('drops a hand-edited field the game could not use, and keeps the rest', () => {
+    // Dice validated by parsing rather than by a pattern: `"three d six"` is a mob with no hit points,
+    // and the loader's posture everywhere is to salvage what is meant rather than to refuse the record.
+    const file = tempFile('{"61": {"level": 12, "hp": "three d six", "damage": "2d6+2"}}');
+    const back = loadMobOverrides(file);
+    assert.equal(back.get(61)?.level, 12);
+    assert.equal(back.get(61)?.hp, undefined);
+    assert.equal(back.get(61)?.damage, '2d6+2');
+  });
+
+  it('clamps a hand-edited number into the band rather than refusing the record', () => {
+    const file = tempFile('{"61": {"level": 900, "experience": -5}}');
+    const back = loadMobOverrides(file);
+    assert.equal(back.get(61)?.level, 60);
+    assert.equal(back.get(61)?.experience, 0);
   });
 });

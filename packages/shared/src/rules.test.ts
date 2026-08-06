@@ -7,6 +7,7 @@ import {
   diceRange,
   makeRng,
   parseDice,
+  writeDice,
   proficiencyBonus,
   resolveAttack,
   rollDamage,
@@ -44,6 +45,27 @@ describe('parseDice', () => {
     assert.equal(parseDice('d6'), undefined);
     assert.equal(parseDice('0d6'), undefined);
     assert.equal(parseDice('sword'), undefined);
+  });
+});
+
+/**
+ * A9 put dice in a form somebody types into, which makes this the inverse it has to be: the string goes
+ * straight back through `parseDice` on the next save, so anything dropped here is a number that vanishes
+ * when an operator opens an editor and presses Save without touching that box.
+ */
+describe('writeDice', () => {
+  it('round-trips everything parseDice accepts', () => {
+    for (const notation of ['2d6', '1d8+3', '3d4-1', '23d44+207', '1d1']) {
+      const dice = parseDice(notation);
+      assert.ok(dice, notation);
+      assert.deepEqual(parseDice(writeDice(dice)), dice, notation);
+    }
+  });
+
+  it('writes a zero bonus as nothing, which is how the world files spell it', () => {
+    assert.equal(writeDice({ count: 2, sides: 6, bonus: 0 }), '2d6');
+    assert.equal(writeDice({ count: 2, sides: 6, bonus: 8 }), '2d6+8');
+    assert.equal(writeDice({ count: 2, sides: 6, bonus: -3 }), '2d6-3');
   });
 });
 

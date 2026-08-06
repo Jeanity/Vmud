@@ -150,6 +150,7 @@ import {
   type RoomView,
   type ServerMessage,
   type TileGrid,
+  type MobTemplate,
   type ZoneSpawns,
   type TilePoint,
 } from '@mygame/shared';
@@ -280,7 +281,16 @@ import {
   type ItemDraft,
 } from './item-authoring.ts';
 import { ROOMS_FILE } from './overrides.ts';
-import { MOBS_FILE, applyOutfit, loadMobOverrides, outfitFor, type MobOverride, type Outfit } from './mob-overrides.ts';
+import {
+  MOBS_FILE,
+  MOB_OVERRIDE_META,
+  applyMobOverride,
+  applyOutfit,
+  loadMobOverrides,
+  mergeMobOverride,
+  outfitFor,
+  type Outfit,
+} from './mob-overrides.ts';
 import {
   followersOf,
   forgetFollower,
@@ -426,9 +436,30 @@ for (const [vnum, authored] of authoredStore.items) itemCatalogue.set(vnum, auth
  */
 const mobOverrides = loadMobOverrides();
 const authoredOutfit = (vnum: number): Outfit => outfitFor(mobOverrides.get(vnum), itemCatalogue, instantiate);
+
+/**
+ * A9: the harvested template of every vnum that carries an override, stashed the moment one lands.
+ *
+ * `pristineItems`' twin and for the identical reason: without it, *clear this field* could only rebuild
+ * from the already-overridden template, which is not a revert but whatever the last edit happened to
+ * leave. Only overridden vnums are stashed, so it stays a handful of entries rather than a second
+ * catalogue — and the fold below is what makes an authored level real for everything the world spawns
+ * from here on, because `runReset` builds every mob out of this map.
+ */
+const pristineMobs = new Map<number, MobTemplate>();
+for (const [vnum, override] of mobOverrides) {
+  const base = mobTemplates.get(vnum);
+  if (!base) continue; // authored against a vnum this harvest no longer has — kept in the file, inert
+  pristineMobs.set(vnum, base);
+  mobTemplates.set(vnum, applyMobOverride(base, override));
+}
 if (mobOverrides.size > 0) {
   const pieces = [...mobOverrides.values()].reduce((sum, o) => sum + (o.loot?.length ?? 0), 0);
-  console.log(`[mobs] ${mobOverrides.size} template(s) carry ${pieces} authored piece(s) of loot`);
+  const notAField = new Set([...MOB_OVERRIDE_META, 'loot']);
+  const edited = [...mobOverrides.values()].filter((o) => Object.keys(o).some((k) => !notAField.has(k))).length;
+  console.log(
+    `[mobs] ${mobOverrides.size} template(s) authored — ${pieces} piece(s) of loot, ${edited} with edited fields`,
+  );
 }
 
 console.log(
@@ -5936,13 +5967,52 @@ const adminLive: LiveOps = {
     // **The live map is the truth and the file is its shadow**, the same order every other overlay
     // keeps: applied here, written by the router. Nothing already standing in the world is touched —
     // loot is per template, so it lands on the next spawn. See `authorMobLoot` in `admin.ts`.
-    if (loot.length === 0) {
+    // **Merged rather than replaced, since A9.** The record now holds a template's fields as well as its
+    // kit, so writing `{loot}` over it would silently unauthor a name somebody set an hour ago — and
+    // clearing the loot has to leave the rest standing rather than delete the entry.
+    const merged = mergeMobOverride(
+      mobOverrides.get(vnum),
+      loot.length === 0 ? {} : { loot: [...loot] },
+      loot.length === 0 ? ['loot'] : [],
+      new Date().toISOString(),
+    );
+    if (!merged) {
       mobOverrides.delete(vnum);
       return { loot: [] };
     }
-    const override: MobOverride = { loot: [...loot], at: new Date().toISOString() };
-    mobOverrides.set(vnum, override);
-    return override;
+    mobOverrides.set(vnum, merged);
+    return merged;
+  },
+
+  mobTemplateOf(vnum) {
+    return mobTemplates.get(vnum);
+  },
+
+  /**
+   * One authored edit to a mob template, applied live — **A9**, and `authorItem`'s twin.
+   *
+   * Rebuilt from the **pristine** template plus whatever the merged override still says, so clearing a
+   * field restores the harvest exactly rather than restoring the last edit. Every mob the world spawns
+   * from here on is built from the result — `runReset` and `spawnMob` both read `mobTemplates` — and
+   * nothing already standing is touched, which is the sentence the panel has to say out loud.
+   */
+  authorMob(vnum, next, cleared) {
+    const current = mobTemplates.get(vnum);
+    if (!current) return undefined;
+    const pristine = pristineMobs.get(vnum) ?? current;
+    const merged = mergeMobOverride(mobOverrides.get(vnum), next, cleared, new Date().toISOString());
+    if (merged) {
+      pristineMobs.set(vnum, pristine);
+      mobOverrides.set(vnum, merged);
+      const applied = applyMobOverride(pristine, merged);
+      mobTemplates.set(vnum, applied);
+      return applied;
+    }
+    // Nothing authored remains: the entry goes and the harvest is back, mark and all.
+    mobOverrides.delete(vnum);
+    pristineMobs.delete(vnum);
+    mobTemplates.set(vnum, pristine);
+    return pristine;
   },
 
   giveItem(player, vnum) {

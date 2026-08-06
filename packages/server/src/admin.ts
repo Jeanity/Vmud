@@ -38,13 +38,16 @@ import {
   SECTORS,
   UNLIMITED_DURATION,
   newAffect,
+  parseDice,
   parseDirection,
   placeKey,
   stripColour,
+  writeDice,
   type Dice,
   type Direction,
   type EquipSlot,
   type ItemTemplate,
+  type MobTemplate,
   type Place,
   type Room,
   type RoomFlag,
@@ -58,7 +61,11 @@ import { LIGHT_SOURCES, lightSource, type LightSource } from '@mygame/shared/lig
 import { draftDescription, listModels, ollamaReachable } from './ollama.ts';
 import { saveRoomOverrides, type RoomOverride } from './overrides.ts';
 import {
+  MAX_AUTHORED_AC,
+  MAX_AUTHORED_EXPERIENCE,
+  MAX_AUTHORED_LEVEL,
   MAX_AUTHORED_LOOT,
+  MAX_AUTHORED_WIMPY,
   saveMobOverrides,
   type AuthoredLoot,
   type MobOverride,
@@ -298,6 +305,22 @@ export interface LiveOps {
    */
   authorMobLoot(vnum: number, loot: readonly AuthoredLoot[]): MobOverride | undefined;
 
+  /** One mob template as it now stands, overlay folded in. **A9** — what the field editor opens on. */
+  mobTemplateOf(vnum: number): MobTemplate | undefined;
+
+  /**
+   * One authored edit to a mob template, applied live. **A9**, and {@link authorItem}'s twin.
+   *
+   * Rebuilt from the pristine harvest plus whatever the merged override still says, so clearing a field
+   * restores the harvest rather than the last edit. Like loot, it lands on **everything spawned from
+   * here on and nothing already standing** — the same sentence, because it is the same mechanism.
+   */
+  authorMob(
+    vnum: number,
+    next: Partial<MobOverride>,
+    cleared: readonly string[],
+  ): MobTemplate | undefined;
+
   /** The operator switches as they currently stand. See `settings.ts`. */
   settings(): WorldSettings;
   /** The authored item overlay — read for edited marks and for saving; never mutated here. */
@@ -434,6 +457,55 @@ const ROOM_PATCH_KEYS = new Set(['name', 'description', 'sector', 'flags', 'by',
 // A7b adds `art`. It sits with the content fields rather than the refused behaviour ones because
 // choosing a sword's picture changes nothing about what the sword does.
 const ITEM_PATCH_KEYS = new Set(['name', 'keywords', 'ac', 'damage', 'cost', 'art', 'light', 'by']);
+
+/**
+ * A9. What may be authored on a mob — and `loot` is **not** in it, deliberately.
+ *
+ * Loot is a list against the item catalogue with its own validation and its own route, and folding it in
+ * here would mean one endpoint whose body is half a form and half a table.
+ */
+const MOB_PATCH_KEYS = new Set([
+  'name',
+  'room',
+  'keywords',
+  'level',
+  'hp',
+  'damage',
+  'armourClass',
+  'experience',
+  'wimpyAt',
+  'sprite',
+  'by',
+]);
+const MOB_NAME_MAX = 120;
+/** A mob's room line is a sentence, not a paragraph: *“A sentry stands here, watching the gate.”* */
+const MOB_ROOM_MAX = 400;
+const MOB_KEYWORD_MAX = 30;
+const MOB_SPRITE_MAX = 80;
+
+/**
+ * One mob template as the panel reads it — **the whole authorable record, and nothing derived**.
+ *
+ * `combat.attackBonus` and `combat.roundMs` are omitted on purpose even though the editor changes them:
+ * they are functions of the level, so showing them beside an editable level would invite somebody to set
+ * one and watch it be overwritten. The two that *are* authorable, armour class and damage, are lifted out
+ * of `combat` and flattened, because the form edits fields and not a nested record.
+ */
+function mobTemplateRow(template: MobTemplate): Record<string, unknown> {
+  return {
+    vnum: template.vnum,
+    name: template.name,
+    room: template.room,
+    keywords: template.keywords,
+    level: template.level,
+    hp: template.hp,
+    damage: writeDice(template.combat.damage),
+    armourClass: template.combat.armourClass,
+    experience: template.experience,
+    wimpyAt: template.wimpyAt,
+    sprite: template.sprite,
+  };
+}
 const ITEM_NAME_MAX = 120;
 const ITEM_KEYWORD_MAX = 30;
 const ITEM_AC_MAX = 50;
@@ -554,6 +626,14 @@ export class AdminApi {
     // whose meaning depends on the verb.
     if (head === 'mobs' && slug !== undefined && action === 'loot' && parts.length === 3 && request.method === 'PATCH') {
       return this.authorMobLoot(slug, request.body);
+    }
+    // A9. Under `/template` for the reason above rather than at `/mobs/:vnum`: `DELETE /mobs/:id` already
+    // took that path for an **entity id**, and one path whose id space depends on the verb is exactly what
+    // the note above says not to build. `/loot` and `/template` are both “this kind of mob”; `/mobs/:id`
+    // is “that body”.
+    if (head === 'mobs' && slug !== undefined && action === 'template' && parts.length === 3) {
+      if (request.method === 'GET') return this.mobTemplate(slug);
+      if (request.method === 'PATCH') return this.authorMob(slug, request.body);
     }
     // A4. A door is named by the room it is in and the way it faces — not by an id, because it has
     // none: a doorway is two exits, and `world.doorway` is what keeps the two ends in step.
@@ -814,14 +894,21 @@ export class AdminApi {
     // would be fifty requests to answer a question the server already has in a map.
     const overrides = this.deps.live.mobOverrides();
     const rows = matches.slice(0, limit).map((template) => {
-      const loot = overrides.get(template.vnum)?.loot;
-      if (!loot || loot.length === 0) return { ...template };
+      const override = overrides.get(template.vnum);
+      const loot = override?.loot;
+      // A9. **Which fields, not merely that there are some** — the same thing the Items row does with its
+      // ✎ mark: *that* it is authored belongs on the row, *what* is authored belongs in the editor, and a
+      // row that says `level, hp` is the difference between "somebody touched this" and a reason to open it.
+      const edited = Object.keys(override ?? {}).filter((k) => k !== 'at' && k !== 'by' && k !== 'loot');
+      const marks = edited.length > 0 ? { edited } : {};
+      if (!loot || loot.length === 0) return { ...template, ...marks };
       // **Named here, because only this side has the catalogue.** The overlay stores vnums — that is
       // the join key and the only thing that should be persisted — but an editor listing `item 2749`
       // twice is an editor nobody can check their own work in. The name is decoration on the way out
       // and is never read back.
       return {
         ...template,
+        ...marks,
         loot: loot.map((row) => ({ ...row, name: this.deps.items.get(row.vnum)?.name ?? `item ${row.vnum}` })),
       };
     });
@@ -2041,6 +2128,184 @@ export class AdminApi {
          * Reported because "I authored it and nothing changed" is otherwise the first bug report.
          */
         spawned: standing,
+      },
+    };
+  }
+
+  /**
+   * `GET /mobs/:vnum/template` — one template as it now stands, plus what is authored on it. **A9.**
+   *
+   * The editor's own read, and it is a separate route from the search for the reason the Items page
+   * already learned: a list row carries what a list needs, and opening an editor on a summary means the
+   * fields it does not show quietly become blank on the next save.
+   */
+  private mobTemplate(slug: string): AdminResponse {
+    const vnum = Number(slug);
+    if (!Number.isInteger(vnum)) return { status: 400, body: { error: `"${slug}" is not a mob vnum` } };
+    const template = this.deps.live.mobTemplateOf(vnum);
+    if (!template) return { status: 404, body: { error: `no mob ${vnum} among the loaded templates` } };
+    return {
+      status: 200,
+      body: {
+        mob: mobTemplateRow(template),
+        authored: this.deps.live.mobOverrides().get(vnum) ?? null,
+        /** How many are standing right now — every one of them unaffected by an edit. */
+        spawned: this.deps.live.liveCountOf(vnum),
+      },
+    };
+  }
+
+  /**
+   * `PATCH /mobs/:vnum/template` — **A9**, the field editor over the overlay A4c built.
+   *
+   * Owner's ask, 2026-08-06: *"we need to be able to edit existing mobs and create new mobs."* This is the
+   * first half; creating is A9b, which needs an id space and a reset-table entry that does not exist yet.
+   *
+   * `authorItem`'s shape throughout: `null` clears a field back to the harvest, an unknown key is refused
+   * **by name** rather than ignored, and the whole patch is validated before anything is written so an
+   * edit either lands or does not.
+   *
+   * ## Two things the response says out loud
+   *
+   * `spawned` — how many of this vnum are walking around right now, every one of them unchanged. An edit
+   * is per template, so *"I saved it and nothing happened"* is otherwise the first bug report, and Repop
+   * on the Zones page is what turns *nothing happened* into *nothing has happened yet*.
+   *
+   * And the level, hit points and damage are what Phase 14b calibrated the fight against, so this route is
+   * also the fastest way to make a zone unwinnable. The bounds here are wide on purpose — an operator is
+   * allowed to build a level-60 kobold — but they are bounds: a level outside 1–{@link MAX_AUTHORED_LEVEL}
+   * is a number the experience table has no row for, not a bold design choice.
+   */
+  private authorMob(slug: string, body: unknown): AdminResponse {
+    const vnum = Number(slug);
+    if (!Number.isInteger(vnum)) return { status: 400, body: { error: `"${slug}" is not a mob vnum` } };
+    if (!this.deps.live.mobTemplateOf(vnum)) {
+      return { status: 404, body: { error: `no mob ${vnum} among the loaded templates` } };
+    }
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return { status: 400, body: { error: 'PATCH body must be a JSON object' } };
+    }
+    const patch = body as Record<string, unknown>;
+    const keys = Object.keys(patch);
+    if (keys.length === 0) {
+      return { status: 400, body: { error: 'nothing to change — send at least one field, or null to clear one' } };
+    }
+    for (const key of keys) {
+      if (!MOB_PATCH_KEYS.has(key)) {
+        return {
+          status: 400,
+          body: {
+            error:
+              `"${key}" is not authorable — one of: ${[...MOB_PATCH_KEYS].join(', ')}. ` +
+              `Loot has its own route (PATCH /mobs/${vnum}/loot). Aggression and pursuit are rules rather ` +
+              `than fields and half their clauses have nothing to evaluate until races and alignment exist.`,
+          },
+        };
+      }
+    }
+
+    // Mutable local rather than `Partial<MobOverride>`, whose fields are readonly — `authorItem`'s shape.
+    const next: {
+      name?: string;
+      room?: string;
+      keywords?: readonly string[];
+      level?: number;
+      hp?: string;
+      damage?: string;
+      armourClass?: number;
+      experience?: number;
+      wimpyAt?: number;
+      sprite?: string;
+      by?: string;
+    } = {};
+    const cleared: string[] = [];
+
+    for (const [key, max] of [['name', MOB_NAME_MAX], ['room', MOB_ROOM_MAX], ['sprite', MOB_SPRITE_MAX]] as const) {
+      const value = patch[key];
+      if (value === undefined) continue;
+      if (value === null || value === '') {
+        cleared.push(key);
+        continue;
+      }
+      if (typeof value !== 'string' || !value.trim()) {
+        return { status: 400, body: { error: `${key} must be a non-empty string, or null to unauthor it` } };
+      }
+      if (value.length > max) return { status: 400, body: { error: `${key} must be at most ${max} characters` } };
+      next[key] = value.trim();
+    }
+
+    if (patch.keywords !== undefined) {
+      if (patch.keywords === null) cleared.push('keywords');
+      else if (!Array.isArray(patch.keywords)) {
+        return { status: 400, body: { error: 'keywords must be an array of words, or null' } };
+      } else {
+        const words = (patch.keywords as unknown[])
+          .filter((w): w is string => typeof w === 'string')
+          .map((w) => w.trim().toLowerCase())
+          .filter((w) => w.length > 0);
+        if (words.length === 0 || words.length !== patch.keywords.length) {
+          return { status: 400, body: { error: 'keywords must be one or more non-empty words' } };
+        }
+        const long = words.find((w) => w.length > MOB_KEYWORD_MAX);
+        if (long) return { status: 400, body: { error: `keyword "${long}" is over ${MOB_KEYWORD_MAX} characters` } };
+        next.keywords = [...new Set(words)];
+      }
+    }
+
+    for (const [key, min, max] of [
+      ['level', 1, MAX_AUTHORED_LEVEL],
+      ['armourClass', 0, MAX_AUTHORED_AC],
+      ['experience', 0, MAX_AUTHORED_EXPERIENCE],
+      ['wimpyAt', 0, MAX_AUTHORED_WIMPY],
+    ] as const) {
+      const value = patch[key];
+      if (value === undefined) continue;
+      if (value === null) {
+        cleared.push(key);
+        continue;
+      }
+      // **Refused rather than clamped**, the opposite of what the file loader does with the same number.
+      // A form is a person still holding the keyboard, and telling them 200 is out of range is worth more
+      // than quietly storing 60; a hand-edited file has nobody to tell, so salvaging is all that is left.
+      if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+        return { status: 400, body: { error: `${key} must be an integer from ${min} to ${max}, or null` } };
+      }
+      next[key] = value;
+    }
+
+    for (const key of ['hp', 'damage'] as const) {
+      const value = patch[key];
+      if (value === undefined) continue;
+      if (value === null || value === '') {
+        cleared.push(key);
+        continue;
+      }
+      // Validated by **parsing**, the loader's rule: `parseDice` is what the game will call on it, so
+      // anything it refuses is a mob with no hit points or one that swings for `NaN`.
+      if (typeof value !== 'string' || !parseDice(value.trim())) {
+        return { status: 400, body: { error: `${key} must be dice the game can roll, like "12d8+40", or null` } };
+      }
+      next[key] = value.trim();
+    }
+
+    if (patch.by !== undefined) {
+      if (patch.by === null) cleared.push('by');
+      else if (typeof patch.by !== 'string') return { status: 400, body: { error: 'by must be a string or null' } };
+      else next.by = patch.by.slice(0, 200);
+    }
+
+    const applied = this.deps.live.authorMob(vnum, next, cleared);
+    if (!applied) return { status: 404, body: { error: `no mob ${vnum} among the loaded templates` } };
+    if (this.deps.mobOverridesFile) saveMobOverrides(this.deps.live.mobOverrides(), this.deps.mobOverridesFile);
+
+    this.audit('mob.author', { vnum, fields: keys, cleared });
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        mob: mobTemplateRow(applied),
+        authored: this.deps.live.mobOverrides().get(vnum) ?? null,
+        spawned: this.deps.live.liveCountOf(vnum),
       },
     };
   }
