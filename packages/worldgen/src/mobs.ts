@@ -350,6 +350,9 @@ export function parseMobFile(path: string): MobHarvest {
       level,
       hp,
       sprite,
+      // V7. The code `spriteFor` just consulted, kept rather than discarded — it is what decides an
+      // unarmed creature's attack verb (`attackTypeForRace`), and Phase 21 wants it for the racewar.
+      race: raceCode.toUpperCase(),
       aggro: readAggro(act, aggroWords, level),
       pursuit: readPursuit(act),
       wimpyAt: readWimpyAt(act, level),

@@ -95,7 +95,7 @@ a new idea still answers the three questions; its second question now also picks
 | **7 — closed** | V3 — speech in the world ✅ | Phase 17 — shops ✅ | A8 — zone geometry ✅ (infill, deletion, extent changes) |
 | **8 — closed** | V4 — Places as a graph ✅ | dropped-item decay ✅ and `junk` ✅ | A4c — loot on a mob ✅ |
 | **9 ✅** | V5 — arrival cards ✅ | Phase 18 — following ✅, grouping ✅ | A4c — loot on a mob ✅ |
-| **10 — under way** | V7 — attack verbs (owner, 2026-08-06) | Phase 19 — skills: slice 1 ✅, four to go | A7d-bag ✅; A7e/A7f, then A8d / A9 / A9b |
+| **10 — under way** | V7 — attack verbs ✅ | Phase 19 — skills: slice 1 ✅, four to go | A7d-bag ✅; A7e/A7f, then A8d / A9 / A9b |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
 A5, because A5's prose editor is a colour editor and building the palette before the renderer would
@@ -1334,7 +1334,7 @@ One per round (§2b). Each entry is small on purpose — a V item that grows a m
   **Seen when:** room prose arrives coloured the way its builder wrote it ✅ — IceCrag's approach
   road draws in the dim yellow `&+y` its author chose, with no literal codes on screen.
 
-- **V7 — Attack verbs** (owner, 2026-08-06). *"If I swing an axe or a sword it should say You slash the
+- **V7 — Attack verbs** ✅ **done 2026-08-06, owner-requested.** *"If I swing an axe or a sword it should say You slash the
   mob for 200 damage; if it was a club it should be bludgeon."* A V item by §2b's test — presentation of
   something that already exists, no new rules, and **no protocol change at all**, because the combat line
   is already rendered server-side per recipient.
@@ -1348,8 +1348,19 @@ One per round (§2b). Each entry is small on purpose — a V item that grows a m
   Two things to carry from the parking-lot row. **The verb grouping is not the skill grouping** — hammer
   and mace share `bludgeon-1h` as a skill but split into crush and bludgeon as prose, and a polearm is
   `reach` for skills and always *slash* here; merging them would silently change one. And **the mob half
-  needs a harvest**: an unarmed mob's verb is `npc->attack_type`, which is how a kobold bites and a spider
-  stings, and we do not carry it — so until we do, every clawed thing in the world punches.
+  needs a harvest**: an unarmed mob's verb is a function of its **race** (`GetFormType`, not the
+  `attack_type` field the first write-up guessed) — which is how a spider stings and a troll mauls.
+
+  **Built, and both halves driven.** `shared/src/attacks.ts` holds the eleven-row table and the two
+  mappings; `MobTemplate` gained the **race code** (`raceCode`, which `spriteFor` had been reading and
+  discarding since the harvest landed) and it is **optional**, so a stale `data/world` punches rather than
+  crashes. `announceAttack` now builds the sentence from an explicit second/third-person pair, which
+  **deleted the regex** that used to rewrite "You hits" into "You hit" — four fixed verbs could be
+  patched afterwards and eleven cannot. Driven live: dagger → *pierce*, battlehammer → *crush*, mace →
+  *bludgeon*, whip → *whip*, mithril sword → *slash*, and **the Archivist — race `G`, a giant — crushes**
+  where every humanoid punches. **The gotcha the drive found**: spawn files are a worldgen output, so the
+  race does not exist until they are regenerated, and the first run showed the giant punching because the
+  server had booted on the old files.
 
   **The finding, not the feature, is the point.** The owner asked for a way to add colour; the world
   *already had* colour and we were deleting it. `cleanDescription` called `stripColour`, and there

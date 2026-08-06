@@ -33,6 +33,10 @@ import {
   OPPOSITE,
   divideExperience,
   groupedShare,
+  ATTACK_VERBS,
+  attackTypeForRace,
+  attackTypeForWeapon,
+  type AttackType,
   AffectFlag,
   newAffect,
   ceilingFor,
@@ -1573,6 +1577,28 @@ function bracket(observer: Player, outcome: AttackOutcome, text: string): string
  * auditable rather than a health bar moving for reasons nobody can check. A critical and a fumble say so,
  * because a natural 20 and a natural 1 are the two rolls with rules attached.
  */
+/**
+ * What this body's blow is called — **V7**, and the one place the two mappings meet.
+ *
+ * A **player** swings what is in their main hand, so the verb comes from the weapon's class
+ * (`get_weapon_msg`); empty-handed, `weaponClass` is `undefined` and the source's own default is a punch.
+ * A **mob** with no weapon swings itself, so the verb comes from its **race** (`GetFormType`) — which is
+ * why the template carries the code and why a spider will sting the day there is a spider.
+ *
+ * Mobs are checked for a weapon **first**, because a guard holding a sword slashes: `equipped` is real on
+ * a mob since 15c's kit harvest, and `reset.ts` puts 275 pieces of it on IceCrag alone. Only a bare-handed
+ * creature falls through to its race, which is exactly the branch the source takes
+ * (`msg = weapon ? get_weapon_msg(weapon) : ch->only.npc->attack_type`).
+ */
+function attackTypeOf(actor: Actor): AttackType {
+  // `equipped` lives on `Player` and `Mob` rather than on `Actor`, so the narrowing is the price of the
+  // base type staying small. Every actor is one or the other; a corpse is not an actor.
+  const weapon = isPlayer(actor) || isMob(actor) ? actor.equipped.mainHand : undefined;
+  if (weapon) return attackTypeForWeapon(weapon.weaponClass);
+  if (isMob(actor)) return attackTypeForRace(mobTemplates.get(actor.vnum)?.race);
+  return attackTypeForWeapon(undefined);
+}
+
 function announceAttack(outcome: AttackOutcome): void {
   const { attacker, target } = outcome;
   // A helpless target has no armour class worth quoting — the roll is shown because a fight stays
@@ -1584,19 +1610,38 @@ function announceAttack(outcome: AttackOutcome): void {
   // Dim, because the roll is the machinery behind the sentence rather than part of it. It stays
   // readable and stops competing with the blow for the eye.
   const roll = `&+L${rollText}&N`;
+  // **V7: what the blow is called.** Owner's ask (2026-08-06), and it is `attack_hit_text[]` —
+  // a weapon's verb from its class (`get_weapon_msg`), an unarmed body's from its race
+  // (`GetFormType`). See `attacks.ts` for why those are two mappings and must not be merged.
+  //
+  // **Only on a hit.** A miss keeps "miss", because you do not slash and miss — the verb describes the
+  // blow that landed, which is what the table is for. A fumble keeps its own phrase for the same reason.
+  const verbs = ATTACK_VERBS[attackTypeOf(attacker)];
   // The two rolls with rules attached get the two colours a MUD reserves for them: a critical is
   // bright yellow and a fumble is the same dim grey as the machinery, because a fumble *is* the
   // absence of an event. Everything between is uncoloured — if every line shouted, none would.
-  const verb = outcome.critical
-    ? '&+Ycritically hits&N'
-    : outcome.hit
-      ? 'hits'
-      : 'misses';
+  //
+  // **Both persons are built up front rather than one being patched into the other.** The old version
+  // rendered the third-person sentence and then ran a regex over it to turn "You hits" into "You hit",
+  // with the four verb forms and their colour codes in the pattern — which worked for four fixed verbs
+  // and could not survive eleven. Handing the sentence the pair it needs is what the regex was
+  // approximating, and it is shorter.
+  const form = (person: 'second' | 'third'): { readonly hit: string; readonly miss: string } => {
+    const struck = verbs[person];
+    return {
+      hit: outcome.critical ? `&+Ycritically ${struck}&N` : struck,
+      miss: outcome.fumble
+        ? `&+Lfumble${person === 'third' ? 's' : ''} against&N`
+        : `miss${person === 'third' ? 'es' : ''}`,
+    };
+  };
 
-  const line = (who: string, whom: string): string =>
-    outcome.hit
-      ? `${who} ${verb} ${whom} for ${outcome.damage} damage. ${roll}`
-      : `${who} ${outcome.fumble ? '&+Lfumbles against&N' : verb} ${whom}. ${roll}`;
+  const line = (who: string, whom: string, person: 'second' | 'third'): string => {
+    const said = form(person);
+    return outcome.hit
+      ? `${who} ${said.hit} ${whom} for ${outcome.damage} damage. ${roll}`
+      : `${who} ${said.miss} ${whom}. ${roll}`;
+  };
 
   // Per recipient, gated on sight, like every other line about an entity — §4.10's warning about
   // pre-rendered strings is exactly this shape of message.
@@ -1606,19 +1651,11 @@ function announceAttack(outcome: AttackOutcome): void {
     if (!seesAttacker && !seesTarget) continue;
     const who = observer.id === attacker.id ? 'You' : seesAttacker ? capitalise(attacker.name) : 'Something';
     const whom = observer.id === target.id ? 'you' : seesTarget ? target.name : 'something';
-    // "You hits" — the one place the shared sentence needs a different verb form. The pattern reads
-    // through the colour codes the verbs now carry, which is why they are in the alternation.
+    // Second person for the one swinging, third for everyone watching — chosen here rather than
+    // patched in afterwards. See `form` above for what that replaced and why it had to go.
     const text = observer.id === attacker.id
-      ? line('You', whom).replace(
-          /^You (&\+Ycritically hits&N|hits|misses|&\+Lfumbles against&N)/,
-          (_m, v: string) =>
-            `You ${v
-              .replace(/^hits$/, 'hit')
-              .replace(/^&\+Ycritically hits&N$/, '&+Ycritically hit&N')
-              .replace(/^misses$/, 'miss')
-              .replace(/^&\+Lfumbles against&N$/, '&+Lfumble against&N')}`,
-        )
-      : line(who, whom);
+      ? line('You', whom, 'second')
+      : line(who, whom, 'third');
     send(observer.id, { t: 'log', channel: 'combat', text: bracket(observer, outcome, text) });
 
     // The structured form too, so the client can animate rather than parse prose.

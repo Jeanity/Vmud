@@ -63,6 +63,25 @@ export interface MobTemplate {
   /** Art key. See `Actor.sprite`; the client owns which layers that is. */
   readonly sprite: string;
   /**
+   * Duris' **race code** — the fourth column of `race_names_table` in `common.c`, a short string like
+   * `H` or `PT`. V7.
+   *
+   * Read since the harvest landed and thrown away: `spriteFor` used it to choose a body and kept nothing.
+   * Its reader now is `attackTypeForRace` in `attacks.ts` — an unarmed creature's blow is a function of
+   * its race in the source (`GetFormType`), which is how a spider stings and a troll mauls, and it is not
+   * a field any builder authored.
+   *
+   * **It will have a second reader at Phase 21**, where aggression predicates and the racewar both need
+   * it — the handoff notes that `all` is the only evaluable aggro clause *"until races and alignment
+   * exist"*. Kept as the source's own code rather than anything derived from it for that reason.
+   *
+   * **Optional, because the spawn files are a worldgen output and a checkout may hold an older one.**
+   * Absent means the source's own `default`, which is `MSG_HIT` — the creature punches. That is the same
+   * treatment `maxHp`, `equipped` and every other later-arriving field gets, and it is what stops a stale
+   * `data/world` from being a crash instead of a rebuild.
+   */
+  readonly race?: string;
+  /**
    * Who this objects to and how quickly it works it out — Duris' `ACT_*` and three aggression words,
    * reduced to what has a reader. See `aggression.ts`, which is where the reasoning lives.
    */
