@@ -3355,6 +3355,11 @@ function describeEntity(player: Player, target: EntityView): void {
   }
   if (target.kind === 'item') {
     send(player.id, { t: 'log', channel: 'room', text: `You see ${target.name} lying here.` });
+    // **A corpse says what is on it** — owner's ask, 2026-08-06: *"when looking at a corpse it should list
+    // what items the mob has that is lootable."* Everything needed already existed; what was missing was
+    // saying it, and until now the only way to learn a body held anything was to walk over and `loot` it.
+    const corpse = graveyard.get(target.id);
+    if (corpse) describeCorpse(player, corpse);
     return;
   }
 
@@ -3365,6 +3370,53 @@ function describeEntity(player: Player, target: EntityView): void {
     channel: 'room',
     text: `${capitalise(target.name)}${level} is standing here${condition}.`,
   });
+}
+
+/**
+ * What a body is carrying, as `look` reports it.
+ *
+ * ## Three decisions, and the first two were already argued elsewhere
+ *
+ * **On `look`, never on the entity feed.** V2's target menu carries `EntityView.container` and its note is
+ * emphatic that the flag says *is a container* and **not** *what is in it*, because *"sending contents to
+ * everyone in the room would hand out the answer to the verb"*. A corpse is the opposite case and should
+ * be: a mob's worn kit **is** the reward — which is why `resolveDeath` puts a mob's gear in its corpse and
+ * a player's on their body — so seeing a steel long sword on a body is what makes crossing the room worth
+ * doing. `look` is a deliberate act aimed at one thing, so it is the right place; the feed is not.
+ *
+ * **At any distance, unlike a container.** `lookInsideEntity` gates on reach — *"you can look at something
+ * across the room; you cannot see inside it from there"* — and this deliberately does not. The difference
+ * is real rather than convenient: a container's contents are *inside* it and a corpse's are *on* it, which
+ * is the same distinction that makes the verb `search` rather than `look inside`. It also puts the choice
+ * back where the owner wanted it: you learn there is something worth having, and then decide to walk over
+ * — which is a decision, where "walk over to find out" is a chore.
+ *
+ * **The visible subset, from the first version.** Nothing is hidden yet, so today that is everything. The
+ * distinction is stated now because hidden items are a placed roadmap row (`search`, `ITEM_SECRET`, and a
+ * reveal roll that wants ability scores) — and if this shipped as *"everything on the body"*, that row
+ * would later have to change what this one promised. Filtering happens here when there is something to
+ * filter; no field is invented before it has a writer.
+ */
+function describeCorpse(player: Player, corpse: Corpse): void {
+  if (corpse.contents.length === 0) {
+    // Said rather than left silent, and it is the sentence that makes the feature worth having: **an empty
+    // body is information**. Without it, "no list" would mean either *nothing on it* or *the feature did
+    // not fire*, and a player cannot tell those apart.
+    send(player.id, { t: 'log', channel: 'room', text: '  It has been picked clean.' });
+    return;
+  }
+  send(player.id, { t: 'log', channel: 'room', text: '  It is carrying:' });
+  for (const item of corpse.contents) {
+    // Painted through the same `describeStack` the bag and the container listing use, so one body's
+    // contents cannot read differently from the same items once they are in your hands. Count of one,
+    // because a corpse holds items rather than stacks — the two-arrow quiver is inside a container that is
+    // itself one of these.
+    send(player.id, {
+      t: 'log',
+      channel: 'room',
+      text: `    ${describeStack({ item, count: 1 }, item.uses)}`,
+    });
+  }
 }
 
 /**
