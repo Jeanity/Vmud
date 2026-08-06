@@ -18,6 +18,7 @@
     "worldgen": "node --disable-warning=ExperimentalWarning packages/worldgen/src/index.ts",
     "artgen": "node --disable-warning=ExperimentalWarning packages/worldgen/src/artgen.ts",
     "artassign": "node --disable-warning=ExperimentalWarning packages/worldgen/src/artassign.ts",
+    "artsweep": "node --disable-warning=ExperimentalWarning packages/worldgen/src/artsweep.ts",
     "colourassign": "node --disable-warning=ExperimentalWarning packages/worldgen/src/colourassign.ts"
   },
   "devDependencies": {
