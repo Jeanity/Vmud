@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 import {
+  AUTHORED_MOB_BASE,
   AUTHORED_ROOM_BASE,
   AUTHORED_VNUM_BASE,
   DURIS_ITEM,
@@ -31,6 +32,7 @@ import {
 
 import { AdminApi, type AdminDeps, type AdminRequest, type AnnounceScope, type LiveOps } from './admin.ts';
 import { applyItemOverride, loadItemOverrides, mergeItemOverride, type ItemOverrides } from './item-overrides.ts';
+import { draftAuthoredMob, type AuthoredMobStore } from './mob-authoring.ts';
 import { applyMobOverride, mergeMobOverride } from './mob-overrides.ts';
 import {
   draftAuthoredItem,
@@ -102,7 +104,7 @@ interface Rig {
   scopes: AnnounceScope[];
 }
 
-function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string; itemOverridesFile?: string; authoredRoomsFile?: string; mobOverridesFile?: string; noPopulation?: boolean; zone?: Zone; occupants?: { players: string[]; mobs: string[]; corpses: string[] }; resets?: Record<string, number> } = {}): Rig {
+function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string; itemOverridesFile?: string; authoredRoomsFile?: string; mobOverridesFile?: string; authoredMobsFile?: string; noPopulation?: boolean; zone?: Zone; occupants?: { players: string[]; mobs: string[]; corpses: string[] }; resets?: Record<string, number> } = {}): Rig {
   const dir = mkdtempSync(join(tmpdir(), 'mygame-admin-'));
   const store = new PlayerStore({ dir });
   const world = new GameWorld([options.zone ?? testZone()], { zone: 600, room: null });
@@ -167,10 +169,13 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     },
     spawnMob: (vnum) =>
       vnum === 61 ? { id: 999, name: 'a kobold guard' } : { error: `no mob ${vnum} in the loaded templates` },
-    mobTemplates: () => [
-      { vnum: 61, name: 'a kobold guard', level: 8, keywords: ['kobold', 'guard'] },
-      { vnum: 62, name: '&+ya kobold shaman&N', level: 23, keywords: ['kobold', 'shaman'] },
-    ],
+    // Derived from the same record map the real server derives it from, rather than a hardcoded pair:
+    // A9b creates templates at run time, and a fixed list is a rig in which a created mob can never be
+    // searched for — a test that passes because the fake cannot express the bug.
+    mobTemplates: () =>
+      [...mobRecords.values()]
+        .map((t) => ({ vnum: t.vnum, name: t.name, level: t.level, keywords: t.keywords }))
+        .sort((a, b) => a.vnum - b.vnum),
     itemOverrides: () => itemOverrides,
     authorItem: (vnum, next, clearedKeys) => {
       const current = items.get(vnum);
@@ -258,6 +263,27 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     // A4c. The overlay lives in the rig, so a test can assert what was written without a file.
     mobOverrides: () => mobLoot,
     liveCountOf: () => 3,
+    // A9b. The rig runs the real store and the real validator, so a router test is also a test of the
+    // record it wrote — a draft that lands wrong shows up as a bad template rather than as a call log
+    // that looks right.
+    authoredMobs: () => madeHere,
+    authorNewMob: (vnum, draft) => {
+      const number = vnum ?? madeHere.next;
+      if (vnum !== undefined && !madeHere.mobs.has(vnum)) return { error: `no mob ${vnum} was made here` };
+      const drafted = draftAuthoredMob(number, draft);
+      if ('error' in drafted) return drafted;
+      madeHere.mobs.set(number, { mob: drafted.mob, at: 'test-time' });
+      if (vnum === undefined) madeHere.next = number + 1;
+      mobRecords.set(number, drafted.mob);
+      return { mob: drafted.mob };
+    },
+    unmakeMob: (vnum) => {
+      const authored = madeHere.mobs.get(vnum);
+      if (!authored) return undefined;
+      madeHere.mobs.delete(vnum);
+      mobRecords.delete(vnum);
+      return { name: authored.mob.name, standing: 2 };
+    },
     // A9. The rig runs the real fold, so a test of the router is also a test of what it wrote: a patch
     // that lands wrong here shows up as a wrong template rather than as a call log that looks right.
     mobTemplateOf: (vnum) => mobRecords.get(vnum),
@@ -315,6 +341,8 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     [62, { vnum: 62, keywords: ['kobold', 'shaman'], name: '&+ya kobold shaman&N', room: 'A shaman mutters here.', level: 23, hp: '23d10+60', sprite: 'kobold', aggro: passiveRule(23), pursuit: noPursuit(), combat: readCombatStats({ level: 23, armour: 10, damage: '3d8' }), experience: 9000, wimpyAt: 138 }],
   ]);
   const pristineMobs = new Map<number, MobTemplate>();
+  // A9b: the created-mob store. Empty to start, exactly as a fresh server's is.
+  const madeHere: AuthoredMobStore = { mobs: new Map(), next: AUTHORED_MOB_BASE };
 
   const deps: AdminDeps = {
     world,
@@ -334,6 +362,7 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     overridesFile: options.overridesFile,
     authoredRoomsFile: options.authoredRoomsFile,
     mobOverridesFile: options.mobOverridesFile,
+    authoredMobsFile: options.authoredMobsFile,
     itemOverridesFile: options.itemOverridesFile,
     facts: { protocol: 9, tickMs: 100, roundMs: 3000, startedAt: Date.now() },
   };
@@ -1745,6 +1774,133 @@ describe('editing a mob template', () => {
     const written = JSON.parse(readFileSync(mobOverridesFile, 'utf8')) as Record<string, Record<string, unknown>>;
     assert.equal(written['61']?.level, 40);
     assert.equal(written['61']?.sprite, 'kobold-king');
+  });
+});
+
+/**
+ * A9b — mobs made here rather than harvested.
+ *
+ * The tests pin what makes a created mob a different animal from an edited one: it is a whole record with
+ * no harvest behind it, it gets a number the caller may not choose, that number is never handed out twice,
+ * and it can be deleted where a Duris creature cannot.
+ */
+describe('making a mob', () => {
+  const HOUND = {
+    name: 'a bone hound',
+    keywords: ['bone', 'hound'],
+    level: 12,
+    hp: '12d8+30',
+    damage: '2d6+3',
+    armourClass: 14,
+    experience: 2400,
+  };
+
+  it('makes one, numbers it from the reserved base and returns the whole record', () => {
+    const { api } = makeRig();
+    const response = quietly(() => api.route(req('POST', '/mobs/template', HOUND)));
+    assert.equal(response.status, 201);
+    const body = response.body as { vnum: number; mob: Record<string, unknown> };
+    assert.equal(body.vnum, AUTHORED_MOB_BASE);
+    assert.equal(body.mob.name, 'a bone hound');
+    assert.equal(body.mob.level, 12);
+    // Derived rather than posted — a form has no business naming a round length.
+    assert.equal(body.mob.damage, '2d6+3');
+  });
+
+  it('refuses a vnum the caller chose, because it is the join key', () => {
+    const { api } = makeRig();
+    const response = api.route(req('POST', '/mobs/template', { ...HOUND, vnum: 1410 }));
+    assert.equal(response.status, 400);
+    assert.match((response.body as { error: string }).error, /allocated by the server/);
+  });
+
+  it('never hands the same number out twice, even after a delete', () => {
+    // The reason the counter is stored rather than derived: "highest plus one" recycles the number of
+    // whatever was deleted last, and a vnum is an identity.
+    const { api } = makeRig();
+    const first = (quietly(() => api.route(req('POST', '/mobs/template', HOUND))).body as { vnum: number }).vnum;
+    quietly(() => api.route(req('DELETE', `/mobs/${first}/template`)));
+    const second = (quietly(() => api.route(req('POST', '/mobs/template', HOUND))).body as { vnum: number }).vnum;
+    assert.equal(second, first + 1, 'the freed number is gone for good');
+  });
+
+  it('says what is wrong rather than merely refusing', () => {
+    const { api } = makeRig();
+    const noName = api.route(req('POST', '/mobs/template', { ...HOUND, name: '' }));
+    assert.match((noName.body as { error: string }).error, /name is required/);
+    const badDice = api.route(req('POST', '/mobs/template', { ...HOUND, hp: 'lots' }));
+    assert.match((badDice.body as { error: string }).error, /dice the game can roll/);
+    const noWords = api.route(req('POST', '/mobs/template', { ...HOUND, keywords: [] }));
+    assert.match((noWords.body as { error: string }).error, /at least one keyword/);
+  });
+
+  it('writes a disposition and its clause together, or neither', () => {
+    // A9 refused to author aggression because a disposition with no clause marks a mob hostile that never
+    // attacks. One boolean cannot express that state, which is what makes it safe to offer.
+    const { api } = makeRig();
+    const made = quietly(() => api.route(req('POST', '/mobs/template', { ...HOUND, aggressive: true })));
+    const vnum = (made.body as { vnum: number }).vnum;
+    const read = api.route(req('GET', `/mobs/${vnum}/template`)).body as { mob: { aggressive: boolean } };
+    assert.equal(read.mob.aggressive, true);
+  });
+
+  it('edits one as a re-draft, taking the fields an override refuses', () => {
+    const { api } = makeRig();
+    const vnum = (quietly(() => api.route(req('POST', '/mobs/template', HOUND))).body as { vnum: number }).vnum;
+    // `aggressive` is not authorable on a harvested mob and is here, because there is no harvest to
+    // disagree with. The panel does not choose the path; the vnum range does.
+    const edited = quietly(() => api.route(req('PATCH', `/mobs/${vnum}/template`, { aggressive: true, level: 20 })));
+    assert.equal(edited.status, 200);
+    const body = edited.body as { mob: { level: number; aggressive: boolean }; created: boolean };
+    assert.equal(body.created, true);
+    assert.equal(body.mob.level, 20);
+    assert.equal(body.mob.aggressive, true);
+    // And the fields it did not mention are still what they were — a re-draft, not a replacement.
+    const read = api.route(req('GET', `/mobs/${vnum}/template`)).body as { mob: { name: string; hp: string } };
+    assert.equal(read.mob.name, 'a bone hound');
+    assert.equal(read.mob.hp, '12d8+30');
+  });
+
+  it('marks the search row as made here rather than edited', () => {
+    const { api } = makeRig();
+    quietly(() => api.route(req('POST', '/mobs/template', HOUND)));
+    const listed = api.route({ ...req('GET', '/mobs'), query: { q: 'hound' } }).body as {
+      mobs: { vnum: number; created?: boolean; edited?: string[] }[];
+    };
+    const row = listed.mobs.find((m) => m.vnum === AUTHORED_MOB_BASE);
+    assert.equal(row?.created, true);
+    assert.equal(row?.edited, undefined, 'made here is not the same fact as edited');
+  });
+
+  it('refuses to delete a harvested mob, and says why', () => {
+    const { api } = makeRig();
+    const response = api.route(req('DELETE', '/mobs/61/template'));
+    assert.equal(response.status, 400);
+    assert.match((response.body as { error: string }).error, /the next worldgen would restore it/);
+  });
+
+  it('deletes one made here, and says how many are still standing', () => {
+    const { api } = makeRig();
+    const vnum = (quietly(() => api.route(req('POST', '/mobs/template', HOUND))).body as { vnum: number }).vnum;
+    const gone = quietly(() => api.route(req('DELETE', `/mobs/${vnum}/template`)));
+    assert.equal(gone.status, 200);
+    // Instances outlive the idea of them: they are ordinary actors in ordinary fights, and unmaking one
+    // mid-round would be a mob vanishing out of a swing.
+    assert.equal((gone.body as { standing: number }).standing, 2);
+    assert.equal(api.route(req('GET', `/mobs/${vnum}/template`)).status, 404);
+  });
+
+  it('writes the overlay to disk with its counter', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mygame-a9b-'));
+    const authoredMobsFile = join(dir, 'mobs-authored.json');
+    const { api } = makeRig({ authoredMobsFile });
+    quietly(() => api.route(req('POST', '/mobs/template', HOUND)));
+    const written = JSON.parse(readFileSync(authoredMobsFile, 'utf8')) as {
+      next: number;
+      mobs: Record<string, { name: string; level: number }>;
+    };
+    assert.equal(written.next, AUTHORED_MOB_BASE + 1);
+    assert.equal(written.mobs[String(AUTHORED_MOB_BASE)]?.name, 'a bone hound');
   });
 });
 

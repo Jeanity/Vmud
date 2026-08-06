@@ -34,6 +34,24 @@ import type { RoomId, ZoneId } from './world.ts';
  * a field costs nothing to add later and costs the inert surface `ROADMAP.md` rule 1 warns about if added
  * now.
  */
+/**
+ * Where **our own** mob vnums start. Nothing Duris ships may ever reach here. **A9b.**
+ *
+ * `AUTHORED_VNUM_BASE`'s twin, and it exists for the same reason rather than by analogy: a vnum is the
+ * join key between the template map, every `M`/`F`/`R` reset, every instance limit and every override,
+ * and `CLAUDE.md`'s rule is that they are never renumbered — so a collision is not a merge conflict, it
+ * is two different creatures silently becoming one.
+ *
+ * **Measured rather than assumed**: the 1,503 harvested templates run from **1,400 to 200,319**, 1,329 of
+ * them below 100k and the remaining 174 in the 200k block. Nine million is over an order of magnitude
+ * clear of the highest, leaves the whole 1M–8M range for a future Duris drop, and is obvious on sight.
+ *
+ * **Deliberately the same number as the item base.** They are different namespaces — nothing ever looks
+ * a vnum up without knowing whether it wants a mob or an item — so sharing the digit makes *ours* one
+ * fact to remember instead of two, and a seven-digit vnum beginning with a 9 is ours whatever it names.
+ */
+export const AUTHORED_MOB_BASE = 9_000_000;
+
 export interface MobTemplate {
   /**
    * The MUD's own mob vnum. **The instance limit is keyed on this**, so it has to be the real number and

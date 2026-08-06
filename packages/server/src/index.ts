@@ -150,6 +150,7 @@ import {
   type RoomView,
   type ServerMessage,
   type TileGrid,
+  AUTHORED_MOB_BASE,
   type MobTemplate,
   type ZoneSpawns,
   type TilePoint,
@@ -281,6 +282,11 @@ import {
   type ItemDraft,
 } from './item-authoring.ts';
 import { ROOMS_FILE } from './overrides.ts';
+import {
+  AUTHORED_MOBS_FILE,
+  draftAuthoredMob,
+  loadAuthoredMobs,
+} from './mob-authoring.ts';
 import {
   MOBS_FILE,
   MOB_OVERRIDE_META,
@@ -453,6 +459,25 @@ for (const [vnum, override] of mobOverrides) {
   pristineMobs.set(vnum, base);
   mobTemplates.set(vnum, applyMobOverride(base, override));
 }
+/**
+ * A9b: mobs that were **made here**, added to the template map rather than folded over it.
+ *
+ * Added *after* the override fold and not through it, because there is nothing underneath them to fold
+ * over — see `mob-authoring.ts` for why the two overlays are separate files with opposite rules. From
+ * this line on the map makes no distinction: a created creature is looked up, matched by keyword, spawned,
+ * fought, killed and looted by exactly the code that handles a harvested one. **That is the property worth
+ * protecting** — the moment anything downstream has to ask *“is this one ours?”*, a created mob stops
+ * being a real mob and becomes a special case.
+ *
+ * The vnum range is what makes it safe: `AUTHORED_MOB_BASE` is an order of magnitude above the highest
+ * vnum Duris ships, so `set` here can never quietly replace a harvested entry.
+ */
+const authoredMobs = loadAuthoredMobs();
+for (const [vnum, authored] of authoredMobs.mobs) mobTemplates.set(vnum, authored.mob);
+if (authoredMobs.mobs.size > 0) {
+  console.log(`[mobs] ${authoredMobs.mobs.size} creature(s) made here, numbered from ${AUTHORED_MOB_BASE}`);
+}
+
 if (mobOverrides.size > 0) {
   const pieces = [...mobOverrides.values()].reduce((sum, o) => sum + (o.loot?.length ?? 0), 0);
   const notAField = new Set([...MOB_OVERRIDE_META, 'loot']);
@@ -6015,6 +6040,56 @@ const adminLive: LiveOps = {
     return pristine;
   },
 
+  authoredMobs() {
+    return authoredMobs;
+  },
+
+  /**
+   * A9b: create a mob, or re-draft one that was created here. **The whole-record path.**
+   *
+   * One function for both because an edit *is* a re-draft: the incoming fields are laid over the record
+   * that exists and the result goes through the same validator a creation does. A second, laxer path for
+   * edits is how a field ends up legal to change but illegal to set — the asymmetry `readAuthoredMob`
+   * avoids by running this same validator against the file on disk.
+   *
+   * `vnum` is `undefined` to create: the number is the server's to allocate and never the caller's, so a
+   * form cannot ask for one a re-harvest might later claim.
+   */
+  authorNewMob(vnum, draft) {
+    const existing = vnum === undefined ? undefined : authoredMobs.mobs.get(vnum);
+    if (vnum !== undefined && !existing) return { error: `no mob ${vnum} was made here` };
+    const number = vnum ?? authoredMobs.next;
+    const drafted = draftAuthoredMob(number, draft);
+    if ('error' in drafted) return drafted;
+    authoredMobs.mobs.set(number, {
+      mob: drafted.mob,
+      at: new Date().toISOString(),
+      ...(existing?.by ? { by: existing.by } : {}),
+    });
+    // **The counter only ever moves forward**, including past a number that is later deleted: a vnum is an
+    // identity, and handing a freed one out again would silently change what a corpse or a limit refers to.
+    if (vnum === undefined) authoredMobs.next = number + 1;
+    mobTemplates.set(number, drafted.mob);
+    return { mob: drafted.mob };
+  },
+
+  /**
+   * A9b: unmake a created mob. Harvested ones are refused — there is no such thing as deleting a Duris
+   * record, only authoring over it, which is what `Restore harvested` undoes.
+   *
+   * **What is already standing is left standing.** A created mob's instances are ordinary actors with
+   * their own hit points and their own fights; deleting the idea of them mid-swing would be a mob
+   * vanishing out of a round, which is the path A4's Slay note says the game does not have. They live out
+   * their lives and nothing spawns another.
+   */
+  unmakeMob(vnum) {
+    const authored = authoredMobs.mobs.get(vnum);
+    if (!authored) return undefined;
+    authoredMobs.mobs.delete(vnum);
+    mobTemplates.delete(vnum);
+    return { name: authored.mob.name, standing: sim.countOf(vnum) };
+  },
+
   giveItem(player, vnum) {
     const template = itemCatalogue.get(vnum);
     if (!template) return { error: `no item ${vnum} in the catalogue` };
@@ -6300,6 +6375,7 @@ const admin = new AdminApi({
   overridesFile: ROOMS_FILE,
   authoredRoomsFile: AUTHORED_ROOMS_FILE,
   mobOverridesFile: MOBS_FILE,
+  authoredMobsFile: AUTHORED_MOBS_FILE,
   facts: { protocol: PROTOCOL_VERSION, tickMs: TICK_MS, roundMs: ROUND_MS, startedAt: Date.now() },
 });
 // Announced at boot like every other switch, so a server quietly running an open admin API is not a

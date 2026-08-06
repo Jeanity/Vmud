@@ -37,6 +37,7 @@ import {
   ROOM_FLAGS,
   SECTORS,
   UNLIMITED_DURATION,
+  AUTHORED_MOB_BASE,
   newAffect,
   parseDice,
   parseDirection,
@@ -60,6 +61,7 @@ import { LIGHT_SOURCES, lightSource, type LightSource } from '@mygame/shared/lig
 
 import { draftDescription, listModels, ollamaReachable } from './ollama.ts';
 import { saveRoomOverrides, type RoomOverride } from './overrides.ts';
+import { saveAuthoredMobs, type AuthoredMobStore, type MobDraft } from './mob-authoring.ts';
 import {
   MAX_AUTHORED_AC,
   MAX_AUTHORED_EXPERIENCE,
@@ -321,6 +323,18 @@ export interface LiveOps {
     cleared: readonly string[],
   ): MobTemplate | undefined;
 
+  /** A9b: mobs made here rather than harvested. Read for the *created* mark and for saving. */
+  authoredMobs(): AuthoredMobStore;
+
+  /**
+   * A9b: create a mob, or re-draft one made here. `vnum` is `undefined` to create — the number is the
+   * server's to allocate, so a form cannot ask for one a re-harvest might later claim.
+   */
+  authorNewMob(vnum: number | undefined, draft: MobDraft): { mob: MobTemplate } | { error: string };
+
+  /** A9b: unmake a created mob. Nothing already standing is touched; nothing new spawns. */
+  unmakeMob(vnum: number): { name: string; standing: number } | undefined;
+
   /** The operator switches as they currently stand. See `settings.ts`. */
   settings(): WorldSettings;
   /** The authored item overlay — read for edited marks and for saving; never mutated here. */
@@ -420,6 +434,8 @@ export interface AdminDeps {
   readonly authoredRoomsFile: string | undefined;
   /** Where authored mob loot is saved, or undefined to edit the live world without persisting. */
   readonly mobOverridesFile: string | undefined;
+  /** A9b: where created mobs are written. Absent in tests that assert without touching disk. */
+  readonly authoredMobsFile?: string | undefined;
   /** Boot-time constants the dashboard reports. */
   readonly facts: {
     readonly protocol: number;
@@ -493,6 +509,7 @@ const MOB_SPRITE_MAX = 80;
  */
 function mobTemplateRow(template: MobTemplate): Record<string, unknown> {
   return {
+    ...mobDraftOf(template),
     vnum: template.vnum,
     name: template.name,
     room: template.room,
@@ -504,6 +521,31 @@ function mobTemplateRow(template: MobTemplate): Record<string, unknown> {
     experience: template.experience,
     wimpyAt: template.wimpyAt,
     sprite: template.sprite,
+  };
+}
+
+/**
+ * A template reduced to the draft a form posts back — **A9b**.
+ *
+ * The two rule booleans are the interesting part. `aggro` and `pursuit` are whole records, and the panel
+ * never sees them as such: {@link MobDraft.aggressive} is one flag that writes a disposition *and* its
+ * clause together, which is what makes it safe to offer at all. Read back the same way, from the fields
+ * that actually decide the behaviour rather than from a stored flag that could disagree with them.
+ */
+function mobDraftOf(template: MobTemplate): Record<string, unknown> {
+  return {
+    name: template.name,
+    room: template.room,
+    keywords: template.keywords,
+    level: template.level,
+    hp: template.hp,
+    damage: writeDice(template.combat.damage),
+    armourClass: template.combat.armourClass,
+    experience: template.experience,
+    wimpyAt: template.wimpyAt,
+    sprite: template.sprite,
+    aggressive: template.aggro.disposition !== 'passive' && template.aggro.clauses.length > 0,
+    hunts: template.pursuit.trackRooms > 0,
   };
 }
 const ITEM_NAME_MAX = 120;
@@ -627,6 +669,12 @@ export class AdminApi {
     if (head === 'mobs' && slug !== undefined && action === 'loot' && parts.length === 3 && request.method === 'PATCH') {
       return this.authorMobLoot(slug, request.body);
     }
+    // A9b. A creation has no vnum to name it by, so it posts to the collection — `/mobs` itself is taken
+    // by `POST` for *spawning an instance*, which is a different act on a different id space, so a made
+    // creature goes to `/mobs/template` exactly as an edited one goes to `/mobs/:vnum/template`.
+    if (head === 'mobs' && slug === 'template' && parts.length === 2 && request.method === 'POST') {
+      return this.createMob(request.body);
+    }
     // A9. Under `/template` for the reason above rather than at `/mobs/:vnum`: `DELETE /mobs/:id` already
     // took that path for an **entity id**, and one path whose id space depends on the verb is exactly what
     // the note above says not to build. `/loot` and `/template` are both “this kind of mob”; `/mobs/:id`
@@ -634,6 +682,7 @@ export class AdminApi {
     if (head === 'mobs' && slug !== undefined && action === 'template' && parts.length === 3) {
       if (request.method === 'GET') return this.mobTemplate(slug);
       if (request.method === 'PATCH') return this.authorMob(slug, request.body);
+      if (request.method === 'DELETE') return this.destroyMob(slug);
     }
     // A4. A door is named by the room it is in and the way it faces — not by an id, because it has
     // none: a doorway is two exits, and `world.doorway` is what keeps the two ends in step.
@@ -900,7 +949,12 @@ export class AdminApi {
       // ✎ mark: *that* it is authored belongs on the row, *what* is authored belongs in the editor, and a
       // row that says `level, hp` is the difference between "somebody touched this" and a reason to open it.
       const edited = Object.keys(override ?? {}).filter((k) => k !== 'at' && k !== 'by' && k !== 'loot');
-      const marks = edited.length > 0 ? { edited } : {};
+      const marks = {
+        ...(edited.length > 0 ? { edited } : {}),
+        // A9b. ✦ rather than ✎: *made here* and *edited* are different facts, and a created mob has no
+        // harvest a re-run could restore — which is what its editor's dangerous button has to say.
+        ...(this.deps.live.authoredMobs().mobs.has(template.vnum) ? { created: true } : {}),
+      };
       if (!loot || loot.length === 0) return { ...template, ...marks };
       // **Named here, because only this side has the catalogue.** The overlay stores vnums — that is
       // the join key and the only thing that should be persisted — but an editor listing `item 2749`
@@ -2149,6 +2203,9 @@ export class AdminApi {
       body: {
         mob: mobTemplateRow(template),
         authored: this.deps.live.mobOverrides().get(vnum) ?? null,
+        // A9b. Whether there is a harvest under this creature decides two things the record cannot say for
+        // itself: which fields may be edited, and whether the dangerous button says Restore or Delete.
+        created: this.deps.live.authoredMobs().mobs.get(vnum) ?? null,
         /** How many are standing right now — every one of them unaffected by an edit. */
         spawned: this.deps.live.liveCountOf(vnum),
       },
@@ -2185,6 +2242,12 @@ export class AdminApi {
     if (typeof body !== 'object' || body === null || Array.isArray(body)) {
       return { status: 400, body: { error: 'PATCH body must be a JSON object' } };
     }
+    // **One Save for both kinds of mob, and the *server* decides which it is** — `authorItem`'s dispatch,
+    // for the same reason. A created mob has no harvest to patch, so an edit to one is a re-draft of the
+    // whole record: a different store, a different validator, and no *Restore harvested* because there is
+    // nothing behind it. Deciding here rather than in the panel means the front end has one route to call
+    // and cannot get the choice wrong; the vnum range is the discriminator, exactly as it is on disk.
+    if (vnum >= AUTHORED_MOB_BASE) return this.reauthorMob(vnum, body as Record<string, unknown>);
     const patch = body as Record<string, unknown>;
     const keys = Object.keys(patch);
     if (keys.length === 0) {
@@ -2308,6 +2371,99 @@ export class AdminApi {
         spawned: this.deps.live.liveCountOf(vnum),
       },
     };
+  }
+
+  /**
+   * `POST /mobs/template` — **A9b**, a creature with no `.mob` record behind it.
+   *
+   * Owner's ask, 2026-08-06: *"we need to be able to edit existing mobs and create new mobs."* A9 was the
+   * first half. This is A6b's shape for mobs: a whole record rather than a patch, a vnum from a reserved
+   * base with a **stored** counter, and its own file with the opposite lifecycle rule — an emptied
+   * override is deleted, while a created mob whose name is blanked is a bug rather than a request to
+   * delete the creature.
+   *
+   * **The vnum is not the caller's to choose**, and the refusal says so. A form that could name its own
+   * number could name one a future harvest claims, and a vnum is the join key between the template map,
+   * every reset, every instance limit and every override — a collision there is two creatures silently
+   * becoming one.
+   */
+  private createMob(body: unknown): AdminResponse {
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return { status: 400, body: { error: 'POST body must be a JSON object' } };
+    }
+    const draft = body as Record<string, unknown>;
+    if (draft.vnum !== undefined) {
+      return {
+        status: 400,
+        body: { error: 'vnum is allocated by the server — a mob may not choose its own join key' },
+      };
+    }
+    const created = this.deps.live.authorNewMob(undefined, draft as MobDraft);
+    if ('error' in created) return { status: 400, body: { error: created.error } };
+    this.saveMade();
+
+    this.audit('mob.create', { vnum: created.mob.vnum, name: stripColour(created.mob.name) });
+    return { status: 201, body: { ok: true, vnum: created.mob.vnum, mob: mobTemplateRow(created.mob) } };
+  }
+
+  /**
+   * The created-mob half of `PATCH /mobs/:vnum/template`. Reached only through {@link authorMob}'s dispatch.
+   *
+   * **An edit here is a re-draft of the whole record**, because there is no harvest underneath to patch —
+   * so the fields the overlay path refuses (`aggressive`, `hunts`) are accepted, and *Restore harvested*
+   * is not offered, since there is nothing behind it to restore to. The panel does not have to know which
+   * kind of mob it is holding: the vnum range decides, here, exactly as it does for items.
+   */
+  private reauthorMob(vnum: number, patch: Record<string, unknown>): AdminResponse {
+    const keys = Object.keys(patch);
+    if (keys.length === 0) return { status: 400, body: { error: 'empty patch' } };
+    // Laid over the record that exists, so a patch of one field is still a whole valid draft — the same
+    // read-modify-validate an override does, with the record itself standing in for the harvest.
+    const current = this.deps.live.authoredMobs().mobs.get(vnum);
+    if (!current) return { status: 404, body: { error: `no mob ${vnum} was made here` } };
+    const merged = { ...mobDraftOf(current.mob), ...patch };
+    const edited = this.deps.live.authorNewMob(vnum, merged as MobDraft);
+    if ('error' in edited) return { status: 400, body: { error: edited.error } };
+    this.saveMade();
+
+    this.audit('mob.reauthor', { vnum, fields: keys });
+    return { status: 200, body: { ok: true, mob: mobTemplateRow(edited.mob), created: true } };
+  }
+
+  /**
+   * `DELETE /mobs/:vnum/template` — unmakes a mob that was created here.
+   *
+   * **A harvested mob cannot be deleted, and the refusal says why**: the next `npm run worldgen` would put
+   * it straight back, so a delete that appeared to work would be a lie with a restart's fuse on it.
+   * Retiring a Duris creature is a zone edit, not a catalogue one.
+   *
+   * What is already standing keeps standing, and the response says how many — they are ordinary actors in
+   * ordinary fights, and unmaking the idea of them mid-round would be a mob vanishing out of a swing.
+   */
+  private destroyMob(slug: string): AdminResponse {
+    const vnum = Number(slug);
+    if (!Number.isInteger(vnum)) return { status: 400, body: { error: `"${slug}" is not a mob vnum` } };
+    if (vnum < AUTHORED_MOB_BASE) {
+      return {
+        status: 400,
+        body: {
+          error:
+            `mob ${vnum} came from the harvest and cannot be deleted — the next worldgen would restore ` +
+            `it. Only mobs created here can be removed.`,
+        },
+      };
+    }
+    const gone = this.deps.live.unmakeMob(vnum);
+    if (!gone) return { status: 404, body: { error: `no mob created here with vnum ${vnum}` } };
+    this.saveMade();
+
+    this.audit('mob.delete', { vnum, name: stripColour(gone.name), standing: gone.standing });
+    return { status: 200, body: { ok: true, standing: gone.standing } };
+  }
+
+  /** Persists the created-mob overlay, if this server was given somewhere to put it. */
+  private saveMade(): void {
+    if (this.deps.authoredMobsFile) saveAuthoredMobs(this.deps.live.authoredMobs(), this.deps.authoredMobsFile);
   }
 
   /* ------------------------------------------------------------------------ */

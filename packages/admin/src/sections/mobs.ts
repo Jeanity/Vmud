@@ -54,6 +54,8 @@ interface TemplateRow {
   readonly loot?: readonly { readonly vnum: number; readonly slot?: string; readonly name?: string }[];
   /** A9: which of its own fields are authored over the harvest. Absent when none are. */
   readonly edited?: readonly string[];
+  /** A9b: made here rather than harvested — a different fact from *edited*, and a different mark. */
+  readonly created?: boolean;
 }
 
 /** A9: the whole authorable record, which is what the field editor opens on. */
@@ -69,6 +71,9 @@ interface MobRecord {
   readonly experience: number;
   readonly wimpyAt: number;
   readonly sprite: string;
+  /** A9b. One flag rather than a whole `AggroRule` — see `MobDraft.aggressive` for why. */
+  readonly aggressive: boolean;
+  readonly hunts: boolean;
 }
 
 /** The server's own cap, mirrored so the panel can refuse a thirteenth piece before a round trip. */
@@ -245,6 +250,7 @@ export const mobsSection = {
               el('span', { class: 'note' }, `level ${template.level}`),
               el('span', { class: 'muted' }, template.keywords.join(' ')),
               // ✎ beside the row exactly where the Items browser puts it, and it names the fields.
+              template.created ? el('span', { class: 'pill' }, '✦ made here') : null,
               template.edited?.length ? el('span', { class: 'pill' }, `✎ ${template.edited.join(', ')}`) : null,
               edit,
               loot,
@@ -294,6 +300,7 @@ export const mobsSection = {
         templateCount,
         templateList,
       ),
+      makeCard(() => searchTemplates()),
       el(
         'div',
         { class: 'card' },
@@ -509,14 +516,19 @@ async function fieldEditor(
   done: (message?: string, forVnum?: number) => void,
   opening?: string,
 ): Promise<HTMLElement> {
-  const opened = await call<{ mob: MobRecord; authored: Record<string, unknown> | null; spawned: number }>(
-    'GET',
-    `/mobs/${vnum}/template`,
-  );
+  const opened = await call<{
+    mob: MobRecord;
+    authored: Record<string, unknown> | null;
+    created: Record<string, unknown> | null;
+    spawned: number;
+  }>('GET', `/mobs/${vnum}/template`);
   if (!opened.ok || !opened.body) {
     return el('p', { class: 'flash err' }, opened.error ?? 'could not read the template');
   }
   const { mob, authored, spawned } = opened.body;
+  // A9b. Whether there is a harvest under this creature decides two things the record cannot say for
+  // itself: which fields may be edited, and whether the dangerous button says Restore or Delete.
+  const madeHere = Boolean(opened.body.created);
 
   // A message carried across a repaint by `reopen` lands here, which is what makes a save's confirmation
   // outlive the list refresh that shows its result.
@@ -531,6 +543,14 @@ async function fieldEditor(
   const experience = el('input', { type: 'number', min: '0', value: String(mob.experience) }) as HTMLInputElement;
   const wimpy = el('input', { type: 'number', min: '0', value: String(mob.wimpyAt) }) as HTMLInputElement;
   const sprite = el('input', { type: 'text', value: mob.sprite }) as HTMLInputElement;
+
+  // **Only a mob made here gets these.** On a harvested one, aggression is the source's own `ACT_*` bits
+  // and the server refuses to author them — offering boxes the save would reject is worse than not
+  // offering them, which is the rule the Items editor already follows for slot, type and size.
+  const aggressive = el('input', { type: 'checkbox' }) as HTMLInputElement;
+  const hunts = el('input', { type: 'checkbox' }) as HTMLInputElement;
+  aggressive.checked = mob.aggressive;
+  hunts.checked = mob.hunts;
 
   const save = el('button', { class: 'primary' }, 'Save') as HTMLButtonElement;
   save.addEventListener('click', () => {
@@ -565,6 +585,10 @@ async function fieldEditor(
     changed('experience', Number(experience.value), mob.experience);
     changed('wimpyAt', Number(wimpy.value), mob.wimpyAt);
     changed('sprite', sprite.value.trim(), mob.sprite);
+    if (madeHere) {
+      changed('aggressive', aggressive.checked, mob.aggressive);
+      changed('hunts', hunts.checked, mob.hunts);
+    }
     if (Object.keys(patch).length === 0) {
       // Said here rather than sent, because the server refuses an empty patch and *"nothing to change"*
       // as an error reads like a failure when it is the honest description of pressing Save twice.
@@ -591,6 +615,32 @@ async function fieldEditor(
   });
 
   const authoredKeys = Object.keys(authored ?? {}).filter((k) => k !== 'at' && k !== 'by' && k !== 'loot');
+
+  /**
+   * A9b. **Delete where a harvested mob offers Restore**, because *Restore harvested* on a created one
+   * would be a button with nothing behind it to restore to — the honest control is the one that unmakes
+   * the record. The server refuses to delete a harvested vnum for the mirror reason: the next worldgen
+   * would put it straight back, so a delete that appeared to work would be a lie with a restart's fuse
+   * on it.
+   */
+  const destroy = el('button', { class: 'danger' }, 'Delete') as HTMLButtonElement;
+  destroy.addEventListener('click', () => {
+    void (async () => {
+      const gone = await call<{ standing: number }>('DELETE', `/mobs/${vnum}/template`);
+      if (!gone.ok) {
+        flash.className = 'flash err';
+        flash.textContent = gone.error ?? 'refused';
+        return;
+      }
+      // The count matters here for the opposite reason it does on a save: what is standing *outlives* the
+      // record, because those are ordinary actors in ordinary fights.
+      done(
+        `Unmade. ${gone.body?.standing ?? 0} already standing will live out their lives; nothing new spawns.`,
+        undefined,
+      );
+    })();
+  });
+
   const revert = el('button', { class: 'danger' }, 'Restore harvested') as HTMLButtonElement;
   revert.addEventListener('click', () => {
     if (authoredKeys.length === 0) {
@@ -638,7 +688,19 @@ async function fieldEditor(
       el('span', { class: 'muted' }, 'hp (0 never runs)'),
       el('label', {}, 'sprite'), sprite,
     ),
-    el('div', { class: 'row' }, save, revert, flash),
+    // Only a created mob can say what it objects to; a harvested one's aggression is the source's bits.
+    ...(madeHere
+      ? [
+          el(
+            'div',
+            { class: 'row' },
+            el('label', {}, 'attacks on sight'), aggressive,
+            el('label', {}, 'follows you'), hunts,
+            el('span', { class: 'muted' }, 'a hunter always remembers — one without memory is inert'),
+          ),
+        ]
+      : []),
+    el('div', { class: 'row' }, save, madeHere ? destroy : revert, flash),
     el(
       'p',
       { class: 'note' },
@@ -649,9 +711,102 @@ async function fieldEditor(
     el(
       'p',
       { class: 'note' },
-      authoredKeys.length > 0
+      madeHere
+        ? `made here — no harvest under it${typeof opened.body.created?.at === 'string' ? ` (${String(opened.body.created.at).slice(0, 10)})` : ''}`
+        : authoredKeys.length > 0
         ? `authored: ${authoredKeys.join(', ')}${typeof authored?.at === 'string' ? ` (${authored.at.slice(0, 10)})` : ''}`
         : 'nothing authored — every field is the harvest\u2019s',
+    ),
+  );
+}
+
+/**
+ * **A9b** — a creature with no `.mob` record behind it. Owner's ask, 2026-08-06: *"create new mobs."*
+ *
+ * The smallest form that can produce a *whole* template, because that is what a created mob is: there is
+ * no harvest underneath to supply the fields nobody filled in. Everything with a sensible default has one
+ * (a room line in the source's idiom, a human sprite, no experience, never flees) and everything that
+ * cannot be guessed is required — a creature with no keywords is one no player can type at.
+ *
+ * **The number is not asked for.** A vnum is the join key between the template map, every reset and every
+ * instance limit, so it is the server's to allocate from a reserved base and never a form's to choose.
+ *
+ * Once made it is an ordinary template: it can be searched, edited, given loot and spawned by the button
+ * three rows up. What it cannot yet do is **repop** — a zone's population is a worldgen output, so
+ * placing one permanently needs its own overlay, and the note under the form says so rather than leaving
+ * it to be discovered when the server restarts.
+ */
+function makeCard(done: () => void): HTMLElement {
+  const flash = el('p', { class: 'flash' });
+  const name = colourBox({ value: '', placeholder: 'a bone hound' });
+  const keywords = el('input', { type: 'text', placeholder: 'bone hound' }) as HTMLInputElement;
+  const level = el('input', { type: 'number', min: '1', max: '60', value: '1' }) as HTMLInputElement;
+  const hp = el('input', { type: 'text', placeholder: '8d8+16' }) as HTMLInputElement;
+  const damage = el('input', { type: 'text', placeholder: '2d6+2' }) as HTMLInputElement;
+  const armour = el('input', { type: 'number', min: '0', max: '40', value: '10' }) as HTMLInputElement;
+  const experience = el('input', { type: 'number', min: '0', value: '0' }) as HTMLInputElement;
+  const aggressive = el('input', { type: 'checkbox' }) as HTMLInputElement;
+
+  const make = el('button', { class: 'primary' }, 'Make it') as HTMLButtonElement;
+  make.addEventListener('click', () => {
+    const words = keywords.value.trim().split(/\s+/).filter((w) => w.length > 0);
+    void (async () => {
+      make.disabled = true;
+      const created = await call<{ vnum: number }>('POST', '/mobs/template', {
+        name: name.value(),
+        keywords: words,
+        level: Number(level.value),
+        hp: hp.value.trim(),
+        damage: damage.value.trim(),
+        armourClass: Number(armour.value),
+        experience: Number(experience.value),
+        aggressive: aggressive.checked,
+      });
+      make.disabled = false;
+      if (!created.ok || !created.body) {
+        // The server's own sentence, which names the field — "refused" would leave somebody guessing
+        // which of eight boxes it meant.
+        flash.className = 'flash err';
+        flash.textContent = created.error ?? 'refused';
+        return;
+      }
+      flash.className = 'note';
+      flash.textContent = `Made #${created.body.vnum}. Search for it above to edit it, give it loot or spawn one.`;
+      name.set('');
+      keywords.value = '';
+      done();
+    })();
+  });
+
+  return el(
+    'div',
+    { class: 'card item-editor' },
+    el('h3', {}, 'Make one'),
+    el('div', { class: 'row' }, el('label', {}, 'name'), name.node),
+    el('div', { class: 'row' }, el('label', {}, 'keywords'), keywords),
+    el(
+      'div',
+      { class: 'row' },
+      el('label', {}, 'level'), level,
+      el('label', {}, 'hp'), hp,
+      el('label', {}, 'damage'), damage,
+      el('label', {}, 'AC'), armour,
+    ),
+    el(
+      'div',
+      { class: 'row' },
+      el('label', {}, 'experience'), experience,
+      el('label', {}, 'attacks on sight'), aggressive,
+    ),
+    el('div', { class: 'row' }, make, flash),
+    el(
+      'p',
+      { class: 'note' },
+      'It gets its number from nine million up, where no Duris mob reaches, so npm run worldgen can be ' +
+        're-run for ever without a made creature and a harvested one contending for the same key. From ' +
+        'then on it is an ordinary template — searchable, editable, lootable, spawnable. It will not ' +
+        'repop yet: a zone\u2019s population is a worldgen output, so placing one permanently is the next ' +
+        'piece of work.',
     ),
   );
 }
