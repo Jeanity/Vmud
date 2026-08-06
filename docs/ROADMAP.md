@@ -95,7 +95,8 @@ a new idea still answers the three questions; its second question now also picks
 | **7 — closed** | V3 — speech in the world ✅ | Phase 17 — shops ✅ | A8 — zone geometry ✅ (infill, deletion, extent changes) |
 | **8 — closed** | V4 — Places as a graph ✅ | dropped-item decay ✅ and `junk` ✅ | A4c — loot on a mob ✅ |
 | **9 ✅** | V5 — arrival cards ✅ | Phase 18 — following ✅, grouping ✅ | A4c — loot on a mob ✅ |
-| **10 — under way** | V7 — attack verbs ✅ | Phase 19 — skills: slice 1 ✅, four to go | A7d-bag ✅; A7e/A7f, then A8d / A9 / A9b |
+| **10 ✅** | V7 — attack verbs ✅ | Phase 19 — skills: slice 1 ✅ | A7d-bag ✅ |
+| **11 — under way** | *(Track V complete again; §2b says it skips)* | Phase 19 — slice 3: `bash` and `kick` ✅, behind a `landBlow` extraction | A6c — authoring a light ✅ |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
 A5, because A5's prose editor is a colour editor and building the palette before the renderer would

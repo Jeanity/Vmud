@@ -220,8 +220,8 @@ Each slice is driveable on its own, and the first cannot break anything that exi
 2. **Being attacked teaches you too** — `dodge` and `parry`, notched on the defender (17 and 25 in the
    source). Both need a *defence roll* we do not have: our AC is passive, and dodge/parry are an active
    second gate. That is a combat change, not a skill change, and it wants its own slice.
-3. **`bash` and `kick`**, the first skills with verbs of their own — **and the crux is not the verbs.**
-   Researched 2026-08-06 and written up here so it starts cold.
+3. **`bash` and `kick`** ✅ **done 2026-08-06** — the first skills with verbs of their own, and the crux
+   was not the verbs. Researched, written up, and then built in two commits: the seam, then the abilities.
 
    **What the source gives, transcribed.** Both are `CMD_Y(… STAT_NORMAL + POS_STANDING …)`: on your
    feet, allowed mid-fight. `chance_kick` (`actoff.c`) is the **skill percentage itself**, scaled by
@@ -251,6 +251,20 @@ Each slice is driveable on its own, and the first cannot break anything that exi
    **Phase 20 needs the same seam**, which is the argument for extracting it properly rather than
    threading an ability through the loop: a spell that does damage is the same question with a different
    verb, and `DESIGN-progression.md` §8's calibration is what both have to stay inside.
+
+   **What shipped.** `landBlow` came out of the swing loop first, with no behaviour change and the whole
+   suite as its proof; then `abilities.ts` (the two abilities as data), two skills, two commands and one
+   handler. The lag is an **affect** rather than a scheduler entry, which is what the source does
+   (`set_short_affected_by(ch, SKILL_BASH, 2 * PULSE_VIOLENCE)`) and means the player can *see* the
+   recovery counting down instead of being told no. The notch was factored so a blow and a verb share it
+   at different base chances — two copies would have been two places to forget the `refitCombat` that
+   makes a point of skill worth anything. **Driven live**: a veteran (bash 95 from a save file, which also
+   proved the persistence round-trip in the running game) bashed the kobold shaman for **11** — `1d4+9` —
+   and *"you knock the kobold shaman to the ground!"*; a second ability came back *"you have not recovered
+   your balance yet"* with `off balance` on the affect list for six seconds; and once it lapsed the kick
+   landed for **12** (`1d6+9`). The drive found one real gap: the knockdown line reached the target and the
+   room but not the **basher**, because `actToRoom` excludes the actor — so the one person who did it was
+   the only one not told.
 
    **One scale decision to take before writing damage.** Duris' numbers are on its own 1–100 skill scale
    and ours are SRD: a kick doing `skill` damage would hit for 95 at mastery where a level-30 weapon swing

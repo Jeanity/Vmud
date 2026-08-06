@@ -134,6 +134,11 @@ export const COMMANDS = [
   // Phase 19. `s` is south and `sa`/`si`/`sl`/`st` are say, sit, sleep and stand/stop — all above — so
   // `sk` is the shortest thing that reaches this, and nothing moves. Duris spells it `skills` too.
   'skills',
+  // Phase 19 slice 3. `b` is buy and `ba` reaches nothing above, so `ba` is bash; `k` is kill — the one
+  // letter nobody would want moved — and `ki` still reaches kill, so kick needs `kic`. Duris gives both
+  // the same shortest forms for the same reason.
+  'bash',
+  'kick',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -345,6 +350,12 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // to. Duris has no `skills` command to transcribe — proficiency is printed inside `practice` at a
   // guild — and inventing the row is the same call `affects` made for the same reason.
   skills: { status: 'dead', posture: 'prone' },
+  // `CMD_Y(CMD_BASH, STAT_NORMAL + POS_STANDING, …)` and the same for kick — transcribed, and both halves
+  // matter. **Standing**: you cannot kick from the floor, which is what makes a bash worth landing. And
+  // **allowed in combat**, which is the whole point: these are things you do *during* a fight, and they are
+  // the first verbs in the game that are.
+  bash: { status: 'normal', posture: 'standing' },
+  kick: { status: 'normal', posture: 'standing' },
 };
 
 /* -------------------------------------------------------------------------- */

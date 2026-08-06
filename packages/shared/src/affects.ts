@@ -197,14 +197,14 @@ export interface AffectKind {
 }
 
 /**
- * Every affect type in the game. Five, and each of them has a live consumer.
+ * Every affect type in the game. Six, and each of them has a live consumer.
  *
  * The list and the table are separate for the same reason `COMMANDS` and `COMMAND_REQUIREMENTS` are:
  * the list is the type and the table is the data, so a row added to one without the other is a type
  * error rather than a silent gap. It is also the only way to have {@link AffectKind.id} typed as an
  * affect type at all — a table that derived its own key type from itself would reference itself.
  */
-export const AFFECT_TYPE_IDS = ['light', 'settling', 'second_wind', 'notch_physical', 'notch_mental'] as const;
+export const AFFECT_TYPE_IDS = ['light', 'settling', 'second_wind', 'notch_physical', 'notch_mental', 'off_balance'] as const;
 
 export type AffectType = (typeof AFFECT_TYPE_IDS)[number];
 
@@ -277,6 +277,22 @@ export const AFFECT_TYPES: Readonly<Record<AffectType, AffectKind>> = {
     id: 'notch_mental',
     name: 'learning (mental)',
     wearOff: 'Your mind feels ready to learn again.',
+  },
+  /**
+   * Recovering from a bash or a kick — **Phase 19 slice 3**, and it is Duris' own mechanism rather than ours.
+   *
+   * `do_bash` does `set_short_affected_by(ch, SKILL_BASH, 2 * PULSE_VIOLENCE)` and `chance_roundkick` reads
+   * it back to refuse a follow-up: *"you haven't reoriented yourself yet enough for another kick."* So the
+   * cost of an ability is a timed affect on the person who used it, which is exactly what this list is for.
+   *
+   * **Shown**, on `settling`'s argument: a player whose kick was refused must be able to see why, and a
+   * countdown is a better answer than a refusal message they have to remember. **Not saved** — it is at most
+   * two rounds, and a lag that survived a reconnect would be a punishment for a dropped connection.
+   */
+  off_balance: {
+    id: 'off_balance',
+    name: 'off balance',
+    wearOff: 'You recover your balance.',
   },
 };
 

@@ -1531,6 +1531,10 @@ export class Simulation {
       // is exactly the guard a wall of cases is for.
       case 'notch_physical':
       case 'notch_mental':
+      // And Phase 19 slice 3's ability lag, for the same reason: it is a timer whose lapsing is the whole
+      // of its meaning. The exhaustive switch caught this one too, which is the third time it has paid for
+      // itself.
+      case 'off_balance':
         return [];
     }
   }

@@ -33,6 +33,15 @@ import {
   OPPOSITE,
   divideExperience,
   groupedShare,
+  abilityChance,
+  abilityDamage,
+  COMBAT_ABILITIES,
+  isCombatAbility,
+  type CombatAbilityId,
+  type SkillId,
+  randomInt,
+  rollDice,
+  OFFENSIVE_NOTCH_CHANCE,
   ATTACK_VERBS,
   attackTypeForRace,
   attackTypeForWeapon,
@@ -199,6 +208,7 @@ import {
   clearEngagements,
   disengage,
   engage,
+  landBlow,
   forgetThreat,
   openingTarget,
   type AssistEvent,
@@ -2803,6 +2813,110 @@ function groupSay(player: Player, rest: string): void {
   }
 }
 
+/**
+ * `bash <target>` and `kick <target>` — **Phase 19 slice 3, the first things you *do* in a fight.**
+ *
+ * Every consequence here already existed, which is why the slice is small and why the extraction that
+ * preceded it was the real work:
+ *
+ * - **Landing it** goes through `landBlow`, so a kick that kills pays experience, leaves a corpse, clears
+ *   everyone's engagement and credits threat — by construction rather than by being remembered.
+ * - **Knocking somebody down** is `setStance(target, 'sitting')`, and they stay there because `canMove` is
+ *   already the gate on walking. The handoff predicted this: *"Phase 19's bash needs no code."*
+ * - **The lag** is `scheduler.cancel` plus a fresh `schedule`, which is exactly what `engage` does to make
+ *   an opening blow wait a round.
+ * - **The notch** is slice 1's, unchanged, including its cooldown.
+ *
+ * **A miss still starts the fight**, which is the source's own behaviour (`do_kick` calls `engage` on the
+ * failure path too) and the right one: swinging a boot at somebody is a declaration whether or not it lands.
+ */
+function useAbility(player: Player, id: CombatAbilityId, rest: string): void {
+  const ability = COMBAT_ABILITIES[id];
+  const term = rest.trim();
+  // Falls back to whoever you are already fighting, so `bash` mid-fight needs no argument — the commonest
+  // case by far, and typing a name at the thing already hitting you is friction nobody asked for.
+  const view = term ? resolveTarget(player, term) : undefined;
+  if (term && !view) return; // `resolveTarget` has already said why.
+  const target = view ? sim.get(view.id) : player.fighting === undefined ? undefined : sim.get(player.fighting);
+  if (!target) {
+    send(player.id, { t: 'log', channel: 'error', text: `${capitalise(ability.verb)} whom?` });
+    return;
+  }
+  if (target.id === player.id) {
+    send(player.id, { t: 'log', channel: 'error', text: `You cannot ${ability.verb} yourself.` });
+    return;
+  }
+
+  // **The lag is checked here and set below**, and a pending one is a refusal rather than a queue: Duris'
+  // `CharWait` blocks the *command*, and an ability that silently queued would leave a player pressing a
+  // key and seeing nothing happen for three seconds.
+  if (sim.affectsOf(player, 'off_balance').length > 0) {
+    send(player.id, { t: 'log', channel: 'error', text: 'You have not recovered your balance yet.' });
+    return;
+  }
+
+  const learned = learnedAt(player.skills.get(ability.skill), player.level, ability.skill);
+  const landed = randomInt(combatRng, 1, 100) <= abilityChance(learned);
+
+  // Charged whether it lands or not — the cost is the attempt. Both clocks are set before anything else can
+  // fail, so a refusal further down cannot leave a free ability behind.
+  const lagMs = Math.round(ability.selfLagRounds * ROUND_MS);
+  // Two clocks, because they mean different things. The **affect** is what refuses another ability and is
+  // what the player can see; the **swing** reschedule is the auto-attack it displaced — pushed to whichever
+  // is later, so an ability never *shortens* the round it was used in.
+  sim.addAffect(player, newAffect({ type: 'off_balance', durationMs: lagMs, flags: AffectFlag.NoSave }));
+  scheduler.cancel(player.id, 'swing');
+  scheduler.schedule('swing', player.id, Math.max(lagMs, player.roundMs));
+
+  if (!landed) {
+    send(player.id, {
+      t: 'log',
+      channel: 'combat',
+      text: `You try to ${ability.verb} ${target.name}&N and miss.`,
+    });
+    actToRoom(player, 'combat', (who) => `${who} tries to ${ability.verb} ${target.name}&N and misses.`);
+    // A missed attempt is still a declaration. `engage` refuses if either party is already busy.
+    if (engage(scheduler, player, target)) syncEntityState(player);
+    return;
+  }
+
+  const damage = rollDice(combatRng, abilityDamage(ability, learned));
+  const result = landBlow({ sim, scheduler, book: threat, ledger }, player, target, damage);
+
+  send(player.id, {
+    t: 'log',
+    channel: 'combat',
+    text: `&+G-=[&N You ${ability.verb} ${target.name}&N for ${damage} damage. &+G]=-&N`,
+  });
+  actToRoom(player, 'combat', (who) => `${who} ${ability.verbThird} ${target.name}&N for ${damage} damage.`);
+
+  if (ability.knocksDown && !result.incapacitated) {
+    // Sitting, not prone: `SET_POS(victim, POS_SITTING + GET_STAT(victim))`. They can stand back up, and
+    // standing costs them the round the lag below has already taken.
+    sim.setStance(target, { posture: 'sitting' });
+    // **All three audiences, and the drive found this missing.** `actToRoom` deliberately excludes the
+    // actor, so without this line the one person who *did* it was the only one not told — the knockdown is
+    // the whole reason to bash rather than swing, and a mechanic you cannot see is one nobody uses.
+    send(player.id, { t: 'log', channel: 'combat', text: `&+YYou knock ${target.name}&N&+Y to the ground!&N` });
+    send(target.id, { t: 'log', channel: 'combat', text: `${capitalise(player.name)} knocks you to the ground!` });
+    actToRoom(player, 'combat', (who) => `${who} knocks ${target.name}&N to the ground!`);
+    syncEntityState(target);
+  }
+  if (ability.targetLagRounds > 0 && !result.incapacitated) {
+    scheduler.cancel(target.id, 'swing');
+    scheduler.schedule('swing', target.id, Math.round(ability.targetLagRounds * ROUND_MS));
+  }
+
+  for (const actor of result.changed) syncEntityState(actor);
+  if (result.death) resolveDeath(result.death);
+  else syncEntityState(target);
+
+  // **The skill you used is the skill you learn.** Slice 1's notch, at the source's own offensive rate
+  // (`skill.notch.offensive`, 7) rather than the weapon rate — a verb you chose to use is rarer than a blow
+  // that happened to land, so the source does not thin it with a gate.
+  notchSkill(player, ability.skill, OFFENSIVE_NOTCH_CHANCE);
+}
+
 function stepRoom(player: Player, dir: Direction): void {
   // Reached by the `move` intent as well as the typed command, and only the latter has been through
   // the table's gate. §5: `flee` is the one way out, and it is named in the refusal.
@@ -3735,6 +3849,11 @@ function runCommand(player: Player, line: string): void {
     case 'gsay': return groupSay(player, rest);
     case 'disband': return disbandCommand(player);
     case 'skills': return listSkills(player);
+    // Phase 19 slice 3. One handler for both, because the difference between them is data — see
+    // `COMBAT_ABILITIES`. `isCombatAbility` narrows the command name to an id rather than a cast.
+    case 'bash':
+    case 'kick':
+      return isCombatAbility(command) ? useAbility(player, command, rest) : undefined;
     // Never destroys on this pass: an unconfirmed junk arms the question and returns.
     case 'junk': return junkFromBag(player, rest, false);
     case 'wear': return wearFromBag(player, rest);
@@ -4173,29 +4292,42 @@ function notchFromSwing(outcome: AttackOutcome): void {
 
   const skill = weaponSkillFor(attacker.equipped.mainHand);
   if (skill === undefined) return;
+  notchSkill(attacker, skill, WEAPON_NOTCH_CHANCE);
+}
+
+/**
+ * Rolls one notch and, if it takes, records it — **slice 1's tail, factored out for slice 3.**
+ *
+ * The base chance differs by *why* you are learning (a landed blow is `WEAPON_NOTCH_CHANCE`, a verb you
+ * chose is `OFFENSIVE_NOTCH_CHANCE`), and nothing else does: the cooldown, the curve, the ceiling, the
+ * sentence, the refit and the save are the same however the skill was used. Two copies of this would have
+ * been two places to forget the refit, which is the line that makes a notch worth anything.
+ */
+function notchSkill(player: Player, skill: SkillId, base: number): void {
   const category = SKILLS[skill].category;
   const cooldown = category === 'physical' ? 'notch_physical' : 'notch_mental';
-
-  const learned = learnedAt(attacker.skills.get(skill), attacker.level, skill);
-  const chance = notchChance(WEAPON_NOTCH_CHANCE, learned, ceilingFor(skill), {
-    onCooldown: sim.affectsOf(attacker, cooldown).length > 0,
+  const learned = learnedAt(player.skills.get(skill), player.level, skill);
+  const chance = notchChance(base, learned, ceilingFor(skill), {
+    onCooldown: sim.affectsOf(player, cooldown).length > 0,
   });
   if (!rollNotch(combatRng, chance)) return;
 
-  attacker.skills.set(skill, learned + 1);
+  player.skills.set(skill, learned + 1);
   sim.addAffect(
-    attacker,
+    player,
     newAffect({ type: cooldown, durationMs: NOTCH_COOLDOWN_MS[category], flags: AffectFlag.NoShow }),
   );
   // The source's own line, colour and all: `"&+cYou feel your skill in %s improving."`
-  send(attacker.id, {
+  send(player.id, {
     t: 'log',
     channel: 'combat',
     text: `&+cYou feel your skill in ${SKILLS[skill].name} improving.&N`,
   });
-  refitCombat(attacker);
-  send(attacker.id, { t: 'self', view: sim.selfViewOf(attacker) });
-  rememberProgress(attacker);
+  // **The refit is what makes the point real** for a weapon skill — `attackBonus` is folded from it — and is
+  // harmless for an ability, whose damage is read at the moment it is used.
+  refitCombat(player);
+  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+  rememberProgress(player);
 }
 
 /**

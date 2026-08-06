@@ -85,6 +85,10 @@ export const SKILL_IDS = [
   'flaying-2h',
   'reach',
   'unarmed',
+  // Phase 19 slice 3. Not weapon skills: these are the two **verbs**, and they are notched by using them
+  // rather than by swinging. `TAR_PHYS` like everything else here, so they share the physical cooldown.
+  'bash',
+  'kick',
 ] as const;
 
 export type SkillId = (typeof SKILL_IDS)[number];
@@ -113,6 +117,8 @@ export const SKILLS: Readonly<Record<SkillId, Skill>> = {
   'flaying-2h': { id: 'flaying-2h', name: '2h flaying', category: 'physical' },
   'reach': { id: 'reach', name: 'reach weapons', category: 'physical' },
   'unarmed': { id: 'unarmed', name: 'unarmed damage', category: 'physical' },
+  'bash': { id: 'bash', name: 'bash', category: 'physical' },
+  'kick': { id: 'kick', name: 'kick', category: 'physical' },
 };
 
 /** Whether a string is a skill this build knows. The load path's gate — see `players.ts`. */
@@ -280,6 +286,15 @@ export function learnedAt(stored: number | undefined, level: number, skill: Skil
  * per swing instead of two. 6.666% of landing blows, before the curve below.
  */
 export const WEAPON_NOTCH_CHANCE = 33.33 / 5;
+
+/**
+ * The base chance when you *use* a skill rather than swing with it.
+ *
+ * `get_property("skill.notch.offensive", 7)` — the number `do_kick`, `do_hitall` and `do_bash` all pass to
+ * `notch_skill`. Ungated, unlike the weapon notch: using a verb deliberately is already rarer than landing
+ * a blow, so the source does not thin it further.
+ */
+export const OFFENSIVE_NOTCH_CHANCE = 7;
 
 /**
  * The chance this notch attempt succeeds, as a percentage — **the compiled-out branch, on purpose.**
