@@ -101,9 +101,20 @@ export interface ArtPickerOptions {
 let modelLookup: Promise<{ model?: string }> | undefined;
 async function preferredModel(): Promise<{ model?: string }> {
   modelLookup ??= (async () => {
-    const result = await call<{ models?: { name: string }[] }>('GET', '/ollama');
-    const first = result.body?.models?.[0]?.name;
-    return first ? { model: first } : {};
+    const result = await call<{ models?: { name: string; size?: number }[] }>('GET', '/ollama');
+    const installed = result.body?.models ?? [];
+    // **Base models are skipped, and a drive is why.** `qwen2.5-coder:1.5b-base` answered the colour
+    // question with prose that named no ramp, because a base model completes text and does not follow
+    // *“reply with exactly one word”* — instruction-following is what the instruct tune adds. The closed
+    // list caught it and the suggestion came back empty, which is the right failure but a wasted 13 s.
+    //
+    // **Then the smallest**, which is the opposite of what a prose draft wants and right for the same
+    // reason: this is a one-word classification over a list that is already in the prompt, so there is
+    // nothing for a larger model to be better at — and the first call pays a cold start measured at
+    // **67 s for an 8B against 13 s for a 1.5B**. Warm, both are under a second.
+    const usable = installed.filter((m) => !/[-:]base/.test(m.name));
+    const smallest = [...usable].sort((a, b) => (a.size ?? Infinity) - (b.size ?? Infinity))[0];
+    return smallest ? { model: smallest.name } : {};
   })();
   return modelLookup;
 }
