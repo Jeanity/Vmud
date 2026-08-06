@@ -49,6 +49,8 @@ import {
   openingTarget,
   retaliate,
   threatTableFor,
+  type DefenceLookup,
+  type DefenceSkills,
   type LedgerBook,
   type ThreatBook,
 } from './combat.ts';
@@ -127,6 +129,63 @@ function makeFixture(template: MobTemplate = dummy()): Fixture {
     },
   };
 }
+
+/**
+ * **Phase 19 slice 2, with the defence lookup actually wired.**
+ *
+ * Every other test in this file leaves `defence` undefined, which is the shape that *skips* the branch
+ * entirely — and that gap let a bug reach the running game where **no blow ever landed**: `rollDefence`
+ * returns a wrapper object carrying the notch, and testing that wrapper for truthiness made `hit` false
+ * on every swing. The live symptom was a natural 20 reading `critical hit=false dmg=0`.
+ *
+ * So this suite runs the loop the way `index.ts` runs it. The one thing it must prove is the dull one:
+ * **with a defender who cannot dodge or parry, blows still land.**
+ */
+describe('an active defence, wired the way the server wires it', () => {
+  /** Nothing dodges, nothing parries — the case where defence must change nothing at all. */
+  const helpless = (): DefenceSkills => ({ dodge: 0, parry: 0, weapon: 0, armed: false });
+  /** Certain to dodge: skill 100 is 20% before modifiers, so this leans on the cap rather than luck. */
+  const nimble = (): DefenceSkills => ({ dodge: 100, parry: 0, weapon: 0, armed: false });
+
+  function runWith(defence: DefenceLookup, ms: number) {
+    const f = makeFixture();
+    // Both pointers, so blows fly in both directions and the defender is a real defender.
+    engage(f.scheduler, f.player, f.mob);
+    engage(f.scheduler, f.mob, f.player);
+    const out = [];
+    for (let elapsed = 0; elapsed < ms; elapsed += 100) {
+      out.push(...advanceCombat(f.sim, f.scheduler, f.book, f.ledger, f.rng, 100, undefined, defence).attacks);
+    }
+    return out;
+  }
+
+  it('still lands blows when nobody can defend', () => {
+    // The regression, in one line. Before the fix this was zero.
+    const landed = runWith(helpless, 20_000).filter((a) => a.hit);
+    assert.ok(landed.length > 0, 'a wired defence lookup must not make every blow miss');
+    assert.ok(landed.every((a) => a.damage > 0), 'a landed blow deals damage');
+  });
+
+  it('turns some blows into dodges when the defender is nimble', () => {
+    const attacks = runWith(nimble, 20_000);
+    assert.ok(attacks.some((a) => a.defended?.kind === 'dodge'), 'a 100 dodge skill should get out of the way sometimes');
+    // And a defended blow is still a miss downstream, which is what keeps `landBlow` unaware of it.
+    for (const a of attacks.filter((x) => x.defended)) {
+      assert.equal(a.hit, false);
+      assert.equal(a.damage, 0);
+    }
+  });
+
+  it('leaves the fight unchanged when no lookup is supplied at all', () => {
+    // The path every other test in this file takes, asserted rather than assumed.
+    const f = makeFixture();
+    engage(f.scheduler, f.player, f.mob);
+    engage(f.scheduler, f.mob, f.player);
+    const out = f.run(20_000);
+    assert.ok(out.some((a) => a.hit), 'combat without a defence lookup is combat as it was');
+    assert.ok(out.every((a) => a.defended === undefined));
+  });
+});
 
 /* -------------------------------------------------------------------------- */
 /* The two that matter most                                                    */

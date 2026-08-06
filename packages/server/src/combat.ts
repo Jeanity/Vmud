@@ -393,9 +393,15 @@ function swing(
   // *inside* the branch that the to-hit already won, so a blow that missed stays a miss and cannot be
   // dodged — you do not get to duck something that was never going to reach you. A helpless body does not
   // defend at all, which is `canCharDodgeParry`'s own gate reading the same status ladder.
-  const defended = beatArmour && !helpless && defence
+  // **`rolled` is the wrapper and `rolled.defended` is the verdict**, and conflating the two shipped a
+  // bug that made *every blow in the game miss*: `rollDefence` always returns an object — it carries the
+  // notch even when nothing was defended — so testing the wrapper for truthiness meant `hit` was false
+  // whenever a defence lookup was wired at all. The unit tests never saw it because they leave `defence`
+  // undefined, which is exactly the shape that skips the branch. See the test that now covers it.
+  const rolled = beatArmour && !helpless && defence
     ? rollDefence(rng, defence, attackers, result.critical ? Math.floor((result.natural - 20 + result.total) / 2) : 0)
     : undefined;
+  const defended = rolled?.defended;
 
   const hit = beatArmour && !defended;
   const damage = hit ? rollDamage(rng, attacker.combat.damage, result.critical) : 0;
@@ -414,8 +420,8 @@ function swing(
     damage,
     natural: result.natural,
     total: result.total,
-    ...(defended?.defended ? { defended: defended.defended } : {}),
-    ...(defended?.notch ? { defenceNotch: defended.notch } : {}),
+    ...(defended ? { defended } : {}),
+    ...(rolled?.notch ? { defenceNotch: rolled.notch } : {}),
   };
 }
 
