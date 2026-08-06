@@ -94,6 +94,9 @@ export const SKILL_IDS = [
   'parry',
   'bash',
   'kick',
+  // Phase 19 slice 4. `SKILL_CREATE("rescue", SKILL_RESCUE, TAR_PHYS)` — the first skill that is neither
+  // a way to hit nor a way to avoid being hit: it moves a fight from one body to another.
+  'rescue',
 ] as const;
 
 export type SkillId = (typeof SKILL_IDS)[number];
@@ -126,6 +129,7 @@ export const SKILLS: Readonly<Record<SkillId, Skill>> = {
   'parry': { id: 'parry', name: 'parry', category: 'physical' },
   'bash': { id: 'bash', name: 'bash', category: 'physical' },
   'kick': { id: 'kick', name: 'kick', category: 'physical' },
+  'rescue': { id: 'rescue', name: 'rescue', category: 'physical' },
 };
 
 /** Whether a string is a skill this build knows. The load path's gate — see `players.ts`. */
@@ -302,6 +306,18 @@ export const WEAPON_NOTCH_CHANCE = 33.33 / 5;
  * a blow, so the source does not thin it further.
  */
 export const OFFENSIVE_NOTCH_CHANCE = 7;
+
+/**
+ * The base chance for a rescue's notch — `get_property("skill.notch.rescue", 10)`, its own rate and a
+ * point and a half above the offensive verbs'.
+ *
+ * **The roll's position is the interesting part, and it must not be tidied to match bash and kick.**
+ * Their shape is `!notch_skill(…) && miss` — a successful notch forces the blow to land. `rescue()`'s
+ * is `notch_skill(…) || roll > skill` — a successful notch forces the attempt to *fail*, and the `||`
+ * short-circuits, so the success roll is never made on a notching attempt. The moment you learn
+ * something about rescuing is a moment you fumble one; the consolation runs the other way round.
+ */
+export const RESCUE_NOTCH_CHANCE = 10;
 
 /**
  * The chance this notch attempt succeeds, as a percentage — **the compiled-out branch, on purpose.**
