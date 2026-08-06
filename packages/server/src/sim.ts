@@ -1988,7 +1988,7 @@ export class Simulation {
       // Protocol 15. Omitted for a character carrying nothing at the default capacity, so the common
       // case costs no payload on a message sent every time a hit point moves.
       ...(player.inventory.stacks.length > 0 || player.inventory.capacity !== STARTING_CAPACITY
-        ? { bag: bagViewOf(player) }
+        ? { bag: bagViewOf(player, this.artClassOf) }
         : {}),
       // **The fight first, then the chase.** Both are real at different moments and the precedence is
       // resolved here rather than in the client: while you are swinging at something that is your
@@ -2060,7 +2060,7 @@ function facingOf(dx: number, dy: number, previous: Direction): Direction {
  * Text and counts rather than `Item` records: `self` goes out on every vitals change, and a stranger's
  * armour value has no business riding along on a heartbeat.
  */
-function bagViewOf(player: Player): BagView {
+function bagViewOf(player: Player, artOf?: (item: Item) => string | undefined): BagView {
   /**
    * Folds identical rows together **for display only** — owner's ask (2026-08-04): *"instead of seeing
    * a shard of silver 4 times it should just say a shard of silver x4… if they use a slot each then it
@@ -2097,6 +2097,14 @@ function bagViewOf(player: Player): BagView {
 
   const rowOf = (stack: Stack, rule?: ContainerRule): BagRow => ({
     name: stack.item.name,
+    // **A7d-bag, protocol 20, through the seam that already existed.** `artClassOf` is injected by
+    // `index.ts` because the catalogue is not this file's business — the same resolver that dresses a
+    // body, so an item in the bag and the same item on the shoulders cannot draw differently. Absent
+    // when the item has no art, which is most of the catalogue.
+    ...(() => {
+      const art = artOf?.(stack.item);
+      return art === undefined ? {} : { art };
+    })(),
     ...(stack.count > 1 ? { count: stack.count } : {}),
     ...(stack.remaining !== undefined && stack.item.uses !== undefined && stack.remaining < stack.item.uses
       ? { remaining: stack.remaining }

@@ -95,7 +95,7 @@ a new idea still answers the three questions; its second question now also picks
 | **7 — closed** | V3 — speech in the world ✅ | Phase 17 — shops ✅ | A8 — zone geometry ✅ (infill, deletion, extent changes) |
 | **8 — closed** | V4 — Places as a graph ✅ | dropped-item decay ✅ and `junk` ✅ | A4c — loot on a mob ✅ |
 | **9 ✅** | V5 — arrival cards ✅ | Phase 18 — following ✅, grouping ✅ | A4c — loot on a mob ✅ |
-| **10 — under way** | *(Track V is complete; §2b says a track with nothing unblocked skips its turn)* | Phase 19 — skills: slice 1 ✅, four to go | A7e/A7f, A7d-bag, then A8d / A9 / A9b |
+| **10 — under way** | *(Track V is complete; §2b says a track with nothing unblocked skips its turn)* | Phase 19 — skills: slice 1 ✅, four to go | A7d-bag ✅; A7e/A7f, then A8d / A9 / A9b |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
 A5, because A5's prose editor is a colour editor and building the palette before the renderer would
@@ -1659,14 +1659,43 @@ order.
     cropping a cloak's two sheets independently would slide its halves apart. `setCrop` does not move
     an object, so each image is also shifted by the crop's offset from the frame centre; that shift is
     what actually centres the content.
-  - **A7d-bag — icons in the drawer.** Still open, and a different job: it wants an art id per
-    `BagRow`, which is a protocol addition rather than a rendering change.
+  - **A7d-bag — icons in the drawer** ✅ **done 2026-08-06.** It wanted exactly what this entry said:
+    an art id per `BagRow`, which **protocol 20** adds — filled through `artClassOf`, the resolver
+    `index.ts` already injects for `EntityView.wearing`, so an item in your bag and the same item on
+    your shoulders cannot draw differently. The icon is DOM (`client/src/bagicon.ts`), cropped to its
+    own alpha bounding box the way A7d's floor icons are, and it **also pays off A7d's deferred
+    finding**: the facing is *measured* rather than assumed to be south, because a cloak facing you is
+    only its hem. Live, that took `cape-solid`'s icon from an 11-pixel sliver to the whole hanging
+    cloak. The floor icons still use row 2 and want the same treatment, in `artgen` where it can be
+    measured once per sheet.
   - **A7e — recolour** (owner, 2026-08-05). Pick a sheet and a named colour ramp, and stage the
     result as new authored art: *"if I need a fiery red cloak I can select the black one and change
     the colors."* **Not an image editor** — ULPC ships the whole palette system
-    (`PALETTE_RECOLOR_GUIDE.md`, `palette_definitions/`), **424 of 657 definitions declare
-    `palettes`**, and cloth alone has 24 named ramps. So this is a generator step and a picker
-    control. See the parking lot for the four things to settle first.
+    (`PALETTE_RECOLOR_GUIDE.md`, `palette_definitions/`). See the parking lot for the four things to
+    settle first, and **five measurements taken 2026-08-06 that make it startable cold**:
+
+    1. **The field is `recolors`, not `palettes`** — `{ material, palettes: [...] }`, and the earlier
+       count was of the inner array. **424 of the 657 definitions carry it**, confirmed.
+    2. **A palette entry is `[family.]version`** — `"ulpc"` resolves against the declared `material`,
+       `"cloth.ulpc"` and `"all.lpcr"` name a family explicitly. So one art can offer ramps from more
+       than one family.
+    3. **The source ramp is named in the family's own metadata** — `meta_cloth.json` carries
+       `"base": "white"`, `body` is `light`, `hair` is `orange`, `wood` is `maple`. That is the whole
+       recolour: map the base ramp's colours to the target ramp's, **index by index**, at the guide's
+       tolerance of ±1 per channel. Ramps are 6 colours everywhere except `eye`, which is 3.
+    4. **`metal` declares a base (`steel`) and has no palette files at all.** So an art can declare
+       recolours that resolve to nothing — `arms_armour` is one — which is the parking lot's point (3)
+       in a sharper form: the picker must refuse by name, and the *harvest* should only list ramps whose
+       file exists rather than leaving the panel to discover it.
+    5. **The whole palette set is 13.7 KB of JSON** (75 ramps in `all`, 24 in cloth, 26 in hair …), so
+       baking it into the generated index costs nothing and needs no route.
+
+    **One architectural note the parking lot's guess should be weighed against.** It assumed the
+    recolour runs server-side and stages a new PNG, which needs a decoder and an encoder the project
+    does not have (`artgen` reads IHDR only). The pack itself recolours **at render time**, and our
+    client already reads pixels back off a loaded texture — that is what A7d's icon crop does. A ramp
+    is also arguably part of *what the thing is*, so `cape-solid#red` in `wearing` would need no
+    protocol change at all. Cheaper, and closer to what ULPC ships; decide it before writing code.
   - **A7f — Ollama picks the ramp from a description.** Strictly after A7e: a model cannot draw, but
     mapping *"a fiery red cloak"* onto one of two dozen ramp names is classification over a closed
     vocabulary, which is what a small local model is good at — and it is §8's rule again, **the model

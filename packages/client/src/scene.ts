@@ -72,6 +72,7 @@ import { LIGHT_SOURCES, roomLightTiles } from '@mygame/shared/light.ts';
 
 import type { LogPanel } from './log.ts';
 import type { Net } from './net.ts';
+import { bagIcon } from './bagicon.ts';
 import { paint } from './paint.ts';
 import { TargetMenu, type TargetVerb } from './targetmenu.ts';
 
@@ -1495,6 +1496,27 @@ export class WorldScene extends Phaser.Scene {
     const rowNode = (row: BagRow, depth: number): HTMLElement => {
       const node = document.createElement('div');
       node.className = depth > 0 ? 'bag-row nested' : 'bag-row';
+
+      // **A7d-bag: the picture, when the item has one.** The cell is always present and always the same
+      // size, even for the rows with no art — otherwise a bag holding one cloak and five keys would have
+      // one indented name and five flush ones, and the list would look broken rather than sparse.
+      const icon = document.createElement('span');
+      icon.className = 'bag-icon';
+      node.append(icon);
+      if (row.art !== undefined) {
+        // Asynchronous because the sheet has to be fetched and read back. The row is complete without
+        // it, so nothing waits: the picture arrives into a cell that is already laid out, and a failure
+        // leaves the cell empty rather than the row unrendered. Cached in `bagicon.ts`, so a redraw on
+        // the next heartbeat costs nothing and does not flicker.
+        void bagIcon(row.art).then((url) => {
+          if (!url) return;
+          const img = document.createElement('img');
+          img.src = url;
+          img.alt = '';
+          icon.replaceChildren(img);
+        });
+      }
+
       const name = document.createElement('span');
       name.className = 'item';
       paint(name, row.name);

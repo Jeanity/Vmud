@@ -539,8 +539,31 @@
          permanently empty "eyes" row would make a rare find look like a missing feature. */
       /* The bag. Dense, because it is a list you scan rather than a diagram you read. */
       .bag-slots { color: var(--dim); font-size: 11px; margin-bottom: 4px; }
-      .bag-row { display: flex; gap: 8px; align-items: baseline; font-size: 12px; padding: 1px 0; }
+      /* A7d-bag: rows are `align-items: center` now rather than `baseline`, because a 22px picture and a
+         12px name have no shared baseline worth aligning to — the text sat at the bottom of the icon. */
+      .bag-row { display: flex; gap: 6px; align-items: center; font-size: 12px; padding: 1px 0; }
+      /* The picture cell. **Always present, even when there is no art**, so a bag of five keys and one
+         cloak is one aligned list rather than one indented row among five flush ones. `flex: 0 0 auto`
+         at a fixed size, so a wide item (a polearm) and a narrow one (a ring) line their names up. */
+      .bag-row .bag-icon {
+        flex: 0 0 auto;
+        width: 22px;
+        height: 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      /* `contain` rather than `cover`: these are cropped to their own content already, so the whole thing
+         must fit — cropping twice would cut the tip off a sword. `pixelated` for the reason A7c's picker
+         has it: 64px art smoothed at any scale but 1:1 is a smudge. */
+      .bag-row .bag-icon img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        image-rendering: pixelated;
+      }
       .bag-row.nested { padding-left: 14px; font-size: 11px; }
+      .bag-row.nested .bag-icon { width: 18px; height: 18px; }
       .bag-row.nested::before { content: '-'; color: var(--dim); margin-right: -4px; }
       .bag-row .tag { color: var(--dim); font-size: 11px; margin-left: auto; white-space: nowrap; }
       .bag-purse { margin-top: 6px; font-size: 11px; }

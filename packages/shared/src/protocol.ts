@@ -15,6 +15,23 @@ import type { Posture, Status } from './position.ts';
 import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
 
 /**
+ * Bumped to 20: the bag has pictures in it.
+ *
+ * `BagRow` gains **`art`** — the art class of the thing on that row, so the inventory drawer can draw
+ * the item instead of only naming it. A7d put pictures on the floor; this is the other half, and the
+ * roadmap had it waiting on exactly this field: *"it wants an art id per `BagRow`, which is a protocol
+ * addition rather than a rendering change."*
+ *
+ * **An art class, never a sheet** — protocol 14's rule, unchanged: the client resolves the id to a PNG,
+ * so re-skinning an item is not a protocol change. It is the same value `EntityView.wearing` carries, so
+ * a leather cap in your bag and one on your head are the same string, and there is no second vocabulary
+ * to keep in step.
+ *
+ * **Optional, and most rows will not have it.** A few hundred of 16,421 catalogue entries have authored
+ * art; a row for anything else says nothing rather than carrying a placeholder, and the drawer falls
+ * back to the name it has always shown. That is also what makes the addition free for every save and
+ * every client that ignores it.
+ *
  * Bumped to 19: the party is on screen.
  *
  * One new server message — **`group`** — carrying who is in your group, in join order, with each
@@ -236,7 +253,7 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * Was 6: doors have live state — the `door` message, and `open`/`close` losing their required `dir`.
  * Was 5: carried light sources — `SelfView` gained `light`.
  */
-export const PROTOCOL_VERSION = 19;
+export const PROTOCOL_VERSION = 20;
 
 /**
  * One member of your group, as the roster draws them — protocol 19.
@@ -368,6 +385,15 @@ export interface BagRow {
   readonly holds?: readonly [used: number, capacity: number];
   /** What is inside it. Absent unless it is a container with something in it. */
   readonly contents?: readonly BagRow[];
+  /**
+   * The **art class** this row draws with — A7d-bag, protocol 20. Absent for an item with no art.
+   *
+   * An art id and never a sheet path, the rule protocol 14 set for `EntityView.wearing` and for the
+   * same reason: which PNG an art id resolves to is the client's business, so a re-skin is not a
+   * protocol change. Most of the catalogue has none, which is why it is optional rather than a string
+   * every row carries — 16,421 entries and a few hundred with pictures.
+   */
+  readonly art?: string;
 }
 
 export interface BagView {
