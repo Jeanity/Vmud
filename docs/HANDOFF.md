@@ -383,6 +383,27 @@ What is left of the phase is four slices, and the next one is not really a skill
 `parry` are notched on the **defender** in the source (17 and 25), and both need an *active defence roll*,
 where our AC is passive. That is a combat change with its own drive.
 
+**Light is being redesigned, and the decisions are made but not built** (owner, 2026-08-06) — three rows
+in `ROADMAP.md` §4 that are one design:
+
+- **A light costs nothing: no hand, no slot, no bulk.** It lights you from wherever it is — worn, held or
+  in the bag. **This contradicts `DESIGN-inventory.md` §6 by name** (a light nobody holds is *free light
+  for ever*), so §6 must be rewritten in the same commit rather than quietly bypassed. The measurement
+  that made the old rule untenable anyway: `LIGHT_BEARING_SLOTS` is hands only, which leaves **11 of the
+  64 harvested lights unable to work at all** — 5 glowing earrings, a set of golden horseshoes, and 5 with
+  no wear slot.
+- **Rooms that are naturally lit, and this is the half that makes the above right.** `'dark'` is a room
+  flag we harvest and **its only appearance in the codebase is its own declaration** — nothing reads it,
+  so every room in the world is treated as pitch black. Measured: **2,283 of 46,508 rooms carry it,
+  4.9%**, so Duris' builders marked **95% of the world naturally lit**; in the loaded zones it is 41 of
+  IceCrag's 219 and 37 of the Kobold Settlement's 99. Transcribe the **flag half only** — Duris'
+  `IS_TWILIGHT_ROOM` also has twilight, magic light/dark and sector rules that depend on `IS_NIGHT`, and
+  there is no clock. The machinery exists: a `rooms`-mode light already lights a whole room, so the room
+  becomes a light source rather than a special case, and fog, `seen` and the click gate follow for free.
+- **A new character starts with no light.** Already true since Phase 5 and recorded so nobody "fixes" it
+  by handing out a torch. What is wrong today is that the bare 5×5 eye applies *everywhere*, so an open
+  field at noon reads like a sealed crypt.
+
 **Three more were placed on 2026-08-06 and not built** (owner), and two of them are cheap:
 
 - **Looking at a corpse should list what can be taken from it.** A refinement, not a phase — the same
