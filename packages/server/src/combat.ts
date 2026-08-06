@@ -360,12 +360,9 @@ function swing(rng: Rng, attacker: Actor, target: Actor): AttackOutcome {
   const helpless = cannotDefend(target);
   const hit = helpless || result.hit;
   const damage = hit ? rollDamage(rng, attacker.combat.damage, result.critical) : 0;
-  // **Not clamped at zero, and that is the whole dying window.** Phase 4's thresholds are negative in the
-  // Diku manner — `incapacitated` at −3, `dying` at −6, `dead` below −10 — so a floor of 0 would make the
-  // entire ladder between "standing" and "dead" unreachable and the mercy rule dead code. Clamped at the
-  // bottom of the ladder instead, so a 50-point blow on a 1 hp character lands them dead rather than at
-  // −49, which nothing reads and which would make a resurrection mechanic arbitrary later.
-  if (damage > 0) target.hp = Math.max(HP_DEAD_BELOW - 1, target.hp - damage);
+  // **The damage is not applied here.** It used to be, and moving it into {@link landBlow} is what lets an
+  // ability share one path with a swing — see that function. This one decides *what* a blow is worth; what
+  // a landed blow does to the world is the same question however it was thrown.
   return {
     attacker,
     target,
@@ -391,6 +388,111 @@ function swing(rng: Rng, attacker: Actor, target: Actor): AttackOutcome {
  * fight means.
  */
 export type MoraleCheck = (mob: Mob) => boolean;
+
+/** What a landed blow did to the world. See {@link landBlow}. */
+export interface BlowResult {
+  /**
+   * The target is out of the fight — the mercy rule for a player, death for a mob.
+   *
+   * The caller decides what to *say* about that; this reports it, because a kick that fells somebody and
+   * a swing that does are the same fact and must not be two.
+   */
+  readonly incapacitated: boolean;
+  /** Everyone whose engagement changed and therefore needs a resync. */
+  readonly changed: readonly Actor[];
+  /** Set when a **mob** died, with the ledger to pay out from. A player has a dying window instead. */
+  readonly death?: Death;
+}
+
+/**
+ * **Everything that happens because a blow landed, whatever threw it.**
+ *
+ * Extracted from the swing loop 2026-08-06 with no behaviour change, and the reason is Phase 19's third
+ * slice: `bash` and `kick` need it, `rescue` will, and every damaging spell in Phase 20 will. An ability
+ * that applied damage itself would be a **second damage path**, and the failure modes are specific rather
+ * than theoretical — a mob dying without paying experience because nothing credited the ledger, a bash that
+ * kills leaving no corpse because nothing pushed a `Death`, a felled target that everyone keeps swinging at
+ * because nothing cleared the engagements. Each of those is one forgotten line in a copy of this function.
+ *
+ * Six things, in this order, and the order is load-bearing:
+ *
+ * 1. **The damage lands**, clamped at the bottom of the status ladder rather than at zero — see below.
+ * 2. **Threat**, credited to whoever dealt it (§2.7).
+ * 3. **The ledger**, both halves: `dealt` against a mob, and `taken` when a mob is the one hitting — Phase
+ *    13's rule that absorbing a fight earns a share of it, which is what makes tanking viable with no role
+ *    system to reward it.
+ * 4. **Retaliation**, which happens *whether or not the blow connected*: being swung at is enough to
+ *    notice. (A caller with a blow that missed still calls this with zero damage.)
+ * 5. **The status refresh**, before the mercy test, so that test sees the result of *this* blow rather than
+ *    the previous tick's.
+ * 6. **The mercy rule and death**, which is why 5 cannot be deferred.
+ */
+export function landBlow(
+  deps: {
+    readonly sim: Simulation;
+    readonly scheduler: Scheduler;
+    readonly book: ThreatBook;
+    readonly ledger: LedgerBook;
+  },
+  attacker: Actor,
+  target: Actor,
+  damage: number,
+): BlowResult {
+  const { sim, scheduler, book, ledger } = deps;
+  const changed: Actor[] = [];
+
+  // **Not clamped at zero, and that is the whole dying window.** Phase 4's thresholds are negative in the
+  // Diku manner — `incapacitated` at −3, `dying` at −6, `dead` below −10 — so a floor of 0 would make the
+  // entire ladder between "standing" and "dead" unreachable and the mercy rule dead code. Clamped at the
+  // bottom of the ladder instead, so a 50-point blow on a 1 hp character lands them dead rather than at
+  // −49, which nothing reads and which would make a resurrection mechanic arbitrary later.
+  if (damage > 0) target.hp = Math.max(HP_DEAD_BELOW - 1, target.hp - damage);
+
+  // Threat, credited to whoever dealt it. Damage only for now — §2.7's other source is healing an
+  // engaged ally at half the amount, and there is no healing until Phase 20.
+  if (isMob(target) && damage > 0) {
+    addThreat(threatTableFor(book, target), attacker.id, damage * THREAT_PER_DAMAGE);
+    credit(ledger, target.id, attacker.id, { dealt: damage });
+  }
+  // And the other half of the phase's rule: **damage taken counts too.** A tank standing in front of
+  // something for a whole fight has earned a share of it, which is what makes tanking viable with no
+  // role system to reward it. Credited against the mob doing the hitting.
+  if (isMob(attacker) && damage > 0) {
+    credit(ledger, attacker.id, target.id, { taken: damage });
+  }
+
+  // Being hit is what makes a fight mutual — and it happens whether or not the blow connected, because
+  // being swung at is enough to notice. `retaliate` refuses if the victim is already busy.
+  if (retaliate(scheduler, target, attacker)) changed.push(target);
+
+  // Vitals may have moved the target down the status ladder. Recomputed here rather than waited for,
+  // because the mercy rule below has to see the *result* of this blow, not the previous tick's.
+  sim.refreshStatus(target, target.fighting !== undefined);
+
+  if (canBeAttacked(target)) return { incapacitated: false, changed };
+
+  // **The mercy rule, for a player** — and for a mob, simply the end of it: there is nothing left to
+  // swing at. Either way everyone targeting them stops, found by *scanning*, per §2's second
+  // consequence. Without this the player's dying window would be dead code, because the next swing
+  // lands in the same second and carries straight through it.
+  for (const actor of clearEngagements(scheduler, sim, target)) changed.push(actor);
+
+  // **Death, for a mob.** A player at this point is in the dying window and is Phase 13's other half; a
+  // mob has no window and reaching here means it is dead. The ledger is handed over and then dropped,
+  // because the corpse is about to replace the body and a respawn must not inherit either the grudge or
+  // the payout.
+  if (isMob(target) && target.status === 'dead') {
+    const death: Death = {
+      actor: target,
+      killer: attacker,
+      contributions: new Map(ledgerFor(ledger, target.id)),
+    };
+    ledger.delete(target.id);
+    book.delete(target.id);
+    return { incapacitated: true, changed, death };
+  }
+  return { incapacitated: true, changed };
+}
 
 /**
  * Advances every fight by one tick.
@@ -513,49 +615,12 @@ export function advanceCombat(
     }
 
     const outcome = swing(rng, attacker, target);
+    const landed = landBlow({ sim, scheduler, book, ledger }, attacker, target, outcome.damage);
+    for (const actor of landed.changed) changed.push(actor);
+    if (landed.death) deaths.push(landed.death);
 
-    // Threat, credited to whoever dealt it. Damage only for now — §2.7's other source is healing an
-    // engaged ally at half the amount, and there is no healing until Phase 20.
-    if (isMob(target) && outcome.damage > 0) {
-      addThreat(threatTableFor(book, target), attacker.id, outcome.damage * THREAT_PER_DAMAGE);
-      credit(ledger, target.id, attacker.id, { dealt: outcome.damage });
-    }
-    // And the other half of the phase's rule: **damage taken counts too.** A tank standing in front of
-    // something for a whole fight has earned a share of it, which is what makes tanking viable with no
-    // role system to reward it. Credited against the mob doing the hitting.
-    if (isMob(attacker) && outcome.damage > 0) {
-      credit(ledger, attacker.id, target.id, { taken: outcome.damage });
-    }
-
-    // Being hit is what makes a fight mutual — and it happens whether or not the blow connected, because
-    // being swung at is enough to notice. `retaliate` refuses if the victim is already busy.
-    if (retaliate(scheduler, target, attacker)) changed.push(target);
-
-    // Vitals may have moved the target down the status ladder. Recomputed here rather than waited for,
-    // because the mercy rule below has to see the *result* of this blow, not the previous tick's.
-    sim.refreshStatus(target, target.fighting !== undefined);
-
-    if (!canBeAttacked(target)) {
-      // **The mercy rule, for a player** — and for a mob, simply the end of it: there is nothing left to
-      // swing at. Either way everyone targeting them stops, found by *scanning*, per §2's second
-      // consequence. Without this the player's dying window would be dead code, because the next swing
-      // lands in the same second and carries straight through it.
+    if (landed.incapacitated) {
       attacks.push({ ...outcome, incapacitated: true });
-      for (const actor of clearEngagements(scheduler, sim, target)) changed.push(actor);
-
-      // **Death, for a mob.** A player at this point is in the dying window and is Phase 13's other
-      // half; a mob has no window and reaching here means it is dead. The ledger is handed over and
-      // then dropped, because the corpse is about to replace the body and a respawn must not inherit
-      // either the grudge or the payout.
-      if (isMob(target) && target.status === 'dead') {
-        deaths.push({
-          actor: target,
-          killer: attacker,
-          contributions: new Map(ledgerFor(ledger, target.id)),
-        });
-        ledger.delete(target.id);
-        book.delete(target.id);
-      }
       continue;
     }
 
