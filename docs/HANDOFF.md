@@ -15,16 +15,27 @@ skills from those projects.
 
 ## Where the project lives
 
-**`F:\MyGame` is the checkout.** On 2026-08-06 the directory `D:\MyGame` — which held four git worktrees
-and which several sessions had been building in — **disappeared mid-session**. Nothing was lost: every
-commit had been fast-forwarded into `main` here as it landed, and `git worktree list` simply reports the
-four D: entries as `prunable`. Two things follow for anyone picking this up:
+**`D:\MyGame` is the checkout** — again. The whole story is one disk changing letters twice, and it is
+kept here because both halves cost a session time:
 
-- `git worktree prune` will clear the stale registrations when somebody wants the paths back. It removes
-  metadata only; the branches and their commits are untouched.
-- **`npm install` first.** The workspace links under `node_modules/@mygame/` were junctions pointing into
-  `D:\MyGame\packages\*`, so every build here failed with *"Cannot find package '@mygame/shared'"* until
-  they were rebuilt. That is gotcha 7 wearing a different hat.
+- **2026-08-06**: a newly installed internal HDD took `D:`, pushing the Sett drive (which holds this
+  repo) to `F:`. "`D:\MyGame` disappeared mid-session"; nothing was lost — the same directory was simply
+  at `F:\MyGame`.
+- **2026-08-07**: the owner swapped the letters back. The Sett is `D:` again, the interloper HDD is
+  `Z:`, and `F:` no longer exists — that dismount also happened mid-session, taking a running art sweep
+  and a worktree with it. Again nothing was lost: work in flight was committed to its branch
+  (`claude/quirky-pare-da7d05`) once `D:` was back, and `git worktree repair <path>` re-pointed the
+  registration.
+
+Two standing lessons for anyone picking this up after the next letter shuffle:
+
+- `git worktree repair D:\MyGame\.claude\worktrees\<name>` fixes a registration that names a dead
+  letter; `git worktree prune` clears ones whose directories are genuinely gone. Branches and commits
+  are untouched either way.
+- **`npm install` first, in the checkout *and* in any worktree.** The workspace links under
+  `node_modules/@mygame/` are junctions with **absolute paths**, so every letter change strands them and
+  builds fail with *"Cannot find package '@mygame/shared'"* until they are rebuilt. Gotcha 7 in yet
+  another hat. Then delete `packages/*/node_modules/.vite` so the dev servers drop the old resolution.
 
 ## Run it
 
@@ -418,10 +429,11 @@ restart. Plus `get <item> <corpse>`, and **Phase 19 slice 2** (dodge and parry).
    like a man until somebody makes a kobold. See the reference-image and ComfyUI rows for the pipeline
    that was designed but not built.
 
-**Machine note.** The Sett backup drive is **F:** now, not D: — a new internal HDD took that letter on
-2026-08-06 and both backup chains had to be repointed (`E:\ClaudeDen`, fixed and journalled). `MyGame`
-itself lives on **F:\MyGame**. Ollama's models are on F: too; `OLLAMA_MODELS` had to be repointed and
-now lists nine.
+**Machine note.** The Sett drive is **D:** again — the owner reversed 2026-08-06's letter shuffle on
+2026-08-07 (the interloper HDD is `Z:` now). Everything that had been repointed to F: was repointed
+back: both backup chains and `sitrep.mjs` in `E:\ClaudeDen`, `OLLAMA_MODELS` (→ `D:\ollama\models`),
+and this file. `MyGame` lives at **D:\MyGame**; see *Where the project lives* for the worktree-repair
+and npm-install consequences.
 
 ### Before that — round 9 is closed, and Phase 18 with it (2026-08-06)
 
