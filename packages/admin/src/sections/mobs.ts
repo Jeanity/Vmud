@@ -26,7 +26,7 @@
  * `innerHTML`.
  */
 
-import { EQUIP_SLOTS, parseColour } from '@mygame/shared';
+import { EQUIP_SLOTS, SPELLS, SPELL_IDS, parseColour } from '@mygame/shared';
 
 import { call, type ZonesBody } from '../api.ts';
 import { colourBox } from '../colourbox.ts';
@@ -586,6 +586,17 @@ async function fieldEditor(
   aggressive.checked = mob.aggressive;
   hunts.checked = mob.hunts;
 
+  // **Phase 20: what it casts.** One checkbox per registry spell rather than a text box, because the
+  // vocabulary is closed and short — the API accepts names or ids, but a form that can only say true
+  // things needs no refusal. Read off the *authored* record, which is the whole truth here: no
+  // harvested mob carries a spell, so an empty overlay is an empty list, exactly.
+  const knownSpells = new Set((authored?.spells as readonly string[] | undefined) ?? []);
+  const spellBoxes = SPELL_IDS.map((id) => {
+    const box = el('input', { type: 'checkbox' }) as HTMLInputElement;
+    box.checked = knownSpells.has(id);
+    return { id, box };
+  });
+
   const save = el('button', { class: 'primary' }, 'Save') as HTMLButtonElement;
   save.addEventListener('click', () => {
     const words = keywords.value.trim().split(/\s+/).filter((w) => w.length > 0);
@@ -622,6 +633,14 @@ async function fieldEditor(
     if (madeHere) {
       changed('aggressive', aggressive.checked, mob.aggressive);
       changed('hunts', hunts.checked, mob.hunts);
+    }
+    // Spells compare in registry order on both sides, so re-ticking the same set in any order is
+    // "nothing changed". An emptied set authors `null` — the API's own "at least one, or null" rule —
+    // which takes the field off the overlay rather than storing an empty list.
+    const ticked = spellBoxes.filter(({ box }) => box.checked).map(({ id }) => id);
+    const before = SPELL_IDS.filter((id) => knownSpells.has(id));
+    if (JSON.stringify(ticked) !== JSON.stringify(before)) {
+      patch.spells = ticked.length === 0 ? null : ticked;
     }
     if (Object.keys(patch).length === 0) {
       // Said here rather than sent, because the server refuses an empty patch and *"nothing to change"*
@@ -735,6 +754,20 @@ async function fieldEditor(
           ),
         ]
       : []),
+    // Phase 20: authorable on any mob, harvested or made — what a creature knows is content, and the
+    // kobold shaman is the precedent. The kind in the label is the operator's warning: a nuke or an
+    // area is aimed at whoever it fights, a heal it keeps for itself, and a buff is refused (no mob
+    // profile fold yet) — the server simply never picks one.
+    el(
+      'div',
+      { class: 'row' },
+      el('label', {}, 'casts'),
+      el(
+        'span',
+        { class: 'spell-picks' },
+        ...spellBoxes.flatMap(({ id, box }) => [box, el('label', { class: 'muted' }, `${SPELLS[id].name} (${SPELLS[id].kind})`), el('span', {}, ' ')]),
+      ),
+    ),
     el('div', { class: 'row' }, save, madeHere ? destroy : revert, flash),
     el(
       'p',
