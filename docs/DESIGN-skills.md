@@ -288,7 +288,12 @@ Each slice is driveable on its own, and the first cannot break anything that exi
    `pickByThreat` re-decides every round and a bare pointer flip hands the mob straight back; and the
    notch roll is `notch_skill(…) || roll > skill` — **backwards from bash and kick's** `!notch && miss` —
    so a successful notch forces the fumble and short-circuits past the success roll. Kept, not tidied.
-5. **`swim`**, last, because it is not really a skill problem. Phase 16 made deep water a wall that says
-   *"you need to swim"*; opening it means deciding what swimming costs and what drowning is, and
-   `specials.c:191` is the only thing the source spends the skill on (a vitality drain reduced by
-   `skill / 25`). The skill is the easy half.
+5. **`swim`** ✅ **built 2026-08-07**, last, because it is not really a skill problem. Phase 16 made deep
+   water a wall that says *"you need to swim"*; opening it meant deciding what swimming costs and what
+   drowning is, and `specials.c:191` is the only thing the source spends the skill on (a vitality drain
+   reduced by `skill / 25`). **The build found that even that is dead**: `swimming_char`'s whole body is
+   commented out — the phase's fifth mechanism wired to code the shipped game does not run — and the
+   live gate is `ITEM_BOAT`. The owner composed the two: strokes cost terrain plus the dead drain's
+   curve, boats exempt the whole swimming bundle, drowning is exhaustion at zero movement (with move
+   regen paused while treading, which the drive proved is the rule that makes drowning possible at
+   all), and the drowned wash ashore **at their entry shore** — the ferry rule.
