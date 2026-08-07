@@ -1803,9 +1803,13 @@ function announceAttack(outcome: AttackOutcome): void {
     if (outcome.defended) {
       const { kind, ease } = outcome.defended;
       const second = person === 'second';
-      // `person` describes the *attacker* upstream. The defender is therefore in the other person, and
-      // an onlooker sees both in the third.
-      const verb = defenceVerb(kind, ease, !second);
+      // `person` describes the *attacker*; the defender's person is its own question, answered by who
+      // the defender is to this observer — `whom === 'you'` — and not by inverting the attacker's.
+      // The inversion was right twice and wrong once, which is why it survived its drive: attacker
+      // ("...misses being hit by your attack") and target ("You narrowly miss being hit...") both
+      // read correctly, and only a *bystander* — attacker third, defender third — got "the kobold
+      // shaman narrowly miss", the owner's sighting during the rescue drive (2026-08-07).
+      const verb = defenceVerb(kind, ease, whom === 'you');
       // **`whoPlain`, not `who`.** The attacker's name arrives capitalised because every other sentence
       // here starts with it; in this one it is mid-sentence — *"You parry a kobold's attack"* — and
       // "A kobold's" would be wrong. Uncapitalising the string would be worse, since a player's name is
