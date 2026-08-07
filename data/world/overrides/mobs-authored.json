@@ -1,4 +1,89 @@
 {
-  "next": 9000005,
-  "mobs": {}
+  "next": 9000007,
+  "mobs": {
+    "9000005": {
+      "vnum": 9000005,
+      "keywords": [
+        "parahna"
+      ],
+      "name": "A Parahna",
+      "room": "A Parahna is standing here.",
+      "level": 1,
+      "hp": "10d20",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "aggressive",
+        "clauses": [
+          "all"
+        ],
+        "reactionMs": 2480,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 10,
+        "damage": {
+          "count": 3,
+          "sides": 4,
+          "bonus": 2
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 450,
+      "wimpyAt": 0,
+      "at": "2026-08-07T03:22:01.688Z"
+    },
+    "9000006": {
+      "vnum": 9000006,
+      "keywords": [
+        "paranha"
+      ],
+      "name": "A paranha",
+      "room": "A paranha is standing here.",
+      "level": 1,
+      "hp": "10d20",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "aggressive",
+        "clauses": [
+          "all"
+        ],
+        "reactionMs": 2480,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 10,
+        "damage": {
+          "count": 3,
+          "sides": 5,
+          "bonus": 0
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 450,
+      "wimpyAt": 0,
+      "at": "2026-08-07T03:24:52.403Z"
+    }
+  }
 }
