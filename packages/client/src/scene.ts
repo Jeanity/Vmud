@@ -1884,7 +1884,7 @@ export class WorldScene extends Phaser.Scene {
    * offering to attack yourself is a menu that is in the way. Nearest wins, so two bodies standing
    * a tile apart both stay clickable — which is exactly the case the menu exists for.
    */
-  private entityAt(worldX: number, worldY: number): Entity | undefined {
+  private entityAt(worldX: number, worldY: number): { entity: Entity; distance: number } | undefined {
     let best: Entity | undefined;
     let bestDistance = CLICK_REACH;
     for (const [id, entity] of this.entities) {
@@ -1894,7 +1894,9 @@ export class WorldScene extends Phaser.Scene {
       best = entity;
       bestDistance = distance;
     }
-    return best;
+    // The distance rides along because the press handler referees between this and a portal hit —
+    // and a referee that only hears one side's number was this exact bug (owner, 2026-08-07).
+    return best ? { entity: best, distance: bestDistance } : undefined;
   }
 
   /**
@@ -1976,17 +1978,21 @@ export class WorldScene extends Phaser.Scene {
     // Any open menu closes first, whatever was clicked: a stale menu still naming the guard you were
     // looking at two rooms ago is worse than no menu.
     this.targetMenu.close();
+    // **A body or a portal — both are asked, and the nearer one wins.** Checked here rather than
+    // through per-object `pointerdown` handlers, and the difference is not stylistic: this method
+    // runs for every press and ends by walking you somewhere, so an object handling its own press
+    // still gets walked over a frame later. One hit test, one decision.
+    //
+    // Bodies win a **tie**, and only a tie: a mob standing on the portal is what you meant to click.
+    // The first version asked bodies first and portals only when no body answered, and the owner
+    // found what that costs (2026-08-07): a kobold a full tile away won against the portal under the
+    // pointer, because the body's generous CLICK_REACH was consulted before the portal ever was.
     const clicked = this.entityAt(world.x, world.y);
-    if (clicked) {
-      this.openTargetMenu(pointer, clicked);
+    const portal = this.portalAt(world.x, world.y);
+    if (clicked && (!portal || clicked.distance <= portal.distance)) {
+      this.openTargetMenu(pointer, clicked.entity);
       return;
     }
-
-    // **Or a portal.** Checked here rather than through a per-object `pointerdown` handler, and the
-    // difference is not stylistic: this method runs for every press and ends by walking you somewhere,
-    // so an object handling its own press still gets walked over a frame later. One hit test, one
-    // decision. Bodies win a tie — a mob standing against the wall is what you meant to click.
-    const portal = this.portalAt(world.x, world.y);
     if (portal) {
       this.targetMenu.show(pointer.x, pointer.y, `a portal leading ${portal.dir}`, [
         { label: 'Enter portal', run: () => this.net.send({ t: 'move', dir: portal.dir }) },
@@ -3952,11 +3958,15 @@ export class WorldScene extends Phaser.Scene {
    * Room-gated because the map draws the whole level: portals three rooms away are on screen, and
    * offering a verb the server would refuse is an invitation to a refusal.
    */
-  private portalAt(x: number, y: number): { dir: Direction; roomId: RoomId } | undefined {
+  private portalAt(x: number, y: number): { dir: Direction; roomId: RoomId; distance: number } | undefined {
     const reach = TILE_SIZE * 0.5;
     for (const portal of this.portals) {
       if (portal.roomId !== this.selfRoomId) continue;
-      if (Math.abs(portal.x - x) <= reach && Math.abs(portal.y - y) <= reach) return portal;
+      if (Math.abs(portal.x - x) <= reach && Math.abs(portal.y - y) <= reach) {
+        // The same yardstick `entityAt` reports, because the press handler compares the two: a box
+        // test decides *whether* the swirl was hit, the hypot decides who was hit *closer*.
+        return { ...portal, distance: Math.hypot(portal.x - x, portal.y - y) };
+      }
     }
     return undefined;
   }
