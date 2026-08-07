@@ -297,6 +297,42 @@ const IDLE_SUFFIX = '-idle';
  * filler columns are now cropped off the staged files (alpha-ratio measured, per sheet), and the
  * clocks below are the *real* counts: swing 6, thrust 8, magic 7, hurt 6.
  */
+/**
+ * How far the body's skeleton drifts from its standing pose, per pose frame — **measured off the
+ * body sheets** (head-point: centroid of the opaque mass's top rows, which tracks the skeleton
+ * where a whole-body centroid gets dragged around by the swinging arm). `[dx, dy]` in sheet
+ * pixels, indexed `[facing row][column]`; `-hurt` is one row, south, like the sheet itself.
+ *
+ * What it buys — the owner's report (2026-08-08): *"my character seems to move out of his armour
+ * when he swings."* A worn piece with no swing twin holds its standing frame while the body leans
+ * into the blow, so the man visibly stepped out of his plate. Twin-less layers now ride these
+ * offsets instead of standing rigid: the helm follows the head, the plate follows the lean, and —
+ * the quiet half — a downed body's gear crumples the 13 px down *with* it instead of floating at
+ * standing height. Translation only, deliberately: arms rotate in ways a slide cannot follow, and
+ * the honest fix for a shield mid-swing is still a drawn sheet, named on the visible-weapons row.
+ */
+const POSE_SHIFTS: Readonly<Record<string, readonly (readonly (readonly [number, number])[])[]>> = {
+  '-slash': [
+    [[0, 0], [0, 1], [-1, 1], [1, 0], [2, 0], [2, 0]],
+    [[0, -1], [-2, 1], [-2, -1], [-3, -1], [-4, -1], [-4, -1]],
+    [[0, 0], [0, 0], [-1, 2], [2, 1], [3, 0], [3, 0]],
+    [[0, -1], [2, 1], [2, -1], [3, -1], [4, -1], [4, -1]],
+  ],
+  '-thrust': [
+    [[0, 0], [0, 1], [1, 0], [1, 0], [2, 1], [2, 1], [2, 1], [1, 0]],
+    [[0, -1], [0, -1], [0, -1], [0, -1], [-2, -1], [-2, -1], [-2, -1], [0, -1]],
+    [[0, 0], [0, 0], [0, 0], [0, 0], [0, 1], [0, 1], [0, 1], [0, 0]],
+    [[0, -1], [0, -1], [0, -1], [0, -1], [2, -1], [2, -1], [2, -1], [0, -1]],
+  ],
+  '-spellcast': [
+    [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+    [[0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1]],
+    [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+    [[0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1]],
+  ],
+  '-hurt': [[[0, 0], [2, 1], [2, 8], [2, 12], [2, 18], [3, 13]]],
+};
+
 const ACTION_SUFFIXES = { slash: '-slash', thrust: '-thrust' } as const;
 const ACTION_COLUMNS: Readonly<Record<'-slash' | '-thrust', number>> = { '-slash': 6, '-thrust': 8 };
 /** ~90 ms a frame lands a slash at ~0.5 s — inside a 2–3 s round, so swings read as distinct events. */
@@ -3289,6 +3325,9 @@ export class WorldScene extends Phaser.Scene {
     const standing = entity.walked === 0;
     const column = walkColumn(entity);
     for (const layer of entity.layers) {
+      // Back to rest position: a pose may have slid this layer along the skeleton (`POSE_SHIFTS`),
+      // and a walk resumed with the helm still four pixels into the swing reads as a loose head.
+      layer.setPosition(0, LPC_FOOT_OFFSET);
       const walkSheet = layer.getData('sheet') as string | undefined;
       if (walkSheet) {
         // **Only if there is one.** The starter kit ships an idle sheet beside every walk sheet, so
@@ -3323,6 +3362,13 @@ export class WorldScene extends Phaser.Scene {
    * the graceful-degradation contract is inherited, not invented here.
    */
   private poseLayers(entity: Entity, facing: Direction, suffix: string, column: number): void {
+    // The body's measured drift for this frame — what a twin-less layer rides so the man does not
+    // step out of his armour. The down pose reads the crumple's *settled* entry, because that is
+    // the frame the body itself holds.
+    const shifts = POSE_SHIFTS[suffix];
+    const shiftRow = shifts?.[suffix === DOWN_SUFFIX ? 0 : LPC_ROW[facing]];
+    const shift = (suffix === DOWN_SUFFIX ? shiftRow?.[shiftRow.length - 1] : shiftRow?.[Math.min(column, (shiftRow?.length ?? 1) - 1)]) ?? [0, 0];
+
     for (const layer of entity.layers) {
       const walkSheet = layer.getData('sheet') as string | undefined;
       if (!walkSheet) {
@@ -3332,6 +3378,8 @@ export class WorldScene extends Phaser.Scene {
       const posed = walkSheet + suffix;
       if (this.textures.exists(posed)) {
         if (layer.texture.key !== posed) layer.setTexture(posed);
+        // A layer with its own pose sheet animates itself and sits at rest position.
+        layer.setPosition(0, LPC_FOOT_OFFSET);
         if (suffix === DOWN_SUFFIX) {
           // The one sheet with no facing rows: a single row whose last frame is the body flat on
           // the floor, so the frame index is the column alone and `LPC_ROW` stays out of it. The
@@ -3345,6 +3393,9 @@ export class WorldScene extends Phaser.Scene {
       } else {
         if (layer.texture.key !== walkSheet) layer.setTexture(walkSheet);
         layer.setFrame(layerFrame(layer.texture, facing, WALK_STANDING_COLUMN));
+        // The ride: no sheet of its own, so it follows the skeleton — helm with the head, plate
+        // with the lean, and a downed body's gear crumpling the thirteen pixels down with it.
+        layer.setPosition(shift[0], LPC_FOOT_OFFSET + shift[1]);
       }
     }
   }
