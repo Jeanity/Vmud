@@ -3364,8 +3364,9 @@
   },
   "1754": {
     "art": "arms-hands-ring-stud",
-    "at": "2026-08-06T11:22:59.761Z",
-    "by": "artassign"
+    "at": "2026-08-07T13:13:26.540Z",
+    "by": "artassign",
+    "slot": "ring2"
   },
   "1800": {
     "art": "hat-headband-kerchief#all_lpcr.silver",
@@ -39638,10 +39639,10 @@
     "by": "artsweep"
   },
   "67252": {
+    "ac": 2,
     "art": "neck-necklace-beaded-large-steel",
     "at": "2026-08-07T11:10:35.092Z",
-    "by": "artassign",
-    "ac": 2
+    "by": "artassign"
   },
   "67253": {
     "art": "shield-heater-revised-pattern-barry",
@@ -56717,10 +56718,10 @@
     "by": "artassign"
   },
   "97075": {
+    "ac": 1,
     "art": "facial-earrings-stud-steel",
     "at": "2026-08-07T11:17:47.028Z",
-    "by": "artsweep",
-    "ac": 1
+    "by": "artsweep"
   },
   "97076": {
     "art": "torso-clothes-longsleeve2-scoop#cloth_ulpc.purple",
