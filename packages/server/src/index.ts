@@ -1207,6 +1207,12 @@ function syncEntities(observer: Player, leaving?: { readonly id: EntityId; reado
  */
 function syncEntityState(actor: Actor): void {
   const view = sim.viewOf(actor);
+  // Themselves first — `syncTurn`'s own documented gap, met a second time on the kit path (owner's
+  // shield, 2026-08-07): a character is never in their own `watching` set, so a `wear` reached
+  // every onlooker in the room except the wearer, whose body kept its old clothes until some
+  // membership event happened to rebuild the entity list. The panel doll updated (it rides `self`),
+  // which made the body's silence read as an art bug rather than a missing message.
+  if (isPlayer(actor)) send(actor.id, { t: 'entityUpdate', entity: view });
   for (const observer of sim.playersIn(actor.roomId)) {
     if (!watching.get(observer.id)?.has(actor.id)) continue;
     send(observer.id, { t: 'entityUpdate', entity: view });

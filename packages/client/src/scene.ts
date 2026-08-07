@@ -12,6 +12,7 @@ import {
   LPC_ART_BY_ID,
   PLAYER_SPEED,
   ROOM_TILES,
+  parseArtId,
   TILE_SIZE,
   Tile,
   buildZoneTilemap,
@@ -3041,6 +3042,13 @@ export class WorldScene extends Phaser.Scene {
 
     const existing = this.entities.get(view.id);
     if (existing) {
+      // **A changed outfit redraws the body — the missing quarter of the kit pipeline.** The server
+      // pushes an `entityUpdate` on every kit change and this branch used to keep the new `wearing`
+      // and rebuild nothing, so a shield went on, the panel doll showed it, every argument
+      // downstream was correct — and the body on screen kept its old clothes until some membership
+      // event happened to rebuild it. Found chasing the owner's "it is not loading the sprite for
+      // the shield I am wearing" (2026-08-07), the last of four gaps between `wear` and the pixels.
+      const wornChanged = view.kind !== 'item' && !sameWearing(existing.view.wearing, view.wearing);
       existing.view = view;
       existing.serverX = view.x;
       existing.serverY = view.y;
@@ -3052,6 +3060,7 @@ export class WorldScene extends Phaser.Scene {
         existing.container.setPosition(view.x, view.y);
         this.pendingArrival = false;
       }
+      if (wornChanged) this.redressEntity(existing);
       this.faceEntity(existing, view.facing);
       this.refreshHealthBar(existing);
       return;
@@ -3388,7 +3397,15 @@ export class WorldScene extends Phaser.Scene {
    * halves land under the body without a rule naming them.
    */
   private sheetsFor(id: string, fallbackZ: number): { sheet: string; z: number }[] {
-    const art = LPC_ART_BY_ID.get(id);
+    // **Parsed first, because a recoloured id must reach the index by its base half.** This lookup
+    // used to take the id raw, and the miss was silent and total: `shield-heater-...#all_lpcr.black`
+    // found no entry, no kit row, and returned nothing — so every ramped item on every body was
+    // quietly dropped while its plain siblings drew fine. The owner found it the only way it could
+    // be found (2026-08-07): *"it is also not loading the sprite for the shield I am wearing even
+    // though an image is assigned to it."* `layerKeysFor` is A7e's one ramp-aware resolver — the
+    // keys it returns carry the ramp, which is exactly what `ensureSheet` queues and what the
+    // recolour registers, so the gate below and the canvas build cannot disagree about names.
+    const art = LPC_ART_BY_ID.get(parseArtId(id).id);
     if (art) {
       // **Not yet loaded means not drawn, not drawn badly.** Handing Phaser a key it does not have
       // gets the missing-texture placeholder — a green box with a diagonal through it, sitting over
@@ -3397,8 +3414,9 @@ export class WorldScene extends Phaser.Scene {
       //
       // **All or nothing per art id**: half a cloak is worse than none, and the loader fetches every
       // layer in one go, so a partial stack would only ever be a frame wide anyway.
-      if (art.layers.every((layer) => this.textures.exists(layer.sheet))) {
-        return art.layers.map((layer) => ({ sheet: layer.sheet, z: layer.z }));
+      const keys = layerKeysFor(id);
+      if (keys.every((layer) => this.textures.exists(layer.key))) {
+        return keys.map((layer) => ({ sheet: layer.key, z: layer.z }));
       }
       this.ensureSheet(id);
       return [];
@@ -3496,10 +3514,21 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
-  /** Redresses anybody wearing this texture key — art that arrived after their body was built. */
+  /**
+   * Redresses anybody whose body wants this texture key — art that arrived after they were built.
+   *
+   * Three ways a body can want a key, and the first was the only one this checked until 2026-08-07:
+   * a worn art id that IS the key; a worn art id one of whose **layer keys** is the key — a
+   * two-layer shield's behind-the-body copy completing must redress its wearer, or the body waits
+   * on a texture that already landed and the shield never appears; and the **base stack** itself,
+   * now that `characterLayers` skips-and-queues an unloaded body sheet instead of boxing it.
+   */
   private redressWearers(key: string): void {
     for (const entity of this.entities.values()) {
-      if (entity.view.wearing && Object.values(entity.view.wearing).includes(key)) this.redressEntity(entity);
+      const worn = entity.view.wearing ? Object.values(entity.view.wearing) : [];
+      const wearsIt = worn.some((id) => id === key || layerKeysFor(id).some((layer) => layer.key === key));
+      const base = SPRITE_LAYERS[entity.view.sprite] ?? SPRITE_LAYERS['human'] ?? [];
+      if (wearsIt || base.includes(key)) this.redressEntity(entity);
     }
   }
 
@@ -3560,13 +3589,26 @@ export class WorldScene extends Phaser.Scene {
         ]
       : base;
 
-    return stack.map((sheet) => {
-      const image = this.add.image(0, LPC_FOOT_OFFSET, sheet);
-      // The walk sheet is the layer's identity; the idle one is derived from it when it stops.
-      image.setData('sheet', sheet);
-      image.setFrame(layerFrame(image.texture, facing));
-      return image;
-    });
+    // **The base stack passes the same gate the worn stack always has.** `sheetsFor` refuses to
+    // name a texture Phaser lacks; this map used to hand the body's own sheets over unguarded, and
+    // in a session whose loader was interrupted mid-preload — a hot reload landing during a fight —
+    // that painted the missing-texture placeholder at body size: the green box over a mob and the
+    // red one over the owner's head that he photographed (2026-08-07). A body that queues and skips
+    // the sheet is invisible for the frames until `redressWearers` rebuilds it, which is the same
+    // one-frame gap every late-arriving garment already accepts.
+    return stack
+      .filter((sheet) => {
+        if (this.textures.exists(sheet)) return true;
+        this.ensureSheet(sheet);
+        return false;
+      })
+      .map((sheet) => {
+        const image = this.add.image(0, LPC_FOOT_OFFSET, sheet);
+        // The walk sheet is the layer's identity; the idle one is derived from it when it stops.
+        image.setData('sheet', sheet);
+        image.setFrame(layerFrame(image.texture, facing));
+        return image;
+      });
   }
 
   /* ----------------------------------------------------------- input, loop */
@@ -4429,6 +4471,18 @@ function tileCentre(tile: number): number {
 function walkColumn(entity: Entity): number {
   if (entity.walked === 0) return WALK_STANDING_COLUMN;
   return Math.floor(entity.walked / WALK_PIXELS_PER_FRAME) % WALK_COLUMNS;
+}
+
+/** Whether two wearing maps describe the same outfit — the redraw-on-update gate in `upsertEntity`. */
+function sameWearing(
+  a: Readonly<Record<string, string>> | undefined,
+  b: Readonly<Record<string, string>> | undefined,
+): boolean {
+  const left = a ?? {};
+  const right = b ?? {};
+  const slots = Object.keys(left);
+  if (slots.length !== Object.keys(right).length) return false;
+  return slots.every((slot) => left[slot] === right[slot]);
 }
 
 function layerFrame(texture: Phaser.Textures.Texture, facing: Direction, column = WALK_STANDING_COLUMN): number {
