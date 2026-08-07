@@ -464,8 +464,10 @@ mob-art drawing problem. Phase 21's own prerequisites are already parked in the 
 pulled early** (the most misplaced row on the schedule — see the parking lot), the ability-score
 half of 14b, and the race-list decision the racewar exclusion forces. (The shrug gate still has no
 live path — players are raceless and mobs do not cast at mobs — its first real workout arrives with
-MR-race player targets in Phase 21; the arithmetic is pinned by tests. The admin panel still wants
-a UI for the mob `spells` field — API-only today.) Track V has no numbered item left — the bubble cap loose end and
+MR-race player targets in Phase 21; the arithmetic is pinned by tests.) The mob editor grew its
+**casts** row the same day — one checkbox per registry spell, kind-labelled, verified against the
+live panel with the shaman's own kit — so the `spells` field is authored the way every other field
+is, not by curl. Track V has no numbered item left — the bubble cap loose end and
 the mob-art *drawing* problem are what remain. Track A's biggest remaining rows are the
 **server-lifecycle supervisor** and the post-Phase-21 editors (the mob editor also wants a UI for
 the new `spells` field — API-only today); §2b says a track with nothing unblocked skips. The
