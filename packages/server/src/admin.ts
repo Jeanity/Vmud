@@ -629,7 +629,11 @@ interface NearbyRoom {
   readonly loaded: boolean;
 }
 
-const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+/**
+ * Exported for the game socket's claim gate (DESIGN-accounts.md §6): "is this connection loopback"
+ * is one trust decision, and two definitions of it would eventually disagree.
+ */
+export const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 export class AdminApi {
   private readonly deps: AdminDeps;

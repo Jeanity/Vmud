@@ -735,6 +735,96 @@
         font: inherit;
         color: var(--ink);
       }
+
+      /* Protocol 23's front door. Fixed over the whole shell: until `welcome` there is no game
+         behind it worth seeing, and a translucent backdrop says so without hiding that it exists. */
+      #login {
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(11, 13, 10, 0.82);
+      }
+      #login[hidden] { display: none; }
+      #login-card {
+        width: min(340px, calc(100vw - 48px));
+        padding: 22px 26px 24px;
+        background: var(--panel);
+        border: 1px solid var(--edge);
+        border-radius: 4px;
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+      }
+      #login-card h1 {
+        margin: 0 0 14px;
+        font-size: 15px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #f0d99a;
+        text-align: center;
+      }
+      #login-card form { display: flex; flex-direction: column; gap: 10px; }
+      #login-card label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 11px;
+        color: var(--dim);
+      }
+      #login-card label.login-toggle {
+        flex-direction: row;
+        align-items: center;
+        gap: 6px;
+        color: var(--ink);
+      }
+      #login-card input:not([type='checkbox']) {
+        background: #12140f;
+        border: 1px solid var(--edge);
+        border-radius: 3px;
+        padding: 6px 8px;
+        color: var(--ink);
+        font: inherit;
+      }
+      #login-card input:focus { outline: 1px solid #7d6a3e; }
+      #login-card button:not(#login-switch) {
+        background: #23281f;
+        border: 1px solid var(--edge);
+        border-radius: 3px;
+        padding: 6px 10px;
+        color: var(--ink);
+        font: inherit;
+        cursor: pointer;
+      }
+      #login-card button:not(#login-switch):hover { border-color: #7d6a3e; color: #f0d99a; }
+      .login-error { margin: 2px 0 0; font-size: 11px; color: #d98c7a; }
+      .login-error[hidden] { display: none; }
+      #login-picker { display: flex; flex-direction: column; gap: 10px; }
+      #login-picker[hidden] { display: none; }
+      #login-picker-title { margin: 0; font-size: 12px; color: var(--dim); text-align: center; }
+      #login-characters { display: flex; flex-direction: column; gap: 6px; }
+      #login-characters .login-character {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 10px;
+        text-align: left;
+      }
+      #login-characters .login-character b { color: var(--ink); font-weight: 600; }
+      #login-characters .login-character span { font-size: 10px; color: var(--dim); }
+      #login-new { flex-direction: row; }
+      #login-new input { flex: 1; min-width: 0; }
+      #login-switch {
+        align-self: center;
+        background: none;
+        border: none;
+        color: var(--dim);
+        font: inherit;
+        font-size: 10px;
+        text-decoration: underline;
+        cursor: pointer;
+      }
+      #login-switch:hover { color: var(--ink); }
     </style>
   </head>
   <body>
@@ -1011,6 +1101,33 @@
           </div>
         </div>
       </aside>
+    </div>
+
+    <!-- Protocol 23's front door. Over everything — all three columns — because until `welcome`
+         there is nothing behind it to interact with. Two panels in one card: credentials, then the
+         account's characters; `login.ts` drives which is showing. Real inputs rather than anything
+         canvas-drawn, because a password box is the browser's job. -->
+    <div id="login">
+      <div id="login-card">
+        <h1>MyGame</h1>
+        <form id="login-account" autocomplete="off">
+          <label>account <input id="login-name" maxlength="24" /></label>
+          <label>password <input id="login-password" type="password" maxlength="72" /></label>
+          <label class="login-toggle"><input id="login-create" type="checkbox" /> a new account</label>
+          <button type="submit">enter</button>
+          <p id="login-error" class="login-error" hidden></p>
+        </form>
+        <div id="login-picker" hidden>
+          <p id="login-picker-title"></p>
+          <div id="login-characters"></div>
+          <form id="login-new" autocomplete="off">
+            <input id="login-new-name" maxlength="24" placeholder="a new name" />
+            <button type="submit">create</button>
+          </form>
+          <p id="login-picker-error" class="login-error" hidden></p>
+          <button type="button" id="login-switch">switch account</button>
+        </div>
+      </div>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

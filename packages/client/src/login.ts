@@ -1,0 +1,261 @@
+/**
+ * The front door — protocol 23's handshake, driven from a DOM overlay.
+ *
+ * Two steps, two panels in one card: credentials (`auth`), then a body (`enter`). The game boots
+ * behind the overlay untouched and renders nothing meaningful until `welcome`, which is the message
+ * that drops the card. Plain DOM like the log and the feed, and for the stronger form of the usual
+ * reason: a password box inside a canvas would be a reimplementation of the browser's whole input
+ * stack, wrong in every accessibility particular.
+ *
+ * ## What the tab remembers (sessionStorage, like the name it replaces)
+ *
+ * - `mygame:resume` — the server's resume token, taken from every `account` message. A reload
+ *   re-auths with it and skips the password; a second tab has its own storage and gets the form,
+ *   which is what keeps two-tabs-two-characters testing alive.
+ * - `mygame:character` — the last body this tab entered. A *resumed* auth walks straight back into
+ *   it, so the reload loop feels exactly like the pre-account client: F5 and you are standing where
+ *   you stood. A *typed* login always shows the picker — you came to choose.
+ * - `mygame:account` — the account name, only to prefill the form.
+ *
+ * ## Dev conveniences, in the `?name=` tradition
+ *
+ * `?account=X&password=Y` auths on every (re)connect — the successor to `?name=` for the two-window
+ * flow and for surviving the dev server's restarts, where in-memory resume tokens die. `&create=1`
+ * mints the account first; `&character=Z` picks the body. Convenience for a loopback dev server,
+ * not a pattern for a public one — a password in a URL is in the history of every tab that shows
+ * it.
+ */
+
+import { PROTOCOL_VERSION, type CharacterSummary } from '@mygame/shared';
+
+import type { Net } from './net.ts';
+
+const RESUME_KEY = 'mygame:resume';
+const ACCOUNT_KEY = 'mygame:account';
+const CHARACTER_KEY = 'mygame:character';
+
+export class LoginGate {
+  private readonly overlay: HTMLElement;
+  private readonly accountForm: HTMLFormElement;
+  private readonly nameInput: HTMLInputElement;
+  private readonly passwordInput: HTMLInputElement;
+  private readonly createBox: HTMLInputElement;
+  private readonly formError: HTMLElement;
+  private readonly picker: HTMLElement;
+  private readonly pickerTitle: HTMLElement;
+  private readonly characterList: HTMLElement;
+  private readonly newForm: HTMLFormElement;
+  private readonly newName: HTMLInputElement;
+  private readonly pickerError: HTMLElement;
+
+  /** Which step is waiting on the server, so `authFailed` lands under the right caret. */
+  private pending: 'none' | 'auth' | 'resume' | 'enter' | 'autoEnter' = 'none';
+  /** True while the current `auth` was sent without the user typing — resume or URL params. */
+  private handsFree = false;
+
+  /** Raised while the overlay is up. The scene's typing gate hangs off it — see `main.ts`. */
+  onVisibility: ((visible: boolean) => void) | undefined;
+
+  constructor(private readonly net: Net) {
+    this.overlay = grab('login');
+    this.accountForm = grab('login-account') as HTMLFormElement;
+    this.nameInput = grab('login-name') as HTMLInputElement;
+    this.passwordInput = grab('login-password') as HTMLInputElement;
+    this.createBox = grab('login-create') as HTMLInputElement;
+    this.formError = grab('login-error');
+    this.picker = grab('login-picker');
+    this.pickerTitle = grab('login-picker-title');
+    this.characterList = grab('login-characters');
+    this.newForm = grab('login-new') as HTMLFormElement;
+    this.newName = grab('login-new-name') as HTMLInputElement;
+    this.pickerError = grab('login-picker-error');
+
+    this.nameInput.value = readSession(ACCOUNT_KEY) ?? '';
+
+    this.accountForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const account = this.nameInput.value.trim();
+      const password = this.passwordInput.value;
+      if (!account || !password) return this.fail('account and password, both');
+      writeSession(ACCOUNT_KEY, account);
+      this.handsFree = false;
+      this.pending = 'auth';
+      this.net.send({
+        t: 'auth',
+        protocol: PROTOCOL_VERSION,
+        account,
+        password,
+        ...(this.createBox.checked ? { create: true } : {}),
+      });
+    });
+
+    this.newForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const name = this.newName.value.trim();
+      if (name) this.enter(name, 'enter');
+    });
+
+    grab('login-switch').addEventListener('click', () => {
+      // "Not you?" — forget everything this tab knew and start at the form.
+      clearSession(RESUME_KEY);
+      clearSession(CHARACTER_KEY);
+      this.passwordInput.value = '';
+      this.showForm();
+    });
+
+    net.on('account', (message) => {
+      writeSession(RESUME_KEY, message.resume);
+      const wanted = params().get('character') ?? readSession(CHARACTER_KEY) ?? undefined;
+      // Hands-free auth walks straight back into the remembered body; a typed login came to choose.
+      if (this.handsFree && wanted) {
+        this.enter(wanted, 'autoEnter');
+        return;
+      }
+      this.showPicker(message.account, message.characters, message.max);
+    });
+
+    net.on('authFailed', (message) => {
+      const pending = this.pending;
+      this.pending = 'none';
+      switch (pending) {
+        case 'resume':
+          // An expired session is not the user's mistake; the form, quietly, is the answer.
+          clearSession(RESUME_KEY);
+          this.showForm();
+          return;
+        case 'autoEnter':
+          // The remembered body was refused — taken, or already walking. Choose by hand.
+          clearSession(CHARACTER_KEY);
+          this.pickerError.textContent = message.reason;
+          this.pickerError.hidden = false;
+          return;
+        case 'enter':
+          this.pickerError.textContent = message.reason;
+          this.pickerError.hidden = false;
+          return;
+        default:
+          this.fail(message.reason);
+      }
+    });
+
+    net.on('welcome', () => {
+      this.pending = 'none';
+      this.overlay.hidden = true;
+      this.onVisibility?.(false);
+    });
+  }
+
+  /** Called on every socket open: hands-free auth if the tab can manage it, the form otherwise. */
+  onConnected(): void {
+    const search = params();
+    const account = search.get('account');
+    const password = search.get('password');
+    if (account && password) {
+      this.handsFree = true;
+      this.pending = 'auth';
+      this.net.send({
+        t: 'auth',
+        protocol: PROTOCOL_VERSION,
+        account,
+        password,
+        ...(search.get('create') ? { create: true } : {}),
+      });
+      return;
+    }
+    const resume = readSession(RESUME_KEY);
+    if (resume) {
+      this.handsFree = true;
+      this.pending = 'resume';
+      this.net.send({ t: 'auth', protocol: PROTOCOL_VERSION, resume });
+      return;
+    }
+    this.showForm();
+  }
+
+  private enter(name: string, step: 'enter' | 'autoEnter'): void {
+    this.pending = step;
+    writeSession(CHARACTER_KEY, name);
+    this.net.send({ t: 'enter', name });
+  }
+
+  private showForm(): void {
+    this.overlay.hidden = false;
+    this.picker.hidden = true;
+    this.accountForm.hidden = false;
+    this.formError.hidden = true;
+    this.onVisibility?.(true);
+    this.nameInput.focus();
+  }
+
+  private showPicker(account: string, characters: readonly CharacterSummary[], max: number): void {
+    this.overlay.hidden = false;
+    this.accountForm.hidden = true;
+    this.picker.hidden = false;
+    this.pickerError.hidden = true;
+    this.pickerTitle.textContent = `${account} — choose a character`;
+    this.characterList.replaceChildren(
+      ...characters.map((character) => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'login-character';
+        const name = document.createElement('b');
+        name.textContent = character.name;
+        row.append(name);
+        const facts: string[] = [];
+        if (character.level !== undefined) facts.push(`level ${character.level}`);
+        if (character.lastPlayed) facts.push(character.lastPlayed.slice(0, 10));
+        if (facts.length > 0) {
+          const detail = document.createElement('span');
+          detail.textContent = facts.join(' · ');
+          row.append(detail);
+        }
+        row.addEventListener('click', () => this.enter(character.name, 'enter'));
+        return row;
+      }),
+    );
+    // The cap is the server's fact, shipped in the message so this form cannot disagree with it.
+    this.newForm.hidden = characters.length >= max;
+    this.newName.value = '';
+    this.onVisibility?.(true);
+  }
+
+  private fail(reason: string): void {
+    this.formError.textContent = reason;
+    this.formError.hidden = false;
+  }
+}
+
+function grab(id: string): HTMLElement {
+  const node = document.getElementById(id);
+  if (!node) throw new Error(`${id} element missing from index.html`);
+  return node;
+}
+
+function params(): URLSearchParams {
+  return new URLSearchParams(location.search);
+}
+
+/** Wrapped because storage access throws outright in a partitioned or cookie-blocked context. */
+function readSession(key: string): string | undefined {
+  try {
+    return sessionStorage.getItem(key) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function writeSession(key: string, value: string): void {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    // A tab that cannot remember simply asks again next reload.
+  }
+}
+
+function clearSession(key: string): void {
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // Nothing stored, nothing lost.
+  }
+}

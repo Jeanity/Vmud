@@ -22,7 +22,7 @@
  * respawn on every restart. Nothing here knows what a pickup *is*; see `pickups.ts`.
  */
 
-import { mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -354,6 +354,15 @@ export class PlayerStore {
     this.dir = options.dir ?? DEFAULT_PLAYER_DIR;
     this.resolveLegacyRoom = options.resolveLegacyRoom;
     mkdirSync(this.dir, { recursive: true });
+  }
+
+  /**
+   * Whether this slug names a character with history: a save on disk, or a record already loaded
+   * this boot. What the claim gate asks before letting an account adopt an unowned name — a blank
+   * `load` would answer "yes, blank" and hand a stranger's character out as new.
+   */
+  hasStored(slug: string): boolean {
+    return this.records.has(slug) || existsSync(join(this.dir, `${slug}.json`));
   }
 
   /** Loads a character from disk, or creates a blank one. */

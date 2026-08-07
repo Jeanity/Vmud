@@ -260,14 +260,22 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * a stranger's exact pools remain unreadable (`EntityView.healthFraction` is unchanged), because
  * consenting into a group is exactly the boundary at which that information becomes yours.
  *
- * Is 22: the body moves for what it does — the owner's animations ask (2026-08-07), two additive
+ * Was 22: the body moves for what it does — the owner's animations ask (2026-08-07), two additive
  * fields and no new message. `attackResolved` gains `swing` (which motion the blow plays, derived
  * from the attack type server-side) and {@link EntityView} gains `casting` (the held wind-up pose,
  * an observer-visible loop where the caster's own affect row was always visible). Posture needed
  * nothing: it has been on the view since protocol 8 with the promise that a sleeping stranger looks
  * asleep — this is the version where a client finally reads it.
+ *
+ * Is 23: the door gets a lock — `DESIGN-accounts.md`, and the reason accounts were pulled ahead of
+ * Phase 21: the *first message changes*, so every phase shipped before this one made it more
+ * expensive. `hello` is removed, not deprecated — a name is no longer an identity. In its place the
+ * handshake is `auth` (account + password, or a resume token) answered by `account` (your character
+ * list) or `authFailed` (the socket survives, unlike `rejected`, because a mistyped password is not
+ * a protocol violation), then `enter` picks or creates a character and everything from `welcome` on
+ * is exactly what protocol 22 sent.
  */
-export const PROTOCOL_VERSION = 22;
+export const PROTOCOL_VERSION = 23;
 
 /**
  * One member of your group, as the roster draws them — protocol 19.
@@ -590,7 +598,26 @@ export function placeKey(place: Place): string {
 /* -------------------------------------------------------------------------- */
 
 export type ClientMessage =
-  | { readonly t: 'hello'; readonly protocol: number; readonly name: string }
+  /**
+   * The handshake's first half: prove who you are. Credentials with `create` set mint the account
+   * (an explicit flag off the form's toggle — login for an unknown account *fails* rather than
+   * auto-creating, because a typo must not mint an empty account). A `resume` token from a previous
+   * `account` message skips the password on reload. Nothing else is accepted before this succeeds.
+   */
+  | {
+      readonly t: 'auth';
+      readonly protocol: number;
+      readonly account?: string;
+      readonly password?: string;
+      readonly create?: boolean;
+      readonly resume?: string;
+    }
+  /**
+   * The handshake's second half: pick a body. An owned name enters it; a free name creates and
+   * claims it; anything else is refused with `authFailed` and the socket stays open. Only valid
+   * after `account` has been received.
+   */
+  | { readonly t: 'enter'; readonly name: string }
   /** Walk one room in a direction. The server decides whether it is legal. */
   | { readonly t: 'move'; readonly dir: Direction }
   /** Sub-room movement intent: a normalised direction vector held since the last tick. */
@@ -700,6 +727,20 @@ export const ATTACK_OUTCOMES = [
 
 export type AttackOutcomeKind = (typeof ATTACK_OUTCOMES)[number];
 
+/**
+ * One character on the account picker — protocol 23.
+ *
+ * Deliberately thin: the name (what `enter` sends back), and the two facts a person choosing a body
+ * actually weighs. Everything else about a character is only knowable by entering the world as it.
+ */
+export interface CharacterSummary {
+  readonly name: string;
+  /** Recorded level, absent for a character yet to earn one. */
+  readonly level?: number;
+  /** ISO timestamp of the last save, absent for a character never yet flushed. */
+  readonly lastPlayed?: string;
+}
+
 export type ServerMessage =
   | {
       readonly t: 'welcome';
@@ -709,6 +750,25 @@ export type ServerMessage =
       readonly roundMs: number;
     }
   | { readonly t: 'rejected'; readonly reason: string }
+  /**
+   * An `auth` or `enter` that did not work, and why. Apart from `rejected` on purpose: `rejected`
+   * closes the socket, which is right for a protocol mismatch and wrong for a mistyped password —
+   * the login form gets to try again on the same connection.
+   */
+  | { readonly t: 'authFailed'; readonly reason: string }
+  /**
+   * The account is in — here is what it may play. Answers a successful `auth`. `resume` is the
+   * token the client keeps (per-tab, in memory only server-side) so a reload skips the password;
+   * `max` is the source's sixteen-character cap, shipped rather than assumed so the form and the
+   * server can never disagree about when to stop offering "new".
+   */
+  | {
+      readonly t: 'account';
+      readonly account: string;
+      readonly characters: readonly CharacterSummary[];
+      readonly max: number;
+      readonly resume: string;
+    }
   /**
    * The map the player is now standing on. Sent on join **and again on every arrival at a new
    * {@link Place}** — a different zone, or a different level of the same zone.

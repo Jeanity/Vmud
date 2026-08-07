@@ -1254,6 +1254,12 @@ export class WorldScene extends Phaser.Scene {
         'W,A,S,D,UP,LEFT,DOWN,RIGHT,M,Q,E,SHIFT',
       ) as Record<string, Phaser.Input.Keyboard.Key>;
 
+      // The login gate raises `typing` before the scene has booted — protocol 23 puts a form in
+      // front of the world, and its caret is in an `<input>` while these captures are being
+      // registered. `addKeys` arms them unconditionally, so a pre-boot `setTyping(true)` has to be
+      // re-applied here or the account name arrives with its W, A, S and D eaten (gotcha 5a).
+      if (this.typing) keyboard.disableGlobalCapture();
+
       // Backquote toggles the log. Bound on the document so it works while the canvas has focus.
       keyboard.on('keydown-BACKTICK', () => this.log.toggle());
       // **One key, two views, and the modifier is read off the event.** `CLAUDE.md` gotcha 5b: polling
@@ -3944,7 +3950,11 @@ export class WorldScene extends Phaser.Scene {
     // Global rather than per-key: the captured set is whatever `addKeys` was given, and a second
     // list here would have to be kept in step with it forever — the next key anyone binds would
     // silently start eating itself out of typed words.
-    const keyboard = this.input.keyboard;
+    //
+    // `this.input` is optional-chained because the login gate calls this before the scene has
+    // booted; a keyboard that does not exist yet has no captures to disable, and `create()` reads
+    // `this.typing` back when it binds them.
+    const keyboard = this.input?.keyboard;
     if (typing) keyboard?.disableGlobalCapture();
     else keyboard?.enableGlobalCapture();
 

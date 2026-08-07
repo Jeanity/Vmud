@@ -175,6 +175,7 @@ import {
   samePlace,
   shortfall,
   type AdjacentRoomView,
+  type CharacterSummary,
   type ClientMessage,
   type Direction,
   type EntityId,
@@ -202,7 +203,8 @@ import { canWalkStraightTo, findPath, type PathFailure } from '@mygame/shared/pa
 import { bitsToBase64, bitsetToSet } from '@mygame/shared/vision.ts';
 
 import { UNSEEN_NAME, actLines } from './act.ts';
-import { AdminApi, serveAdmin, type LiveOps } from './admin.ts';
+import { AccountStore, MAX_CHARACTERS_PER_ACCOUNT, type AccountRecord, type AuthResult } from './accounts.ts';
+import { AdminApi, LOOPBACK, serveAdmin, type LiveOps } from './admin.ts';
 import { artIdFromPath, artSheetPath } from './art.ts';
 import {
   findInStock,
@@ -241,6 +243,7 @@ import {
 import {
   PlayerStore,
   seenTileCount,
+  slugify,
   type LegacyRoomTiles,
   type PlayerRecord,
 } from './players.ts';
@@ -955,6 +958,109 @@ const store = new PlayerStore({
   },
 });
 const records = new Map<EntityId, PlayerRecord>();
+
+/**
+ * Who may connect at all — DESIGN-accounts.md, protocol 23. The store loads every account at boot;
+ * ownership of characters lives in it and nowhere else.
+ */
+const accounts = new AccountStore();
+
+/**
+ * A standing dev account, for the reload loop and the probe scripts. Off unless `GAME_DEV_ACCOUNT`
+ * is set to `name:password`. Like every `GAME_DEV_*` switch: default-off, announced at boot, and a
+ * rig rather than a setting — it creates the account if missing but will not overwrite a password,
+ * because a switch that can silently rekey a real account is a foot-gun with no matching foot.
+ */
+const DEV_ACCOUNT = process.env.GAME_DEV_ACCOUNT;
+if (DEV_ACCOUNT) {
+  const colon = DEV_ACCOUNT.indexOf(':');
+  const devName = colon > 0 ? DEV_ACCOUNT.slice(0, colon) : '';
+  const devPassword = colon > 0 ? DEV_ACCOUNT.slice(colon + 1) : '';
+  if (!devName || !devPassword) {
+    console.warn(`[dev] GAME_DEV_ACCOUNT is not name:password; ignoring`);
+  } else if (accounts.verify(devName, devPassword).ok) {
+    console.log(`[dev] account "${devName}" standing (GAME_DEV_ACCOUNT)`);
+  } else {
+    const made = accounts.create(devName, devPassword);
+    if (made.ok) console.log(`[dev] account "${devName}" created (GAME_DEV_ACCOUNT)`);
+    else console.warn(`[dev] GAME_DEV_ACCOUNT "${devName}": ${made.reason} — not touching it`);
+  }
+}
+
+/** Auth failures one socket may accrue before it is closed. A budget for typos, not dictionaries. */
+const AUTH_ATTEMPT_BUDGET = 5;
+
+type WireAuth = Extract<ClientMessage, { t: 'auth' }>;
+
+/** The `auth` message against the account store: resume token first, then credentials. */
+function resolveAuth(message: WireAuth): AuthResult {
+  if (typeof message.resume === 'string' && message.resume.length > 0) {
+    const resumed = accounts.resume(message.resume);
+    return resumed ? { ok: true, account: resumed } : { ok: false, reason: 'session expired' };
+  }
+  const name = typeof message.account === 'string' ? message.account : '';
+  const password = typeof message.password === 'string' ? message.password : '';
+  return message.create === true ? accounts.create(name, password) : accounts.verify(name, password);
+}
+
+/**
+ * The picker's contents. The join against character files happens here rather than in the account
+ * store: ownership is the account's fact, level and recency are the character's, and only this
+ * message needs both.
+ */
+function accountMessage(account: AccountRecord): Extract<ServerMessage, { t: 'account' }> {
+  const stored = new Map(store.list().map((summary) => [summary.slug, summary]));
+  const characters = account.characters.map((slug): CharacterSummary => {
+    const summary = stored.get(slug);
+    return {
+      name: summary?.name ?? slug,
+      ...(summary?.level !== undefined ? { level: summary.level } : {}),
+      ...(summary?.savedAt !== undefined ? { lastPlayed: summary.savedAt } : {}),
+    };
+  });
+  return {
+    t: 'account',
+    account: account.name,
+    characters,
+    max: MAX_CHARACTERS_PER_ACCOUNT,
+    resume: accounts.issueResume(account.slug),
+  };
+}
+
+/**
+ * May this account put this name on? Every refusal in DESIGN-accounts.md §5–§6 that needs a socket
+ * lives here: someone else's character, a claim from off-loopback, a full account, a body already
+ * walking. Success hands back the loaded record, whose stored name is canonical over the typed one.
+ */
+function admitCharacter(
+  account: AccountRecord,
+  requestedName: string,
+  overLoopback: boolean,
+): { ok: true; record: PlayerRecord } | { ok: false; reason: string } {
+  const requested = requestedName.trim().slice(0, 24);
+  const slug = slugify(requested);
+  if (!slug) return { ok: false, reason: 'that name cannot be used' };
+  const owner = accounts.ownerOf(slug);
+  if (owner !== undefined && owner !== account.slug) {
+    return { ok: false, reason: 'that character belongs to someone else' };
+  }
+  if (owner === undefined) {
+    // Unowned. A brand-new name is anyone's to take; a name with history — a save on disk — is
+    // claimable only over loopback (§6). Today that is the operator adopting their own flotsam;
+    // the day the bind opens it is nobody remotely, and assignment becomes the admin API's job.
+    if (store.hasStored(slug) && !overLoopback) {
+      return { ok: false, reason: 'that character is not claimable from here' };
+    }
+    const claim = accounts.claim(account.slug, slug);
+    if (!claim.ok) return { ok: false, reason: claim.reason };
+  }
+  for (const online of records.values()) {
+    if (slugify(online.name) === slug) {
+      return { ok: false, reason: 'that character is already in the world' };
+    }
+  }
+  return { ok: true, record: store.load(requested) };
+}
 
 /**
  * **A8 slice 3: any Place whose grid moved while the server was down loses its maps here.**
@@ -7589,8 +7695,9 @@ function handle(player: Player, message: ClientMessage): void {
       send(player.id, { t: 'pong', ts: message.ts, serverTime: Date.now() });
       break;
 
-    case 'hello':
-      // Already handled during the handshake; a second hello is ignored rather than trusted.
+    case 'auth':
+    case 'enter':
+      // The handshake already happened; a repeat while embodied is ignored rather than trusted.
       break;
 
     // The typed `flee` and the protocol's own intent reach the same place, exactly as `command` and the
@@ -8244,27 +8351,56 @@ const http = createServer((req, res) => {
 
 const wss = new WebSocketServer({ server: http });
 
-wss.on('connection', (socket) => {
+wss.on('connection', (socket, request) => {
   let player: Player | undefined;
+  // The handshake's held state: a successful `auth` parks the account here for `enter` to spend.
+  let account: AccountRecord | undefined;
+  let authFailures = 0;
+  // Read once at connect — the §6 claim gate wants to know where the socket came from, and the
+  // answer must not be able to change mid-connection.
+  const overLoopback = LOOPBACK.has(request.socket.remoteAddress ?? '');
 
   socket.on('message', (raw) => {
     const message = decodeClientMessage(String(raw));
     if (!message) return;
 
     if (!player) {
-      if (message.t !== 'hello') return;
-      if (message.protocol !== PROTOCOL_VERSION) {
-        socket.send(encode({ t: 'rejected', reason: `protocol ${PROTOCOL_VERSION} required` }));
-        socket.close();
+      // Protocol 23's two-step handshake: `auth` proves the account, `enter` picks the body.
+      // Anything else sent before a character exists is dropped on the floor, exactly as before.
+      if (message.t === 'auth') {
+        if (account) return; // authed already; the only legal move now is `enter`
+        if (message.protocol !== PROTOCOL_VERSION) {
+          socket.send(encode({ t: 'rejected', reason: `protocol ${PROTOCOL_VERSION} required` }));
+          socket.close();
+          return;
+        }
+        const result = resolveAuth(message);
+        if (!result.ok) {
+          // `authFailed`, not `rejected`: the socket survives, because a mistyped password is not
+          // a protocol violation and the form gets to try again. Up to a budget — a courtesy for
+          // typos that must not double as a courtesy for dictionaries.
+          socket.send(encode({ t: 'authFailed', reason: result.reason }));
+          if (++authFailures >= AUTH_ATTEMPT_BUDGET) socket.close();
+          return;
+        }
+        account = result.account;
+        socket.send(encode(accountMessage(account)));
         return;
       }
-      const name = message.name.trim().slice(0, 24) || 'Someone';
+      if (message.t !== 'enter' || !account) return;
+      const admitted = admitCharacter(account, message.name, overLoopback);
+      if (!admitted.ok) {
+        socket.send(encode({ t: 'authFailed', reason: admitted.reason }));
+        return;
+      }
+      const record = admitted.record;
+      // The stored spelling is canonical: `enter aldric` puts on the character named Aldric.
+      const name = record.name;
       player = sim.spawn(name, progressRng);
       sockets.set(player.id, socket);
       watching.set(player.id, new Set());
       budgets.set(player.id, newCommandBudget(Date.now()));
 
-      const record = store.load(name);
       records.set(player.id, record);
       // Before the first `foldSeen` below: a returning torch-bearer must light their spawn tile at
       // the radius they are carrying, not at the bare one and then again a tick later.

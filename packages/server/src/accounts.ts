@@ -139,10 +139,10 @@ export interface AccountRecord {
 
 /** What a stored file looks like. Everything optional: a partial record loads as far as it can. */
 interface StoredAccount {
-  name?: string;
-  hash?: string;
-  createdAt?: string;
-  lastSeen?: string;
+  name?: string | undefined;
+  hash?: string | undefined;
+  createdAt?: string | undefined;
+  lastSeen?: string | undefined;
   characters?: unknown;
 }
 

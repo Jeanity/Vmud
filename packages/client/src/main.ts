@@ -6,72 +6,39 @@ import { PlaceMap } from './placemap.ts';
 import { CombatFeed } from './combatfeed.ts';
 import { GroupRoster } from './grouproster.ts';
 import { LogPanel } from './log.ts';
+import { LoginGate } from './login.ts';
 import { Net } from './net.ts';
 import { WorldScene } from './scene.ts';
-
-const NAMES = [
-  'Aldric', 'Brynn', 'Cadeus', 'Delwyn', 'Eryndor', 'Fenwick',
-  'Gwynne', 'Halvard', 'Ilyana', 'Joreth', 'Kaelin', 'Lyra',
-];
-
-/**
- * Who to log in as. `?name=` wins; otherwise a generated name, **kept for the life of the tab**.
- *
- * The name is the character's identity on the server: it keys the save file holding the seen map,
- * the pickups this character has already taken and the light they are carrying. Rolling a fresh one
- * on every page load therefore made all three unobservable in the default dev flow — walk onto the
- * torch in a room, reload, and it is lying there again for the new stranger you have become.
- *
- * `sessionStorage`, not `localStorage`, and that is the whole point of the choice: a reload is the
- * same tab and keeps the character, while a second tab is a second character. Testing two players
- * side by side is the other thing this name is for, and a name that persisted across tabs would
- * have both windows fighting over one character.
- *
- * Storage access is wrapped because it throws outright in a partitioned or cookie-blocked context,
- * and failing to *name* the player is not a reason to fail to start the game.
- */
-const NAME_KEY = 'mygame:name';
-
-function playerName(): string {
-  const requested = new URLSearchParams(location.search).get('name');
-  if (requested) return requested.slice(0, 24);
-
-  const remembered = readSession(NAME_KEY);
-  if (remembered) return remembered;
-
-  const pick = NAMES[Math.floor(Math.random() * NAMES.length)] ?? 'Wanderer';
-  const name = `${pick}${Math.floor(Math.random() * 90 + 10)}`;
-  writeSession(NAME_KEY, name);
-  return name;
-}
-
-function readSession(key: string): string | undefined {
-  try {
-    return sessionStorage.getItem(key) ?? undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function writeSession(key: string, value: string): void {
-  try {
-    sessionStorage.setItem(key, value);
-  } catch {
-    // A tab that cannot remember its own name simply rolls a new one next reload.
-  }
-}
 
 const log = new LogPanel();
 
 // The game server shares a host with the dev site but not a port — see GAME_PORT in the server.
 const gamePort = import.meta.env['VITE_GAME_PORT'] ?? '8787';
-const net = new Net(`ws://${location.hostname}:${gamePort}`, playerName());
+// Protocol 23: the socket no longer carries a name. Who you are is `login.ts`'s conversation —
+// which tab remembers which character moved there with it, sessionStorage semantics intact.
+const net = new Net(`ws://${location.hostname}:${gamePort}`);
+const login = new LoginGate(net);
 net.onStateChange = (state) => {
   log.setStatus(state === 'open' ? 'connected' : state);
   if (state === 'closed') log.write('error', 'Disconnected. Retrying…');
+  // Every fresh socket starts at the front door — resume token first, form if the tab has none.
+  if (state === 'open') login.onConnected();
 };
 
 const scene = new WorldScene(net, log);
+
+// **Two writers, one keyboard gate.** The scene must not read (or capture — gotcha 5a) keys while
+// the caret is in the log's prompt *or* while the login card is up, and either source alone
+// clearing the gate would re-arm the captures while the other still needs them off. Composed here
+// because main.ts is the only place that knows both exist.
+let logTyping = false;
+let gateUp = true; // the overlay is visible from the first paint
+const applyTyping = (): void => scene.setTyping(logTyping || gateUp);
+login.onVisibility = (visible) => {
+  gateUp = visible;
+  applyTyping();
+};
+applyTyping();
 
 // The combat channel's one destination — the scene routes it away from the log, so this is a
 // split, not a mirror: prose and speech on the left, violence on the right (the owner's rule).
@@ -113,8 +80,11 @@ scene.setArrivalCard(new ArrivalCard());
 log.onCommand = (text) => net.send({ t: 'command', text });
 // While the caret is in the prompt the game must not read the keyboard at all, or typing `west`
 // walks you west as well as sending the command. Phaser listens on the document and cannot tell the
-// difference by itself.
-log.onFocusChange = (focused) => scene.setTyping(focused);
+// difference by itself. Routed through the composed gate above, beside the login overlay's claim.
+log.onFocusChange = (focused) => {
+  logTyping = focused;
+  applyTyping();
+};
 // Restore whichever way the log was left **before** the resize hook is attached, and before the game
 // is constructed. Both orderings matter: the DOM has to settle first so Phaser measures the column it
 // is actually getting, and the hook must not fire against a scene that has no scale manager yet — a
