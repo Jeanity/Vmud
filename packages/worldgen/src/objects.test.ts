@@ -133,6 +133,20 @@ describe('one object record', () => {
     assert.equal(template.scroll, undefined);
   });
 
+  it('harvests a potion exactly as a scroll — the layout is the same, the field is not', () => {
+    // The khopis fixture rewritten as a potion: type 10, cure light twice at level 15 in the
+    // scroll positions (`do_quaff` reads value[0..3] as `do_recite` does, `actoth.c:4145`).
+    const potion = KHOPIS
+      .replace('5 18 3 0 15 0 101724433 8413185 125 534712316 256', '10 18 3 0 15 0 101724433 8413185 125 534712316 256')
+      .replace('9 5 5 0 0 589 46 45', '15 16 16 0 0 0 0 0');
+    const parsed = parseObjectRecord(420_000, potion.slice(potion.indexOf('\n') + 1));
+    assert.ok(parsed);
+    const template = toTemplate(parsed);
+    assert.ok(template);
+    assert.deepEqual(template.potion, { level: 15, spells: [16, 16] }, 'duplicates kept — two draughts of cure light in one vial');
+    assert.equal(template.scroll, undefined, 'a potion is not a scroll, whatever their values share');
+  });
+
   it("harvests a weapon's data proc — value[7] odds, value[6] level, value[5] packed spells", () => {
     // The khopis fixture with the forge-hammer family's proc grafted onto its value row: spells
     // 57/16/15 packed as 15,016,057, level 40, 1-in-28 — `weapon_proc`'s own fields (fight.c:7764).

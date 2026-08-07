@@ -159,6 +159,10 @@ export const COMMANDS = [
   // say, sit, sleep, sell, skills, stand and stop all branch elsewhere by their second letter — so
   // `sp` is the shortest thing that reaches this, and not one existing abbreviation moves.
   'spells',
+  // Owner's ask, 2026-08-07: potions. Nothing in the table starts with `q` but `junk`'s neighbour
+  // — nothing at all, in fact — so `q` alone is quaff, which is what a Diku player's fingers reach
+  // for mid-fight, spill risk and all.
+  'quaff',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -396,6 +400,11 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // `CMD_N` half. A scroll is an opener and a utility, not combat spam; reciting an attack scroll
   // *starts* the fight (`IS_AGG_CMD` lists recite), and then you are in one and cannot recite again.
   recite: { status: 'resting', posture: 'prone', inCombat: false },
+  // `CMD_Y(CMD_QUAFF, STAT_RESTING + POS_SITTING, ...)` — sitting up, and **allowed mid-fight**,
+  // which is the whole reason the spill chance exists: drinking under a sword is legal and risky,
+  // where reciting under one is simply refused. The asymmetry is the source's own and it reads
+  // right — tipping a vial down your throat is one motion; an incantation is a paragraph.
+  quaff: { status: 'resting', posture: 'sitting' },
 };
 
 /* -------------------------------------------------------------------------- */

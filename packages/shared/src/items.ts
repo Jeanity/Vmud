@@ -526,6 +526,14 @@ export interface ItemTemplate {
    */
   readonly scroll?: { readonly level: number; readonly spells: readonly number[] };
   /**
+   * What a potion holds — the scroll's own layout (`value[0]` level, `value[1..3]` raw spell
+   * numbers; `do_quaff` reads them exactly as `do_recite` does, `actoth.c:4145-4160`) with the
+   * drinking rules living in the server: everything casts on the drinker, areas are skipped
+   * ("unless the quaffer explodes"), and the numbers stay raw per the scroll rule. 662 potions
+   * carry one; 150 cast with the registry as it stands today.
+   */
+  readonly potion?: { readonly level: number; readonly spells: readonly number[] };
+  /**
    * What a weapon does on its own — the proc. Harvested from `value[5..7]` for the 210 weapons the
    * catalogue ships with the data path (`weapon_proc`, `fight.c:7764` — chance, cast level, packed
    * spell numbers kept raw per the scroll rule), or a `special` reference into `procs.ts`'s

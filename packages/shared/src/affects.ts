@@ -211,7 +211,7 @@ export interface AffectKind {
  * error rather than a silent gap. It is also the only way to have {@link AffectKind.id} typed as an
  * affect type at all — a table that derived its own key type from itself would reference itself.
  */
-export const AFFECT_TYPE_IDS = ['light', 'settling', 'second_wind', 'notch_physical', 'notch_mental', 'off_balance', 'casting', 'armor', 'bless'] as const;
+export const AFFECT_TYPE_IDS = ['light', 'settling', 'second_wind', 'notch_physical', 'notch_mental', 'off_balance', 'casting', 'armor', 'bless', 'potion_sated'] as const;
 
 export type AffectType = (typeof AFFECT_TYPE_IDS)[number];
 
@@ -341,6 +341,18 @@ export const AFFECT_TYPES: Readonly<Record<AffectType, AffectKind>> = {
     id: 'bless',
     name: 'blessed',
     wearOff: 'Your blessing fades.',
+  },
+  /**
+   * The potion cooldown — `TAG_POTION_TIMER` (`do_quaff`, `actoth.c:4109-4114`), three of the
+   * source's ticks between draughts, which is what keeps a bag of fifty cures from being an
+   * immortality button mid-fight. **Shown**, on `off_balance`'s argument: a refused quaff deserves
+   * a countdown rather than a sentence to remember. Saved, so reconnecting is not the faster way
+   * to drink twice.
+   */
+  potion_sated: {
+    id: 'potion_sated',
+    name: 'potion-sated',
+    wearOff: '&+cYou feel ready to try another potion.&N',
   },
 };
 

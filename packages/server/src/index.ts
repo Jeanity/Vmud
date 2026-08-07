@@ -40,6 +40,7 @@ import {
   type CombatAbilityId,
   type SkillId,
   MIN_ROUND_MS,
+  MS_PER_DURIS_HOUR,
   randomInt,
   rollDice,
   HP_DEAD_BELOW,
@@ -3601,6 +3602,83 @@ function doRecite(player: Player, rest: string): void {
 }
 
 /**
+ * `quaff <potion>` — the scroll's sibling, drunk. `do_quaff` (`actoth.c:3990-4164`), transcribed
+ * with its three rules that make potions a different thing from scrolls:
+ *
+ * - **Everything casts on the drinker** — a potion of burning hands burns *you*, which is the
+ *   source's own comedy and kept — and **areas are skipped**: *"We don't do area spells via potions
+ *   unless the quaffer explodes."*
+ * - **One draught per timer** (`TAG_POTION_TIMER`, three ticks): the cooldown is what keeps a bag
+ *   of fifty cures from being an immortality button. The refusal is the source's own sentence.
+ * - **Drinking under a sword risks the bottle**: quaffing is legal mid-fight (`CMD_Y`, where recite
+ *   is refused) at a flat 50% spill — the potion gone, nothing gained, the room watching. The
+ *   source sweetens the odds with dexterity, agility and luck; ours are Phase 21's ability scores,
+ *   dropped and named.
+ */
+function doQuaff(player: Player, rest: string): void {
+  const wanted = rest.trim();
+  if (!wanted) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Quaff what?' });
+    return;
+  }
+  const index = matchInventory(player.inventory, wanted, wordsFor);
+  if (index === -1) {
+    send(player.id, { t: 'log', channel: 'error', text: 'You do not have that item.' });
+    return;
+  }
+  const stack = player.inventory.stacks[index]!;
+  const template = templateOf(stack.item);
+  if (template?.type !== DURIS_ITEM.potion || !template.potion) {
+    send(player.id, { t: 'log', channel: 'error', text: 'You can only quaff potions.' });
+    return;
+  }
+  if (sim.affectsOf(player, 'potion_sated').length > 0) {
+    send(player.id, { t: 'log', channel: 'error', text: "&+cYou don't feel like another potion would do you any good yet.&N" });
+    return;
+  }
+
+  // The spill: mid-fight, half the time, the bottle is lost and nothing else happens — no lag, no
+  // timer, exactly the source's early return. Rolled before the vial leaves the bag so the two
+  // consume sites cannot drift.
+  if (player.fighting !== undefined && randomInt(combatRng, 0, 99) >= 50) {
+    const spilled = removeAt(player.inventory, index);
+    if (!spilled) return;
+    sim.setInventory(player, spilled.inventory);
+    send(player.id, { t: 'log', channel: 'combat', text: 'Whoops!  You spilled it!' });
+    actToRoom(player, 'combat', (who) => `${who} attempts to quaff ${stack.item.name}&N, but spills it instead!`);
+    send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+    rememberProgress(player);
+    return;
+  }
+
+  const drunk = removeAt(player.inventory, index);
+  if (!drunk) return;
+  sim.setInventory(player, drunk.inventory);
+  send(player.id, { t: 'log', channel: 'combat', text: `As you quaff ${stack.item.name}&N, the vial disappears in a bright &+Wflash of light!&N` });
+  actToRoom(player, 'combat', (who) => `${who} &+yquaffs&N ${stack.item.name}&N.`);
+  sim.addAffect(player, newAffect({ type: 'off_balance', durationMs: Math.round(ROUND_MS), flags: AffectFlag.NoSave }));
+  // Three of the source's ticks at the torch calibration — thirty seconds between draughts.
+  sim.addAffect(player, newAffect({ type: 'potion_sated', durationMs: 3 * MS_PER_DURIS_HOUR }));
+
+  let unknown = false;
+  for (const number of template.potion.spells) {
+    const spell = spellFromDurisNumber(number);
+    if (!spell) {
+      unknown = true;
+      continue;
+    }
+    if (spell.kind === 'area') continue; // The quaffer does not explode.
+    deliverSpell(player, spell, player, template.potion.level);
+    if (player.status === 'dead') return; // A nuke in a bottle can end the drinker; reap took over.
+  }
+  if (unknown) {
+    send(player.id, { t: 'log', channel: 'combat', text: '&+LYou feel a slight gathering of magic within you, but part of it fades.&N' });
+  }
+  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+  rememberProgress(player);
+}
+
+/**
  * One second of wind-up — the source's own `event_spellcast`, whose comment owns its shape: *"this is
  * simplistic part, which just checks for _most_ obvious stuff like char moving around etc. this is
  * called once / second."* The simplicity is the design: no hook in `relocate`, no hook in `bash` —
@@ -4143,7 +4221,10 @@ function fireWeaponProc(attacker: Actor, target: Actor, depth: number): void {
 
 /** The tail every completed strike shares: the declaration, the swing back, the syncs. */
 function settleStrike(caster: Actor, target: Actor, changed: readonly Actor[], death: Death | undefined): void {
-  if (caster.fighting === undefined && canBeAttacked(target)) engage(scheduler, caster, target);
+  // Never at yourself: a quaffed nuke (`do_quaff` casts everything on the drinker) damages the body
+  // but must not point the fight loop at it — an engagement with both ends on one actor is a state
+  // nothing downstream can read.
+  if (caster.fighting === undefined && target.id !== caster.id && canBeAttacked(target)) engage(scheduler, caster, target);
   resumeSwing(caster);
   for (const actor of changed) syncEntityState(actor);
   if (death) resolveDeath(death);
@@ -5308,6 +5389,8 @@ function runCommand(player: Player, line: string): void {
     case 'cast': return doCast(player, rest);
     // Phase 20 slice 4. The classless casting path — a scroll asks nothing of who you are.
     case 'recite': return doRecite(player, rest);
+    // The scroll's sibling, drunk — everything lands on the drinker, and mid-fight the bottle is a bet.
+    case 'quaff': return doQuaff(player, rest);
     // Never destroys on this pass: an unconfirmed junk arms the question and returns.
     case 'junk': return junkFromBag(player, rest, false);
     case 'wear': return wearFromBag(player, rest);

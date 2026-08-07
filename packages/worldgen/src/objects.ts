@@ -338,6 +338,10 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
     // `do_recite` reads (`actoth.c:4234`: `value[0]` as the cast level, `value[1..3]` as spells,
     // a slot `< 1` skipped). Numbers kept raw — the source's vocabulary, `spells.ts` translates.
     ...(raw.type === DURIS_ITEM.scroll ? { scroll: scrollFrom(raw.values) } : {}),
+    // And a potion is a scroll you drink: the identical value layout (`do_quaff`, `actoth.c:4145`),
+    // so the identical reader — only the field name and the drinking rules differ, and those are
+    // the server's.
+    ...(raw.type === DURIS_ITEM.potion ? { potion: scrollFrom(raw.values) } : {}),
     // Weapon procs, the data path — `weapon_proc` reads exactly these (`fight.c:7764-7858`):
     // `value[7]` the 1-in-N odds, `value[6]` the cast level, `value[5]` the packed spell numbers.
     // 210 weapons carry it. `value[4]`'s one-shot poison is dropped and named: no poison yet.

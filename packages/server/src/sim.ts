@@ -1584,6 +1584,11 @@ export class Simulation {
       case 'armor':
       case 'bless':
         return [];
+
+      // The potion cooldown is a pure timer whose lapsing is its meaning — the catalogue's wearOff
+      // line says so out loud. Sixth payment from the wall of cases.
+      case 'potion_sated':
+        return [];
     }
   }
 
