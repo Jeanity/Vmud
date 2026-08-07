@@ -65,6 +65,17 @@ export const BASE_REGEN: Readonly<Record<VitalPool, number>> = {
   move: 16,
 };
 
+/**
+ * The movement pool every character carries — **static, because the source's is** (owner's fatigue
+ * report, 2026-08-07, and the finding that answered it): Duris' pool is *vitality*, and
+ * `vitality_limit` (`limits.c:115-149`) computes it from the **racial base + an age curve
+ * (+10..+70) + the endurance epic** — `advance_level` never touches it, so a level curve here would
+ * be an invention wearing the source's clothes. 200 stands in for "racial base + adult age" until
+ * Phase 21's races carry real bases; the old 100 was the level-1 placeholder from before movement
+ * cost anything, and at Duris' own per-room rates it emptied in a minute of continuous walking.
+ */
+export const MAX_MOVE_POOL = 200;
+
 export type VitalPool = 'hp' | 'mana' | 'move';
 
 /**

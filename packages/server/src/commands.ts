@@ -155,6 +155,10 @@ export const COMMANDS = [
   // Phase 20 slice 4. `r`/`re` are rest, `rem` is remove and `resc` is rescue, all above, so `rec`
   // is the shortest thing that reaches this — Duris' own shortest form, for the same reason.
   'recite',
+  // Owner's ask, 2026-08-07, beside `skills` in spirit. Nothing above begins with `sp` — south,
+  // say, sit, sleep, sell, skills, stand and stop all branch elsewhere by their second letter — so
+  // `sp` is the shortest thing that reaches this, and not one existing abbreviation moves.
+  'spells',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -366,6 +370,8 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // to. Duris has no `skills` command to transcribe — proficiency is printed inside `practice` at a
   // guild — and inventing the row is the same call `affects` made for the same reason.
   skills: { status: 'dead', posture: 'prone' },
+  // The same row for the same reason: what magic exists is interface, not action.
+  spells: { status: 'dead', posture: 'prone' },
   // `CMD_Y(CMD_BASH, STAT_NORMAL + POS_STANDING, …)` and the same for kick — transcribed, and both halves
   // matter. **Standing**: you cannot kick from the floor, which is what makes a bash worth landing. And
   // **allowed in combat**, which is the whole point: these are things you do *during* a fight, and they are

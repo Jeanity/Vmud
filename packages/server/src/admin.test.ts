@@ -114,7 +114,7 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
   const calls: string[] = [];
   const heard: string[] = [];
   const scopes: AnnounceScope[] = [];
-  let worldSettings: WorldSettings = { pvp: false };
+  let worldSettings: WorldSettings = { pvp: false, movementCosts: true };
 
   // A three-entry catalogue rather than the real 16,421: these tests are about the router's search
   // and its shape, and a synthetic set is the only way to assert "two weapons, one of them
@@ -699,7 +699,7 @@ describe('the verbs', () => {
 
   it('reports the world switches, off by default', () => {
     const { api } = makeRig();
-    assert.deepEqual(api.route(req('GET', '/settings')).body, { settings: { pvp: false } });
+    assert.deepEqual(api.route(req('GET', '/settings')).body, { settings: { pvp: false, movementCosts: true } });
   });
 
   it('throws the PvP switch and tells the whole world it happened', () => {
@@ -710,11 +710,23 @@ describe('the verbs', () => {
 
     const response = quietly(() => api.route(req('PATCH', '/settings', { pvp: true })));
     assert.equal(response.status, 200);
-    assert.deepEqual((response.body as { settings: unknown }).settings, { pvp: true });
+    assert.deepEqual((response.body as { settings: unknown }).settings, { pvp: true, movementCosts: true });
     assert.equal((response.body as { changed: boolean }).changed, true);
     assert.equal(heard.length, 1);
     assert.match(heard[0]!, /now ON/);
     assert.deepEqual(scopes, [{ kind: 'world' }], 'a rule change is never scoped');
+  });
+
+  it('throws the movement switch and announces it, both ways', () => {
+    // The owner's event switch (2026-08-07). Announced like PvP and for the mirrored reason: one
+    // decides whether your neighbour can kill you, the other whether the ocean can.
+    const { api, heard } = makeRig();
+    const freed = quietly(() => api.route(req('PATCH', '/settings', { movementCosts: false })));
+    assert.equal(freed.status, 200);
+    assert.deepEqual((freed.body as { settings: unknown }).settings, { pvp: false, movementCosts: false });
+    assert.match(heard[0] ?? '', /FREE/);
+    quietly(() => api.route(req('PATCH', '/settings', { movementCosts: true })));
+    assert.match(heard[1] ?? '', /back ON/);
   });
 
   it('says nothing when the switch is already where you set it', () => {

@@ -166,9 +166,10 @@ describe('COMMAND_REQUIREMENTS', () => {
     // `equipment` joined 2026-08-07 with the inventory split, and it is the source's own row —
     // `CMD_Y(CMD_EQUIPMENT, STAT_SLEEPING + POS_PRONE)`, laxer than inventory's resting: checking what
     // you are wearing is interface too.
+    // `spells` joined 2026-08-07 on `skills`' own row and reasoning: what magic exists is interface.
     assert.deepEqual([...allowed].sort(), [
       'affects', 'buy', 'consent', 'disband', 'equipment', 'help', 'list', 'sell', 'skills', 'sleep',
-      'stop', 'value', 'wake', 'who',
+      'spells', 'stop', 'value', 'wake', 'who',
     ]);
   });
 

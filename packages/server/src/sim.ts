@@ -21,6 +21,7 @@ import {
   affectKind,
   canAffordStep,
   clampPool,
+  MAX_MOVE_POOL,
   encumberedMoveCost,
   hasType,
   learnedAt,
@@ -851,8 +852,8 @@ export class Simulation {
       maxHp,
       mana: 30,
       maxMana: 30,
-      move: 100,
-      maxMove: 100,
+      move: MAX_MOVE_POOL,
+      maxMove: MAX_MOVE_POOL,
       level: 1,
       experience: 0,
       // §8 gives nothing below level 6, so a fresh character genuinely starts at zero rather than
@@ -1718,6 +1719,10 @@ export class Simulation {
    * stamina for.
    */
   spendMove(actor: Actor, from: Sector, to: Sector): boolean {
+    // The operator's event switch: with costs off, every step is affordable and nothing is charged.
+    // Injected like the swim aid — whether costs are in force is a world rule, and this class holds
+    // no settings for the same reason it holds no catalogue.
+    if (!this.chargesMove()) return true;
     let cost = encumberedMoveCost(from, to, this.loadOf(actor));
     // **Phase 19 slice 5: deep water is priced, not gated** — the owner's ruling. A player without a
     // swim aid pays the dead drain's own surcharge on top of the terrain rate, falling with the swim
@@ -1749,6 +1754,13 @@ export class Simulation {
 
   setSwimAid(check: (actor: Actor) => boolean): void {
     this.swimAid = check;
+  }
+
+  /** Whether movement is being charged at all — the event switch, injected. Defaults on: free is the exception. */
+  private chargesMove: () => boolean = () => true;
+
+  setMoveCosts(check: () => boolean): void {
+    this.chargesMove = check;
   }
 
   /**
@@ -2085,6 +2097,7 @@ export class Simulation {
       // implying a mechanic. Phase 10's pursuit is what gives mobs somewhere to spend one.
       move: 0,
       maxMove: 0,
+      // (A player's pool is MAX_MOVE_POOL, set in `spawn` — see `vitals.ts` for why it is static.)
       level: template.level,
       // On its feet and awake. Nothing can knock it over yet — `update_pos`'s forced collapse waits for
       // hit points to move, which waits for combat.

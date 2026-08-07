@@ -3116,32 +3116,51 @@ export class AdminApi {
   }
 
   /**
-   * Throws an operator switch. Today that is PvP and nothing else.
+   * Throws an operator switch — PvP, and since the owner's event ask (2026-08-07), movement costs.
    *
-   * **The change is announced to the world**, and that is a rule rather than a courtesy: this switch
-   * decides whether the person next to you can kill you, and finding out by dying is not acceptable.
-   * The announcement goes out only when the value actually *changes*, so re-saving the panel does not
-   * spam a world that is already correct.
+   * **The change is announced to the world**, and that is a rule rather than a courtesy: one switch
+   * decides whether the person next to you can kill you, the other whether the ocean can drown you,
+   * and finding out by dying is not acceptable either way. The announcement goes out only when a
+   * value actually *changes*, so re-saving the panel does not spam a world that is already correct.
    */
   private patchSettings(body: unknown): AdminResponse {
-    const raw = (body ?? {}) as { pvp?: unknown };
-    if (typeof raw.pvp !== 'boolean') {
-      return { status: 400, body: { error: 'body must be {"pvp": true} or {"pvp": false}' } };
+    const raw = (body ?? {}) as { pvp?: unknown; movementCosts?: unknown };
+    if (raw.pvp === undefined && raw.movementCosts === undefined) {
+      return { status: 400, body: { error: 'body must set "pvp" and/or "movementCosts", each true or false' } };
+    }
+    for (const key of ['pvp', 'movementCosts'] as const) {
+      if (raw[key] !== undefined && typeof raw[key] !== 'boolean') {
+        return { status: 400, body: { error: `${key} must be true or false` } };
+      }
     }
     const before = this.deps.live.settings();
-    if (before.pvp === raw.pvp) {
+    const next: WorldSettings = {
+      pvp: typeof raw.pvp === 'boolean' ? raw.pvp : before.pvp,
+      movementCosts: typeof raw.movementCosts === 'boolean' ? raw.movementCosts : before.movementCosts,
+    };
+    if (next.pvp === before.pvp && next.movementCosts === before.movementCosts) {
       return { status: 200, body: { ok: true, settings: before, changed: false } };
     }
 
-    const next: WorldSettings = { ...before, pvp: raw.pvp };
     this.deps.live.setSettings(next);
-    const heard = this.deps.announce(
-      next.pvp
-        ? 'Player killing is now ON. Other players can attack you and loot your corpse.'
-        : 'Player killing is now OFF. Players can no longer attack each other.',
-      { kind: 'world' },
-    );
-    this.audit('settings', { pvp: next.pvp, heard });
+    let heard = 0;
+    if (next.pvp !== before.pvp) {
+      heard = this.deps.announce(
+        next.pvp
+          ? 'Player killing is now ON. Other players can attack you and loot your corpse.'
+          : 'Player killing is now OFF. Players can no longer attack each other.',
+        { kind: 'world' },
+      );
+    }
+    if (next.movementCosts !== before.movementCosts) {
+      heard = this.deps.announce(
+        next.movementCosts
+          ? 'Movement costs are back ON. Terrain tires you again, and deep water can drown you.'
+          : 'Movement is FREE for now — no terrain costs, no exhaustion, no drowning. Enjoy it while it lasts.',
+        { kind: 'world' },
+      );
+    }
+    this.audit('settings', { pvp: next.pvp, movementCosts: next.movementCosts, heard });
     return { status: 200, body: { ok: true, settings: next, changed: true, heard } };
   }
 

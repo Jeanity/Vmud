@@ -45,17 +45,33 @@ export interface WorldSettings {
    * hold in their head. Duris gates both off its own PvP state for the same reason.
    */
   readonly pvp: boolean;
+  /**
+   * Whether stepping into a room costs movement — the owner's event switch (2026-08-07): *"just in
+   * case I decide to remove the cost of movement during special events."*
+   *
+   * **One flag for the whole economy of exhaustion**, deliberately: the terrain rate, the load
+   * multiplier, the swim surcharge and the drowning drain are one system asked at four moments, and
+   * a world where walking is free but swimming still kills is a rule nobody can hold in their head —
+   * so throwing this off also suspends drowning, and yes, that means an event night's oceans are
+   * crossable for nothing. That is what an event is. The ferry rule resumes with the switch.
+   */
+  readonly movementCosts: boolean;
 }
 
-export const DEFAULT_SETTINGS: WorldSettings = { pvp: false };
+export const DEFAULT_SETTINGS: WorldSettings = { pvp: false, movementCosts: true };
 
 /** Reads the switches, falling back to the defaults for a missing or unreadable file. */
 export function loadSettings(file = SETTINGS_FILE): WorldSettings {
   try {
     const raw = JSON.parse(readFileSync(file, 'utf8')) as Partial<WorldSettings>;
-    // Only `true` turns it on. A hand-edited `"yes"` or `1` is not an authorisation to let players
-    // kill each other, and the safe reading of a malformed dangerous flag is off.
-    return { pvp: raw.pvp === true };
+    return {
+      // Only `true` turns it on. A hand-edited `"yes"` or `1` is not an authorisation to let players
+      // kill each other, and the safe reading of a malformed dangerous flag is off.
+      pvp: raw.pvp === true,
+      // The mirror rule, because the polarity mirrors: costs are the shipped mechanic, so only an
+      // explicit `false` suspends them — a malformed value must not quietly hand out a free world.
+      movementCosts: raw.movementCosts !== false,
+    };
   } catch {
     return DEFAULT_SETTINGS;
   }

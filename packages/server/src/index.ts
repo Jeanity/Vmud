@@ -47,6 +47,7 @@ import {
   ICE_STORM_MIN_CHANCE,
   MOB_CAST_CHANCE,
   SPELLS,
+  SPELL_IDS,
   THREAT_PER_HEAL,
   areaHitCount,
   rollEarthquake,
@@ -83,7 +84,6 @@ import {
   NOTCH_COOLDOWN_MS,
   rollNotch,
   SKILL_CATEGORIES,
-  SKILL_CEILING,
   SKILL_IDS,
   SKILLS,
   skillFloor,
@@ -391,6 +391,12 @@ sim.setSwimAid((actor) => {
   }
   return false;
 });
+
+// The event switch, injected the same way and read live — `settings` is reassigned when the panel
+// throws it, and this closure reads the variable, so no restart stands between the operator and a
+// free-movement evening. The owner's ask (2026-08-07): "just in case I decide to remove the cost of
+// movement during special events."
+sim.setMoveCosts(() => settings.movementCosts);
 
 for (const zone of world.allZones()) {
   const levels = world.levelsOf(zone.id);
@@ -1996,6 +2002,10 @@ const drowningFor = new Map<EntityId, number>();
  * swinging at anyone. A body the current is drowning keeps drowning until somebody gets it out.
  */
 function advanceDrowning(): void {
+  // The event switch suspends the whole economy of exhaustion, drowning included — free movement
+  // means the pool never empties, and a beat that could still kill off a stale zero would make the
+  // switch a lie for exactly the player it was thrown for. See `settings.ts`.
+  if (!settings.movementCosts) return;
   for (const player of sim.allPlayers()) {
     const room = sim.room(player.roomId);
     const treading =
@@ -5166,6 +5176,7 @@ function runCommand(player: Player, line: string): void {
     case 'gsay': return groupSay(player, rest);
     case 'disband': return disbandCommand(player);
     case 'skills': return listSkills(player);
+    case 'spells': return listSpells(player);
     // Phase 19 slice 3. One handler for both, because the difference between them is data — see
     // `COMBAT_ABILITIES`. `isCombatAbility` narrows the command name to an id rather than a cast.
     case 'bash':
@@ -5818,8 +5829,10 @@ function listSkills(player: Player): void {
   const rows = SKILL_IDS.map((id) => {
     const learned = learnedAt(player.skills.get(id), player.level, id);
     const ceiling = ceilingFor(id);
+    // The owner's own format (2026-08-07): "dodge 12/50" — where you are over where this skill tops
+    // out, in one glance. The notes keep saying *why* a number is what it is.
     const note = learned >= ceiling ? ' &+Y(mastered)&N' : learned <= floor ? " &+L(at your level's floor)&N" : '';
-    return `  ${SKILLS[id].name.padEnd(16)} ${String(learned).padStart(3)}%${note}`;
+    return `  ${SKILLS[id].name.padEnd(16)} ${String(learned).padStart(3)}/${ceiling}${note}`;
   });
   // The cooldown is said out loud when it is up, because a player whose skills stopped rising deserves
   // the reason rather than a theory.
@@ -5828,11 +5841,55 @@ function listSkills(player: Player): void {
     t: 'log',
     channel: 'system',
     text: [
-      `Your skills (the ceiling is ${SKILL_CEILING}%):`,
+      'Your skills (learned / ceiling):',
       ...rows,
       ...(held.length > 0
         ? [`&+LYou have learnt something ${held.join(' and ')} recently, and are learning more slowly.&N`]
         : []),
+    ].join('\n'),
+  });
+}
+
+/**
+ * `spells` — what magic you can call on, and honestly, from where. Owner's ask (2026-08-07):
+ * *"a /spells to list spells for casters with their current levels."*
+ *
+ * **Nobody *knows* a spell yet, and the list says so rather than pretending.** Casters are Phase
+ * 21's classes; until then the classless path is `recite`, so this prints the registry — every
+ * spell the world can currently produce, by circle, with what it does — plus the scrolls in your
+ * bag that can actually cast today, each with its stored level. When memorization lands, the
+ * known-spells half of this display grows the practice numbers the owner's ask describes, exactly
+ * as `skills` shows learned/ceiling.
+ */
+function listSpells(player: Player): void {
+  const byCircle = [...SPELL_IDS].sort((a, b) => SPELLS[a].circle - SPELLS[b].circle || SPELLS[a].name.localeCompare(SPELLS[b].name));
+  const rows = byCircle.map((id) => {
+    const spell = SPELLS[id];
+    const what = spell.kind === 'nuke' ? 'damage' : spell.kind === 'heal' ? 'healing' : spell.kind === 'buff' ? 'blessing' : 'the whole room';
+    return `  circle ${spell.circle}  ${spell.name.padEnd(16)} &+L(${what})&N`;
+  });
+
+  // The half that can act today: scrolls in the bag, each with the level its spells cast at.
+  const scrolls: string[] = [];
+  for (const stack of player.inventory.stacks) {
+    const template = templateOf(stack.item);
+    if (template?.type !== DURIS_ITEM.scroll || !template.scroll) continue;
+    const names = template.scroll.spells
+      .map((n) => spellFromDurisNumber(n)?.name ?? 'something this world does not know yet')
+      .join(', ');
+    scrolls.push(`  ${stack.item.name}&N — ${names} &+L(casts at level ${template.scroll.level})&N`);
+  }
+
+  send(player.id, {
+    t: 'log',
+    channel: 'system',
+    text: [
+      'Spells this world knows:',
+      ...rows,
+      '',
+      '&+LYou know none of them yourself — spellcasting classes arrive with classes. Until then,',
+      'a scroll casts for anyone: recite <scroll> [target].&N',
+      ...(scrolls.length > 0 ? ['Your scrolls:', ...scrolls] : ['&+LYou are carrying no scrolls.&N']),
     ].join('\n'),
   });
 }
@@ -7633,7 +7690,7 @@ const adminLive: LiveOps = {
     // Written in the same breath it is applied, so the two cannot get out of step. See `settings.ts`
     // for why a switch that reverts on restart is the failure mode worth designing against.
     saveSettings(settings);
-    console.log(`[settings] pvp=${settings.pvp}`);
+    console.log(`[settings] pvp=${settings.pvp} movementCosts=${settings.movementCosts}`);
   },
 };
 

@@ -22,8 +22,9 @@ describe('world settings', () => {
 
   it('survives a restart, which is the reason it is a file', () => {
     const file = tempFile();
-    saveSettings({ pvp: true }, file);
+    saveSettings({ pvp: true, movementCosts: false }, file);
     assert.equal(loadSettings(file).pvp, true);
+    assert.equal(loadSettings(file).movementCosts, false);
   });
 
   it('reads only a real `true` as on', () => {
@@ -34,6 +35,17 @@ describe('world settings', () => {
       assert.equal(loadSettings(tempFile(`{"pvp": ${junk}}`)).pvp, false, junk);
     }
     assert.equal(loadSettings(tempFile('{"pvp": true}')).pvp, true);
+  });
+
+  it('charges for movement unless the file says `false`, exactly — the mirrored polarity', () => {
+    // The mirror of the pvp rule, because the danger is mirrored: costs are the shipped mechanic,
+    // and a malformed value must not quietly hand out a free world.
+    assert.equal(DEFAULT_SETTINGS.movementCosts, true);
+    assert.equal(loadSettings(tempFile()).movementCosts, true, 'a missing file charges');
+    for (const junk of ['"false"', '0', '"off"', 'null', '"no"']) {
+      assert.equal(loadSettings(tempFile(`{"movementCosts": ${junk}}`)).movementCosts, true, junk);
+    }
+    assert.equal(loadSettings(tempFile('{"movementCosts": false}')).movementCosts, false);
   });
 
   it('shrugs at a corrupt file rather than refusing to boot', () => {
