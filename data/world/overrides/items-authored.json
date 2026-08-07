@@ -22,12 +22,20 @@
         "sides": 6,
         "bonus": 2
       },
+<<<<<<< HEAD
       "art": "weapon-sword-saber-saber",
+=======
+      "weaponClass": 5,
+>>>>>>> fff4603 (The scimitar slashes, the procs scale, and the shroud finds the back)
       "proc": {
         "t": "special",
         "id": "windsong"
       },
+<<<<<<< HEAD
       "at": "2026-08-07T09:37:53.109Z",
+=======
+      "at": "2026-08-07T10:00:06.580Z",
+>>>>>>> fff4603 (The scimitar slashes, the procs scale, and the shroud finds the back)
       "by": "panel"
     }
   }

@@ -19,20 +19,29 @@
  *
  * Name, keywords, armour class, damage dice and cost — the *content* of an item. Deliberately not:
  *
- * - **`slot`, `type`, `container`, `twoHanded`** — behaviour, derived from Duris' own wear bits and
- *   type constants. Editing those means editing what a thing *is*, and each carries rules this slice
+ * - **`type`, `container`, `twoHanded`** — behaviour, derived from Duris' own wear bits and type
+ *   constants. Editing those means editing what a thing *is*, and each carries rules this slice
  *   would have to re-validate (a container needs a capacity, a two-hander clears the off hand).
  *   Refusing them keeps this slice an item editor rather than half of a mechanics editor.
  * - **`stackLimit` and `uses`** — §3's rules, derived from the type. A hand-set stack limit on one
  *   arrow would make two arrows of the same vnum disagree about sharing a slot.
  * - **`vnum`** — the join key. `CLAUDE.md`: never renumber.
+ *
+ * **`slot` moved sides on the owner's ruling (2026-08-07)**: *"worn items we need to be able to
+ * select where it is worn"* — a shroud the harvest put `about` that should ride the back like a
+ * cloak. The old refusal reasoned that a slot is behaviour; the owner's case is that a slot is
+ * **where the artist meant it**, which is content wearing behaviour's clothes. It validates against
+ * `EQUIP_SLOTS` and nothing else, because unlike `container` it carries no dependent rules. And
+ * **`weaponClass` joins it the same day** for the same kind of reason (Windsong punching): the
+ * class decides the verb, the trained skill and the swing animation, and an authored weapon with no
+ * way to say what it is swings like a fist for ever.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { LPC_ART_BY_ID, isKnownArt, type Dice, type ItemTemplate } from '@mygame/shared';
+import { EQUIP_SLOTS, LPC_ART_BY_ID, isKnownArt, type Dice, type EquipSlot, type ItemTemplate } from '@mygame/shared';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -65,6 +74,17 @@ export interface ItemOverride {
    * use — which is why this row waited for that one.
    */
   readonly light?: { readonly radius: number; readonly durationMs?: number };
+  /**
+   * Where it is worn — the owner's shroud ruling (2026-08-07); see the header for why this crossed
+   * the behaviour line. Only where the body has such a place; `EQUIP_SLOTS` is the whole law.
+   */
+  readonly slot?: EquipSlot;
+  /**
+   * Duris' 1–20 weapon ladder — the verb, the trained skill and the swing animation in one number.
+   * Authored because Windsong punched: the harvest carries it for its own weapons, and an authored
+   * or corrected blade needs the same single fact said once.
+   */
+  readonly weaponClass?: number;
   /** When it was last written, so the panel can say how stale an item's authoring is. */
   readonly at?: string;
   /** Who or what wrote it — the same provenance rule the room overlay records. */
@@ -135,6 +155,12 @@ export function loadItemOverrides(file = ITEMS_FILE): ItemOverrides {
       // behind it is a magenta box on somebody's body three systems away from this file.
       ...(typeof patch.art === 'string' && isKnownArt(patch.art, LPC_ART_BY_ID) ? { art: patch.art } : {}),
       ...(readAuthoredLight(patch.light) ? { light: readAuthoredLight(patch.light)! } : {}),
+      ...(typeof patch.slot === 'string' && (EQUIP_SLOTS as readonly string[]).includes(patch.slot)
+        ? { slot: patch.slot as EquipSlot }
+        : {}),
+      ...(typeof patch.weaponClass === 'number' && Number.isInteger(patch.weaponClass) && patch.weaponClass >= 1 && patch.weaponClass <= 20
+        ? { weaponClass: patch.weaponClass }
+        : {}),
       ...(typeof patch.at === 'string' ? { at: patch.at } : {}),
       ...(typeof patch.by === 'string' ? { by: patch.by } : {}),
     };
@@ -168,6 +194,8 @@ export function applyItemOverride(template: ItemTemplate, override: ItemOverride
     ...(override.cost !== undefined ? { cost: override.cost } : {}),
     ...(override.art !== undefined ? { art: override.art } : {}),
     ...(override.light !== undefined ? { light: override.light } : {}),
+    ...(override.slot !== undefined ? { slot: override.slot } : {}),
+    ...(override.weaponClass !== undefined ? { weaponClass: override.weaponClass } : {}),
   };
 }
 

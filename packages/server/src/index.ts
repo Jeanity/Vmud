@@ -1811,7 +1811,11 @@ function attackTypeOf(actor: Actor): AttackType {
   // `equipped` lives on `Player` and `Mob` rather than on `Actor`, so the narrowing is the price of the
   // base type staying small. Every actor is one or the other; a corpse is not an actor.
   const weapon = isPlayer(actor) || isMob(actor) ? actor.equipped.mainHand : undefined;
-  if (weapon) return attackTypeForWeapon(weapon.weaponClass);
+  // Instance first, template as the heal: an instance minted before its template knew its class —
+  // Brynn93's own Windsong, looted the hour before the class existed — reads the catalogue's answer
+  // instead of punching for ever. The copy-down at `instantiate` remains the rule; this is the
+  // back-fill for saves that predate a field.
+  if (weapon) return attackTypeForWeapon(weapon.weaponClass ?? templateOf(weapon)?.weaponClass);
   if (isMob(actor)) return attackTypeForRace(mobTemplates.get(actor.vnum)?.race);
   return attackTypeForWeapon(undefined);
 }
@@ -4086,7 +4090,11 @@ function fireWeaponProc(attacker: Actor, target: Actor, depth: number): void {
   if (isPlayer(attacker)) send(attacker.id, { t: 'log', channel: 'combat', text: special.self.replace('$p', weaponName) });
   actAround(attacker, 'combat', (who) => special.room.replace('$n', who).replace('$p', weaponName));
 
-  const dice = templateOf(weapon!)?.damage ?? attacker.combat.damage;
+  // **The wielder's whole arm, not the bare dice** — owner's report (2026-08-07): proc blows read
+  // 6–11 while regular swings read 30-something, because the first cut rolled the weapon's own dice
+  // alone. `combat.damage` is the folded profile every ordinary swing uses (weapon + damage bonus +
+  // damroll), so the blade taking over still swings like the one holding it.
+  const dice = attacker.combat.damage;
   const blows = rollProcBlows(combatRng, special);
   const changed: Actor[] = [];
   let death: Death | undefined;
@@ -5550,6 +5558,10 @@ function getFromCorpse(player: Player, wanted: string, corpse: Corpse): void {
   faceToward(player, corpse.x, corpse.y);
 
   const word = wanted.trim().toLowerCase();
+  // `get all corpse` — the owner's ask for the players that like to type (2026-08-07), and it is
+  // Diku's own idiom. It IS `loot`, so it goes through `loot`'s whole path rather than a second
+  // emptying loop that would drift from it.
+  if (word === 'all') return searchCorpse(player, corpse);
   // Matched on the item's own keywords, the rule `get` off the floor and out of a container both use, so
   // `get axe corpse` works on "a chipped hand axe" without anybody typing the adjectives.
   const at = corpse.contents.findIndex((item) => item.id === word || wordsFor(item).includes(word));
@@ -5785,7 +5797,14 @@ function refitCombat(player: Player): void {
   // `skills.ts` for why that number is a division of `getChartoHitSkillMod` rather than a choice. Folded
   // here rather than read at swing time because this is already the one seam every kit change passes
   // through, and a notch calls it too: the six callers become seven and the fight loop learns nothing.
-  const skill = weaponSkillFor(player.equipped.mainHand);
+  // The same instance-then-template heal `attackTypeOf` performs, for the same saves: a weapon
+  // minted before its template knew its class still trains the right skill.
+  const mainHand = player.equipped.mainHand;
+  const skill = weaponSkillFor(
+    mainHand && mainHand.weaponClass === undefined && templateOf(mainHand)?.weaponClass !== undefined
+      ? { weaponClass: templateOf(mainHand)!.weaponClass!, ...(mainHand.twoHanded ? { twoHanded: true as const } : {}) }
+      : mainHand,
+  );
   const skillBonus = skill === undefined ? 0 : toHitFrom(learnedAt(player.skills.get(skill), player.level, skill));
   // **Phase 20 slice 5: what magic is doing for you, beside what the kit does.** `sumApply` over the
   // affect list — armor's node arrives already compressed through `armourBonusFrom`, so it adds in
@@ -6782,7 +6801,12 @@ function equipFromBag(player: Player, rest: string, mode: 'wear' | 'wield'): voi
   // the bulk of the harvested catalogue and none of them go anywhere on a body. Refusing by name is the
   // only honest answer — the alternative is inventing a slot, and any resting value picked would make
   // every key in the world wearable somewhere.
-  const slot = item.slot;
+  //
+  // **Template first here, instance as the fallback** — the reverse of the weapon-class heal, and
+  // deliberately: a slot edit (the owner's shroud, `about` → `back`) is a statement about where the
+  // thing *belongs*, and the next wear should honour it even on an instance minted under the old
+  // answer. The instance copy still matters for anything whose template has gone.
+  const slot = templateOf(item)?.slot ?? item.slot;
   if (!slot) {
     send(player.id, { t: 'log', channel: 'error', text: `You cannot ${mode} ${item.name}.` });
     return;

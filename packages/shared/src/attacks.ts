@@ -113,7 +113,7 @@ export const SWING_ANIMATION: Readonly<Record<AttackType, 'slash' | 'thrust'>> =
 };
 
 /** Duris' weapon classes, `objmisc.h:362`. The same ladder `skills.ts` reads, named again locally. */
-const WEAPON_CLASS = {
+export const WEAPON_CLASS = {
   axe: 1,
   dagger: 2,
   flail: 3,
@@ -135,6 +135,22 @@ const WEAPON_CLASS = {
   horn: 19,
   numchucks: 20,
 } as const;
+
+/**
+ * The ladder as a picker reads it — owner's ask (2026-08-07, on finding Windsong *punching*):
+ * *"we need to set attack type to slash, bludgeon etc with a dropdown."* The dropdown picks a
+ * **class**, not a verb, because the class decides three things at once — the verb
+ * ({@link attackTypeForWeapon}), the skill a swing trains (`weaponSkillFor`), and which animation
+ * plays (`SWING_ANIMATION`) — and letting an author pick a verb that disagreed with the trained
+ * skill would be two vocabularies for one fact. No scimitar in Duris' twenty: a scimitar is the
+ * longsword family, which is exactly the row Windsong wears now.
+ */
+export const WEAPON_CLASS_CHOICES: readonly { readonly value: number; readonly label: string }[] = Object.entries(
+  WEAPON_CLASS,
+).map(([name, value]) => ({
+  value,
+  label: `${name.replace(/([A-Z])/g, ' $1').toLowerCase()} — ${ATTACK_VERBS[attackTypeForWeapon(value)].third}`,
+}));
 
 /**
  * What a weapon's blow is called — `get_weapon_msg`, transcribed.

@@ -1083,9 +1083,18 @@ describe('the item catalogue', () => {
 describe('authoring an item — A6', () => {
   it('refuses behaviour fields by name, with the reason', () => {
     const { api } = makeRig();
-    const refused = api.route(req('PATCH', '/items/100', { slot: 'head' }));
+    // `slot` crossed to the authorable side on the owner's shroud ruling (2026-08-07); `type` is
+    // still behaviour and still says so.
+    const refused = api.route(req('PATCH', '/items/100', { type: 9 }));
     assert.equal(refused.status, 400);
     assert.match(String((refused.body as { error: string }).error), /behaviour/);
+    const moved = quietly(() => api.route(req('PATCH', '/items/100', { slot: 'back' })));
+    assert.equal(moved.status, 200);
+    assert.equal((moved.body as { item: { slot?: string } }).item.slot, 'back');
+    // And a weapon's class is authorable since Windsong punched: the verb, skill and animation in one.
+    const classed = quietly(() => api.route(req('PATCH', '/items/100', { weaponClass: 5 })));
+    assert.equal(classed.status, 200);
+    assert.equal((classed.body as { item: { weaponClass?: number } }).item.weaponClass, 5);
   });
 
   it('lands an edit on the live catalogue and marks the row edited', () => {

@@ -25,7 +25,7 @@
  * first reached a character sheet and printed their codes verbatim.
  */
 
-import { CRAFTSMANSHIP_NAMES, parseColour } from '@mygame/shared';
+import { CRAFTSMANSHIP_NAMES, WEAPON_CLASS_CHOICES, parseColour } from '@mygame/shared';
 
 import { call } from '../api.ts';
 import { artPicker, artThumb } from '../artpicker.ts';
@@ -80,6 +80,8 @@ interface ItemBody {
     readonly art?: string;
     /** A6c: what it is worth as a light, radius in tiles and the burn in milliseconds. */
     readonly light?: { readonly radius: number; readonly durationMs?: number };
+    /** Duris' 1–20 ladder — the verb, the trained skill and the swing animation in one number. */
+    readonly weaponClass?: number;
   };
   readonly authored: Record<string, unknown> | null;
   /** Present when there is no harvest under this item: a Delete rather than a Restore. */
@@ -291,18 +293,35 @@ export const itemsSection = {
       // on the item's own slot, so editing boots shows boots.
       const art = artPicker({ value: item.art, slot: item.slot, vnum });
 
-      // **Only a created item gets these.** On a harvested one `slot`, `type` and `size` come from the
-      // source's own bits and the server refuses to author them — offering boxes the save would reject
-      // is worse than not offering them.
+      // **Only a created item gets type and size** — a harvested one's are the source's own bits.
+      // **`slot` stopped being one of them on the owner's ruling** (2026-08-07, the shroud that
+      // should ride the back like a cloak): where a thing is worn is authorable on every item, and
+      // on a harvested one the first option clears back to the harvest's own wear bits.
       const slot = el('select', {}) as HTMLSelectElement;
       const type = el('select', {}) as HTMLSelectElement;
       const size = el('input', { type: 'number', value: String(item.size), min: '1', max: '10' }) as HTMLInputElement;
+      // Both selects show the item's EFFECTIVE value and diff against it on save — the same rule
+      // every text box here keeps, so re-choosing what is already true is "nothing changed". The
+      // blank option is the way back: carried-only on a created item, the harvest's own answer on a
+      // harvested one (a `null` patch clears the override).
+      slot.append(el('option', { value: '' }, madeHere ? 'carried only' : "harvest's own"));
+      for (const name of WEARABLE_SLOTS) slot.append(el('option', { value: name }, name));
+      slot.value = item.slot ?? '';
       if (madeHere) {
-        slot.append(el('option', { value: '' }, 'carried only'));
-        for (const name of WEARABLE_SLOTS) slot.append(el('option', { value: name }, name));
-        slot.value = item.slot ?? '';
         for (const [value, label] of CREATABLE_TYPES) type.append(el('option', { value: String(value) }, label));
         type.value = String(item.type);
+      }
+
+      // Windsong's lesson: the class is the verb, the trained skill and the swing animation in one
+      // number, and a weapon without one punches. Offered on every weapon, harvested or made.
+      const weaponClass = el('select', {}) as HTMLSelectElement;
+      const isWeapon = item.type === 5;
+      if (isWeapon) {
+        weaponClass.append(el('option', { value: '' }, madeHere ? 'none — punches' : "harvest's own"));
+        for (const choice of WEAPON_CLASS_CHOICES) {
+          weaponClass.append(el('option', { value: String(choice.value) }, choice.label));
+        }
+        weaponClass.value = item.weaponClass !== undefined ? String(item.weaponClass) : '';
       }
 
       const save = el('button', {}, 'Save') as HTMLButtonElement;
@@ -353,9 +372,12 @@ export const itemsSection = {
         // chooses with the None button rather than a box they blank.
         if (art.value() !== item.art) patch.art = art.value() ?? null;
 
-        // The whole-record fields, and only where they exist to edit.
+        // The slot, on every item since the shroud ruling; type and size stay whole-record fields.
+        if ((slot.value || undefined) !== item.slot) patch.slot = slot.value || null;
+        if (isWeapon && (weaponClass.value || undefined) !== (item.weaponClass === undefined ? undefined : String(item.weaponClass))) {
+          patch.weaponClass = weaponClass.value ? Number(weaponClass.value) : null;
+        }
         if (madeHere) {
-          if ((slot.value || undefined) !== item.slot) patch.slot = slot.value || null;
           if (Number(type.value) !== item.type) patch.type = Number(type.value);
           if (size.value.trim() && Number(size.value) !== item.size) patch.size = Number(size.value);
         }
@@ -467,10 +489,15 @@ export const itemsSection = {
           el('label', {}, 'damage'), dCount, el('span', { class: 'muted' }, 'd'), dSides, el('span', { class: 'muted' }, '+'), dBonus,
           el('label', {}, 'cost'), cost,
         ),
-        // Only a created item can say what it *is*; a harvested one's row is the source's own bits.
-        ...(madeHere
-          ? [el('div', { class: 'row' }, el('label', {}, 'type'), type, el('label', {}, 'slot'), slot, el('label', {}, 'size'), size)]
-          : []),
+        // Only a created item can say what it *is*; the slot joined the every-item rows on the
+        // owner's shroud ruling, and a weapon's class beside it on Windsong's punch.
+        el(
+          'div',
+          { class: 'row' },
+          el('label', {}, 'worn'), slot,
+          ...(isWeapon ? [el('label', {}, 'swings as'), weaponClass] : []),
+          ...(madeHere ? [el('label', {}, 'type'), type, el('label', {}, 'size'), size] : []),
+        ),
         el(
           'div',
           { class: 'row' },
@@ -531,6 +558,13 @@ export const itemsSection = {
     const newDCount = el('input', { type: 'number', placeholder: '—' }) as HTMLInputElement;
     const newDSides = el('input', { type: 'number', placeholder: '—' }) as HTMLInputElement;
     const newDBonus = el('input', { type: 'number', placeholder: '0' }) as HTMLInputElement;
+    // Windsong punched because nothing here asked. One dropdown, the ladder with its verb beside
+    // each rung, offered whenever the type is weapon.
+    const newWeaponClass = el('select', {}) as HTMLSelectElement;
+    newWeaponClass.append(el('option', { value: '' }, 'pick how it swings'));
+    for (const choice of WEAPON_CLASS_CHOICES) {
+      newWeaponClass.append(el('option', { value: String(choice.value) }, choice.label));
+    }
     // A7c. `draftAuthoredItem` has accepted `art` since A7b and no form ever offered it, so an item
     // made here could only be given a picture by creating it, finding it again and editing it.
     const newArt = artPicker({ value: undefined, slot: undefined });
@@ -554,6 +588,7 @@ export const itemsSection = {
         ...(newDCount.value.trim() || newDSides.value.trim()
           ? { damage: { count: Number(newDCount.value), sides: Number(newDSides.value), bonus: Number(newDBonus.value || 0) } }
           : {}),
+        ...(Number(newType.value) === 5 && newWeaponClass.value ? { weaponClass: Number(newWeaponClass.value) } : {}),
       };
       void (async () => {
         const made = await call<{ ok: boolean; vnum: number }>('POST', '/items', draft);
@@ -594,6 +629,12 @@ export const itemsSection = {
         el('label', {}, 'AC'), newAc,
         el('label', {}, 'damage'), newDCount, el('span', { class: 'muted' }, 'd'), newDSides, el('span', { class: 'muted' }, '+'), newDBonus,
         el('label', {}, 'cost'), newCost,
+      ),
+      el(
+        'div',
+        { class: 'row' },
+        el('label', {}, 'swings as'), newWeaponClass,
+        el('span', { class: 'muted' }, 'weapons only — without one it punches'),
       ),
       el('div', { class: 'row' }, el('label', {}, 'art'), newArt.node),
       el('div', { class: 'row' }, create, newFlash),

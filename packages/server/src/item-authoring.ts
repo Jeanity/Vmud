@@ -41,6 +41,7 @@ import { fileURLToPath } from 'node:url';
 import {
   AUTHORED_VNUM_BASE,
   CONTAINER_ACCEPTS,
+  DURIS_ITEM,
   DURIS_ITEM_TYPES,
   EQUIP_SLOTS,
   LPC_ART_BY_ID,
@@ -104,6 +105,7 @@ export interface ItemDraft {
   readonly slot?: unknown;
   readonly ac?: unknown;
   readonly damage?: unknown;
+  readonly weaponClass?: unknown;
   readonly twoHanded?: unknown;
   readonly hitroll?: unknown;
   readonly damroll?: unknown;
@@ -204,6 +206,19 @@ export function draftAuthoredItem(vnum: number, draft: ItemDraft): { item: ItemT
     if (!damage) return { error: 'damage must be whole dice — a count, sides, and a bonus' };
   }
 
+  // Windsong's lesson (owner, 2026-08-07): an authored weapon with no class **punches** — the class
+  // is the verb, the trained skill and the swing animation in one number. A malformed value or one
+  // on a non-weapon is refused; an *absent* one is tolerated, because this validator is also the
+  // disk reader (two doors, one shape), and refusing absence would have unmade every weapon drafted
+  // before the field existed the moment the server restarted. The panel's dropdown is what makes
+  // absence hard to produce from now on.
+  let weaponClass: number | undefined;
+  if (draft.weaponClass !== undefined && draft.weaponClass !== null) {
+    weaponClass = readInt(draft.weaponClass, 1, 20);
+    if (weaponClass === undefined) return { error: "weaponClass must be 1-20 — Duris' own ladder" };
+    if (type !== DURIS_ITEM.weapon) return { error: 'only a weapon (type 5) carries a weapon class' };
+  }
+
   const hitroll = draft.hitroll === undefined || draft.hitroll === null ? undefined : readInt(draft.hitroll, -1000, 1000);
   if (draft.hitroll !== undefined && draft.hitroll !== null && hitroll === undefined) {
     return { error: 'hitroll must be a whole number' };
@@ -268,6 +283,7 @@ export function draftAuthoredItem(vnum: number, draft: ItemDraft): { item: ItemT
       stackLimit: stackLimitFor(type),
       ...(slot ? { slot } : {}),
       ...(damage ? { damage } : {}),
+      ...(weaponClass !== undefined ? { weaponClass } : {}),
       ...(draft.twoHanded === true ? { twoHanded: true as const } : {}),
       ...(hitroll ? { hitroll } : {}),
       ...(damroll ? { damroll } : {}),

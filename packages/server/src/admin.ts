@@ -503,7 +503,7 @@ const ROOM_PATCH_KEYS = new Set(['name', 'description', 'sector', 'flags', 'by',
  */
 // A7b adds `art`. It sits with the content fields rather than the refused behaviour ones because
 // choosing a sword's picture changes nothing about what the sword does.
-const ITEM_PATCH_KEYS = new Set(['name', 'keywords', 'ac', 'damage', 'cost', 'art', 'light', 'by']);
+const ITEM_PATCH_KEYS = new Set(['name', 'keywords', 'ac', 'damage', 'cost', 'art', 'light', 'slot', 'weaponClass', 'by']);
 
 /**
  * A9. What may be authored on a mob — and `loot` is **not** in it, deliberately.
@@ -1110,8 +1110,10 @@ export class AdminApi {
    *
    * The same whole-or-nothing shape as {@link authorRoom}: every field is validated before anything is
    * applied, `null` clears a field back to the harvest, and an unknown key is refused **with the
-   * reason** — `slot` and `type` are behaviour, not content, and the message says so rather than
-   * leaving an operator to wonder which spelling would have worked.
+   * reason** — `type` is behaviour, not content, and the message says so rather than leaving an
+   * operator to wonder which spelling would have worked. `slot` and `weaponClass` crossed to the
+   * authorable side on the owner's rulings (2026-08-07): the shroud that belongs on the back, and
+   * the scimitar that punched.
    */
   private authorItem(slug: string, body: unknown): AdminResponse {
     const vnum = Number(slug);
@@ -1138,7 +1140,7 @@ export class AdminApi {
           body: {
             error:
               `"${key}" is not authorable — one of: ${[...ITEM_PATCH_KEYS].join(', ')}. ` +
-              `An item's slot, type, container rule and stacking are behaviour derived from the ` +
+              `An item's type, container rule and stacking are behaviour derived from the ` +
               `source's own bits, not content.`,
           },
         };
@@ -1156,6 +1158,8 @@ export class AdminApi {
       cost?: number;
       art?: string;
       light?: { readonly radius: number; readonly durationMs?: number };
+      slot?: EquipSlot;
+      weaponClass?: number;
       by?: string;
     } = {};
     const cleared: string[] = [];
@@ -1243,6 +1247,27 @@ export class AdminApi {
         }
         next.light = light;
       }
+    }
+    if (patch.slot !== undefined) {
+      // The owner's shroud ruling (2026-08-07): where a thing is worn is authorable. Null restores
+      // the harvest's own wear bits.
+      if (patch.slot === null || patch.slot === '') cleared.push('slot');
+      else if (typeof patch.slot !== 'string' || !(EQUIP_SLOTS as readonly string[]).includes(patch.slot)) {
+        return { status: 400, body: { error: `no such slot: ${String(patch.slot)} — one of: ${EQUIP_SLOTS.join(', ')}` } };
+      } else next.slot = patch.slot as EquipSlot;
+    }
+    if (patch.weaponClass !== undefined) {
+      // Windsong's own lesson: the class is the verb, the trained skill and the swing animation in
+      // one number, and a weapon without one punches.
+      if (patch.weaponClass === null) cleared.push('weaponClass');
+      else if (
+        typeof patch.weaponClass !== 'number' ||
+        !Number.isInteger(patch.weaponClass) ||
+        patch.weaponClass < 1 ||
+        patch.weaponClass > 20
+      ) {
+        return { status: 400, body: { error: 'weaponClass must be an integer from 1 to 20 (Duris’ own ladder), or null' } };
+      } else next.weaponClass = patch.weaponClass;
     }
     if (patch.by !== undefined) {
       if (patch.by === null) cleared.push('by');
@@ -3292,6 +3317,9 @@ function itemRow(template: ItemTemplate): Record<string, unknown> {
     cost: template.cost,
     // Only when they mean something, so a row of nulls does not imply a sword has a capacity of zero.
     ...(template.damage ? { damage: `${template.damage.count}d${template.damage.sides}` } : {}),
+    // Windsong's field: which ladder rung it swings as, so the editor can show it and a save's
+    // response can prove it took.
+    ...(template.weaponClass === undefined ? {} : { weaponClass: template.weaponClass }),
     ...(template.twoHanded ? { twoHanded: true } : {}),
     ...(template.stackLimit > 1 ? { stackLimit: template.stackLimit } : {}),
     ...(template.uses === undefined ? {} : { uses: template.uses }),
