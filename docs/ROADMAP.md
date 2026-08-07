@@ -1238,11 +1238,22 @@ ceiling), how a 0–100 percentage meets our d20 (`floor(learned / 10)`, derived
 formula (`level × 1.75`, not the `level << 1` our reference quotes), and a five-slice build order whose
 first slice cannot break anything.
 
-#### Phase 20 — Spells
+#### Phase 20 — Spells — **design note written 2026-08-07**
 
 Cast time as a self-rescheduling event on Phase 11's scheduler, environmental interruption, two
 independent resistance gates, area targeting with crowd thinning.
 **Seen when.** You cast something with a visible wind-up that can be interrupted.
+
+**[DESIGN-spells.md](DESIGN-spells.md) is the thing to read first** — six readers over the magic
+source, and the findings bend the phase: memorization beat mana in the shipped fork and both wait
+for Phase 21's classes (**scrolls' classless `recite` path and mob casters carry Phase 20**);
+damage does *not* interrupt casting (knockdown, forced exits and stun do); fireball is
+single-target and the real area spells thin **players only** — this row's "crowd thinning" was the
+dead algorithm's name; and the one `scheduler.advance()` call sits inside `advanceCombat`
+discarding every non-swing event, which makes a no-behaviour-change dispatch restructure the
+phase's mandatory first commit. Two stale promises corrected by the note: the `'casting'` outcome
+was never reserved on the wire (only `'absorbed'`/`'resisted'` were), and corpse decay does not in
+fact run on the event scheduler.
 
 #### Phase 21 — Classes, races, quests, channels
 
