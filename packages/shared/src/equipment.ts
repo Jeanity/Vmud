@@ -80,6 +80,31 @@ export const EQUIP_SLOTS = [
 
 export type EquipSlot = (typeof EQUIP_SLOTS)[number];
 
+/**
+ * The slots that come in pairs, first name to second — **a ring goes on any finger** (owner's
+ * design, 2026-08-07: *"picks the first free slot and wears it there"*, the paired-slot cousin of
+ * dual-wieldable weapons). An item's data names only the pair's first slot; when that one is taken
+ * and its twin is bare, the twin is where the item goes, and displacement begins only when both
+ * are full — which is what wearing two rings has always meant. Ears and wrists are the same shape:
+ * nobody authors an earring for the *left* ear specifically.
+ */
+export const PAIRED_SLOTS: Readonly<Partial<Record<EquipSlot, EquipSlot>>> = {
+  ring1: 'ring2',
+  ear1: 'ear2',
+  wrist1: 'wrist2',
+  neck: 'neck2',
+};
+
+/**
+ * Where a wear actually lands: the named slot, unless it is the first of a pair that is already
+ * taken while its twin sits bare — then the twin. Displacement is downstream's business and starts
+ * only when this returns an occupied slot, which for a pair means both are full.
+ */
+export function resolveWearSlot(named: EquipSlot, equipped: Equipped): EquipSlot {
+  const twin = PAIRED_SLOTS[named];
+  return twin && equipped[named] && !equipped[twin] ? twin : named;
+}
+
 export interface Item {
   /** Stable id, so a stored kit survives a rename of the display name. */
   readonly id: string;

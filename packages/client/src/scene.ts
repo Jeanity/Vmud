@@ -1377,6 +1377,19 @@ export class WorldScene extends Phaser.Scene {
       button.setAttribute('aria-expanded', open ? 'true' : 'false');
       if (caret) caret.textContent = open ? '▾' : '▸';
     });
+
+    // The worn drawer, the same gesture — owner's call (2026-08-07) after the doll grid pushed the
+    // combat feed below the fold: gear is reference between fights, so it folds and the fight rises.
+    const wornButton = document.getElementById('worn-toggle');
+    const wornBody = document.getElementById('worn-body');
+    const wornCaret = document.getElementById('worn-caret');
+    if (wornButton && wornBody) {
+      wornButton.addEventListener('click', () => {
+        const open = wornBody.classList.toggle('open');
+        wornButton.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (wornCaret) wornCaret.textContent = open ? '▾' : '▸';
+      });
+    }
   }
 
   /**

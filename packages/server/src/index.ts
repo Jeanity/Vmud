@@ -164,6 +164,7 @@ import {
   type EquipSlot,
   type Item,
   type Stack,
+  resolveWearSlot,
   meets,
   summariseAffects,
   parseDirection,
@@ -7057,15 +7058,21 @@ function equipFromBag(player: Player, rest: string, mode: 'wear' | 'wield'): voi
   // deliberately: a slot edit (the owner's shroud, `about` → `back`) is a statement about where the
   // thing *belongs*, and the next wear should honour it even on an instance minted under the old
   // answer. The instance copy still matters for anything whose template has gone.
-  const slot = templateOf(item)?.slot ?? item.slot;
-  if (!slot) {
+  const named = templateOf(item)?.slot ?? item.slot;
+  if (!named) {
     send(player.id, { t: 'log', channel: 'error', text: `You cannot ${mode} ${item.name}.` });
     return;
   }
-  if (mode === 'wield' && slot !== 'mainHand') {
+  if (mode === 'wield' && named !== 'mainHand') {
     send(player.id, { t: 'log', channel: 'error', text: `${capitalise(item.name)} is not a weapon. Try wearing it.` });
     return;
   }
+
+  // **A ring goes on any finger** — owner's design, 2026-08-07: *"picks the first free slot and
+  // wears it there"*. Item data only ever names a pair's first slot, so before this a second ring
+  // displaced the first while the other hand stayed bare. Ears, wrists and neckwear are the same
+  // shape — `resolveWearSlot` holds the rule and its tests.
+  const slot = resolveWearSlot(named, player.equipped);
 
   // Every slot this equip empties. Normally one; a two-hander clears both hands, and so does putting
   // something in the off hand while a two-hander is held.

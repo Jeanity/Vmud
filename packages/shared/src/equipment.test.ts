@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { DEFAULT_WEAPON } from './combat.ts';
-import { EQUIP_SLOTS, armourClassFrom, readEquipped, rollStarterKit, weaponFrom } from './equipment.ts';
+import { EQUIP_SLOTS, armourClassFrom, readEquipped, resolveWearSlot, rollStarterKit, weaponFrom } from './equipment.ts';
+import type { Item } from './equipment.ts';
 import { makeRng } from './rules.ts';
 
 describe('the starter kit', () => {
@@ -56,6 +57,32 @@ describe('what the kit is worth', () => {
     const axe = { count: 1, sides: 5, bonus: 1 };
     assert.deepEqual(weaponFrom({ mainHand: { id: 'a', name: 'a', slot: 'mainHand', ac: 0, size: 1, damage: axe } }, DEFAULT_WEAPON), axe);
     assert.deepEqual(weaponFrom({}, DEFAULT_WEAPON), DEFAULT_WEAPON);
+  });
+});
+
+describe('a ring goes on any finger', () => {
+  const ring = { id: 'r1', name: 'a plain band' } as Item;
+
+  it('lands on the named slot while it is free', () => {
+    assert.equal(resolveWearSlot('ring1', {}), 'ring1');
+  });
+
+  it('takes the bare twin when the named finger is full — the owner’s first-free-slot rule', () => {
+    assert.equal(resolveWearSlot('ring1', { ring1: ring }), 'ring2');
+  });
+
+  it('displaces only when both are full, and then the named one', () => {
+    assert.equal(resolveWearSlot('ring1', { ring1: ring, ring2: ring }), 'ring1');
+  });
+
+  it('leaves unpaired slots exactly alone', () => {
+    assert.equal(resolveWearSlot('chest', { chest: ring }), 'chest');
+  });
+
+  it('covers ears, wrists and neckwear — nobody authors an earring for the left ear specifically', () => {
+    assert.equal(resolveWearSlot('ear1', { ear1: ring }), 'ear2');
+    assert.equal(resolveWearSlot('wrist1', { wrist1: ring }), 'wrist2');
+    assert.equal(resolveWearSlot('neck', { neck: ring }), 'neck2');
   });
 });
 

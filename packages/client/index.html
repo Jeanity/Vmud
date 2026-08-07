@@ -668,6 +668,9 @@
 
       #inventory { display: none; flex-direction: column; gap: 3px; }
       #inventory.open { display: flex; }
+      /* The worn drawer folds the same way the inventory always has — one pattern, two drawers. */
+      #worn-body { display: none; }
+      #worn-body.open { display: block; }
       #inventory .empty {
         font-size: 11px;
         color: #6f7a63;
@@ -878,7 +881,17 @@
           </div>
 
           <div class="sheet-section">
-            <h2>Worn</h2>
+            <!-- Collapsible, the inventory's own pattern — owner's call, 2026-08-07: the doll grid
+                 had grown tall enough to push the combat feed below the fold mid-fight. Worn gear is
+                 "reference you consult between fights" (the roster comment's words), so it folds and
+                 the fight does not. Open by default: hiding the doll from a brand-new player who has
+                 not learned the toggle is worse than one click for the veteran who has. -->
+            <button type="button" class="sheet-button" id="worn-toggle" aria-expanded="true" aria-controls="worn-body">
+              <span>Worn</span>
+              <span class="spacer"></span>
+              <span class="caret" id="worn-caret">▾</span>
+            </button>
+            <div id="worn-body" class="open">
 
             <!-- The slot glyphs, defined once and referenced by `<use>` below.
                  Line art rather than filled shapes, `stroke="currentColor"` rather than a colour, so
@@ -967,6 +980,7 @@
               <div class="slot empty" id="slot-legs"><svg class="icon"><use href="#icon-legs" /></svg><span class="tag">legs</span><span class="item"></span></div>
             </div>
             <div id="worn-extra" class="empty"></div>
+            </div>
 
           </div>
 
