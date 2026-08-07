@@ -44,7 +44,7 @@ Two standing lessons for anyone picking this up after the next letter shuffle:
 npm install          # once
 npm run dev          # server + client + admin panel together
 npm run typecheck    # tsc across all five packages
-npm test             # 1,388 tests
+npm test             # 1,680 tests
 npm run worldgen     # rebuild world JSON from the zMUD source DB
 ```
 
@@ -57,9 +57,13 @@ and restarting is the whole of "installing" a zone.
 
 ## State: green
 
-- **1,388 tests** (777 server, 516 shared, 95 worldgen), typecheck clean across all five packages.
+- **1,680 tests** (919 server, 618 shared, 143 worldgen), typecheck clean across all five packages.
   Four of the server's are `world.test.ts`'s, which **skip themselves when `data/world` is absent** —
   a fresh clone or a new worktree reports fewer until `npm run worldgen` has run.
+- **Connecting now takes an account** — protocol 23, `DESIGN-accounts.md`. In dev:
+  `GAME_DEV_ACCOUNT=dev:devpass` on the server and `?account=dev&password=devpass` on the client
+  reproduce the old walk-straight-in flow; `data/accounts/` is git-ignored runtime state beside
+  `data/players/`.
 - `data/` is git-ignored and reproducible by `npm run worldgen` — **except `data/world/overrides/`**,
   which is hand-authored content no command can regenerate and is therefore the one thing under
   `data/` that git tracks. See `server/src/overrides.ts`.
@@ -76,6 +80,7 @@ and restarting is the whole of "installing" a zone.
 | --- | --- |
 | World pipeline | 327 zones / 46,508 rooms from a zMUD mapper SQLite DB |
 | Multi-zone server | Authoritative, 100 ms tick, room-scoped interest management |
+| Accounts and login | Protocol 23 handshake (`auth`→`account`→`enter`), scrypt accounts owning ≤16 characters, resume tokens, the character name law, admin reset path — see DESIGN-accounts.md |
 | Zone + level travel | One operation — see `Place` below |
 | Visibility | Tile-granular shadowcasting line of sight, three states, persisted per character |
 | Light sources | Catalogue, durations, expiry chains, ground pickups, room-mode illumination |
@@ -391,10 +396,12 @@ teeth only because every phase is driven in the running game before it is ticked
 writing down because it is not obvious and it has caught bugs no test could.
 
 **Write a throwaway WebSocket client.** `node --experimental-strip-types packages/server/src/index.ts`
-with `GAME_PORT=8787`, then a script that opens `ws://127.0.0.1:8787`, sends
-`{t:'hello',protocol:17,name:'Prober'}` and drives the game with `{t:'command',text:'kill sentry'}` and
-`{t:'steer',dx,dy}`. Read `log`, `self`, `room`, `entityEnter/Update/Moved/Leave`, `attackResolved` and
-`died` back off the socket. These live in a scratch directory and are deliberately disposable.
+with `GAME_PORT=8787` and `GAME_DEV_ACCOUNT=dev:devpass`, then a script that opens
+`ws://127.0.0.1:8787`, sends `{t:'auth',protocol:23,account:'dev',password:'devpass'}`, waits for
+`account`, sends `{t:'enter',name:'Prober'}` (protocol 23 — two steps where `hello` was one), and
+drives the game with `{t:'command',text:'kill sentry'}` and `{t:'steer',dx,dy}`. Read `log`, `self`,
+`room`, `entityEnter/Update/Moved/Leave`, `attackResolved` and `died` back off the socket. These live
+in a scratch directory and are deliberately disposable.
 
 **Four things that will bite:**
 
@@ -428,7 +435,60 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-### Start here — where 2026-08-07 left it
+### Start here — where 2026-08-08 left it
+
+**Accounts and login are built — Phase 20b, pulled out of the parking lot exactly as the owner
+ordered — and the character name law with them.** 1,680 tests (919 server / 618 shared / 143
+worldgen), typecheck clean. All five slices of [DESIGN-accounts.md](DESIGN-accounts.md) §9 landed
+in one day:
+
+- **Protocol 23: `hello` is gone.** The handshake is `auth` (credentials, or a resume token) →
+  `account` (your characters, the sixteen cap from `account.h:15`, a fresh resume token) → `enter`
+  (pick or mint a body) → the old `welcome` burst, unchanged. `authFailed` refuses without hanging
+  up — a mistyped password is not a protocol violation — and five failures hang up. One reason
+  string for wrong-name and wrong-password, on purpose.
+- **The store** (`server/src/accounts.ts`): scrypt via Node's own crypto, parameters riding each
+  hash (`scrypt$logN$r$p$salt$key`); `data/accounts/<slug>.json` git-ignored beside the players;
+  **ownership lives in the account file and nowhere else**; resume tokens in memory, seven days,
+  dead on restart.
+- **No email, on purpose — the admin API is the reset path**: `GET /accounts`,
+  `POST /accounts/<slug>/password`, `POST /accounts/<slug>/claim`, all audited, hashes never in a
+  response. The claim endpoint is what character assignment becomes the day the bind opens.
+- **The door** (`client/src/login.ts`, overlay in `index.html`): credentials, then the picker —
+  name, level, day, the *local* day. The tab keeps its resume token and last body in
+  sessionStorage, so **F5 puts you back where you stood** and a second tab is still a second
+  character. `?account=&password=` (+`&create=1`, `&character=`) succeeds `?name=` for the
+  two-window flow; `GAME_DEV_ACCOUNT=name:pass` stands a dev account up at boot, announced,
+  default-off.
+- **Existing saves are grandfathered flotsam**: unowned until claimed, claimable only over
+  loopback, refused to everyone else — so the moment the bind opens, guess-a-name-take-a-character
+  is already dead. One account can hold a body; a held body cannot be entered twice; `aldric16`
+  still walks with its digits.
+- **The name law** (owner's rule, mid-build — `shared/src/names.ts`, its own §4 intake row):
+  letters only, 2–12, `_parse_name`'s reserved list transcribed, rude roots matched through the
+  evasion spellings — **`Schitthead` and `PhuckPhace` die as typed**, the owner's own examples,
+  tested verbatim — and the famous of the Realms refused by exact match, Drizzt to Astarion.
+  Mints only. A fence, not a wall, and the file says so.
+- **The bind did not move.** Accounts-then-bind-then-tunnel is the go-live order; only the first
+  word of it exists, deliberately.
+
+**The drive earned its keep three times over** — all client bugs, all found in the browser, none
+reachable by a unit test: a `display:flex` that outranked `[hidden]` so the credentials form
+haunted the picker; the hands-free resume **racing Phaser's `create()`**, so the world's answer to
+`enter` arrived before any handler existed (fixed by `scene.onReady` gating `enter` — the same
+class of bug as the three in the list below, and the same lesson: *if you change the join path,
+drive it*); and an auto-enter refusal writing its reason into a panel that was hidden. One wire
+find besides: a character minted this boot listed as its lowercase slug until `PlayerStore.nameOf`
+let the picker read the live cache before the disk.
+
+**Next, by the cadence**: unchanged — **Phase 21 (classes, races, quests, channels) is the last M
+standing**, and accounts no longer block it; its remaining prerequisites are the ability-score
+half of 14b and the race-list decision the racewar exclusion forces (the account file already
+leaves room for `acct_good`/`acct_evil` and the one-hour switch timer, `account.c:940`). Track A's
+biggest row is the **server-lifecycle supervisor**; Track V still holds only the bubble cap loose
+end and the mob-art *drawing* problem.
+
+### Before that — the marathon of 2026-08-07
 
 **Rounds 12 and 13 closed in one day, Phase 19 with them — and then Phase 20, whole, in the same
 day: 23 of 25 phases.** 1,637 tests (901 server / 599 shared / 137 worldgen), typecheck clean. The

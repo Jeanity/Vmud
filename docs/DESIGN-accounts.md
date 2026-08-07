@@ -7,6 +7,17 @@ changes the protocol's first message and the meaning of every save file, and its
 every persisted field added before it lands. Phase 21's character creation also needs somebody to
 create *for*. This note settles the parking lot's four open questions and one it did not ask._
 
+_Built the same day, whole — and the drive corrected three §5 details, which is the note earning
+its keep: the picker reads the store's **live cache** before the disk (`PlayerStore.nameOf`; a
+character minted this boot has a name before it has a file); the hands-free path **holds `enter`
+until the scene's handlers exist** (`scene.onReady` → `LoginGate.setReady` — the world answers
+`enter` immediately, and a message with no listener is a message that never was); and an
+auto-`enter` refusal **raises the picker it skipped** rather than writing its reason into a hidden
+panel. One rule arrived mid-build by owner's order and lives beside this file's §5: the
+**character name law** (`shared/src/names.ts`, tested with the owner's own examples) — letters
+only, 2–12, the source's reserved words, rude roots matched through their evasion spellings,
+famous names refused. Mints only; the flotsam of §6 keeps its digits._
+
 **What exists today, precisely.** The name *is* the identity: the client's first message is
 `hello {protocol, name}` (`protocol.ts:593`), the server does `store.load(name)` and you are that
 character (`index.ts:8255`). Two tabs typing `Aldric` are one character. No password, no account, no
