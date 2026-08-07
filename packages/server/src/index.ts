@@ -44,9 +44,12 @@ import {
   rollDice,
   HP_DEAD_BELOW,
   ITEM_TYPE_BOAT,
+  ICE_STORM_MIN_CHANCE,
   MOB_CAST_CHANCE,
   SPELLS,
   THREAT_PER_HEAL,
+  areaHitCount,
+  rollEarthquake,
   defaultSaveMod,
   isSpellId,
   mobCastMs,
@@ -3512,13 +3515,16 @@ function doRecite(player: Player, rest: string): void {
       const view = resolveTarget(player, targetWord);
       if (!view) continue;
       target = sim.get(view.id);
-    } else if (spell.kind === 'nuke') {
+    } else if (spell.kind === 'nuke' || spell.kind === 'area') {
       target = player.fighting === undefined ? undefined : sim.get(player.fighting);
     } else {
       target = player;
     }
-    if (!target || target.roomId !== player.roomId) continue;
-    if (spell.kind === 'nuke') {
+    // An area asks for no target at all (`TAR_OFFAREA`); everything else with nobody to land on is
+    // the source's per-slot `continue`.
+    if (target && target.roomId !== player.roomId) target = undefined;
+    if (spell.kind !== 'area' && !target) continue;
+    if (spell.kind === 'nuke' && target) {
       if (!canBeAttacked(target)) continue;
       if (target.id === player.id) {
         // The source lets you nuke yourself; ours refuses until there is a reason to allow it —
@@ -3530,6 +3536,11 @@ function doRecite(player: Player, rest: string): void {
         send(player.id, { t: 'log', channel: 'error', text: `You cannot attack ${target.name}. Player killing is switched off.` });
         continue;
       }
+    }
+    if (spell.kind === 'area' && target?.id === player.id) {
+      // Ice storm's own refusal, kept word for word (`magic.c:12878`).
+      send(player.id, { t: 'log', channel: 'error', text: 'You suddenly decide against that, oddly enough.' });
+      continue;
     }
     deliverSpell(player, spell, target, template.scroll.level);
   }
@@ -3562,7 +3573,9 @@ function castBeat(caster: Actor): void {
   if (caster.posture !== 'standing' || caster.status !== 'normal') {
     return stopCasting(caster, 'you have lost your footing');
   }
-  if (cast.target !== undefined) {
+  if (cast.target !== undefined && !(isSpellId(cast.spell) && SPELLS[cast.spell].kind === 'area')) {
+    // An area's named victim is incidental (`TAR_OFFAREA`) — its death does not break the wind-up,
+    // because the room is the target. Everything aimed at one body still loses it with the body.
     const target = sim.get(cast.target);
     if (!target || target.roomId !== caster.roomId) return stopCasting(caster, 'your target is gone');
   }
@@ -3618,6 +3631,14 @@ function completeCast(caster: Actor): void {
   sim.removeAffects(caster, 'casting');
 
   const target = cast.target === undefined ? undefined : sim.get(cast.target);
+
+  if (isSpellId(cast.spell) && SPELLS[cast.spell].kind === 'area') {
+    // An area needs no target to land on — the fizzle below is deliberately skipped: the named
+    // victim dying mid-wind-up does not stop the room from shaking (`TAR_OFFAREA`'s whole meaning).
+    deliverSpell(caster, SPELLS[cast.spell], target && target.roomId === caster.roomId ? target : undefined);
+    return;
+  }
+
   if (!target || target.roomId !== caster.roomId) {
     // The pay-then-fizzle quirk is authentic (`DESIGN-spells.md` §0.4) — with nothing costing
     // anything yet, this is just the fizzle half, kept in the shape the costs will land into.
@@ -3714,12 +3735,173 @@ function completeSpellStrike(caster: Actor, spell: Spell, target: Actor, atLevel
  * finished wind-up (player or mob) and a recited scroll slot both land here, so the three kinds
  * cannot come to behave differently by arrival route.
  */
-function deliverSpell(caster: Actor, spell: Spell, target: Actor, atLevel = caster.level): void {
+function deliverSpell(caster: Actor, spell: Spell, target: Actor | undefined, atLevel = caster.level): void {
+  // Areas are the one kind with no required target — `TAR_OFFAREA`, castable at a room. Everything
+  // else without a body to land on has already fizzled upstream; the guard is the belt.
+  if (spell.kind === 'area') return completeSpellArea(caster, spell, atLevel, target);
+  if (!target) return;
   switch (spell.kind) {
     case 'nuke': return completeSpellStrike(caster, spell, target, atLevel);
     case 'heal': return completeSpellHeal(caster, spell, target, atLevel);
     case 'buff': return completeSpellBuff(caster, spell, target, atLevel);
   }
+}
+
+/**
+ * Whether an area reaches this body — `should_area_hit` (`utility.c:5765-5838`), transcribed in its
+ * own order because the order is the design: **fighting each other outranks every exemption** (your
+ * groupmate beating you is still hit by your quake), then mob-casters cannot catch mobs
+ * (`utility.c:5791` — the rule that keeps a shaman's storm from clearing its own warren), the
+ * caster's group is exempt, and the default is **yes** — an area is indiscriminate, and a stranger
+ * standing near your fight is standing too near. Dropped and named: wraithform, riders, single-file
+ * rooms and `TAG_IMMUNE_AREA`, none of which exist here yet. The PvP switch stands in for
+ * `should_not_kill`, refusing player-on-player splash the same way it refuses the sword.
+ */
+function shouldAreaHit(caster: Actor, victim: Actor): boolean {
+  if (victim.id === caster.id) return false;
+  if (victim.roomId !== caster.roomId) return false;
+  if (!canBeAttacked(victim)) return false;
+  if (caster.fighting === victim.id || victim.fighting === caster.id) return true;
+  if (isMob(caster) && isMob(victim)) return false;
+  if (isPlayer(caster) && isPlayer(victim)) {
+    if (!settings.pvp) return false;
+    if (membersWith(grouping, caster.id).includes(victim.id)) return false;
+  }
+  return true;
+}
+
+/** Earthquake's ground, from the sector — `magic.c:3331-3377`'s switch, in our vocabulary. */
+function quakeGround(sector: string): number {
+  switch (sector) {
+    case 'shallow_water':
+    case 'deep_water':
+    case 'underwater':
+    case 'air':
+    case 'astral':
+      return 0; // What earthquake?
+    case 'mountain':
+      return 2; // Landslides.
+    case 'inside':
+    case 'cave':
+      return 3; // The ceiling caves in — the famous reason not to cast this underground.
+    default:
+      return 1;
+  }
+}
+
+/**
+ * An area lands on the room — **slice 6, and Phase 20's last mechanism.** Two shapes under one seam:
+ *
+ * **Ice storm** is the `cast_as_damage_area` family (`utility.c:5916-6010`): collect everyone
+ * {@link shouldAreaHit} reaches, thin the **players** by {@link areaHitCount} — never the named
+ * target, never any NPC, which is why a room of thirty mobs takes thirty full hits — and land
+ * `dice(min(level,36), 8)` on each survivor separately.
+ *
+ * **Earthquake** is its own loop (`magic.c:3318-3527`) and always was: the ground refuses water and
+ * air, everyone in the room but the caster is touched, **bystanders are knocked about without
+ * damage** (the agility save, or down they go with a round of lag), and genuine targets take
+ * `dice(1,30)+level` felled or the sector-scaled graze if they keep their feet. The agility save is
+ * rolled through our save machinery at the source's own +4 mod, named as the stand-in until ability
+ * scores exist (Phase 21) — greater-race exemptions ride the same wait.
+ */
+function completeSpellArea(caster: Actor, spell: Spell, atLevel: number, named?: Actor): void {
+  const bodies = [...sim.actorsIn(caster.roomId)];
+
+  if (spell.id === 'earthquake') {
+    const ground = quakeGround(sim.room(caster.roomId)?.sector ?? 'field');
+    if (ground === 0) {
+      if (isPlayer(caster)) send(caster.id, { t: 'log', channel: 'combat', text: 'No earth to quake here, try a different spell.' });
+      resumeSwing(caster);
+      return;
+    }
+    if (isPlayer(caster)) send(caster.id, { t: 'log', channel: 'combat', text: '&+yYou cause the earth to shake, crack and buckle!&N' });
+    actAround(caster, 'combat', (who) => `${who} causes an &=LyEARTHQUAKE!&N`);
+
+    let death: Death | undefined;
+    const changed: Actor[] = [];
+    for (const body of bodies) {
+      if (body.id === caster.id) continue;
+      if (!canBeAttacked(body) || body.roomId !== caster.roomId) continue;
+      const kept = rollSave(combatRng, body.level, 4, isMob(body));
+      if (!shouldAreaHit(caster, body)) {
+        // A bystander is shaken, never harmed — the knockdown-only branch, and most of the fun.
+        if (body.posture !== 'standing') continue;
+        if (kept) {
+          if (isPlayer(body)) send(body.id, { t: 'log', channel: 'combat', text: '&+LYou stagger, but manage to keep your balance!&N' });
+          actAround(body, 'combat', (who) => `${who} staggers slightly but manages to keep their balance.`, body.id);
+        } else {
+          sim.setStance(body, { posture: 'sitting' });
+          scheduler.cancel(body.id, 'swing');
+          if (body.fighting !== undefined) scheduler.schedule('swing', body.id, Math.max(MIN_ROUND_MS, body.roundMs));
+          if (isPlayer(body)) send(body.id, { t: 'log', channel: 'combat', text: '&+mYou stagger and fall to your knees!&N' });
+          actAround(body, 'combat', (who) => `${who} staggers and falls to their knees!`, body.id);
+          syncEntityState(body);
+        }
+        continue;
+      }
+      const rolls = rollEarthquake(combatRng, atLevel, ground);
+      if (!kept) {
+        if (isPlayer(body)) send(body.id, { t: 'log', channel: 'combat', text: '&+WYou fall and injure yourself!&N' });
+        actAround(body, 'combat', (who) => `${who} crashes to the ground!`, body.id);
+        const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, body, rolls.felled);
+        changed.push(...result.changed);
+        if (result.death) { death = result.death; resolveDeath(result.death); continue; }
+        if (!result.incapacitated) {
+          sim.setStance(body, { posture: 'sitting' });
+          scheduler.cancel(body.id, 'swing');
+          if (body.fighting !== undefined) scheduler.schedule('swing', body.id, Math.max(MIN_ROUND_MS, body.roundMs));
+        }
+        syncEntityState(body);
+      } else {
+        if (isPlayer(body)) send(body.id, { t: 'log', channel: 'combat', text: '&+LYou stagger and almost break your leg!&N' });
+        actAround(body, 'combat', (who) => `${who} staggers and almost falls!`, body.id);
+        const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, body, rolls.grazed);
+        changed.push(...result.changed);
+        if (result.death) { death = result.death; resolveDeath(result.death); continue; }
+        syncEntityState(body);
+      }
+    }
+    for (const actor of changed) syncEntityState(actor);
+    if (caster.fighting === undefined && named && !death && canBeAttacked(named)) engage(scheduler, caster, named);
+    resumeSwing(caster);
+    if (isPlayer(caster)) send(caster.id, { t: 'self', view: sim.selfViewOf(caster) });
+    return;
+  }
+
+  // Ice storm — the `cast_as_damage_area` shape.
+  if (isPlayer(caster)) send(caster.id, { t: 'log', channel: 'combat', text: '&+WYou conjure a storm of ice!&N' });
+  actAround(caster, 'combat', (who) => `${who} conjures an ice storm!`);
+
+  const reached = bodies.filter((body) => shouldAreaHit(caster, body));
+  const players = reached.filter((body) => isPlayer(body));
+  const hit = areaHitCount(combatRng, players.length, ICE_STORM_MIN_CHANCE);
+  let toSkip = players.length - hit;
+  const skipped = new Set<EntityId>();
+  // The source's random-walk-with-coin-flips over the victim array; ours draws from the player list
+  // directly, honouring both of its rules — never the named target, and only players are thinned.
+  const candidates = players.filter((p) => p.id !== named?.id);
+  while (toSkip > 0 && candidates.length > 0) {
+    const at = randomInt(combatRng, 0, candidates.length - 1);
+    skipped.add(candidates[at]!.id);
+    candidates.splice(at, 1);
+    toSkip--;
+  }
+
+  for (const body of reached) {
+    if (skipped.has(body.id)) continue;
+    if (!canBeAttacked(body) || body.roomId !== caster.roomId) continue;
+    for (const blow of rollSpellBlows(combatRng, spell.id, atLevel)) {
+      const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, body, blow.damage);
+      if (isPlayer(body)) send(body.id, { t: 'log', channel: 'combat', text: `&+R-=[ ${capitalise(caster.name)}&N&+R's storm of ice crushes you for ${blow.damage}! ]=-&N` });
+      if (isPlayer(caster)) send(caster.id, { t: 'log', channel: 'combat', text: `&+C-=[ Your storm of ice crushes ${body.name}&N&+C for ${blow.damage}! ]=-&N` });
+      for (const actor of result.changed) syncEntityState(actor);
+      if (result.death) { resolveDeath(result.death); break; }
+      syncEntityState(body);
+    }
+  }
+  if (caster.fighting === undefined && named && canBeAttacked(named) && named.roomId === caster.roomId) engage(scheduler, caster, named);
+  resumeSwing(caster);
+  if (isPlayer(caster)) send(caster.id, { t: 'self', view: sim.selfViewOf(caster) });
 }
 
 /**
@@ -3833,7 +4015,7 @@ function mobStartCast(mob: Mob, target: Actor): boolean {
   // with no affect fold, and a ward that changed nothing would be a lie with a duration.
   const usable = known.filter((id) => {
     const kind = SPELLS[id].kind;
-    if (kind === 'nuke') return true;
+    if (kind === 'nuke' || kind === 'area') return true;
     if (kind === 'heal') return mob.hp < mob.maxHp;
     return false;
   });

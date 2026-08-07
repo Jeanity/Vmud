@@ -1238,7 +1238,7 @@ ceiling), how a 0–100 percentage meets our d20 (`floor(learned / 10)`, derived
 formula (`level × 1.75`, not the `level << 1` our reference quotes), and a five-slice build order whose
 first slice cannot break anything.
 
-#### Phase 20 — Spells — **design note written 2026-08-07; slices 1–3 built the same day**
+#### Phase 20 — Spells ✅ — **designed and built whole, 2026-08-07**
 
 Cast time as a self-rescheduling event on Phase 11's scheduler, environmental interruption, two
 independent resistance gates, area targeting with crowd thinning.
@@ -1265,8 +1265,15 @@ armor and bless as affect nodes on the new `ac`/`hit`/`saves` locations **with t
 and never re-rolls, `joinBySupporting` + `THREAT_PER_HEAL` produced at last, **protocol 21** (exact
 group pools, pushed when a heal lands), and mob casters healing themselves when hurt — buffs
 skipped by name until a mob profile fold exists.
-**Left: slice 6 areas (`cast_as_damage_area`, player-count thinning, earthquake then ice storm,
-mob-areas-cannot-hit-mobs kept).**
+**Slice 6 ✅ (2026-08-07)** — areas, and the phase closed: earthquake's bespoke loop (ground gate,
+bystander knockdowns without damage, `dice(1,30)+level` felled / sector-scaled graze upright), ice
+storm through `should_area_hit` (fighting-outranks-everything, mob-areas-cannot-hit-mobs — driven
+with a spawned control mob standing untouched through three storms — group exempt, default yes) and
+the **player-count thinning** under its corrected name (`pc/2 + 5/pc ± 0.75`, min-chance floor 90,
+NPCs never thinned), `TAR_OFFAREA` honoured (a named victim dying mid-wind-up does not stop the
+room shaking). **What Phase 21 inherits — the memorization economy, circle tables, spellbooks and
+scribing, ground-casting and concentration, penetration, globes — is recorded at the end of
+`DESIGN-spells.md`.**
 
 **[DESIGN-spells.md](DESIGN-spells.md) is the thing to read first** — six readers over the magic
 source, and the findings bend the phase: memorization beat mana in the shipped fork and both wait

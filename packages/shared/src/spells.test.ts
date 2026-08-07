@@ -13,8 +13,10 @@ import { makeRng } from './rules.ts';
 import {
   MAGIC_RESISTANT_RACES,
   SPELLS,
+  areaHitCount,
   defaultSaveMod,
   mobCastMs,
+  rollEarthquake,
   rollSpellBlows,
   rollSpellBuff,
   rollSpellHeal,
@@ -90,6 +92,46 @@ describe('heals and buffs — slice 5, the handlers\' own numbers', () => {
 
   it('a nuke installs nothing', () => {
     assert.equal(rollSpellBuff(rng, 'chill_touch', 25), undefined);
+  });
+});
+
+describe('areas — slice 6, the thinning that thins players only', () => {
+  const rng = makeRng(0xa5ea);
+
+  it('translates the two area numbers', () => {
+    assert.equal(spellFromDurisNumber(23)?.id, 'earthquake');
+    assert.equal(spellFromDurisNumber(111)?.id, 'ice_storm');
+  });
+
+  it('always strikes a lone player, and nobody in an empty room', () => {
+    assert.equal(areaHitCount(rng, 0, 90), 0);
+    for (let i = 0; i < 50; i++) assert.equal(areaHitCount(rng, 1, 90), 1, 'median 5.5, capped at the one present');
+  });
+
+  it("ice storm's 90% floor outranks the median roll in a crowd", () => {
+    // Ten players: the median roll lands 4..6, and the min-chance floor of 9 wins every time —
+    // which is the source's own tuning: the property default barely thins at all.
+    for (let i = 0; i < 100; i++) assert.equal(areaHitCount(rng, 10, 90), 9);
+    // With no floor, the median arithmetic shows itself: pc/2 + 5/pc ± 0.75 → 4..6 of ten.
+    for (let i = 0; i < 100; i++) {
+      const hit = areaHitCount(rng, 10, 0);
+      assert.ok(hit >= 4 && hit <= 6, `rolled ${hit}`);
+    }
+  });
+
+  it("earthquake's two rolls: felled dice(1,30)+level, grazed dice(1,4)+flag*(level/2)", () => {
+    for (let i = 0; i < 100; i++) {
+      const { felled, grazed } = rollEarthquake(rng, 20, 3);
+      assert.ok(felled >= 21 && felled <= 50, `felled ${felled}`);
+      assert.ok(grazed >= 31 && grazed <= 34, `grazed ${grazed} — the indoors flag triples the debris`);
+    }
+  });
+
+  it("ice storm's per-victim roll caps its dice at 36", () => {
+    for (let i = 0; i < 50; i++) {
+      const [blow] = rollSpellBlows(rng, 'ice_storm', 60);
+      assert.ok(blow && blow.damage >= 36 && blow.damage <= 288, `rolled ${blow?.damage}`);
+    }
   });
 });
 

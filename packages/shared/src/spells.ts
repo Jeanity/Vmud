@@ -17,16 +17,17 @@ import type { ApplyLocation } from './affects.ts';
 /* The registry                                                                */
 /* -------------------------------------------------------------------------- */
 
-export const SPELL_IDS = ['magic_missile', 'burning_hands', 'chill_touch', 'shocking_grasp', 'cure_light', 'cure_serious', 'armor', 'bless'] as const;
+export const SPELL_IDS = ['magic_missile', 'burning_hands', 'chill_touch', 'shocking_grasp', 'cure_light', 'cure_serious', 'armor', 'bless', 'earthquake', 'ice_storm'] as const;
 export type SpellId = (typeof SPELL_IDS)[number];
 
 /**
  * What a completed cast *does* — the routing fact. A nuke runs the gates and lands blows; a heal
- * restores and pays threat (`joinBySupporting`'s second producer); a buff installs affect nodes.
+ * restores and pays threat (`joinBySupporting`'s second producer); a buff installs affect nodes;
+ * an area sweeps the room (slice 6 — the thinning and the hit test live beside the rolls below).
  * The source has no such field — its spell functions simply do different things — but our completion
- * is one seam and it has to route somehow, and a string it can switch on beats eight callbacks.
+ * is one seam and it has to route somehow, and a string it can switch on beats ten callbacks.
  */
-export type SpellKind = 'nuke' | 'heal' | 'buff';
+export type SpellKind = 'nuke' | 'heal' | 'buff' | 'area';
 
 /**
  * How a spell meets the saving throw — the note's finding that save-for-half is spelled two inverse
@@ -65,6 +66,10 @@ export const SPELLS: Readonly<Record<SpellId, Spell>> = {
   cure_serious: { id: 'cure_serious', name: 'cure serious', kind: 'heal', castMs: 2000, circle: 2, save: 'none', noun: 'healing touch', felt: '&+WYou feel a lot better!&N' },
   armor: { id: 'armor', name: 'armor', kind: 'buff', castMs: 2000, circle: 1, save: 'none', noun: 'warding', felt: '&+WBands of magic armor wrap around you!&N' },
   bless: { id: 'bless', name: 'bless', kind: 'buff', castMs: 2000, circle: 1, save: 'none', noun: 'blessing', felt: '&+WYou suddenly feel blessed!&N' },
+  // Slice 6. Earthquake's save is bespoke (an agility save inside its own loop), so `save` stays
+  // 'none' — the convention field describes gate 1, and neither area runs it.
+  earthquake: { id: 'earthquake', name: 'earthquake', kind: 'area', castMs: 2500, circle: 3, save: 'none', noun: 'quake' },
+  ice_storm: { id: 'ice_storm', name: 'ice storm', kind: 'area', castMs: 2500, circle: 6, save: 'none', noun: 'storm of ice' },
 };
 
 export function isSpellId(value: string): value is SpellId {
@@ -85,9 +90,11 @@ export const DURIS_SPELL_NUMBERS: Readonly<Record<number, SpellId>> = {
   5: 'burning_hands',
   8: 'chill_touch',
   16: 'cure_light',
+  23: 'earthquake',
   32: 'magic_missile',
   37: 'shocking_grasp',
   57: 'cure_serious',
+  111: 'ice_storm',
 };
 
 /** The spell a Duris number means, or nothing — this world does not model all 700 of them yet. */
@@ -142,14 +149,57 @@ export function rollSpellBlows(rng: Rng, spell: SpellId, level: number): SpellBl
     case 'shocking_grasp':
       // dice(level/6 + 5, 6) * 4, doubled on a failed save (`magic.c:626-645`).
       return [{ damage: die(Math.floor(lvl / 6) + 5, 6) * 4 }];
+    case 'ice_storm':
+      // Per victim: dice(min(level, 36), 8) — `spell_single_icestorm`, `magic.c:12852`. Rolled once
+      // per body the storm reaches, which is why the area loop calls this per survivor.
+      return [{ damage: die(Math.min(lvl, 36), 8) }];
     case 'cure_light':
     case 'cure_serious':
     case 'armor':
     case 'bless':
-      // Not nukes. Their arithmetic lives in {@link rollSpellHeal} and {@link rollSpellBuff}; an
-      // empty volley here keeps a misrouted call harmless rather than inventive.
+    case 'earthquake':
+      // Not single-roll nukes. Heals and buffs live in {@link rollSpellHeal} / {@link rollSpellBuff};
+      // earthquake's two rolls are bespoke ({@link rollEarthquake}) because which one applies is a
+      // per-victim save its own loop makes. An empty volley keeps a misrouted call harmless.
       return [];
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Areas — slice 6                                                             */
+/* -------------------------------------------------------------------------- */
+
+/** Ice storm's floor: `spell.area.minChance.iceStorm` defaults to 90 (`magic.c:12894`). */
+export const ICE_STORM_MIN_CHANCE = 90;
+
+/**
+ * How many of the players present an area actually strikes — the live half of `cast_as_damage_area`
+ * (`utility.c:5961-5985`), transcribed with its own strange arithmetic: the count is drawn uniformly
+ * from `pc/2 + 5/pc ± 0.75`, floored at `min_chance%` of those present, capped at all of them. The
+ * roadmap's "crowd thinning" was the *dead* algorithm's name — the decaying-chance ladder is
+ * commented out in the source, `chance_step` fetched at ~25 call sites and read by none. **Players
+ * only**: NPCs are never thinned, which is why a room of thirty mobs takes thirty full hits.
+ */
+export function areaHitCount(rng: Rng, pcCount: number, minChancePct: number): number {
+  if (pcCount <= 0) return 0;
+  const median = pcCount / 2 + 5 / pcCount;
+  const rolled = Math.floor(randomInt(rng, Math.floor((median - 0.75) * 1000), Math.floor((median + 0.75) * 1000)) / 1000);
+  return Math.min(pcCount, Math.max(Math.floor((pcCount * minChancePct) / 100), rolled));
+}
+
+/**
+ * Earthquake's two damage rolls (`magic.c:3475-3515`) — which applies is the victim's agility save,
+ * made inside the spell's own loop: a **felled** victim takes `dice(1,30) + level` and goes down; one
+ * who keeps their feet is **grazed** for `dice(1,4) + damFlag × (level/2)`, where `damFlag` is the
+ * sector's danger (1 open ground, 2 mountains, 3 indoors — falling debris is the whole reason casting
+ * this in a cave is famous). Level is fed clamped ≥1 like every roll here.
+ */
+export function rollEarthquake(rng: Rng, level: number, damFlag: number): { readonly felled: number; readonly grazed: number } {
+  const lvl = Math.max(1, level);
+  return {
+    felled: randomInt(rng, 1, 30) + lvl,
+    grazed: randomInt(rng, 1, 4) + damFlag * Math.floor(lvl / 2),
+  };
 }
 
 /**
