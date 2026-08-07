@@ -97,7 +97,7 @@ a new idea still answers the three questions; its second question now also picks
 | **9 ✅** | V5 — arrival cards ✅ | Phase 18 — following ✅, grouping ✅ | A4c — loot on a mob ✅ |
 | **10 ✅** | V7 — attack verbs ✅ | Phase 19 — skills: slice 1 ✅ | A7d-bag ✅ |
 | **11 ✅** | *(Track V complete again; §2b says it skips)* | Phase 19 — slice 3: `bash` and `kick` ✅, behind a `landBlow` extraction | A6c — authoring a light ✅ |
-| **12 — under way** | *(skips)* | Phase 19 — slice 4: `rescue` ✅ | A7g quality — the model re-decides the 8,077 fallbacks (sweep running) |
+| **12 ✅** | *(skips)* | Phase 19 — slice 4: `rescue` ✅ | A7g quality — the model re-decided all 8,078 fallbacks ✅ (7,090 changed, 938 confirmed, 50 kept for a re-ask) |
 | **13 ✅** | `look <direction>` ✅ *(the parked row, unblocked once doors and light settled)* | Phase 19 — slice 5: `swim` ✅, **and the phase with it** | A8d — a zone from nothing ✅ |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before

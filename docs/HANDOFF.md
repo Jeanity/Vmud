@@ -405,7 +405,44 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-### Start here — where the evening of 2026-08-06 left it
+### Start here — where 2026-08-07 left it
+
+**Rounds 12 and 13 closed in one day, and Phase 19 with them — 22 of 25 phases.** 1,599 tests
+(895 server / 570 shared / 134 worldgen), typecheck clean. The day's landings, newest first:
+
+- **`swim` — Phase 19's last slice, and the phase's fifth dead mechanism closed it** (see the table
+  row): deep water priced not gated, boats exempt, exhaustion drowns, the drowned wash ashore at
+  their **entry** shore (the ferry rule), WASD/click crossings finally pay the typed step's bill, and
+  **The Sunken Stair ships flooded and loaded** — the game's first swimmable water.
+- **A8d — a zone from nothing** (round 13's A): the seventh overlay, the origin-room exception, and
+  *The Sunken Stair* itself as the drive that then became content.
+- **`look <direction>`** (round 13's V): the farsee finding, the far room's light as the gate, counts
+  as the tactical information.
+- **Phase 19 slice 4 — `rescue`**: one attacker peeled onto you, the grudge transferred on the threat
+  table, `joinBySupporting`'s first caller, and the notch that runs backwards on purpose.
+- **The A7g quality sweep is complete**: `npm run artsweep` re-decided **all 8,078 fallback art
+  guesses** with qwen2.5:14b against each slot's closed candidate list — **7,090 changed, 938
+  confirmed** across the two runs (the F: dismount split it; `by: 'artsweep'` is the resume marker
+  and 800 were banked mid-flight), 50 unreadable answers kept their fallback for a future re-ask, 31
+  colours dropped where the new sheet cannot wear them — and colours that *could* cross did:
+  *"silver-plated arm plates"* went to `arms-bracers#all_lpcr.silver`, sheet and ramp both. The
+  flagships all landed: stiletto **rapier**, butcherknife **dagger**, platemail of BloodLust
+  **plate**, steel arm plates **arms-armour**. Calibration said trust it: where model and word-matcher
+  disagreed, the word-matcher owned most of the embarrassments (an apron for studded leather, a
+  bodice for a combat vest, a farm tool for a notched axe).
+- **Small and driven**: `inventory` carries / `equipment` wears (owner's report, Diku's own split); a
+  mob near a portal no longer steals the click on it (distance contest, bodies win only real ties); a
+  bystander's dodge line reads in the third person.
+- **The morning was a drive-letter swap** — the Sett is `D:` again; see *Where the project lives*.
+
+**Next, by the cadence**: round 14's **M is Phase 20 — spells** (cast time as a self-rescheduling
+event, interruption, resistance gates; `landBlow` has been waiting for it since slice 3). Track V has
+no numbered item left — the bubble cap loose end and the mob-art *drawing* problem are what remain.
+Track A's biggest remaining rows are the **server-lifecycle supervisor** and the post-Phase-21
+editors; §2b says a track with nothing unblocked skips. The **corpse-retrieval-fee / ferryman**
+economy idea is placed at Phase 21.
+
+### Before that — the evening of 2026-08-06
 
 **`main` at `abd3d90`, tree clean, 1,539 tests green** (854 server / 570 shared / 115 worldgen).
 
