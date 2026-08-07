@@ -22,11 +22,12 @@
         "sides": 6,
         "bonus": 2
       },
+      "art": "weapon-sword-saber-saber",
       "proc": {
         "t": "special",
         "id": "windsong"
       },
-      "at": "2026-08-07T08:42:31.715Z",
+      "at": "2026-08-07T09:37:53.109Z",
       "by": "panel"
     }
   }
