@@ -84,7 +84,8 @@ import {
   type MobOverride,
   type MobOverrides,
 } from './mob-overrides.ts';
-import { draftAuthoredRoom, narrowsExtent, saveAuthoredRooms } from './room-authoring.ts';
+import { draftAuthoredRoom, narrowsExtent, saveAuthoredRooms, takeAuthoredRoomId } from './room-authoring.ts';
+import { ZONE_NAME_MAX, readZoneName, saveAuthoredZones, takeAuthoredZoneId } from './zone-authoring.ts';
 import {
   MAX_AUTHORED_LIGHT_RADIUS,
   readAuthoredLight, readDice, saveItemOverrides, type ItemOverride, type ItemOverrides } from './item-overrides.ts';
@@ -454,6 +455,8 @@ export interface AdminDeps {
    * because their lifecycles are opposite — `room-authoring.ts`'s table has the four rules.
    */
   readonly authoredRoomsFile: string | undefined;
+  /** A8d: where created zones are written. Absent in tests that assert without touching disk. */
+  readonly authoredZonesFile?: string | undefined;
   /** Where authored mob loot is saved, or undefined to edit the live world without persisting. */
   readonly mobOverridesFile: string | undefined;
   /** A9b: where created mobs are written. Absent in tests that assert without touching disk. */
@@ -672,6 +675,8 @@ export class AdminApi {
     if (head === 'status' && parts.length === 1 && request.method === 'GET') return this.status();
     if (head === 'rooms' && parts.length === 1 && request.method === 'GET') return this.rooms();
     if (head === 'zones' && parts.length === 1 && request.method === 'GET') return this.zones();
+    // A8d. A zone from nothing — the id is the server's, and which zones *load* stays a file.
+    if (head === 'zones' && parts.length === 1 && request.method === 'POST') return this.createZone(request.body);
     if (head === 'zones' && slug !== undefined && action === 'rooms' && parts.length === 3 && request.method === 'GET') {
       return this.zoneRooms(slug);
     }
@@ -1330,11 +1335,89 @@ export class AdminApi {
     return { status: 200, body: { ok: true } };
   }
 
+  /**
+   * `POST /zones` — **A8d, a zone from nothing**, and the three cases the roadmap said A8's rules
+   * cannot express, each answered where it said to answer them:
+   *
+   * 1. **The id is the server's**, from {@link AUTHORED_ZONE_BASE} with the stored counter — the body
+   *    may not choose one, for the reason `createItem` gives about join keys.
+   * 2. **The first room is written in the same motion**, at the origin `(0,0,0)`: a zone with no
+   *    rooms cannot even compose, and `composeAuthoredRooms`' origin exception is what places a room
+   *    no neighbour rule can. Its extent is recorded now, so the first boot does not read the new
+   *    Place as stale and write a git-tracked file for nothing.
+   * 3. **Which zones load stays a file.** Nothing here touches `world.config.json` or the live world;
+   *    the response says — in words, to a person — what to add and that a restart makes it real.
+   *    That is the roadmap's own sizing of the honest first version, kept.
+   */
+  private createZone(body: unknown): AdminResponse {
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return { status: 400, body: { error: 'POST body must be a JSON object' } };
+    }
+    const draft = body as Record<string, unknown>;
+    if (draft.id !== undefined) {
+      return { status: 400, body: { error: 'the id is allocated by the server — a zone may not choose its own join key' } };
+    }
+    const name = readZoneName(draft.name);
+    if (!name) {
+      return { status: 400, body: { error: `name must be a non-empty string of at most ${ZONE_NAME_MAX} characters` } };
+    }
+    const roomName =
+      typeof draft.roomName === 'string' && draft.roomName.trim() ? draft.roomName.trim() : 'An Unmade Place';
+    const sector =
+      typeof draft.sector === 'string' && (SECTORS as readonly string[]).includes(draft.sector)
+        ? (draft.sector as Sector)
+        : 'inside';
+    const by = typeof draft.by === 'string' ? draft.by.slice(0, 200) : undefined;
+    const at = new Date().toISOString();
+
+    const { world } = this.deps;
+    const zoneId = takeAuthoredZoneId(world.authoredZones);
+    world.authoredZones.zones.set(zoneId, { name, at, ...(by ? { by } : {}) });
+    if (this.deps.authoredZonesFile) saveAuthoredZones(world.authoredZones, this.deps.authoredZonesFile);
+
+    const roomId = takeAuthoredRoomId(world.authoredRooms);
+    // Through the same drafting door every other room passes — with the origin allowance, which is
+    // the one loosening A8d owns. Hand-building the record here would be the second validator the
+    // reader's header warns about, and the drive proved it: the first version did exactly that, and
+    // the loader (running the real rules) dropped the room on the next boot.
+    const drafted = draftAuthoredRoom(
+      roomId,
+      { zone: zoneId, name: roomName, sector, x: 0, y: 0, level: 0, exits: [] },
+      { allowNoExits: true },
+    );
+    if ('error' in drafted) return { status: 400, body: { error: drafted.error } };
+    world.authoredRooms.rooms.set(roomId, { room: drafted.room, at, ...(by ? { by } : {}) });
+    world.authoredRooms.extents.set(placeKey({ zone: zoneId, level: 0 }), { minX: 0, maxX: 0, minY: 0, maxY: 0 });
+    if (this.deps.authoredRoomsFile) saveAuthoredRooms(world.authoredRooms, this.deps.authoredRoomsFile);
+
+    this.audit('zone.create', { zone: zoneId, name, room: roomId });
+    return {
+      status: 201,
+      body: {
+        ok: true,
+        zone: zoneId,
+        room: roomId,
+        note:
+          `zone ${zoneId} "${name}" is written but not loaded: add ${zoneId} to "zones" in ` +
+          `world.config.json and restart the server. Its first room, ${roomId} "${roomName}", stands at ` +
+          `the origin — teleport to it and build outward with the ordinary room tools. Nothing links to ` +
+          `it yet: an authored zone starts as an island.`,
+      },
+    };
+  }
+
   private zones(): AdminResponse {
     const { world, live } = this.deps;
+    // A8d: created zones the config does not load yet. Shown so a creation is not invisible until a
+    // restart — the row a person just made must appear *somewhere*, and the note says why it is here.
+    const loaded = new Set(world.allZones().map((zone) => zone.id));
+    const pending = [...world.authoredZones.zones.entries()]
+      .filter(([id]) => !loaded.has(id))
+      .map(([id, zone]) => ({ id, name: zone.name, note: 'add to world.config.json and restart' }));
     return {
       status: 200,
       body: {
+        ...(pending.length > 0 ? { pending } : {}),
         zones: world.allZones().map((zone) => {
           const levels = world.levelsOf(zone.id);
           const repopInMs = live.repopIn(zone.id);

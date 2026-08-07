@@ -168,6 +168,8 @@ export interface ZoneRow {
 
 export interface ZonesBody {
   zones: ZoneRow[];
+  /** A8d: zones created here that `world.config.json` does not load yet. Absent when there are none. */
+  pending?: { id: number; name: string; note: string }[];
 }
 
 /** What a builder has authored on top of the generated room. Every field optional — it is a patch. */

@@ -1,6 +1,40 @@
 {
-  "next": 1000004,
+  "next": 1000006,
   "deleted": [],
-  "extents": {},
-  "rooms": {}
+  "extents": {
+    "100000:0": {
+      "minX": 0,
+      "maxX": 1,
+      "minY": 0,
+      "maxY": 0
+    }
+  },
+  "rooms": {
+    "1000004": {
+      "id": 1000004,
+      "zone": 100000,
+      "name": "A Flooded Landing",
+      "sector": "inside",
+      "x": 0,
+      "y": 0,
+      "level": 0,
+      "exits": {},
+      "at": "2026-08-07T00:51:40.371Z",
+      "by": "drive"
+    },
+    "1000005": {
+      "id": 1000005,
+      "zone": 100000,
+      "name": "A Stair Descending Into Dark Water",
+      "sector": "inside",
+      "x": 1,
+      "y": 0,
+      "level": 0,
+      "exits": {
+        "west": 1000004
+      },
+      "at": "2026-08-07T00:56:49.557Z",
+      "by": "drive"
+    }
+  }
 }

@@ -17,6 +17,7 @@ import {
   AUTHORED_MOB_BASE,
   AUTHORED_ROOM_BASE,
   AUTHORED_VNUM_BASE,
+  AUTHORED_ZONE_BASE,
   DURIS_ITEM,
   LPC_ART,
   boundsOf,
@@ -2094,5 +2095,49 @@ describe('mob loot', () => {
     assert.equal(line.action, 'mob.loot');
     assert.equal(line.vnum, 61);
     assert.equal(line.pieces, 1);
+  });
+});
+
+/**
+ * A8d — `POST /zones`, a zone from nothing. The store rules live in `zone-authoring.test.ts`; this is
+ * the route's own contract: the server allocates, the origin room is written in the same motion, and
+ * the answer tells a person — in words — that the config and a restart are the other half.
+ */
+describe('creating a zone', () => {
+  it('creates the zone and its origin room, and says what to do next', () => {
+    const { api } = makeRig();
+    const created = quietly(() =>
+      api.route(req('POST', '/zones', { name: 'The Sunken Stair', roomName: 'A Flooded Landing', by: 'test' })),
+    );
+    assert.equal(created.status, 201);
+    const body = created.body as { zone: number; room: number; note: string };
+    assert.ok(body.zone >= AUTHORED_ZONE_BASE, `${body.zone} is ours, not the harvest's`);
+    assert.ok(body.room >= AUTHORED_ROOM_BASE, `${body.room} is ours, not the harvest's`);
+    assert.match(body.note, /world\.config\.json/);
+    assert.match(body.note, /restart/);
+
+    // Until the config loads it, the listing shows it as pending — a creation must not be invisible.
+    const zones = api.route(req('GET', '/zones')).body as {
+      pending?: { id: number; name: string }[];
+      zones: { id: number }[];
+    };
+    assert.equal(zones.pending?.length, 1);
+    assert.equal(zones.pending?.[0]?.name, 'The Sunken Stair');
+    assert.ok(!zones.zones.some((zone) => zone.id === body.zone), 'not in the loaded list — nothing restarted');
+
+    // The origin room is in the authored store, at the origin, with its extent already recorded so
+    // the first boot does not read the new Place as stale.
+    const second = quietly(() => api.route(req('POST', '/zones', { name: 'The Second Stair' }))).body as {
+      zone: number;
+    };
+    assert.equal(second.zone, body.zone + 1, 'the counter advances rather than reissuing');
+  });
+
+  it('refuses a chosen id, an unusable name, and a non-object body', () => {
+    const { api } = makeRig();
+    assert.equal(api.route(req('POST', '/zones', { id: 555, name: 'A Chosen Number' })).status, 400);
+    assert.equal(api.route(req('POST', '/zones', { name: '   ' })).status, 400);
+    assert.equal(api.route(req('POST', '/zones', { name: 'x'.repeat(61) })).status, 400);
+    assert.equal(api.route(req('POST', '/zones', 'nonsense')).status, 400);
   });
 });

@@ -50,6 +50,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   AUTHORED_ROOM_BASE,
+  AUTHORED_ZONE_BASE,
   DIRECTION_DELTA,
   OPPOSITE,
   ROOM_FLAGS,
@@ -421,7 +422,19 @@ export function resolveExits(
  * needs the rest of the zone to answer; the exits it carries are {@link resolveExits}' and need the
  * same. Keeping the three apart is what lets the loader and the API run all three in one order.
  */
-export function draftAuthoredRoom(id: RoomId, draft: RoomDraft): Drafted {
+export function draftAuthoredRoom(
+  id: RoomId,
+  draft: RoomDraft,
+  options: {
+    /**
+     * A8d's one loosening: the **origin room of an authored zone** may carry no exits, because there
+     * is nothing in its zone to join and teleport is how a building site is reached. Passed by
+     * `createZone` and by the loader for exit-less records in authored zones; the ordinary room POST
+     * never passes it, so infill keeps the rule the comment below states.
+     */
+    readonly allowNoExits?: boolean;
+  } = {},
+): Drafted {
   if (!Number.isInteger(id) || id < AUTHORED_ROOM_BASE) {
     return { error: `an authored room id must be an integer at or above ${AUTHORED_ROOM_BASE}` };
   }
@@ -464,12 +477,14 @@ export function draftAuthoredRoom(id: RoomId, draft: RoomDraft): Drafted {
 
   // **At least one, and that is a rule rather than a nicety.** This slice has no way to add an exit
   // to a room after the fact, so a room created with none is unreachable for ever — and an
-  // unreachable room is indistinguishable from the save having failed.
-  if (!Array.isArray(draft.exits) || draft.exits.length === 0) {
+  // unreachable room is indistinguishable from the save having failed. The one exception is named
+  // in {@link options}: an authored zone's origin has nothing to join yet.
+  const exitless = !Array.isArray(draft.exits) || draft.exits.length === 0;
+  if (exitless && !options.allowNoExits) {
     return { error: 'a room needs at least one exit — one you cannot walk into is not a room yet' };
   }
   const dirs: Direction[] = [];
-  for (const raw of draft.exits as unknown[]) {
+  for (const raw of exitless ? [] : (draft.exits as unknown[])) {
     if (typeof raw !== 'string' || !isDirection(raw)) {
       return { error: `"${String(raw)}" is not a direction — one of: ${LINKABLE.join(', ')}` };
     }
@@ -512,7 +527,11 @@ export function readAuthoredRoom(id: RoomId, raw: unknown): AuthoredRoom | undef
 
   const stored = typeof record.exits === 'object' && record.exits !== null ? (record.exits as Record<string, unknown>) : {};
   const dirs = Object.keys(stored).filter((key) => isDirection(key));
-  const drafted = draftAuthoredRoom(id, { ...record, exits: dirs } as RoomDraft);
+  const drafted = draftAuthoredRoom(id, { ...record, exits: dirs } as RoomDraft, {
+    // The origin case, at the reading door: an exit-less record in an authored zone is a zone's first
+    // room, not a save that failed. Anywhere else, exit-less stays refused — same rule, both doors.
+    allowNoExits: dirs.length === 0 && (readInt(record.zone) ?? 0) >= AUTHORED_ZONE_BASE,
+  });
   if ('error' in drafted) return undefined;
 
   const exits: Partial<Record<Direction, RoomExit>> = {};
@@ -618,7 +637,14 @@ export function composeAuthoredRooms(
       refused.push({ id: authored.room.id, why: 'a room with this id is already in the zone' });
       continue;
     }
-    const why = placementRefusal(zone.rooms, authored.room.pos);
+    // **The origin exception — A8d.** An authored zone starts with no rooms, no levels and no extent,
+    // so the join-a-neighbour rule has nothing to measure against and `placementRefusal` would refuse
+    // its first room for ever. That first room — lowest id, because `mine` is sorted — IS the origin:
+    // it is placed bare, becomes the extent, and every later room joins it under the ordinary rule.
+    // Gated to authored zones, so a harvested zone file that somehow lost its rooms still refuses
+    // loudly rather than quietly growing from whatever the overlay holds.
+    const isOrigin = zone.rooms.length === 0 && zone.id >= AUTHORED_ZONE_BASE;
+    const why = isOrigin ? undefined : placementRefusal(zone.rooms, authored.room.pos);
     if (why) {
       refused.push({ id: authored.room.id, why });
       continue;

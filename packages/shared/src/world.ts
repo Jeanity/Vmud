@@ -212,6 +212,19 @@ export type RoomFlag = (typeof ROOM_FLAGS)[number];
  */
 export const AUTHORED_ROOM_BASE = 1_000_000;
 
+/**
+ * Where **our own** zone ids start — A8d, and {@link AUTHORED_ROOM_BASE}'s argument one level up.
+ *
+ * A zone id is the other half of the join key (`CLAUDE.md`: room *and zone* ids are the MUD's own
+ * numbers), and it is also a directory name under `data/world/spawns/` and a line in
+ * `world.config.json`, so a collision would be two zones quietly becoming one across three files.
+ *
+ * **Measured rather than assumed:** the harvest holds 327 zones and their ids run **1 to 423**. Six
+ * digits is two orders of magnitude of headroom over anything a future Duris drop could plausibly
+ * bring, and — the same virtue the room base has — obvious on sight: a six-digit zone id is ours.
+ */
+export const AUTHORED_ZONE_BASE = 100_000;
+
 export interface Room {
   readonly id: RoomId;
   readonly zone: ZoneId;

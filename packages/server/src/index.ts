@@ -333,6 +333,7 @@ import {
 } from './grouping.ts';
 import { buildPlaceGraph } from './placegraph.ts';
 import { AUTHORED_ROOMS_FILE, saveAuthoredRooms } from './room-authoring.ts';
+import { AUTHORED_ZONES_FILE } from './zone-authoring.ts';
 import { GameWorld, placeOf } from './world.ts';
 
 /**
@@ -6758,6 +6759,7 @@ const admin = new AdminApi({
   auditFile: join(REPO_ROOT, 'data', 'admin-audit.jsonl'),
   overridesFile: ROOMS_FILE,
   authoredRoomsFile: AUTHORED_ROOMS_FILE,
+  authoredZonesFile: AUTHORED_ZONES_FILE,
   mobOverridesFile: MOBS_FILE,
   placementsFile: PLACEMENTS_FILE,
   authoredMobsFile: AUTHORED_MOBS_FILE,

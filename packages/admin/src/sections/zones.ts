@@ -192,7 +192,7 @@ export const zonesSection = {
         render(zonePane, el('p', { class: 'flash err' }, result.error ?? 'unreachable'));
         return;
       }
-      renderZones(zonePane, result.body.zones, (id) => {
+      renderZones(zonePane, result.body.zones, result.body.pending ?? [], refreshZones, (id) => {
         pickedLevel = undefined;
         pickedRoom = undefined;
         render(detailPane);
@@ -216,7 +216,13 @@ export const zonesSection = {
   },
 };
 
-function renderZones(pane: HTMLElement, zones: readonly ZoneRow[], pick: (id: number) => void): void {
+function renderZones(
+  pane: HTMLElement,
+  zones: readonly ZoneRow[],
+  pending: readonly { id: number; name: string; note: string }[],
+  refresh: () => Promise<void>,
+  pick: (id: number) => void,
+): void {
   render(
     pane,
     el(
@@ -293,6 +299,68 @@ function renderZones(pane: HTMLElement, zones: readonly ZoneRow[], pick: (id: nu
         ),
       ),
     ),
+    // A8d: created zones the config does not load yet. Their whole state is one sentence, and the
+    // sentence is the server's — the note names the file and the restart, so the panel never has to.
+    ...(pending.length === 0
+      ? []
+      : [
+          el(
+            'div',
+            { class: 'card' },
+            el('h3', {}, `Created, not loaded — ${pending.length}`),
+            ...pending.map((zone) =>
+              el(
+                'p',
+                { class: 'note' },
+                `${zone.id} — ${zone.name}`,
+                el('div', { class: 'muted', style: 'font-size:11px' }, zone.note),
+              ),
+            ),
+          ),
+        ]),
+    zoneCreator(refresh),
+  );
+}
+
+/**
+ * A8d — a zone from nothing: a name, and the server does the rest. The response's `note` is shown
+ * verbatim, because the config edit and the restart are *deliberately* not this panel's to perform —
+ * which zones load is a file, and the person holding the file should read the instruction the server
+ * wrote rather than a paraphrase.
+ */
+function zoneCreator(refresh: () => Promise<void>): HTMLElement {
+  const name = el('input', { type: 'text', placeholder: 'zone name — e.g. The Sunken Stair', maxlength: '60' }) as HTMLInputElement;
+  const roomName = el('input', { type: 'text', placeholder: 'first room (optional)', maxlength: '80' }) as HTMLInputElement;
+  const flash = el('p', { class: 'note muted' });
+  const create = el('button', { type: 'button' }, 'Create zone') as HTMLButtonElement;
+  create.addEventListener('click', () => {
+    void (async () => {
+      create.disabled = true;
+      const body: Record<string, string> = { name: name.value, by: 'panel' };
+      if (roomName.value.trim()) body.roomName = roomName.value.trim();
+      const made = await call<{ zone: number; room: number; note: string }>('POST', '/zones', body);
+      create.disabled = false;
+      if (!made.ok || !made.body) {
+        flash.className = 'flash err';
+        flash.textContent = made.error ?? 'refused';
+        return;
+      }
+      flash.className = 'note';
+      flash.textContent = made.body.note;
+      name.value = '';
+      roomName.value = '';
+      await refresh();
+    })();
+  });
+  return el(
+    'div',
+    { class: 'card' },
+    el('h3', {}, 'New zone'),
+    el('p', { class: 'note muted' }, 'Creates the zone and its first room at the origin. Loading it is a config line and a restart — the answer says exactly which.'),
+    name,
+    roomName,
+    create,
+    flash,
   );
 }
 

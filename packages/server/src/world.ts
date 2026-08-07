@@ -18,7 +18,9 @@ import { fileURLToPath } from 'node:url';
 
 import {
   AUTHORED_ROOM_BASE,
+  AUTHORED_ZONE_BASE,
   OPPOSITE,
+  boundsOf,
   buildZoneTilemap,
   placeKey,
   setDoorTiles,
@@ -59,6 +61,7 @@ import {
   type AuthoredRoomStore,
   type Extent,
 } from './room-authoring.ts';
+import { AUTHORED_ZONES_FILE, loadAuthoredZones, type AuthoredZoneStore } from './zone-authoring.ts';
 
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -151,6 +154,27 @@ export function loadZone(id: ZoneId): Zone {
       { cause },
     );
   }
+}
+
+/**
+ * The `Zone` record an **authored** zone boots from — A8d. A shell on purpose: its rooms live in
+ * `rooms-authored.json` and are attached by `composeAuthoredRooms` exactly as created rooms attach to
+ * a harvested zone, with the origin exception standing in for the neighbour rule on the first one.
+ * The bounds are zeroed rather than computed because nothing at runtime reads `zone.bounds` — grids
+ * are sized per level from the rooms themselves (`tilemap.ts` says why in as many words).
+ *
+ * **Refuses loudly** when the config names an authored id the overlay does not hold — `loadZone`'s
+ * own posture, because a typo silently skipped is a world missing a map with nothing to say why.
+ */
+export function authoredZoneShell(id: ZoneId, store: AuthoredZoneStore): Zone {
+  const authored = store.zones.get(id);
+  if (!authored) {
+    throw new Error(
+      `world.config.json names zone ${id}, which is in the authored range (${AUTHORED_ZONE_BASE}+) ` +
+        `but not in ${AUTHORED_ZONES_FILE}. Remove the id from the config, or restore the overlay.`,
+    );
+  }
+  return { id, name: authored.name, rooms: [], bounds: boundsOf([]) };
 }
 
 function malformed(path: string, why: string): never {
@@ -328,6 +352,13 @@ export class GameWorld {
   readonly authoredRooms: AuthoredRoomStore;
 
   /**
+   * Zones that were **created** here — A8d, the seventh overlay. Held for the sibling reason: the
+   * panel's create route writes this store and saves it, and `load` is what reads it back into a
+   * bootable `Zone` when the config finally names the id.
+   */
+  readonly authoredZones: AuthoredZoneStore;
+
+  /**
    * What the overlay asked for and could not have, said once at boot.
    *
    * Empty in every ordinary session. It fills when a hand-edited record puts a room outside its
@@ -380,7 +411,9 @@ export class GameWorld {
     populate: readonly ZoneId[] = [],
     overrides: RoomOverrides = new Map(),
     authoredRooms: AuthoredRoomStore = { rooms: new Map(), next: AUTHORED_ROOM_BASE, deleted: new Set(), extents: new Map() },
+    authoredZones: AuthoredZoneStore = { zones: new Map(), next: AUTHORED_ZONE_BASE as ZoneId },
   ) {
+    this.authoredZones = authoredZones;
     this.populate = populate;
     this.spawn = spawn;
     this.overrides = overrides;
@@ -486,15 +519,17 @@ export class GameWorld {
     else this.authoredRooms.extents.delete(placeKey(place));
   }
 
-  /** Loads every zone named in the config, with both authored overlays composed on top. */
+  /** Loads every zone named in the config, with all three authored overlays composed on top. */
   static load(configPath: string = CONFIG_PATH): GameWorld {
     const config = loadWorldConfig(configPath);
+    const authoredZones = loadAuthoredZones();
     return new GameWorld(
-      config.zones.map((id) => loadZone(id)),
+      config.zones.map((id) => (id >= AUTHORED_ZONE_BASE ? authoredZoneShell(id, authoredZones) : loadZone(id))),
       config.spawn,
       config.populate,
       loadRoomOverrides(),
       loadAuthoredRooms(),
+      authoredZones,
     );
   }
 
