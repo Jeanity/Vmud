@@ -55,7 +55,7 @@ import {
 } from '@mygame/shared';
 
 import { isMob, isPlayer, type Actor, type Mob, type Player, type Simulation } from './sim.ts';
-import { Scheduler } from './scheduler.ts';
+import { Scheduler, type ScheduledEvent } from './scheduler.ts';
 
 /** One resolved swing, for the caller to put on the wire and in the log. */
 export interface AttackOutcome {
@@ -686,6 +686,13 @@ export function landBlow(
  * Driven by the scheduler rather than by a scan: a `swing` event comes due, is resolved, and reschedules
  * itself a round later. Most ticks pop nothing at all, which is the shape §4.1 wants and the reason the
  * queue exists — 92 mobs stand in IceCrag and at most a few are ever swinging.
+ *
+ * **This function is handed the tick's due events; it no longer drains the scheduler itself** — Phase
+ * 20's mandatory first commit, restructured with no behaviour change. It used to hold the codebase's
+ * only `scheduler.advance()` call and silently discard every kind it did not know, which meant any new
+ * event kind — a spell's wind-up, most immediately — would pop here and vanish. The tick loop drains
+ * once and routes by kind; this function still ignores everything but `swing`, because a swing is the
+ * one kind that is *its* business, and the filter is its contract rather than a leak.
  */
 export function advanceCombat(
   sim: Simulation,
@@ -693,7 +700,7 @@ export function advanceCombat(
   book: ThreatBook,
   ledger: LedgerBook,
   rng: Rng,
-  elapsedMs: number,
+  due: readonly ScheduledEvent[],
   morale?: MoraleCheck,
   /** Phase 19 slice 2. Absent means nobody dodges or parries — combat exactly as it was before. */
   defence?: DefenceLookup,
@@ -739,7 +746,7 @@ export function advanceCombat(
     }
   }
 
-  for (const event of scheduler.advance(elapsedMs)) {
+  for (const event of due) {
     if (event.kind !== 'swing') continue;
     const attacker = sim.get(event.actor);
     if (!attacker || attacker.fighting === undefined) continue;

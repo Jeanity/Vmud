@@ -7270,6 +7270,20 @@ setInterval(() => {
     if (engage(scheduler, event.mob, quarry)) syncEntityState(event.mob);
   }
 
+  // **The tick drains the scheduler once, and routes by kind.** Phase 20's mandatory first commit:
+  // the drain used to live inside `advanceCombat`, which discarded every kind it did not know — so a
+  // spell's wind-up event would have popped there and vanished. Draining here makes the tick the one
+  // dispatcher; `advanceCombat` is handed the events and keeps exactly its old behaviour.
+  const dueEvents = scheduler.advance(TICK_MS);
+  // A kind nothing routes is a bug worth hearing about, not a silence — the exact failure the old
+  // shape had. `command` is the scheduler's declared-but-unproduced kind; nothing schedules one, and
+  // the day something does, it gets a case here first.
+  for (const event of dueEvents) {
+    if (event.kind !== 'swing') {
+      console.error(`[tick] undispatched '${event.kind}' event for #${event.actor} — add a route beside advanceCombat`);
+    }
+  }
+
   // Blows land. Driven by the scheduler rather than a scan: most ticks pop nothing at all.
   //
   // The last argument is Phase 14's morale check, injected the way `advanceAssists` takes `perceives`:
@@ -7281,7 +7295,7 @@ setInterval(() => {
     threat,
     ledger,
     combatRng,
-    TICK_MS,
+    dueEvents,
     (mob) => {
       const outcome = runFlee(mob);
       return outcome.kind === 'fled';

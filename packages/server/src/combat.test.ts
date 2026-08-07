@@ -126,7 +126,7 @@ function makeFixture(template: MobTemplate = dummy()): Fixture {
     run: (ms) => {
       const out: ReturnType<typeof advanceCombat>['attacks'][number][] = [];
       for (let elapsed = 0; elapsed < ms; elapsed += 100) {
-        out.push(...advanceCombat(sim, scheduler, book, ledger, rng, 100).attacks);
+        out.push(...advanceCombat(sim, scheduler, book, ledger, rng, scheduler.advance(100)).attacks);
       }
       return out;
     },
@@ -157,7 +157,7 @@ describe('an active defence, wired the way the server wires it', () => {
     engage(f.scheduler, f.mob, f.player);
     const out = [];
     for (let elapsed = 0; elapsed < ms; elapsed += 100) {
-      out.push(...advanceCombat(f.sim, f.scheduler, f.book, f.ledger, f.rng, 100, undefined, defence).attacks);
+      out.push(...advanceCombat(f.sim, f.scheduler, f.book, f.ledger, f.rng, f.scheduler.advance(100), undefined, defence).attacks);
     }
     return out;
   }
@@ -638,7 +638,7 @@ describe('threat decides who a mob fights', () => {
 
     const switches: ReturnType<typeof advanceCombat>['switches'][number][] = [];
     for (let i = 0; i < 40; i++) {
-      switches.push(...advanceCombat(fixture.sim, fixture.scheduler, fixture.book, fixture.ledger, fixture.rng, 100).switches);
+      switches.push(...advanceCombat(fixture.sim, fixture.scheduler, fixture.book, fixture.ledger, fixture.rng, fixture.scheduler.advance(100)).switches);
     }
     assert.equal(switches.length >= 1, true);
     assert.equal(switches[0]?.to.id, fixture.other.id);
@@ -955,7 +955,7 @@ describe('morale on the round boundary', () => {
     const attacks: ReturnType<typeof advanceCombat>['attacks'][number][] = [];
     for (let elapsed = 0; elapsed < ROUND_MS + 200; elapsed += 100) {
       attacks.push(
-        ...advanceCombat(f.sim, f.scheduler, f.book, f.ledger, f.rng, 100, (mob) => {
+        ...advanceCombat(f.sim, f.scheduler, f.book, f.ledger, f.rng, f.scheduler.advance(100), (mob) => {
           asked.push(mob);
           if (getsAway) {
             // What the real callback does through `attemptFlee`: the body leaves and every pointer goes.

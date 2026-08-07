@@ -263,10 +263,15 @@ export const AFFECT_TYPES: Readonly<Record<AffectType, AffectKind>> = {
    * cooldown would make the two-category design in `skills.ts` unobservable, and an unobservable design
    * is one nobody can build on later.
    *
-   * **Shown rather than `NoShow`**, on `settling`'s argument in its other form: a mechanic that rewards
-   * patience has to say how much patience is left, or a player whose skills stopped rising concludes the
-   * game is broken. And **saved**, which matters more than it looks — an unsaved cooldown would make
-   * reconnecting the fastest way to grind.
+   * **Installed `NoShow`, and the display duty lives in the `skills` command** — which is not what
+   * this comment used to claim. It argued *Shown*, on `settling`'s logic (a mechanic that rewards
+   * patience has to say how much patience is left), and the install site quietly disagreed: the
+   * affect list showing "learning (physical) 4:51" beside torches and wounds read as a debuff, so the
+   * cooldown reports where a player actually asks the question — `skills` says *"you have learnt
+   * something physical recently, and are learning more slowly"*. Reconciled 2026-08-07 in Phase 20's
+   * first commit, before the spell cooldowns copy whichever precedent they read first. Still
+   * **saved**, which matters more than it looks — an unsaved cooldown would make reconnecting the
+   * fastest way to grind.
    */
   notch_physical: {
     id: 'notch_physical',
