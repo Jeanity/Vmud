@@ -110,6 +110,12 @@ const game = new Phaser.Game({
 // be told, or the canvas keeps the width it had and the map is drawn into a letterbox of its new space.
 log.onLayoutChange = () => scene.refreshViewport();
 
+// The login gate may not `enter` until the scene's message handlers exist — they are registered in
+// `create()`, and the world's answer to `enter` is immediate. The scene's own callback rather than
+// a Phaser lifecycle event, because `scene.events` does not exist until the SceneManager boots the
+// scene, which is after this whole module has run.
+scene.onReady = () => login.setReady();
+
 // Dev-only handle so the running scene can be inspected from the console. Phaser keeps no global
 // registry, and reading pixels back off the canvas is unreliable once a frame has been presented.
 if (import.meta.env.DEV) {

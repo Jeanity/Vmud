@@ -174,6 +174,8 @@ import {
   SECTOR_REQUIRES_MOVEMENT,
   samePlace,
   shortfall,
+  canonicalCharacterName,
+  characterNameProblem,
   type AdjacentRoomView,
   type CharacterSummary,
   type ClientMessage,
@@ -1038,7 +1040,7 @@ function admitCharacter(
   requestedName: string,
   overLoopback: boolean,
 ): { ok: true; record: PlayerRecord } | { ok: false; reason: string } {
-  const requested = requestedName.trim().slice(0, 24);
+  let requested = requestedName.trim().slice(0, 24);
   const slug = slugify(requested);
   if (!slug) return { ok: false, reason: 'that name cannot be used' };
   const owner = accounts.ownerOf(slug);
@@ -1049,8 +1051,15 @@ function admitCharacter(
     // Unowned. A brand-new name is anyone's to take; a name with history — a save on disk — is
     // claimable only over loopback (§6). Today that is the operator adopting their own flotsam;
     // the day the bind opens it is nobody remotely, and assignment becomes the admin API's job.
-    if (store.hasStored(slug) && !overLoopback) {
-      return { ok: false, reason: 'that character is not claimable from here' };
+    if (store.hasStored(slug)) {
+      if (!overLoopback) return { ok: false, reason: 'that character is not claimable from here' };
+    } else {
+      // A mint, and only a mint, passes the name law (owner's rule 2026-08-08 — shared/names.ts).
+      // Saves that predate the law are grandfathered above: orphaning aldric11 over its digits
+      // would cost more than the digits do.
+      const problem = characterNameProblem(requested);
+      if (problem) return { ok: false, reason: problem };
+      requested = canonicalCharacterName(requested);
     }
     const claim = accounts.claim(account.slug, slug);
     if (!claim.ok) return { ok: false, reason: claim.reason };

@@ -765,6 +765,9 @@
         text-align: center;
       }
       #login-card form { display: flex; flex-direction: column; gap: 10px; }
+      /* Explicit display beats the UA's [hidden] rule, so hidden needs restating — the same trap
+         #login itself steps around below. */
+      #login-card form[hidden] { display: none; }
       #login-card label {
         display: flex;
         flex-direction: column;
@@ -812,8 +815,7 @@
       }
       #login-characters .login-character b { color: var(--ink); font-weight: 600; }
       #login-characters .login-character span { font-size: 10px; color: var(--dim); }
-      #login-new { flex-direction: row; }
-      #login-new input { flex: 1; min-width: 0; }
+      #login-new input { min-width: 0; }
       #login-switch {
         align-self: center;
         background: none;

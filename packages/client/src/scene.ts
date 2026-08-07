@@ -968,6 +968,12 @@ export class WorldScene extends Phaser.Scene {
    */
   private typing = false;
   /**
+   * Fired at the end of `create()`, once `wireNetwork` has registered every message handler. The
+   * login gate holds `enter` on it — see login.ts — because the world's answer to `enter` arrives
+   * on the next few frames and a handler registered after the fact reads none of it.
+   */
+  onReady: (() => void) | undefined;
+  /**
    * Whether the server would let this character move — mirrored from `SelfView`, never inferred.
    *
    * Prediction has to respect it. A client that predicted a walk the server refuses produces a sprite
@@ -1334,6 +1340,11 @@ export class WorldScene extends Phaser.Scene {
     this.wireSheet();
     this.wireInventory();
     this.wireNetwork();
+    // The login gate holds `enter` until this fires: the world answers `enter` immediately, and
+    // `wireNetwork` one line up is what makes those answers land. A Phaser lifecycle event would
+    // say the same thing, but `this.events` does not exist until the SceneManager boots the scene,
+    // so main.ts — which runs before that — cannot subscribe to one.
+    this.onReady?.();
   }
 
   /**

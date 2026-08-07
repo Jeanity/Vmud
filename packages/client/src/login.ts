@@ -26,7 +26,7 @@
  * it.
  */
 
-import { PROTOCOL_VERSION, type CharacterSummary } from '@mygame/shared';
+import { PROTOCOL_VERSION, type CharacterSummary, type ServerMessage } from '@mygame/shared';
 
 import type { Net } from './net.ts';
 
@@ -52,6 +52,21 @@ export class LoginGate {
   private pending: 'none' | 'auth' | 'resume' | 'enter' | 'autoEnter' = 'none';
   /** True while the current `auth` was sent without the user typing — resume or URL params. */
   private handsFree = false;
+  /**
+   * `enter` is held until the scene has booted, because the world answers it *immediately* —
+   * `welcome`, `zone`, `seen`, `self`, the room — and the scene registers its handlers in Phaser's
+   * `create()`, a frame or more after this module ran. A human on the picker can never beat that
+   * frame; the hands-free resume path on loopback reliably did, and the world arrived before
+   * anything was listening. `auth` is not held: its answers land here, and this object is ready
+   * the moment it exists.
+   */
+  private ready = false;
+  private enterWhenReady: string | undefined;
+  /**
+   * The last `account` message, kept because the hands-free path never shows the picker — and when
+   * its auto-`enter` is refused, the picker (with this list in it) is exactly what must appear.
+   */
+  private lastAccount: Extract<ServerMessage, { t: 'account' }> | undefined;
 
   /** Raised while the overlay is up. The scene's typing gate hangs off it — see `main.ts`. */
   onVisibility: ((visible: boolean) => void) | undefined;
@@ -104,6 +119,7 @@ export class LoginGate {
     });
 
     net.on('account', (message) => {
+      this.lastAccount = message;
       writeSession(RESUME_KEY, message.resume);
       const wanted = params().get('character') ?? readSession(CHARACTER_KEY) ?? undefined;
       // Hands-free auth walks straight back into the remembered body; a typed login came to choose.
@@ -123,12 +139,22 @@ export class LoginGate {
           clearSession(RESUME_KEY);
           this.showForm();
           return;
-        case 'autoEnter':
-          // The remembered body was refused — taken, or already walking. Choose by hand.
+        case 'autoEnter': {
+          // The remembered body was refused — taken, or already walking. Choose by hand: the
+          // hands-free path skipped the picker, so it has to be *raised* here, not just written
+          // to — an error inside a hidden panel explains nothing.
           clearSession(CHARACTER_KEY);
-          this.pickerError.textContent = message.reason;
-          this.pickerError.hidden = false;
+          const held = this.lastAccount;
+          if (held) {
+            this.showPicker(held.account, held.characters, held.max);
+            this.pickerError.textContent = message.reason;
+            this.pickerError.hidden = false;
+          } else {
+            this.showForm();
+            this.fail(message.reason);
+          }
           return;
+        }
         case 'enter':
           this.pickerError.textContent = message.reason;
           this.pickerError.hidden = false;
@@ -172,7 +198,19 @@ export class LoginGate {
     this.showForm();
   }
 
+  /** Called once the scene's handlers exist (`create()` has run). Releases any held `enter`. */
+  setReady(): void {
+    this.ready = true;
+    const held = this.enterWhenReady;
+    this.enterWhenReady = undefined;
+    if (held) this.enter(held, 'autoEnter');
+  }
+
   private enter(name: string, step: 'enter' | 'autoEnter'): void {
+    if (!this.ready) {
+      this.enterWhenReady = name;
+      return;
+    }
     this.pending = step;
     writeSession(CHARACTER_KEY, name);
     this.net.send({ t: 'enter', name });
@@ -203,7 +241,12 @@ export class LoginGate {
         row.append(name);
         const facts: string[] = [];
         if (character.level !== undefined) facts.push(`level ${character.level}`);
-        if (character.lastPlayed) facts.push(character.lastPlayed.slice(0, 10));
+        // Local, not sliced from the ISO string: the wire timestamp is UTC, and a character played
+        // this morning must not be listed under yesterday's date east of Greenwich.
+        if (character.lastPlayed) {
+          const played = new Date(character.lastPlayed);
+          if (!Number.isNaN(played.getTime())) facts.push(played.toLocaleDateString());
+        }
         if (facts.length > 0) {
           const detail = document.createElement('span');
           detail.textContent = facts.join(' · ');
