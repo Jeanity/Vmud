@@ -279,6 +279,23 @@ export interface Actor {
    */
   wasFighting: EntityId | undefined;
   /**
+   * The spell being wound up, or nothing — **Phase 20 slice 2**, `AFF2_CASTING` as a record rather
+   * than a bit. On the Actor rather than the Player because mobs cast in slice 3, through the
+   * source's own `MobCastSpell` shortcut, and a second copy of this field would be how the two paths
+   * come to disagree about what casting *is*. `room` is where the cast began: the once-per-second
+   * beat compares it against where the caster stands now, which is the whole of the forced-exit
+   * interruption rule — no hook in `relocate`, exactly as the source's own beat says of itself:
+   * *"this is simplistic part... called once / second."*
+   */
+  casting?: {
+    readonly spell: string;
+    readonly name: string;
+    remainingMs: number;
+    readonly totalMs: number;
+    readonly room: RoomId;
+    readonly target?: EntityId;
+  };
+  /**
    * The enemy that fled from this player and is owed a re-engagement on arrival. See `pursue.ts`.
    *
    * By **entity id**, not keyword, which is the whole point: `kill youth` picks the freshest youth
@@ -1552,6 +1569,12 @@ export class Simulation {
       // of its meaning. The exhaustive switch caught this one too, which is the third time it has paid for
       // itself.
       case 'off_balance':
+        return [];
+
+      // Phase 20's wind-up chains to nothing — the `cast` event owns both of its endings and removes
+      // this affect explicitly, so expiring *here* means a beat went missing, and the lingering row on
+      // screen is deliberately the tell. Fourth time the wall of cases has paid for itself.
+      case 'casting':
         return [];
     }
   }

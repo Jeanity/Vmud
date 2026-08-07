@@ -39,6 +39,7 @@ import {
   isCombatAbility,
   type CombatAbilityId,
   type SkillId,
+  MIN_ROUND_MS,
   randomInt,
   rollDice,
   HP_DEAD_BELOW,
@@ -780,6 +781,22 @@ if (process.env.GAME_DEV_LIGHT && !DEV_LIGHT) {
 if (DEV_DECAY_MS !== undefined) {
   console.log(`[dev] dropped things decay after ${DEV_DECAY_MS} ms rather than ${GROUND_DECAY_MS} (GAME_DEV_DECAY_MS)`);
 }
+
+/**
+ * Phase 20 slice 2's test rig — a spell that exists so the *machinery* can be driven before any real
+ * one does. `GAME_DEV_CAST` grants everyone knowledge of the dev bolt; off (the default), `cast`
+ * answers honestly that you know no spells, which is true of every character until scrolls (slice 4)
+ * and remains true of most until Phase 21's classes. A rig, **not** a spell: it costs nothing, it is
+ * in no catalogue, and slice 3's registry replaces it.
+ */
+const DEV_SPELL = {
+  id: 'dev_bolt',
+  name: 'dev bolt',
+  castMs: 3000,
+  damage: { count: 2, sides: 4, bonus: 0 },
+} as const;
+const DEV_CAST = process.env.GAME_DEV_CAST !== undefined;
+if (DEV_CAST) console.log(`[dev] everyone knows "${DEV_SPELL.name}" — cast ${DEV_SPELL.name} <target> (GAME_DEV_CAST)`);
 
 /**
  * Future-dated work, ordered by when it is due. See `scheduler.ts`.
@@ -3191,7 +3208,11 @@ function useAbility(player: Player, id: CombatAbilityId, rest: string): void {
     // the whole reason to bash rather than swing, and a mechanic you cannot see is one nobody uses.
     send(player.id, { t: 'log', channel: 'combat', text: `&+YYou knock ${target.name}&N&+Y to the ground!&N` });
     send(target.id, { t: 'log', channel: 'combat', text: `${capitalise(player.name)} knocks you to the ground!` });
-    actToRoom(player, 'combat', (who) => `${who} knocks ${target.name}&N to the ground!`);
+    // Excluding the target, who just got the second-person line — the TO_VICT/TO_NOTVICT split
+    // rescue's messages make, caught here by slice 2's drive: a bashed caster read both sentences.
+    for (const line of actLines(player, [...sim.playersIn(player.roomId)].filter((p) => p.id !== target.id), canSee, (who) => `${who} knocks ${target.name}&N to the ground!`)) {
+      send(line.to, { t: 'log', channel: 'combat', text: line.text });
+    }
     syncEntityState(target);
   }
   if (ability.targetLagRounds > 0 && !result.incapacitated) {
@@ -3323,9 +3344,193 @@ function doRescue(player: Player, rest: string): void {
   scheduler.schedule('swing', player.id, Math.max(lagMs, player.roundMs));
 }
 
+/* -------------------------------------------------------------------------- */
+/* Casting — Phase 20 slice 2, the wind-up                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `cast <spell> [target]` — the wind-up, before any real spell exists to wind up.
+ *
+ * `DESIGN-spells.md` §0 is the specification and §2's decisions bound this slice: the machinery, not
+ * the magic. What is transcribed: the casting state locks every command (`permits`) and roots the
+ * body (the three intent gates); the caster's auto-attacks stop — the swing is cancelled here and
+ * given back when the cast ends either way, because a caster is a held piece; the wind-up re-validates
+ * **once per second** on the source's own cadence (the beat is the interruption system: a changed
+ * room catches every forced exit with no hook in `relocate`, and a lost footing catches bash through
+ * the knockdown it already had); interruption costs nothing; and the star meter prints each beat,
+ * which is the *Seen when* itself. Dropped and named: stun and silence (no such affects), the
+ * ground-casting save (no such skill), the max-circle agility abort (no ability scores).
+ *
+ * The room's view is one line at the start and one at the end — `EntityView` carries no affects by
+ * design, and a visible-states field is its own row, not this slice's. The bare room resync (`look`
+ * with no argument via the client's own refresh) stays available mid-cast; everything a player *does*
+ * is locked.
+ */
+function doCast(player: Player, rest: string): void {
+  const line = rest.trim();
+  if (!line) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Cast what?' });
+    return;
+  }
+  if (sim.affectsOf(player, 'off_balance').length > 0) {
+    send(player.id, { t: 'log', channel: 'error', text: 'You have not recovered your balance yet.' });
+    return;
+  }
+  // The one spell anybody can know is the rig's. Everyone else gets the shipped truth — and it stays
+  // the truth until scrolls (slice 4) and classes (Phase 21) change who knows what.
+  const named = line.toLowerCase().startsWith(DEV_SPELL.name);
+  if (!DEV_CAST || !named) {
+    send(player.id, { t: 'log', channel: 'error', text: named || !DEV_CAST ? 'You know no spells.' : "You don't know that spell." });
+    return;
+  }
+
+  const term = line.slice(DEV_SPELL.name.length).trim();
+  const view = term ? resolveTarget(player, term) : undefined;
+  if (term && !view) return; // `resolveTarget` has already said why.
+  const target = view ? sim.get(view.id) : player.fighting === undefined ? undefined : sim.get(player.fighting);
+  if (!target) {
+    send(player.id, { t: 'log', channel: 'error', text: `Cast ${DEV_SPELL.name} at whom?` });
+    return;
+  }
+  if (target.id === player.id) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Aiming that at yourself seems unwise.' });
+    return;
+  }
+
+  faceToward(player, target.x, target.y);
+  player.casting = {
+    spell: DEV_SPELL.id,
+    name: DEV_SPELL.name,
+    remainingMs: DEV_SPELL.castMs,
+    totalMs: DEV_SPELL.castMs,
+    room: player.roomId,
+    target: target.id,
+  };
+  // Rooted from the first beat: intent zeroed, any route dropped, and the held piece stops swinging.
+  sim.setIntent(player.id, 0, 0);
+  if (sim.clearPath(player)) send(player.id, { t: 'path', points: [] });
+  scheduler.cancel(player.id, 'swing');
+  // The affect is the caster's own progress bar — `SelfView.affects` counts it down with zero client
+  // work. A little slack past the true time, because the beat owns the ending and removes it
+  // explicitly; the slack only ever shows if a beat is lost, which would be its own bug worth seeing.
+  sim.addAffect(player, newAffect({ type: 'casting', durationMs: DEV_SPELL.castMs + 1500, flags: AffectFlag.NoSave }));
+  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+
+  send(player.id, { t: 'log', channel: 'combat', text: `&+CYou begin casting ${DEV_SPELL.name}...&N` });
+  actToRoom(player, 'combat', (who) => `${who} begins casting...`);
+  scheduler.schedule('cast', player.id, 1000);
+}
+
+/**
+ * One second of wind-up — the source's own `event_spellcast`, whose comment owns its shape: *"this is
+ * simplistic part, which just checks for _most_ obvious stuff like char moving around etc. this is
+ * called once / second."* The simplicity is the design: no hook in `relocate`, no hook in `bash` —
+ * a forced exit changes the room and a knockdown changes the posture, and the next beat notices both.
+ */
+function castBeat(player: Player): void {
+  const cast = player.casting;
+  if (!cast) return; // A stale event after a stop; `cancel` covers this, the return is the belt.
+
+  if (player.roomId !== cast.room) return stopCasting(player, 'you are no longer where you began');
+  if (player.posture !== 'standing' || player.status !== 'normal') {
+    return stopCasting(player, 'you have lost your footing');
+  }
+  if (cast.target !== undefined) {
+    const target = sim.get(cast.target);
+    if (!target || target.roomId !== player.roomId) return stopCasting(player, 'your target is gone');
+  }
+
+  cast.remainingMs -= 1000;
+  if (cast.remainingMs > 0) {
+    // The source's star meter, one star per second left — the visible half of the wind-up.
+    const stars = '*'.repeat(Math.ceil(cast.remainingMs / 1000));
+    send(player.id, { t: 'log', channel: 'combat', text: `Casting: ${cast.name} &+C${stars}&N` });
+    scheduler.schedule('cast', player.id, 1000);
+    return;
+  }
+  completeCast(player);
+}
+
+/**
+ * The cast breaks, and it costs nothing — the source's rule: the price is paid at completion, so an
+ * interruption loses time and never the spell. The swing comes back if a fight is on, because the
+ * held piece is released either way.
+ */
+function stopCasting(player: Player, why?: string): void {
+  if (!player.casting) return;
+  delete player.casting;
+  scheduler.cancel(player.id, 'cast');
+  sim.removeAffects(player, 'casting');
+  send(player.id, {
+    t: 'log',
+    channel: 'combat',
+    text: `&+RYour spell is disrupted${why ? ` — ${why}` : ''}!&N`,
+  });
+  actToRoom(player, 'combat', (who) => `${who}'s spell fizzles away.`);
+  if (player.fighting !== undefined) {
+    scheduler.cancel(player.id, 'swing');
+    scheduler.schedule('swing', player.id, Math.max(MIN_ROUND_MS, player.roundMs));
+  }
+  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+}
+
+/**
+ * The wind-up finishes and the rig's bolt lands — through `landBlow`, which is the entire point of
+ * that seam existing: a killing bolt pays experience, leaves a corpse and clears engagements by
+ * construction. Slice 3's real spells replace the rig; this path is what they inherit.
+ */
+function completeCast(player: Player): void {
+  const cast = player.casting;
+  if (!cast) return;
+  delete player.casting;
+  sim.removeAffects(player, 'casting');
+
+  const target = cast.target === undefined ? undefined : sim.get(cast.target);
+  if (!target || target.roomId !== player.roomId) {
+    // The pay-then-fizzle quirk is authentic (`DESIGN-spells.md` §0.4) — with the rig costing
+    // nothing, this is just the fizzle half, kept in the shape the costs will land into.
+    send(player.id, { t: 'log', channel: 'combat', text: '&+RYour spell fizzles — nothing is there to strike.&N' });
+    if (player.fighting !== undefined) {
+      scheduler.cancel(player.id, 'swing');
+      scheduler.schedule('swing', player.id, Math.max(MIN_ROUND_MS, player.roundMs));
+    }
+    send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+    return;
+  }
+
+  const damage = rollDice(combatRng, DEV_SPELL.damage);
+  const result = landBlow({ sim, scheduler, book: threat, ledger }, player, target, damage);
+  send(player.id, {
+    t: 'log',
+    channel: 'combat',
+    text: `&+C-=[ Your ${DEV_SPELL.name} strikes ${target.name}&N&+C for ${damage}! ]=-&N`,
+  });
+  actToRoom(player, 'combat', (who) => `${who}'s ${DEV_SPELL.name} strikes ${target.name}&N.`);
+
+  // A completed aggressive cast is a declaration exactly as a missed kick is.
+  if (player.fighting === undefined) engage(scheduler, player, target);
+  if (player.fighting !== undefined) {
+    scheduler.cancel(player.id, 'swing');
+    scheduler.schedule('swing', player.id, Math.max(MIN_ROUND_MS, player.roundMs));
+  }
+
+  for (const actor of result.changed) syncEntityState(actor);
+  if (result.death) resolveDeath(result.death);
+  else syncEntityState(target);
+  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+}
+
 function stepRoom(player: Player, dir: Direction): void {
   // Reached by the `move` intent as well as the typed command, and only the latter has been through
   // the table's gate. §5: `flee` is the one way out, and it is named in the refusal.
+  //
+  // Casting roots you the same double way: `permits` catches the typed step, this catches the
+  // keybind's intent — and a follower mid-cast whose leader walks off is *asked* to step through
+  // here, so the train breaks on a casting follower with no rule of its own, which is right.
+  if (player.casting) {
+    send(player.id, { t: 'log', channel: 'error', text: "You're busy spellcasting!" });
+    return;
+  }
   if (refuseIfFighting(player)) return;
   const room = sim.room(player.roomId);
   const exit = room?.exits[dir];
@@ -4282,6 +4487,14 @@ function refusalFor(player: Player, need: Requirement): string {
  * - **Position** — a minimum on posture and on status, from `COMMAND_REQUIREMENTS`.
  */
 function permits(player: Player, command: Command): boolean {
+  // **Phase 20: casting owns the caster.** The source's interpreter blocks *every* command while the
+  // casting bit is set (`interp.c:1440-1467`, the sentence is its own), and this single gate is why
+  // one check covers the typed line and every clicked verb alike. The way out of the lockout is the
+  // wind-up ending — or somebody ending it for you, which is the phase's whole tactical texture.
+  if (player.casting) {
+    send(player.id, { t: 'log', channel: 'error', text: "You're busy spellcasting!" });
+    return false;
+  }
   const need = COMMAND_REQUIREMENTS[command];
   if (need.inCombat === false && player.fighting !== undefined) {
     send(player.id, { t: 'log', channel: 'error', text: 'Not while you are fighting!' });
@@ -4403,6 +4616,8 @@ function runCommand(player: Player, line: string): void {
     // Phase 19 slice 4. Not routed through `useAbility`: a rescue rolls no dice against a body — it
     // moves a fight, and its notch runs backwards. See `doRescue`.
     case 'rescue': return doRescue(player, rest);
+    // Phase 20 slice 2. The wind-up — see `doCast` for what is machinery and what still waits.
+    case 'cast': return doCast(player, rest);
     // Never destroys on this pass: an unconfirmed junk arms the question and returns.
     case 'junk': return junkFromBag(player, rest, false);
     case 'wear': return wearFromBag(player, rest);
@@ -6213,6 +6428,10 @@ function listEquipment(player: Player): void {
 function handle(player: Player, message: ClientMessage): void {
   switch (message.t) {
     case 'steer': {
+      // A casting body is rooted: the intent is dropped silently, because steer packets arrive
+      // continuously and a refusal line per packet would be sixty complaints a second. The typed and
+      // clicked paths say the sentence; this one just does not move.
+      if (player.casting) break;
       // Grabbing the keyboard takes manual control back off the pathfinder. A zero vector is a key
       // *release*, and the client sends one every time you let go — cancelling on that would kill a
       // route the moment the player brushed a movement key. `setIntent` answers after normalising,
@@ -6223,6 +6442,10 @@ function handle(player: Player, message: ClientMessage): void {
     }
 
     case 'moveTo':
+      if (player.casting) {
+        send(player.id, { t: 'log', channel: 'error', text: "You're busy spellcasting!" });
+        break;
+      }
       moveTo(player, message.tx, message.ty);
       break;
 
@@ -6331,6 +6554,12 @@ function handle(player: Player, message: ClientMessage): void {
     // The typed `flee` and the protocol's own intent reach the same place, exactly as `command` and the
     // movement intents do. A keybind or a UI button sends this; the command line sends the other.
     case 'flee':
+      // The source is explicit that you cannot voluntarily flee mid-cast — the lockout covers flee
+      // like everything else, and the way out of a bad cast is finishing it or being knocked out of it.
+      if (player.casting) {
+        send(player.id, { t: 'log', channel: 'error', text: "You're busy spellcasting!" });
+        break;
+      }
       runFlee(player);
       break;
 
@@ -7279,8 +7508,18 @@ setInterval(() => {
   // shape had. `command` is the scheduler's declared-but-unproduced kind; nothing schedules one, and
   // the day something does, it gets a case here first.
   for (const event of dueEvents) {
-    if (event.kind !== 'swing') {
-      console.error(`[tick] undispatched '${event.kind}' event for #${event.actor} — add a route beside advanceCombat`);
+    switch (event.kind) {
+      case 'swing':
+        break; // `advanceCombat`'s below, handed the whole list.
+      case 'cast': {
+        // Phase 20's beat — before `advanceCombat`, so a cast that completes this tick strikes
+        // before this tick's swings land on its caster, which is the order the wind-up promised.
+        const caster = sim.player(event.actor);
+        if (caster) castBeat(caster);
+        break;
+      }
+      default:
+        console.error(`[tick] undispatched '${event.kind}' event for #${event.actor} — add a route beside advanceCombat`);
     }
   }
 

@@ -27,7 +27,9 @@
  */
 
 /** What kind of work an entry represents. One per consumer, so a cancel can be selective. */
-export const EVENT_KINDS = ['swing', 'command'] as const;
+// `cast` is Phase 20's: one event per second of wind-up, revalidated each beat — the source's own
+// `event_spellcast` cadence. Routed by the tick's dispatcher, never by `advanceCombat`.
+export const EVENT_KINDS = ['swing', 'command', 'cast'] as const;
 
 export type EventKind = (typeof EVENT_KINDS)[number];
 

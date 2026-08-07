@@ -197,14 +197,14 @@ export interface AffectKind {
 }
 
 /**
- * Every affect type in the game. Six, and each of them has a live consumer.
+ * Every affect type in the game. Seven, and each of them has a live consumer.
  *
  * The list and the table are separate for the same reason `COMMANDS` and `COMMAND_REQUIREMENTS` are:
  * the list is the type and the table is the data, so a row added to one without the other is a type
  * error rather than a silent gap. It is also the only way to have {@link AffectKind.id} typed as an
  * affect type at all — a table that derived its own key type from itself would reference itself.
  */
-export const AFFECT_TYPE_IDS = ['light', 'settling', 'second_wind', 'notch_physical', 'notch_mental', 'off_balance'] as const;
+export const AFFECT_TYPE_IDS = ['light', 'settling', 'second_wind', 'notch_physical', 'notch_mental', 'off_balance', 'casting'] as const;
 
 export type AffectType = (typeof AFFECT_TYPE_IDS)[number];
 
@@ -298,6 +298,19 @@ export const AFFECT_TYPES: Readonly<Record<AffectType, AffectKind>> = {
     id: 'off_balance',
     name: 'off balance',
     wearOff: 'You recover your balance.',
+  },
+  /**
+   * The wind-up itself — **Phase 20 slice 2**, and the reason it is an affect at all: `SelfView`
+   * already renders affect rows with live countdowns, so the caster's own progress meter costs the
+   * client nothing. **Shown**, obviously — a wind-up is the one state whose whole point is being
+   * watched — and the `cast` event owns its end: completion and interruption both remove this
+   * explicitly, so there is no `wearOff` sentence, because the spell's own completion line (or the
+   * disruption line) is the sentence. Never saved: a cast does not survive a disconnect, exactly as
+   * the source's `StopCasting`-on-extract has it.
+   */
+  casting: {
+    id: 'casting',
+    name: 'casting',
   },
 };
 

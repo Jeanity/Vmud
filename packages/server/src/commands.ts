@@ -147,6 +147,11 @@ export const COMMANDS = [
   // carries, `equipment` wears. `e` is east and `ex` is exits, both above, so `eq` is the shortest
   // thing that reaches this — the abbreviation every Diku player's fingers already use.
   'equipment',
+  // Phase 20 slice 2. In Duris' own table `cast` sits high enough that `c` reaches it; our inherited
+  // block froze with `close` above, so `ca` is the shortest thing that reaches this and `c` stays
+  // close. A caster's fingers will grumble; moving `close` would rebind a door key mid-game, which
+  // is the worse trade. Revisit if Phase 21 makes casters the common case.
+  'cast',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -370,6 +375,12 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // `CMD_Y(CMD_EQUIPMENT, STAT_SLEEPING + POS_PRONE, …)` — readable while *asleep*, which is laxer than
   // inventory's resting: checking what you are wearing is interface, and the source treats it as such.
   equipment: { status: 'sleeping', posture: 'prone' },
+  // The source registers `cast` at STAT_RESTING + POS_SITTING and then demands standing once per
+  // second inside the wind-up, with a ground-casting skill roll as the sitting exception. We have no
+  // ground-casting skill yet, so a seated start would only ever break on its first beat — requiring
+  // standing up front is the same outcome said politely, and the skill arrives as its own row later.
+  // Allowed in combat, which is most of the point.
+  cast: { status: 'normal', posture: 'standing' },
 };
 
 /* -------------------------------------------------------------------------- */
