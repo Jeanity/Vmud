@@ -254,6 +254,86 @@ function resolveWalk(base: string, variants: readonly string[]): { path: string;
   return undefined;
 }
 
+/**
+ * A sheet protocol 22 can play as an action: **four facing rows of square frames**, at one of the
+ * three cell sizes the pack ships. 64 is the standard body grid; 128 and 192 are ULPC's "oversize"
+ * cells, where the 64px body sits centred and the weapon overdraws the surround — which is why the
+ * client can draw them with no positional change at all: a centred origin pins the frame centre,
+ * and the body-third's centre *is* the frame centre. Anything that does not measure as one of these
+ * grids is refused by measurement, the same doctrine `isWalkSheet` applies to walks.
+ */
+function actionGeometry(path: string): { frame: number; columns: number } | undefined {
+  const size = png(path);
+  if (!size) return undefined;
+  const [w, h] = size;
+  if (h % 4 !== 0) return undefined;
+  const frame = h / 4;
+  if (frame !== 64 && frame !== 128 && frame !== 192) return undefined;
+  if (w % frame !== 0) return undefined;
+  const columns = w / frame;
+  if (columns < 4 || columns > 16) return undefined;
+  return { frame, columns };
+}
+
+/**
+ * The pack's directory names for the two swings the combat system plays. `attack_*` is the common
+ * spelling; the bare name is the older one (the dagger's `slash/`, the staves' `thrust/`). Reverse,
+ * back- and half-slashes exist in the pack and are deliberately not staged: `SWING_ANIMATION` maps
+ * every weapon class to slash or thrust and nothing plays the others.
+ */
+const ACTION_DIRS: Readonly<Record<'slash' | 'thrust', readonly string[]>> = {
+  slash: ['attack_slash', 'slash'],
+  thrust: ['attack_thrust', 'thrust'],
+};
+
+/**
+ * The action sheet for one layer, or nothing — the swing-frame counterpart of {@link resolveWalk}.
+ *
+ * Four candidate shapes, measured off the pack rather than assumed, because the pack nests its
+ * attack art three different ways and its behind-copies a fourth:
+ *
+ * 1. `<layerBase>/<dir>/<variant>.png` — the plain shape (saber's `attack_slash/saber.png`, the
+ *    dagger's `slash/dagger.png`, the crossbow's `foreground/thrust/crossbow.png`).
+ * 2. `<parent>/<dir>/<seg>/<variant>.png` — the fg/bg split, where the walk lives under
+ *    `foreground/` but the attack dir is its *sibling* holding a `foreground/` of its own
+ *    (the staves' `thrust/foreground/medium.png`).
+ * 3. `<grandparent>/<dir>/<seg>/<variant>.png` — the arming sword's `universal/fg` walk against
+ *    `attack_slash/fg` attacks, one level further out.
+ * 4. `<frontBase>/<dir>/behind/<variant>.png` — the behind-copy, which does not live under the
+ *    behind layer's own base at all: the saber's walk-behind is `universal_behind/walk/` but its
+ *    slash-behind is `attack_slash/behind/`, nested the other way round. Probed only for layers
+ *    that are not the front, keyed off the front layer's base.
+ */
+function resolveAction(
+  layerBase: string,
+  frontBase: string,
+  dirs: readonly string[],
+  variant: string | undefined,
+  isFront: boolean,
+): { path: string; frame: number } | undefined {
+  const clean = layerBase.replace(/\/+$/, '');
+  const segments = clean.split('/');
+  const seg = segments[segments.length - 1] ?? '';
+  const parent = segments.slice(0, -1).join('/');
+  const grandparent = segments.slice(0, -2).join('/');
+  const file = `${variant ?? ''}.png`;
+  if (!variant) return undefined;
+
+  for (const dir of dirs) {
+    const candidates = [
+      join(SPRITESHEETS, clean, dir, file),
+      ...(parent ? [join(SPRITESHEETS, parent, dir, seg, file)] : []),
+      ...(grandparent ? [join(SPRITESHEETS, grandparent, dir, seg, file)] : []),
+      ...(isFront ? [] : [join(SPRITESHEETS, frontBase.replace(/\/+$/, ''), dir, 'behind', file)]),
+    ];
+    for (const path of candidates) {
+      const grid = actionGeometry(path);
+      if (grid) return { path, frame: grid.frame };
+    }
+  }
+  return undefined;
+}
+
 /** `a-b-c` from a definition's own filename, which is already unique and already descriptive. */
 const idFrom = (file: string, variant?: string): string => {
   const base = file.split(/[\\/]/).pop()!.replace(/\.json$/, '').replace(/_/g, '-');
@@ -266,6 +346,8 @@ export interface ArtgenResult {
   readonly skipped: number;
   /** Ids whose staged filename was already taken by art this generator did not put there. */
   readonly collisions: readonly string[];
+  /** Frame size (64 / 128 / 192) per staged **action** sheet key — the loader's slicing table. */
+  readonly geometry: Readonly<Record<string, number>>;
 }
 
 /**
@@ -404,6 +486,7 @@ export function buildArtIndex(): ArtgenResult {
   const bases = readPaletteBases();
   const ours = previouslyGenerated();
   const collisions: string[] = [];
+  const geometry: Record<string, number> = {};
   let considered = 0;
   let skipped = 0;
 
@@ -423,14 +506,14 @@ export function buildArtIndex(): ArtgenResult {
     // animations exclude themselves for free: `weapon/sword/rapier/attack_slash/` has a slash sheet
     // and no `walk.png`, so it never reaches the index and cannot be drawn on a walking character.
     // That leaves the two that matter: the blade in front at z 140 and the blade behind at z 9.
-    const resolved: { layerKey: string; found: { path: string; variant?: string }; z: number }[] = [];
+    const resolved: { layerKey: string; found: { path: string; variant?: string }; z: number; base: string }[] = [];
     for (const key of Object.keys(raw).filter((k): k is `layer_${number}` => /^layer_\d+$/.test(k))) {
       const layer = raw[key];
       const base = layer?.male ?? layer?.female ?? layer?.muscular;
       if (!base) continue;
       const found = resolveWalk(base, raw.variants ?? []);
       if (!found) continue;
-      resolved.push({ layerKey: key, found, z: layer?.zPos ?? 50 });
+      resolved.push({ layerKey: key, found, z: layer?.zPos ?? 50, base });
     }
     if (resolved.length === 0) {
       skipped++;
@@ -462,11 +545,22 @@ export function buildArtIndex(): ArtgenResult {
     // still names a real sheet** — this change adds layers under a body, it does not renumber one.
     // The rest take `<id>-l<n>`, which is traceable straight back to the definition's own key.
     mkdirSync(STAGED, { recursive: true });
+    const frontBase = resolved[0]!.base;
     const layers = resolved.map((entry, index) => {
       const sheet = index === 0 ? id : `${id}-${entry.layerKey.replace('layer_', 'l')}`;
       // The sheet is staged under its key, so the client needs no path mapping at all — the string it
       // is handed *is* the texture key. One fewer table to drift.
       copyFileSync(entry.found.path, join(STAGED, `${sheet}.png`));
+      // **The swing frames, beside the walk they belong to** — protocol 22's other half, staged as
+      // `<sheet>-slash` / `<sheet>-thrust` because that is the exact key `poseLayers` composes when a
+      // body swings: the client's swap logic needs no new rule, the twin just starts existing. The
+      // frame size (64 / 128 / 192 — the oversize cells) is recorded per staged sheet for the loader.
+      for (const [suffix, dirs] of Object.entries(ACTION_DIRS)) {
+        const action = resolveAction(entry.base, frontBase, dirs, entry.found.variant, index === 0);
+        if (!action) continue;
+        copyFileSync(action.path, join(STAGED, `${sheet}-${suffix}.png`));
+        geometry[`${sheet}-${suffix}`] = action.frame;
+      }
       return { sheet, z: entry.z };
     });
     // Draw order, lowest first — what a renderer stacking a body wants, and it means the client sorts
@@ -489,11 +583,15 @@ export function buildArtIndex(): ArtgenResult {
   }
 
   entries.sort((a, b) => a.id.localeCompare(b.id));
-  return { entries, considered, skipped, collisions };
+  return { entries, considered, skipped, collisions, geometry };
 }
 
 /** The generated module. A `.ts` const rather than JSON, so no import attributes and it typechecks. */
-function writeIndex(entries: readonly ArtEntry[], palettes: Record<string, Record<string, readonly string[]>>): void {
+function writeIndex(
+  entries: readonly ArtEntry[],
+  palettes: Record<string, Record<string, readonly string[]>>,
+  geometry: Readonly<Record<string, number>> = {},
+): void {
   // One line per table rather than pretty-printed: 215 ramps of six hex strings is unreadable either way,
   // and a table per line at least makes a diff say *which family changed* when the pack is updated.
   const paletteBody = Object.keys(palettes)
@@ -587,6 +685,15 @@ ${body}
 
 /** By id, for the one question everything asks: is this a real piece of art, and which sheet is it? */
 export const LPC_ART_BY_ID: ReadonlyMap<string, ArtEntry> = new Map(LPC_ART.map((a) => [a.id, a]));
+
+/**
+ * Frame size per staged **action** sheet — the loader's slicing table, and the reason a 192px
+ * oversize swing slices as 192 and not as nine broken tiles of 64. A key's absence means 64, the
+ * body grid; only staged \`-slash\` / \`-thrust\` twins appear here. The client also reads this as
+ * the *existence* table: a twin listed here is queued beside its walk sheet, so the first swing
+ * of a session does not play against a texture still in flight.
+ */
+export const LPC_SHEET_GEOMETRY: Readonly<Record<string, number>> = ${JSON.stringify(geometry)};
 ${paletteBlock}`,
   );
 }
@@ -622,9 +729,10 @@ function writeAttribution(entries: readonly ArtEntry[]): void {
 
 const invokedDirectly = process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
 if (invokedDirectly) {
-  const { entries, considered, skipped, collisions } = buildArtIndex();
-  writeIndex(entries, readPalettes());
+  const { entries, considered, skipped, collisions, geometry } = buildArtIndex();
+  writeIndex(entries, readPalettes(), geometry);
   writeAttribution(entries);
+  console.log(`[artgen] ${Object.keys(geometry).length} action sheets staged (swing frames, by geometry)`);
   const byKind = new Map<string, number>();
   for (const entry of entries) byKind.set(entry.kind, (byKind.get(entry.kind) ?? 0) + 1);
   console.log(`[artgen] ${considered} item-slot definitions considered, ${skipped} without a walk sheet`);

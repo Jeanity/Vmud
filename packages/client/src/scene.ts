@@ -10,6 +10,7 @@ import Phaser from 'phaser';
 
 import {
   LPC_ART_BY_ID,
+  LPC_SHEET_GEOMETRY,
   PLAYER_SPEED,
   ROOM_TILES,
   parseArtId,
@@ -3313,8 +3314,10 @@ export class WorldScene extends Phaser.Scene {
         if (layer.texture.key !== posed) layer.setTexture(posed);
         if (suffix === DOWN_SUFFIX) {
           // The one sheet with no facing rows: a single row whose last frame is the body flat on
-          // the floor, so the frame index is the column alone and `LPC_ROW` stays out of it.
-          const columns = Math.max(1, Math.floor(layer.texture.getSourceImage().width / LPC_FRAME));
+          // the floor, so the frame index is the column alone and `LPC_ROW` stays out of it. The
+          // stride is the frame's own width, `layerFrame`'s argument exactly.
+          const frameWidth = layer.texture.get(0)?.width || LPC_FRAME;
+          const columns = Math.max(1, Math.floor(layer.texture.getSourceImage().width / frameWidth));
           layer.setFrame(columns - 1);
         } else {
           layer.setFrame(layerFrame(layer.texture, facing, column));
@@ -3446,9 +3449,22 @@ export class WorldScene extends Phaser.Scene {
     // starter kit, whose key is its own sheet.
     // A7e: `layerKeysFor` is the one function that knows an id may carry a `#ramp`. A plain id resolves
     // exactly as it did before, which is what keeps every unrecoloured item on the path it was on.
-    for (const { key: sheet } of layerKeysFor(key)) {
-      if (this.textures.exists(sheet) || this.loadingSheets.has(sheet) || this.wantedSheets.has(sheet)) continue;
-      this.wantedSheets.add(sheet);
+    for (const { key: sheet, sheet: plain } of layerKeysFor(key)) {
+      if (!(this.textures.exists(sheet) || this.loadingSheets.has(sheet) || this.wantedSheets.has(sheet))) {
+        this.wantedSheets.add(sheet);
+      }
+      // **The swing twins ride along with the walk.** `LPC_SHEET_GEOMETRY` is the existence table —
+      // a `-slash`/`-thrust` listed there was staged by artgen — so the first swing of a session
+      // plays against a texture that arrived with the weapon rather than one still in flight.
+      // Plain keys only: a recoloured layer holds its walk frame mid-swing (the documented ramp
+      // degradation), so queueing a twin it will never pose with would be a fetch for nobody.
+      if (sheet !== plain) continue;
+      for (const suffix of ['-slash', '-thrust'] as const) {
+        const twin = plain + suffix;
+        if (LPC_SHEET_GEOMETRY[twin] === undefined) continue;
+        if (this.textures.exists(twin) || this.loadingSheets.has(twin) || this.wantedSheets.has(twin)) continue;
+        this.wantedSheets.add(twin);
+      }
     }
   }
 
@@ -3470,7 +3486,10 @@ export class WorldScene extends Phaser.Scene {
         void this.buildRecolouredSheet(key, sheet, ramp);
         continue;
       }
-      this.load.spritesheet(key, `lpc/${key}.png`, { frameWidth: LPC_FRAME, frameHeight: LPC_FRAME });
+      // The frame size is the geometry table's or the body grid — a 192px oversize swing sliced at
+      // 64 is eighteen columns of broken tiles, drawn without a single error anywhere.
+      const frame = LPC_SHEET_GEOMETRY[key] ?? LPC_FRAME;
+      this.load.spritesheet(key, `lpc/${key}.png`, { frameWidth: frame, frameHeight: frame });
       this.load.once(`filecomplete-spritesheet-${key}`, () => {
         this.loadingSheets.delete(key);
         this.redressWearers(key);
@@ -4487,7 +4506,12 @@ function sameWearing(
 
 function layerFrame(texture: Phaser.Textures.Texture, facing: Direction, column = WALK_STANDING_COLUMN): number {
   const source = texture.getSourceImage();
-  const columns = Math.max(1, Math.floor(source.width / LPC_FRAME));
+  // The stride is the texture's **own** frame width, not the 64px body grid: a 192px oversize swing
+  // sheet is six columns, and dividing its 1152px by 64 would walk the index eighteen frames per
+  // row — deep into the wrong facing. Frame 0 knows what the loader sliced; asking it keeps this
+  // correct for every cell size the pack ships without a second geometry lookup here.
+  const frameWidth = texture.get(0)?.width || LPC_FRAME;
+  const columns = Math.max(1, Math.floor(source.width / frameWidth));
   return LPC_ROW[facing] * columns + Math.min(column, columns - 1);
 }
 
