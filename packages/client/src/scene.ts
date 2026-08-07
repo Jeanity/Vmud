@@ -351,8 +351,28 @@ const LPC_WALK_ONLY_SHEETS: readonly string[] = [
   'offhand-shield',
 ];
 
+/**
+ * The action twins protocol 22 poses from — swing, chant, down. **These were staged and never
+ * loaded**: the animations slice put 56 PNGs in `public/lpc/` and grew no load list, so
+ * `poseLayers`' `textures.exists` guard was false forever and every pose silently held the walk
+ * frame. The drive read `attackResolved.swing` off the wire and called it done; the owner watched
+ * the screen and reported what it actually showed (2026-08-07): *"the legs move but I am not
+ * seeing any weapon slashing or arms moving for casting."* The graceful-degradation contract hid
+ * the omission by design — a missing sheet is a held frame, not an error — which is exactly why
+ * a visual claim needs a visual check.
+ *
+ * Measured, per this file's own doctrine: all 14 idle-listed sheets carry all four twins (56 = 14
+ * × 4, byte-counted on disk); `offhand-shield` carries none — the pack draws no shield motion —
+ * and stays walk-only, its held frame being the documented degradation.
+ */
+const LPC_ACTION_SUFFIXES = ['-slash', '-thrust', '-spellcast', '-hurt'] as const;
+
 const LPC_SHEETS: readonly string[] = [
-  ...LPC_IDLE_SHEETS.flatMap((sheet) => [sheet, sheet + '-idle']),
+  ...LPC_IDLE_SHEETS.flatMap((sheet) => [
+    sheet,
+    sheet + '-idle',
+    ...LPC_ACTION_SUFFIXES.map((suffix) => sheet + suffix),
+  ]),
   ...LPC_WALK_ONLY_SHEETS,
 ];
 
