@@ -156,13 +156,26 @@ describe('resolveAttack', () => {
 });
 
 describe('rollDamage', () => {
-  it('doubles the dice but not the flat bonus on a crit', () => {
+  it('doubles the whole roll on a crit — Duris’ dam * 2.0, not the SRD’s dice-only double', () => {
+    // The owner’s report was the tell: with a folded +30 bonus, dice-only doubling moved a crit by
+    // a seven. `fight.c:7497` doubles the accumulated damage as a whole.
     const dice = parseDice('1d6+4');
     assert.ok(dice);
     const rng = makeRng(5);
     for (let i = 0; i < 2000; i++) {
       const damage = rollDamage(rng, dice, true);
-      assert.ok(damage >= 2 + 4 && damage <= 12 + 4, `${damage} outside crit range`);
+      assert.ok(damage >= (1 + 4) * 2 && damage <= (6 + 4) * 2, `${damage} outside crit range`);
+      assert.equal(damage % 2, 0, 'a doubled whole is even');
+    }
+  });
+
+  it('leaves an ordinary hit exactly as rolled', () => {
+    const dice = parseDice('1d6+4');
+    assert.ok(dice);
+    const rng = makeRng(5);
+    for (let i = 0; i < 500; i++) {
+      const damage = rollDamage(rng, dice, false);
+      assert.ok(damage >= 5 && damage <= 10, String(damage));
     }
   });
 });

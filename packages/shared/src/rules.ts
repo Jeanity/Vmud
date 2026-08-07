@@ -173,11 +173,24 @@ export function resolveAttack(rng: Rng, input: AttackInput): AttackResult {
   };
 }
 
-/** SRD critical hits roll the weapon's damage dice twice; flat bonuses are not doubled. */
+/**
+ * A critical doubles the **whole roll** — Duris' own arithmetic, not the SRD's.
+ *
+ * This used to be the SRD shape (dice rolled twice, flat bonuses untouched), and the owner caught
+ * what that does in our economy (2026-08-07): *"I am seeing crits that are only a few more damage
+ * than normal attacks."* He was right, and the source settles it — `fight.c:7497`, on an ordinary
+ * critical: `dam = (int)(dam * 2.0)`, the accumulated damage **as a whole**, with only small
+ * level-riders added after. In Duris the weapon dice *are* most of a blow, so doubling dice and
+ * doubling everything were nearly the same number; in our fold the flat bonus dominates a
+ * high-level swing (a 2d6+2 blade folded to 144), and doubling dice alone moved a crit by a
+ * seven-ish. Doubling the roll is what the source's own economy meant by the word.
+ *
+ * Dropped and named: `SKILL_DEVASTATING_CRITICAL`'s ×(300+skill)/150 rider and the monk's ×1.5
+ * live with their skills, none of which exist yet.
+ */
 export function rollDamage(rng: Rng, dice: Dice, critical: boolean): number {
-  if (!critical) return Math.max(0, rollDice(rng, dice));
-  const doubled: Dice = { ...dice, count: dice.count * 2 };
-  return Math.max(0, rollDice(rng, doubled));
+  const rolled = Math.max(0, rollDice(rng, dice));
+  return critical ? rolled * 2 : rolled;
 }
 
 /* -------------------------------------------------------------------------- */
