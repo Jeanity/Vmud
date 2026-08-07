@@ -139,6 +139,9 @@ export const COMMANDS = [
   // the same shortest forms for the same reason.
   'bash',
   'kick',
+  // Phase 19 slice 4. `rest` and `remove` sit above — `r` and `re` are rest, `rem` is remove — so
+  // `resc` is the shortest thing that reaches this, which is what Duris' own table gives it too.
+  'rescue',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -356,6 +359,9 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // the first verbs in the game that are.
   bash: { status: 'normal', posture: 'standing' },
   kick: { status: 'normal', posture: 'standing' },
+  // `CMD_Y(CMD_RESCUE, STAT_NORMAL + POS_STANDING, …)` — bash and kick's row exactly, and for the same
+  // reason: you cannot pull a fight onto yourself from the floor, and mid-combat is when it matters.
+  rescue: { status: 'normal', posture: 'standing' },
 };
 
 /* -------------------------------------------------------------------------- */

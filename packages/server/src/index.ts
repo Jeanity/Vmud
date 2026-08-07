@@ -42,6 +42,7 @@ import {
   randomInt,
   rollDice,
   OFFENSIVE_NOTCH_CHANCE,
+  RESCUE_NOTCH_CHANCE,
   ATTACK_VERBS,
   attackTypeForRace,
   attackTypeForWeapon,
@@ -211,12 +212,14 @@ import {
 import {
   advanceAssists,
   advanceCombat,
+  attackersOf,
   clearEngagements,
   disengage,
   engage,
   landBlow,
   forgetThreat,
   openingTarget,
+  rescueFrom,
   type AssistEvent,
   type AttackOutcome,
   type DefenceSkills,
@@ -3066,6 +3069,120 @@ function useAbility(player: Player, id: CombatAbilityId, rest: string): void {
   notchSkill(player, ability.skill, OFFENSIVE_NOTCH_CHANCE);
 }
 
+/**
+ * `rescue <ally>` — **Phase 19 slice 4**, and the first ability that makes grouping mean something
+ * mechanically: taking a blow meant for somebody else. `rescue()` (`actoff.c:7261`), transcribed;
+ * the mechanism is `rescueFrom` in `combat.ts` and the threat-standing decision is documented there.
+ *
+ * What stays the source's, verbatim where a player can read it: the refusals ("What about fleeing
+ * instead?", "How can you rescue someone you are trying to kill?", "But nobody is fighting them?" —
+ * the last costing nothing, no lag and no roll), one attacker peeled per use, one round of lag paid
+ * on the *attempt*, and the messages. **Dropped and named as dropped**: `ROOM_SINGLE_FILE` (the flag
+ * is not harvested — no room in our world carries it), the Guardian's `rescue all` (classes are
+ * Phase 21), and the blind check, which our visibility gate already is — a rescuee you cannot see is
+ * a rescuee `resolveTarget` will not resolve.
+ *
+ * **The notch shape is the opposite of bash and kick's, and it is kept that way on purpose.** Their
+ * roll is `!notch && miss` — learning forces the blow home. Rescue's is `notch || roll > skill` —
+ * learning forces the fumble, and the `||` short-circuits so a notching attempt never rolls for
+ * success at all. See `RESCUE_NOTCH_CHANCE` for the full note.
+ */
+function doRescue(player: Player, rest: string): void {
+  const term = rest.trim();
+  if (!term) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Rescue whom?' });
+    return;
+  }
+  const view = resolveTarget(player, term);
+  if (!view) return; // `resolveTarget` has already said why.
+  const target = view ? sim.get(view.id) : undefined;
+  if (!target) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Rescue whom?' });
+    return;
+  }
+  if (target.id === player.id) {
+    // The source's own answer, worth keeping word for word.
+    send(player.id, { t: 'log', channel: 'error', text: 'What about fleeing instead?' });
+    return;
+  }
+  if (player.fighting === target.id) {
+    send(player.id, { t: 'log', channel: 'error', text: 'How can you rescue someone you are trying to kill?' });
+    return;
+  }
+  if (sim.affectsOf(player, 'off_balance').length > 0) {
+    send(player.id, { t: 'log', channel: 'error', text: 'You have not recovered your balance yet.' });
+    return;
+  }
+  // The empty case is a refusal, not a fumble: no lag, no roll, no notch — the source reaches
+  // `CharWait` only when somebody was found.
+  if (!attackersOf(sim, target.id).some((a) => a.id !== player.id)) {
+    send(player.id, { t: 'log', channel: 'error', text: `But nobody is fighting ${target.name}&N?` });
+    return;
+  }
+
+  // The cost is the attempt, exactly as bash and kick charge it: one round off balance, set before
+  // the roll can fail. `CharWait(ch, PULSE_VIOLENCE)`.
+  const lagMs = Math.round(ROUND_MS);
+  sim.addAffect(player, newAffect({ type: 'off_balance', durationMs: lagMs, flags: AffectFlag.NoSave }));
+
+  const learned = learnedAt(player.skills.get('rescue'), player.level, 'rescue');
+  // The source's shape, `||` and all — a notch forces the fumble and skips the success roll entirely.
+  const fumbled = notchSkill(player, 'rescue', RESCUE_NOTCH_CHANCE) || randomInt(combatRng, 1, 100) > learned;
+
+  // The room hears about it either way — except the rescuee, who gets their own second person line,
+  // which is the TO_VICT / TO_NOTVICT split `actToRoom` alone cannot make.
+  const roomExceptRescuee = [...sim.playersIn(player.roomId)].filter((p) => p.id !== target.id);
+
+  if (fumbled) {
+    send(player.id, { t: 'log', channel: 'combat', text: 'You fail the rescue.' });
+    if (isPlayer(target)) {
+      send(target.id, {
+        t: 'log',
+        channel: 'combat',
+        text: `${capitalise(player.name)}&N fails miserably in their attempt to rescue you.`,
+      });
+    }
+    for (const line of actLines(player, roomExceptRescuee, canSee, (who) => `${who} futilely tries to rescue ${target.name}&N!`)) {
+      send(line.to, { t: 'log', channel: 'combat', text: line.text });
+    }
+    if (player.fighting !== undefined) {
+      scheduler.cancel(player.id, 'swing');
+      scheduler.schedule('swing', player.id, Math.max(lagMs, player.roundMs));
+    }
+    return;
+  }
+
+  const result = rescueFrom({ sim, scheduler, book: threat, ledger }, player, target);
+  if (!result) {
+    send(player.id, { t: 'log', channel: 'error', text: `But nobody is fighting ${target.name}&N?` });
+    return;
+  }
+
+  send(player.id, { t: 'log', channel: 'combat', text: '&+WBanzai! To the rescue...&N' });
+  if (isPlayer(target)) {
+    send(target.id, {
+      t: 'log',
+      channel: 'combat',
+      text: `&+WYou are rescued by ${capitalise(player.name)}&+W, you are confused, but grateful!&N`,
+    });
+  }
+  for (const line of actLines(player, roomExceptRescuee, canSee, (who) => `${who} &+Wheroically rescues ${target.name}&+W.&N`)) {
+    send(line.to, { t: 'log', channel: 'combat', text: line.text });
+  }
+
+  // Pointers moved on up to three bodies; protocol 16's lesson is that every player whose pointer
+  // moved gets a fresh `self` in the same beat, or their chevron lies until something else pushes one.
+  for (const actor of result.changed) {
+    syncEntityState(actor);
+    if (isPlayer(actor)) send(actor.id, { t: 'self', view: sim.selfViewOf(actor) });
+  }
+
+  // After `engage` scheduled the opening swing, so the lag wins where it is longer — an ability never
+  // shortens the round it was used in.
+  scheduler.cancel(player.id, 'swing');
+  scheduler.schedule('swing', player.id, Math.max(lagMs, player.roundMs));
+}
+
 function stepRoom(player: Player, dir: Direction): void {
   // Reached by the `move` intent as well as the typed command, and only the latter has been through
   // the table's gate. §5: `flee` is the one way out, and it is named in the refusal.
@@ -4060,6 +4177,9 @@ function runCommand(player: Player, line: string): void {
     case 'bash':
     case 'kick':
       return isCombatAbility(command) ? useAbility(player, command, rest) : undefined;
+    // Phase 19 slice 4. Not routed through `useAbility`: a rescue rolls no dice against a body — it
+    // moves a fight, and its notch runs backwards. See `doRescue`.
+    case 'rescue': return doRescue(player, rest);
     // Never destroys on this pass: an unconfirmed junk arms the question and returns.
     case 'junk': return junkFromBag(player, rest, false);
     case 'wear': return wearFromBag(player, rest);
@@ -4648,15 +4768,19 @@ function notchFromSwing(outcome: AttackOutcome): void {
  * chose is `OFFENSIVE_NOTCH_CHANCE`), and nothing else does: the cooldown, the curve, the ceiling, the
  * sentence, the refit and the save are the same however the skill was used. Two copies of this would have
  * been two places to forget the refit, which is the line that makes a notch worth anything.
+ *
+ * Returns whether the notch took, because `rescue` needs the answer **before** its outcome: the
+ * source's roll there is `notch_skill(…) || roll > skill` — a notch forces the fumble. Every other
+ * caller ignores it.
  */
-function notchSkill(player: Player, skill: SkillId, base: number): void {
+function notchSkill(player: Player, skill: SkillId, base: number): boolean {
   const category = SKILLS[skill].category;
   const cooldown = category === 'physical' ? 'notch_physical' : 'notch_mental';
   const learned = learnedAt(player.skills.get(skill), player.level, skill);
   const chance = notchChance(base, learned, ceilingFor(skill), {
     onCooldown: sim.affectsOf(player, cooldown).length > 0,
   });
-  if (!rollNotch(combatRng, chance)) return;
+  if (!rollNotch(combatRng, chance)) return false;
 
   player.skills.set(skill, learned + 1);
   sim.addAffect(
@@ -4674,6 +4798,7 @@ function notchSkill(player: Player, skill: SkillId, base: number): void {
   refitCombat(player);
   send(player.id, { t: 'self', view: sim.selfViewOf(player) });
   rememberProgress(player);
+  return true;
 }
 
 /**

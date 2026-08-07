@@ -39,6 +39,7 @@ import {
   markParticipant,
   pickByThreat,
   pickByWeakness,
+  threatOf,
   defenceEase,
   dodgeChance,
   parryChance,
@@ -332,6 +333,76 @@ export function clearEngagements(scheduler: Scheduler, sim: Simulation, actor: A
     if (disengage(scheduler, other)) changed.push(other);
   }
   return changed;
+}
+
+export interface RescueResult {
+  /** The one attacker peeled off — the *first* found, which is the source's own rule. */
+  readonly attacker: Actor;
+  /** Everyone whose engagement pointer moved, for the caller's entity resync and self pushes. */
+  readonly changed: readonly Actor[];
+}
+
+/**
+ * The mechanism of a rescue: **one** attacker peeled off the rescuee and onto the rescuer —
+ * **Phase 19 slice 4**, from `rescue()` (`actoff.c:7261`).
+ *
+ * The source walks the room and, for the first body whose opponent is the rescuee: the rescuee's own
+ * pointer at it is cleared (`stop_fighting(rescuee)`, only when it aims there), the attacker is turned
+ * (`stop_fighting(t_ch); set_fighting(t_ch, ch)`), and the rescuer engages if free. *First and only
+ * first* — peeling everyone is `rescue all`, a level-46 Guardian specialisation that waits for Phase
+ * 21's classes. Both turns go through {@link disengage}-then-{@link engage}, the stop-then-set
+ * contract, so the attacker's next blow waits a fresh round exactly as the source's timing reset does.
+ *
+ * ## `set_fighting` is not enough here, and this is the transcription decision
+ *
+ * Duris' pointer *is* the mob's whole mind, so moving it moves the fight. Ours re-decides on every
+ * round boundary from the threat table, and the rescuee usually tops it — a bare pointer flip would
+ * un-rescue itself within three seconds, when {@link pickByThreat} found the rescuer's near-zero score
+ * unable to defend the `current` slot. So the redirect also **seats the rescuer at the rescuee's own
+ * standing** on the attacker's table: the mob transfers its grudge with the fight, the hysteresis
+ * margin now protects the rescuer, and the rescuee wins the mob back only by out-threatening them by
+ * 10% — which is tanking working as §2.7 designed it, not a new rule.
+ *
+ * The rescuer also joins the fight the way any helper does: {@link joinBySupporting} — its first
+ * caller, two phases after it was written — marks them on **every** foe's table and credits one
+ * support act in the ledger, so pulling a mob off somebody earns a share of what it pays.
+ */
+export function rescueFrom(
+  deps: {
+    readonly sim: Simulation;
+    readonly scheduler: Scheduler;
+    readonly book: ThreatBook;
+    readonly ledger: LedgerBook;
+  },
+  rescuer: Actor,
+  rescuee: Actor,
+): RescueResult | undefined {
+  const { sim, scheduler, book, ledger } = deps;
+  // The caller refuses "rescue my own target" with the source's own line; the filter here is the same
+  // rule as a guard rather than a second opinion, so a peeled attacker can never be the rescuer.
+  const attacker = attackersOf(sim, rescuee.id).find((a) => a.id !== rescuer.id);
+  if (!attacker) return undefined;
+
+  // Participation first, while the pointers still describe the fight being interrupted —
+  // `joinBySupporting` reads them to find the foes.
+  joinBySupporting(book, ledger, sim, rescuer, rescuee);
+
+  // The grudge transfers with the fight — see the module note above for why this is the one addition
+  // to the source's own sequence.
+  if (isMob(attacker)) {
+    const table = threatTableFor(book, attacker);
+    const deficit = threatOf(table, rescuee.id) - threatOf(table, rescuer.id);
+    if (deficit > 0) addThreat(table, rescuer.id, deficit);
+  }
+
+  const changed: Actor[] = [];
+  if (rescuee.fighting === attacker.id && disengage(scheduler, rescuee)) changed.push(rescuee);
+  const turned = disengage(scheduler, attacker);
+  const reEngaged = engage(scheduler, attacker, rescuer);
+  if (turned || reEngaged) changed.push(attacker);
+  if (rescuer.fighting === undefined && engage(scheduler, rescuer, attacker)) changed.push(rescuer);
+
+  return { attacker, changed };
 }
 
 /* -------------------------------------------------------------------------- */

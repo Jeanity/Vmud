@@ -26,6 +26,7 @@ import {
   passiveRule,
   addThreat,
   isParticipant,
+  pickByThreat,
   readCombatStats,
   threatOf,
   type MobTemplate,
@@ -46,7 +47,9 @@ import {
   incapacitated,
   forgetThreat,
   joinBySupporting,
+  ledgerFor,
   openingTarget,
+  rescueFrom,
   retaliate,
   threatTableFor,
   type DefenceLookup,
@@ -989,5 +992,106 @@ describe('morale on the round boundary', () => {
     // Most of them: 8 of IceCrag's 61 templates, and 0 is the whole of "this one stands its ground".
     const { asked } = fightWithMorale(0, true);
     assert.deepEqual(asked, []);
+  });
+});
+
+/**
+ * Phase 19 slice 4 — `rescueFrom`, the mechanism under `rescue <ally>`.
+ *
+ * The contract worth pinning is threefold: exactly **one** attacker is peeled (`rescue all` is a
+ * Phase 21 specialisation), the redirect **survives the next round boundary** (a bare pointer flip
+ * would not — `pickByThreat` re-decides every round, which Duris' pointer-only world never has to
+ * answer), and a rescue is *supporting*, so the ledger pays the rescuer a share.
+ */
+describe('rescue — one attacker peeled onto the rescuer', () => {
+  function withRescuer() {
+    const f = makeFixture();
+    const rescuer = f.sim.spawn('Rescuer', makeRng(2));
+    return { ...f, rescuer };
+  }
+
+  it('turns the attacker, frees the rescuee, and steps the rescuer in', () => {
+    const { sim, scheduler, player, mob, book, ledger, rescuer } = withRescuer();
+    engage(scheduler, mob, player);
+    engage(scheduler, player, mob);
+
+    const result = rescueFrom({ sim, scheduler, book, ledger }, rescuer, player);
+
+    assert.ok(result);
+    assert.equal(result.attacker.id, mob.id);
+    assert.equal(mob.fighting, rescuer.id, 'the attacker turned');
+    assert.equal(player.fighting, undefined, 'stop_fighting(rescuee): their pointer aimed at the peeled one');
+    assert.equal(rescuer.fighting, mob.id, 'the rescuer stepped in');
+    // All three moved, so all three need a resync.
+    const byId = (a: number, b: number) => a - b;
+    assert.deepEqual([...result.changed].map((a) => a.id).sort(byId), [player.id, mob.id, rescuer.id].sort(byId));
+  });
+
+  it('leaves the rescuee their own fight when it aims at somebody else', () => {
+    const { sim, scheduler, player, mob, book, ledger, rescuer } = withRescuer();
+    const other = sim.spawnMob(dummy({ vnum: 400_02, keywords: ['second'], name: 'a second dummy' }), 4000, makeRng(2));
+    assert.ok(other);
+    // `mob` beats on the player; the player is busy with `other`.
+    engage(scheduler, mob, player);
+    engage(scheduler, player, other);
+
+    const result = rescueFrom({ sim, scheduler, book, ledger }, rescuer, player);
+
+    assert.equal(result?.attacker.id, mob.id);
+    assert.equal(player.fighting, other.id, 'their own fight is not the rescuer’s to end');
+  });
+
+  it('peels exactly one — the second attacker keeps beating on the rescuee', () => {
+    const { sim, scheduler, player, mob, book, ledger, rescuer } = withRescuer();
+    const other = sim.spawnMob(dummy({ vnum: 400_02, keywords: ['second'], name: 'a second dummy' }), 4000, makeRng(2));
+    assert.ok(other);
+    engage(scheduler, mob, player);
+    engage(scheduler, other!, player);
+
+    const result = rescueFrom({ sim, scheduler, book, ledger }, rescuer, player);
+
+    assert.equal(result?.attacker.id, mob.id, 'the first found, which is the source’s own rule');
+    assert.equal(other!.fighting, player.id, 'the second was not peeled');
+    // But the rescuer joined the whole fight: present on the second attacker’s table too.
+    assert.ok(isParticipant(threatTableFor(book, other!), rescuer.id));
+  });
+
+  it('seats the rescuer at the rescuee’s standing, so the round boundary cannot undo it', () => {
+    const { sim, scheduler, player, mob, book, ledger, rescuer } = withRescuer();
+    engage(scheduler, mob, player);
+    const table = threatTableFor(book, mob);
+    addThreat(table, player.id, 100);
+
+    rescueFrom({ sim, scheduler, book, ledger }, rescuer, player);
+
+    assert.equal(threatOf(table, rescuer.id), 100, 'the grudge transferred with the fight');
+    // The re-pick a round boundary runs: the rescuer holds `current`, and the rescuee’s equal score
+    // cannot clear the 110% margin — winning the mob back costs real threat, which is tanking.
+    assert.equal(pickByThreat(table, [player.id, rescuer.id], mob.fighting), rescuer.id);
+  });
+
+  it('pays the rescuer a support share against the foe', () => {
+    const { sim, scheduler, player, mob, book, ledger, rescuer } = withRescuer();
+    engage(scheduler, mob, player);
+
+    rescueFrom({ sim, scheduler, book, ledger }, rescuer, player);
+
+    const share = ledgerFor(ledger, mob.id).get(rescuer.id);
+    assert.ok(share && share.supported > 0, 'joinBySupporting’s first caller');
+  });
+
+  it('has nothing to do when nobody is fighting them', () => {
+    const { sim, scheduler, player, book, ledger, rescuer } = withRescuer();
+    assert.equal(rescueFrom({ sim, scheduler, book, ledger }, rescuer, player), undefined);
+    assert.equal(rescuer.fighting, undefined);
+  });
+
+  it('never peels the rescuer off their own victim', () => {
+    // The command refuses "rescue my own target" with the source’s line; this pins the mechanism’s
+    // own guard, so no caller ordering can make a rescuer rescue somebody from themselves.
+    const { sim, scheduler, player, book, ledger, rescuer } = withRescuer();
+    engage(scheduler, rescuer, player);
+    assert.equal(rescueFrom({ sim, scheduler, book, ledger }, rescuer, player), undefined);
+    assert.equal(rescuer.fighting, player.id);
   });
 });
