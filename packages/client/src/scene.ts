@@ -288,15 +288,22 @@ const IDLE_SUFFIX = '-idle';
  * has lived under since 15a.
  *
  * Frame counts are **measured, not assumed** (the walk sheet's empty ninth column is this file's
- * founding trauma): the kit pack's swing is 7 real frames, thrust 9, magic 8, hurt 7, none padded.
+ * founding trauma) — and the first measurement here was wrong in a new way. It counted columns and
+ * called the set unpadded; the pack's final columns were not *empty*, they were **solid filler
+ * blocks**, 100% opaque where a real frame is ~20% — invisible to an emptiness check, and played as
+ * the last frame of every swing. That was the owner's square (2026-08-07/08): *"the square sits on
+ * my body… the player disappears for that 1 frame"* — the body's own slash sheet, dutifully
+ * showing its filler for the swing's last 90 ms while his twin-less gear held pose over it. The
+ * filler columns are now cropped off the staged files (alpha-ratio measured, per sheet), and the
+ * clocks below are the *real* counts: swing 6, thrust 8, magic 7, hurt 6.
  */
 const ACTION_SUFFIXES = { slash: '-slash', thrust: '-thrust' } as const;
-const ACTION_COLUMNS: Readonly<Record<'-slash' | '-thrust', number>> = { '-slash': 7, '-thrust': 9 };
-/** ~90 ms a frame lands a slash at ~0.6 s — inside a 2–3 s round, so swings read as distinct events. */
+const ACTION_COLUMNS: Readonly<Record<'-slash' | '-thrust', number>> = { '-slash': 6, '-thrust': 8 };
+/** ~90 ms a frame lands a slash at ~0.5 s — inside a 2–3 s round, so swings read as distinct events. */
 const ACTION_FRAME_MS = 90;
 /** The held wind-up loop. Slower than a swing on purpose: a chant is effort, not violence. */
 const CAST_SUFFIX = '-spellcast';
-const CAST_COLUMNS = 8;
+const CAST_COLUMNS = 7;
 const CAST_FRAME_MS = 140;
 /**
  * The down pose — the hurt sheet's final frame, a body flat on the ground. One frame for every

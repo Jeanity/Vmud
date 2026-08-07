@@ -43,6 +43,8 @@ import {
   MIN_ROUND_MS,
   MS_PER_DURIS_HOUR,
   randomInt,
+  resolveAttack,
+  rollDamage,
   rollDice,
   HP_DEAD_BELOW,
   ITEM_TYPE_BOAT,
@@ -4342,17 +4344,42 @@ function fireWeaponProc(attacker: Actor, target: Actor, depth: number): void {
   const changed: Actor[] = [];
   let death: Death | undefined;
   for (let i = 0; i < blows; i++) {
-    const damage = rollDice(combatRng, dice);
-    const result = landBlow({ sim, scheduler, book: threat, ledger }, attacker, target, damage);
-    changed.push(...result.changed);
+    // **A blow of the blade's own is still a blow** — owner's report (2026-08-08): *"procced
+    // attacks are also supposed to be able to crit."* The source agrees by construction: its
+    // extra hits re-enter `hit()` whole, so each rolls the d20 — it can miss, and it can crit,
+    // and the crit doubles the whole roll exactly as the wielder's own would. Dropped and named:
+    // dodge and parry against a possessed blade are the defender's own seam and wait with the
+    // defensive-proc row, and the fumble is skipped — a blade that takes over does not drop itself.
+    const roll = resolveAttack(combatRng, {
+      attackBonus: attacker.combat.attackBonus,
+      targetAc: target.combat.armourClass,
+    });
+    const damage = roll.hit ? rollDamage(combatRng, dice, roll.critical) : 0;
+    const result = roll.hit
+      ? landBlow({ sim, scheduler, book: threat, ledger }, attacker, target, damage)
+      : undefined;
+    if (result) changed.push(...result.changed);
+    const critically = roll.critical ? 'critically ' : '';
     if (isPlayer(attacker)) {
-      send(attacker.id, { t: 'log', channel: 'combat', text: `&+W-=[ ${weaponName}&N&+W slashes ${target.name}&N&+W of its own accord for ${damage}! ]=-&N` });
+      send(attacker.id, {
+        t: 'log',
+        channel: 'combat',
+        text: roll.hit
+          ? `&+W-=[ ${weaponName}&N&+W ${critically}slashes ${target.name}&N&+W of its own accord for ${damage}! ]=-&N`
+          : `&+W-=[ ${weaponName}&N&+W lashes out of its own accord, but misses ${target.name}&N&+W! ]=-&N`,
+      });
     }
     if (isPlayer(target)) {
-      send(target.id, { t: 'log', channel: 'combat', text: `&+R-=[ ${capitalise(weaponName)}&N&+R slashes you of its own accord for ${damage}! ]=-&N` });
+      send(target.id, {
+        t: 'log',
+        channel: 'combat',
+        text: roll.hit
+          ? `&+R-=[ ${capitalise(weaponName)}&N&+R ${critically}slashes you of its own accord for ${damage}! ]=-&N`
+          : `&+R-=[ ${capitalise(weaponName)}&N&+R lashes out of its own accord, but misses you! ]=-&N`,
+      });
     }
-    // The structured form too, so the extra slashes *animate* — protocol 22's field, the ability
-    // convention for a blow with no d20 behind it.
+    // The structured form too, so the extra slashes *animate* — protocol 22's field, now carrying
+    // the blow's own real d20.
     for (const observer of sim.playersIn(attacker.roomId)) {
       const seesAttacker = observer.id === attacker.id || (watching.get(observer.id)?.has(attacker.id) ?? false);
       const seesTarget = observer.id === target.id || (watching.get(observer.id)?.has(target.id) ?? false);
@@ -4361,19 +4388,19 @@ function fireWeaponProc(attacker: Actor, target: Actor, depth: number): void {
         t: 'attackResolved',
         attacker: attacker.id,
         target: target.id,
-        hit: true,
-        critical: false,
+        hit: roll.hit,
+        critical: roll.critical,
         damage,
-        natural: 0,
-        outcome: 'hit',
+        natural: roll.natural,
+        outcome: roll.critical ? 'critical' : roll.hit ? 'hit' : 'miss',
         swing: 'slash',
       });
     }
-    if (result.death) {
+    if (result?.death) {
       death = result.death;
       break;
     }
-    if (result.incapacitated) break;
+    if (result?.incapacitated) break;
   }
   for (const actor of changed) syncEntityState(actor);
   if (death) resolveDeath(death);
