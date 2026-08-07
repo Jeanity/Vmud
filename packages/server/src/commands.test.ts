@@ -163,9 +163,12 @@ describe('COMMAND_REQUIREMENTS', () => {
     // Phase 19 added `skills` to the list, and it belongs there for `affects`' reason: what you are good
     // at is interface, not action, and reading it while something is killing you is exactly when you want
     // to.
+    // `equipment` joined 2026-08-07 with the inventory split, and it is the source's own row —
+    // `CMD_Y(CMD_EQUIPMENT, STAT_SLEEPING + POS_PRONE)`, laxer than inventory's resting: checking what
+    // you are wearing is interface too.
     assert.deepEqual([...allowed].sort(), [
-      'affects', 'buy', 'consent', 'disband', 'help', 'list', 'sell', 'skills', 'sleep', 'stop', 'value',
-      'wake', 'who',
+      'affects', 'buy', 'consent', 'disband', 'equipment', 'help', 'list', 'sell', 'skills', 'sleep',
+      'stop', 'value', 'wake', 'who',
     ]);
   });
 

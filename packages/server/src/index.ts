@@ -209,6 +209,7 @@ import {
   type LegacyRoomTiles,
   type PlayerRecord,
 } from './players.ts';
+import { directionFrom, peek } from './peek.ts';
 import {
   advanceAssists,
   advanceCombat,
@@ -3595,13 +3596,90 @@ function lookAt(player: Player, argument: string): void {
     describeRoom(player);
     return;
   }
-  // Containers first, and it takes the argument whole: `look in quiver` is one request, not `look` at
+  // Directions get first refusal, which is Diku's own `search_block` order — `look e` is east even in
+  // a room with an entity answering to `e`. The whole argument must name the direction, so `look in
+  // quiver` and `look east wall` fall through untouched.
+  const dir = directionFrom(argument);
+  if (dir) {
+    lookDirection(player, dir);
+    return;
+  }
+  // Containers next, and it takes the argument whole: `look in quiver` is one request, not `look` at
   // something called "in quiver". It answers `look quiver` too when the quiver is a container, since
   // "what is in it" is the only interesting thing to say about one.
   if (lookInside(player, argument)) return;
   const target = resolveTarget(player, argument);
   if (!target) return;
   describeEntity(player, target);
+}
+
+/** How a peeked room is introduced. Compass reads as bearing, vertical as relation. */
+const PEEK_PHRASE: Readonly<Record<Direction, string>> = {
+  north: 'To the north',
+  east: 'To the east',
+  south: 'To the south',
+  west: 'To the west',
+  up: 'Above you',
+  down: 'Below you',
+};
+
+/**
+ * `look <direction>` — the room one exit away, gated on *its* light rather than yours. The rules and
+ * their order are `peek.ts`'s (read its header for what is the source's, what is opened deliberately,
+ * and what is dropped by name); this is the rendering, plus the facing rule — peering east is dealing
+ * with east, so you turn.
+ */
+function lookDirection(player: Player, dir: Direction): void {
+  const room = sim.room(player.roomId);
+  if (!room) return;
+  faceDirection(player, dir);
+
+  const outcome = peek(room, dir, {
+    roomOf: (id) => sim.room(id),
+    occupantsOf: (id) => [...sim.actorsIn(id)].map((a) => ({ name: a.name, lightRadius: a.lightRadius ?? 0 })),
+    doorAt: (id, d) => {
+      const doorway = world.doorway(id, d);
+      return doorway ? { name: doorway.near.door.name, closed: doorway.near.door.closed } : undefined;
+    },
+  });
+
+  switch (outcome.t) {
+    case 'no-exit':
+      send(player.id, { t: 'log', channel: 'room', text: 'You see nothing special...' });
+      return;
+    // The same sentence the door tells a step, because it is the same fact about the same door.
+    case 'closed-door':
+      send(player.id, { t: 'log', channel: 'room', text: `${capitalise(outcome.door)} is closed.` });
+      return;
+    case 'nowhere':
+      send(player.id, { t: 'log', channel: 'room', text: 'Swirling mists block your sight.' });
+      return;
+    case 'one-way':
+      send(player.id, { t: 'log', channel: 'room', text: 'Something seems to be blocking your line of sight.' });
+      return;
+    case 'dark':
+      send(player.id, { t: 'log', channel: 'room', text: "&+LIt's much too dark there for you to see!&N" });
+      return;
+    case 'view': {
+      if (outcome.door) {
+        send(player.id, { t: 'log', channel: 'room', text: `${capitalise(outcome.door)} is open.` });
+      }
+      send(player.id, { t: 'log', channel: 'room', text: `&+W${PEEK_PHRASE[dir]}:&N ${outcome.room.name}` });
+      if (outcome.room.description) {
+        send(player.id, { t: 'log', channel: 'room', text: outcome.room.description });
+      }
+      // The count is the tactical information: three patrol members are one name and a number.
+      if (outcome.occupants.length === 0) {
+        send(player.id, { t: 'log', channel: 'room', text: 'Nobody is standing there.' });
+      } else {
+        const listed = outcome.occupants
+          .map((o) => (o.count > 1 ? `${o.name}&N [x${o.count}]` : `${o.name}&N`))
+          .join(', ');
+        send(player.id, { t: 'log', channel: 'room', text: `You can make out: ${listed}.` });
+      }
+      return;
+    }
+  }
 }
 
 /**
@@ -4186,6 +4264,7 @@ function runCommand(player: Player, line: string): void {
     case 'wield': return wieldFromBag(player, rest);
     case 'remove': return removeWorn(player, rest);
     case 'inventory': return listInventory(player);
+    case 'equipment': return listEquipment(player);
     // Phase 17. All four resolve the keeper the same way, so the refusal for "there is nobody here
     // to trade with" is written once in `keeperFor` rather than four times.
     case 'whisper': return whisperTo(player, rest);
@@ -5958,7 +6037,21 @@ function listInventory(player: Player): void {
     channel: 'system',
     text: `&+YPurse:&N ${describePurse(player.purse)}`,
   });
+}
 
+/**
+ * `equipment` — what you are wearing, and `inventory`'s other half.
+ *
+ * They were one printout until the owner read it (2026-08-07): *"when I type inventory it is showing
+ * what I am wearing"* — a full kit is eleven lines and a fresh character's bag is none, so the worn
+ * list drowned the carried one and the command read as answering the wrong question. Diku's own split
+ * is the fix, verbs and all: `inventory` is what you carry, `equipment` is what you wear, and the
+ * lineage's fingers already know `i` and `eq`.
+ *
+ * `CMD_Y(CMD_EQUIPMENT, STAT_SLEEPING + POS_PRONE, …)` — readable while asleep, mid-fight, from the
+ * floor. Checking what you are wearing is interface, not action.
+ */
+function listEquipment(player: Player): void {
   send(player.id, { t: 'log', channel: 'system', text: '&+cYou are wearing:&N' });
   const worn = Object.entries(player.equipped).filter(([, item]) => item !== undefined);
   if (worn.length === 0) {
