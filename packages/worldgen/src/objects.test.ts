@@ -132,6 +132,22 @@ describe('one object record', () => {
     assert.ok(template);
     assert.equal(template.scroll, undefined);
   });
+
+  it("harvests a weapon's data proc — value[7] odds, value[6] level, value[5] packed spells", () => {
+    // The khopis fixture with the forge-hammer family's proc grafted onto its value row: spells
+    // 57/16/15 packed as 15,016,057, level 40, 1-in-28 — `weapon_proc`'s own fields (fight.c:7764).
+    const procced = KHOPIS.replace('9 5 5 0 0 589 46 45', '9 5 5 0 0 15016057 40 28');
+    const parsed = parseObjectRecord(420_000, procced.slice(procced.indexOf('\n') + 1));
+    assert.ok(parsed);
+    const template = toTemplate(parsed);
+    assert.ok(template);
+    assert.deepEqual(template.proc, { t: 'spells', oneIn: 28, level: 40, spells: [57, 16, 15] });
+    // And the khopis **as shipped is itself a proc weapon** — the fixture taught the test: its raw
+    // row carries value[5]=589, value[6]=46, value[7]=45, so WindRage procs spell 589 at level 46,
+    // one hit in 45. Recorded raw and inert until the registry knows 589 — the scroll rule.
+    const shipped = toTemplate(parseObjectRecord(420_000, KHOPIS.slice(KHOPIS.indexOf('\n') + 1))!);
+    assert.deepEqual(shipped!.proc, { t: 'spells', oneIn: 45, level: 46, spells: [589] });
+  });
 });
 
 describe('a directory of them', () => {

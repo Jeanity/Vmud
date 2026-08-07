@@ -62,6 +62,15 @@ export const MOBS_FILE = join(REPO_ROOT, 'data', 'world', 'overrides', 'mobs.jso
 export interface AuthoredLoot {
   readonly vnum: number;
   readonly slot?: EquipSlot;
+  /**
+   * The drop rate, 1–99 — the owner's rare-drop ask (2026-08-07): *"it may take 50 kills of an
+   * Elven Master Ranger to get Windsong to drop … so they don't flood the game."* Rolled at
+   * **spawn**, the Diku way (`G <percent>` reset commands): the mob either carries the piece this
+   * repop or it does not, so the fiftieth ranger has the blade and the other forty-nine honestly
+   * never did — there is no on-death lottery to dispute. Absent means always, which is every row
+   * authored before this existed.
+   */
+  readonly percent?: number;
 }
 
 /**
@@ -287,9 +296,15 @@ function readLoot(raw: unknown): AuthoredLoot | undefined {
   if (typeof raw !== 'object' || raw === null) return undefined;
   const row = raw as Record<string, unknown>;
   if (typeof row.vnum !== 'number' || !Number.isInteger(row.vnum)) return undefined;
-  if (row.slot === undefined || row.slot === null || row.slot === '') return { vnum: row.vnum };
+  // A percent of 100 (or anything malformed) is simply "always", stored as absence — the file stays
+  // honest about which rows somebody actually made rare.
+  const percent =
+    typeof row.percent === 'number' && Number.isInteger(row.percent) && row.percent >= 1 && row.percent <= 99
+      ? { percent: row.percent }
+      : {};
+  if (row.slot === undefined || row.slot === null || row.slot === '') return { vnum: row.vnum, ...percent };
   if (typeof row.slot !== 'string' || !SLOT_SET.has(row.slot)) return undefined;
-  return { vnum: row.vnum, slot: row.slot as EquipSlot };
+  return { vnum: row.vnum, slot: row.slot as EquipSlot, ...percent };
 }
 
 /**
@@ -386,6 +401,12 @@ export function outfitFor(
   override: MobOverride | undefined,
   items: ReadonlyMap<number, ItemTemplate>,
   instantiate: (template: ItemTemplate) => Item,
+  /**
+   * The rare-drop roll, injected so this file stays free of the RNG the way it stays free of the
+   * item machinery — and so the caller decides which seeded stream the world's luck rides on.
+   * Absent (older callers, tests about shape) reads as every row dropping.
+   */
+  dropRoll?: (percent: number) => boolean,
 ): Outfit {
   const worn: { slot: EquipSlot; item: Item }[] = [];
   const carried: Item[] = [];
@@ -396,6 +417,8 @@ export function outfitFor(
       missing.push(row.vnum);
       continue;
     }
+    // The spawn-time lottery: this instance either carries it or never had it.
+    if (row.percent !== undefined && dropRoll && !dropRoll(row.percent)) continue;
     const item = instantiate(template);
     if (row.slot) worn.push({ slot: row.slot, item });
     else carried.push(item);

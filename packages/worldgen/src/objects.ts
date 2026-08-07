@@ -43,8 +43,10 @@ import {
   sizeFrom,
   slotForWearFlags,
   stackLimitFor,
+  unpackWeaponSpells,
   type ContainerAccepts,
   type ItemTemplate,
+  type SpellsProc,
 } from '@mygame/shared';
 
 /** One object as the file states it, before any interpretation. */
@@ -336,6 +338,26 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
     // `do_recite` reads (`actoth.c:4234`: `value[0]` as the cast level, `value[1..3]` as spells,
     // a slot `< 1` skipped). Numbers kept raw — the source's vocabulary, `spells.ts` translates.
     ...(raw.type === DURIS_ITEM.scroll ? { scroll: scrollFrom(raw.values) } : {}),
+    // Weapon procs, the data path — `weapon_proc` reads exactly these (`fight.c:7764-7858`):
+    // `value[7]` the 1-in-N odds, `value[6]` the cast level, `value[5]` the packed spell numbers.
+    // 210 weapons carry it. `value[4]`'s one-shot poison is dropped and named: no poison yet.
+    ...(isWeapon && procFrom(raw.values) ? { proc: procFrom(raw.values)! } : {}),
+  };
+}
+
+/** The data-path proc off a weapon's values, or nothing — most weapons are only what they hit with. */
+function procFrom(values: readonly number[]): SpellsProc | undefined {
+  const oneIn = Math.floor(values[7] ?? 0);
+  const packed = Math.floor(values[5] ?? 0);
+  if (oneIn <= 0 || packed <= 0) return undefined;
+  const { spells, pickOne } = unpackWeaponSpells(packed);
+  if (spells.length === 0) return undefined;
+  return {
+    t: 'spells',
+    oneIn,
+    level: Math.max(1, Math.floor(values[6] ?? 1)),
+    spells,
+    ...(pickOne ? { pickOne: true as const } : {}),
   };
 }
 

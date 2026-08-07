@@ -44,13 +44,16 @@ import {
   DURIS_ITEM_TYPES,
   EQUIP_SLOTS,
   LPC_ART_BY_ID,
+  SPECIAL_PROC_IDS,
   isKnownArt,
+  isSpecialProcId,
   MAX_ITEM_SIZE,
   stackLimitFor,
   type ContainerAccepts,
   type ContainerRule,
   type EquipSlot,
   type ItemTemplate,
+  type WeaponProc,
 } from '@mygame/shared';
 
 import { readDice } from './item-overrides.ts';
@@ -109,6 +112,7 @@ export interface ItemDraft {
   readonly uses?: unknown;
   readonly container?: unknown;
   readonly art?: unknown;
+  readonly proc?: unknown;
 }
 
 /** A whole number in range, or nothing. The shape every numeric field here is checked against. */
@@ -231,6 +235,22 @@ export function draftAuthoredItem(vnum: number, draft: ItemDraft): { item: ItemT
     art = draft.art;
   }
 
+  // A proc, the art posture exactly: an unknown special id is refused by name, because "I gave it
+  // Windsong's proc and it did not take" is a bug report nobody can act on. Both shapes are legal —
+  // a `special` reference into the shared registry, or the harvested data shape (chance, level, raw
+  // spell numbers) for an author building a caster-blade of their own.
+  let proc: WeaponProc | undefined;
+  if (draft.proc !== undefined && draft.proc !== null) {
+    proc = readProc(draft.proc);
+    if (!proc) {
+      return {
+        error:
+          `proc must be {"t":"special","id":<one of: ${SPECIAL_PROC_IDS.join(', ')}>} or ` +
+          '{"t":"spells","oneIn":<2..1000>,"level":<1..60>,"spells":[<Duris spell numbers>]}',
+      };
+    }
+  }
+
   const roomLine = typeof draft.roomLine === 'string' && draft.roomLine.trim()
     ? draft.roomLine.trim()
     : `${name} is lying here.`;
@@ -254,8 +274,29 @@ export function draftAuthoredItem(vnum: number, draft: ItemDraft): { item: ItemT
       ...(uses !== undefined ? { uses } : {}),
       ...(container ? { container } : {}),
       ...(art ? { art } : {}),
+      ...(proc ? { proc } : {}),
     },
   };
+}
+
+/** One proc field off a draft, or nothing — either registry shape, everything else refused. */
+function readProc(raw: unknown): WeaponProc | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const record = raw as Record<string, unknown>;
+  if (record.t === 'special') {
+    if (typeof record.id !== 'string' || !isSpecialProcId(record.id)) return undefined;
+    return { t: 'special', id: record.id };
+  }
+  if (record.t === 'spells') {
+    const oneIn = typeof record.oneIn === 'number' && Number.isInteger(record.oneIn) && record.oneIn >= 2 && record.oneIn <= 1000 ? record.oneIn : undefined;
+    const level = typeof record.level === 'number' && Number.isInteger(record.level) && record.level >= 1 && record.level <= 60 ? record.level : undefined;
+    const spells = Array.isArray(record.spells)
+      ? (record.spells as unknown[]).filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1).slice(0, 3)
+      : [];
+    if (oneIn === undefined || level === undefined || spells.length === 0) return undefined;
+    return { t: 'spells', oneIn, level, spells, ...(record.pickOne === true ? { pickOne: true as const } : {}) };
+  }
+  return undefined;
 }
 
 /**

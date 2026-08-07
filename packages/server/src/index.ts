@@ -46,9 +46,13 @@ import {
   ITEM_TYPE_BOAT,
   ICE_STORM_MIN_CHANCE,
   MOB_CAST_CHANCE,
+  PROC_DEPTH_CAP,
+  SPECIAL_PROCS,
   SPELLS,
   SPELL_IDS,
   THREAT_PER_HEAL,
+  rollProc,
+  rollProcBlows,
   areaHitCount,
   rollEarthquake,
   defaultSaveMod,
@@ -241,6 +245,7 @@ import {
   canBeAttacked,
   clearEngagements,
   disengage,
+  canEngage,
   engage,
   joinBySupporting,
   landBlow,
@@ -501,7 +506,10 @@ for (const [vnum, authored] of authoredStore.items) itemCatalogue.set(vnum, auth
  * only exists because A6b made it, and reading the overlay before that fold would report it missing.
  */
 const mobOverrides = loadMobOverrides();
-const authoredOutfit = (vnum: number): Outfit => outfitFor(mobOverrides.get(vnum), itemCatalogue, instantiate);
+// The rare-drop roll rides the spawn stream: which repop carries the blade is world luck, and world
+// luck is seeded (`CLAUDE.md` rule 3) — a restart replays the same fortunate ranger.
+const authoredOutfit = (vnum: number): Outfit =>
+  outfitFor(mobOverrides.get(vnum), itemCatalogue, instantiate, (percent) => randomInt(spawnRng, 1, 100) <= percent);
 
 /**
  * A9: the harvested template of every vnum that carries an override, stashed the moment one lands.
@@ -4020,6 +4028,109 @@ function completeSpellBuff(caster: Actor, spell: Spell, target: Actor, atLevel: 
   syncEntityState(target);
   if (isPlayer(target)) send(target.id, { t: 'self', view: sim.selfViewOf(target) });
   if (isPlayer(caster) && caster.id !== target.id) send(caster.id, { t: 'self', view: sim.selfViewOf(caster) });
+}
+
+/**
+ * A landed blow's weapon gets its say — `weapon_proc` (`fight.c:7756-7858`), the owner's Windsong
+ * ask made mechanism. Fired from its own walk of the tick's attacks, **after** the announce and
+ * notch walks, so a proc that kills mid-walk cannot leave those narrating a corpse; every gate is
+ * re-checked here because the walk order guarantees nothing about who is still standing.
+ *
+ * The source's own preconditions kept (`fight.c:7743-7760`): the blow landed (a defended blow is
+ * already `hit: false`), both parties still in the room, the victim still up — **a killing blow
+ * does not proc**, because the weapon has nothing left to act on.
+ */
+function maybeWeaponProc(outcome: AttackOutcome): void {
+  if (!outcome.hit) return;
+  fireWeaponProc(outcome.attacker, outcome.target, 0);
+}
+
+/**
+ * One firing, and the recursion the owner remembers: *"it could proc on a proc."* The source got
+ * that for free — extra hits re-entered `hit()`, whose tail is `weapon_proc` — and ours re-enters
+ * here off its own volley. {@link PROC_DEPTH_CAP} is the belt the source never wore (its one
+ * limiter ships disabled): the odds make a third firing rare and an eighth absurd, but a sword that
+ * swings forever must be impossible, not unlikely.
+ */
+function fireWeaponProc(attacker: Actor, target: Actor, depth: number): void {
+  if (depth >= PROC_DEPTH_CAP) return;
+  // `canEngage` is the standing test (`canBeAttacked` is the target's): a felled or sleeping
+  // attacker wields nothing worth hearing from. Same-room and victim-up are the source's own gate.
+  if (!canEngage(attacker) || attacker.roomId !== target.roomId || !canBeAttacked(target)) return;
+  // `equipped` lives on `Player` and `Mob`, not on `Actor` — `attackTypeOf`'s own narrowing.
+  const weapon = isPlayer(attacker) || isMob(attacker) ? attacker.equipped.mainHand : undefined;
+  const proc = weapon ? templateOf(weapon)?.proc : undefined;
+  if (!proc) return;
+
+  if (proc.t === 'spells') {
+    // The harvested data path: the weapon casts. Everything below is Phase 20's own pipeline —
+    // the forge hammer's earthquake IS the scroll's earthquake — at the weapon's stored level.
+    if (!rollProc(combatRng, proc.oneIn)) return;
+    const known = proc.spells.map((n) => spellFromDurisNumber(n)).filter((s): s is Spell => s !== undefined);
+    if (known.length === 0) return; // Inert until the registry grows its spells — the scroll rule.
+    const chosen = proc.pickOne ? [known[randomInt(combatRng, 0, known.length - 1)]!] : known;
+    for (const spell of chosen) {
+      // Aggressive magic strikes the one being hit; the rest tends the wielder (`fight.c:7831-7838`).
+      const at = spell.kind === 'heal' || spell.kind === 'buff' ? attacker : target;
+      deliverSpell(attacker, spell, at, proc.level);
+      if (!canEngage(attacker) || !canBeAttacked(target) || target.roomId !== attacker.roomId) break;
+    }
+    return; // The data path never recurses: its output is spells, and a spell wields nothing.
+  }
+
+  const special = SPECIAL_PROCS[proc.id];
+  if (!rollProc(combatRng, special.oneIn)) return;
+
+  // The blade takes over. The takeover is said once; the blows then read like the blows they are.
+  const weaponName = weapon!.name;
+  if (isPlayer(attacker)) send(attacker.id, { t: 'log', channel: 'combat', text: special.self.replace('$p', weaponName) });
+  actAround(attacker, 'combat', (who) => special.room.replace('$n', who).replace('$p', weaponName));
+
+  const dice = templateOf(weapon!)?.damage ?? attacker.combat.damage;
+  const blows = rollProcBlows(combatRng, special);
+  const changed: Actor[] = [];
+  let death: Death | undefined;
+  for (let i = 0; i < blows; i++) {
+    const damage = rollDice(combatRng, dice);
+    const result = landBlow({ sim, scheduler, book: threat, ledger }, attacker, target, damage);
+    changed.push(...result.changed);
+    if (isPlayer(attacker)) {
+      send(attacker.id, { t: 'log', channel: 'combat', text: `&+W-=[ ${weaponName}&N&+W slashes ${target.name}&N&+W of its own accord for ${damage}! ]=-&N` });
+    }
+    if (isPlayer(target)) {
+      send(target.id, { t: 'log', channel: 'combat', text: `&+R-=[ ${capitalise(weaponName)}&N&+R slashes you of its own accord for ${damage}! ]=-&N` });
+    }
+    // The structured form too, so the extra slashes *animate* — protocol 22's field, the ability
+    // convention for a blow with no d20 behind it.
+    for (const observer of sim.playersIn(attacker.roomId)) {
+      const seesAttacker = observer.id === attacker.id || (watching.get(observer.id)?.has(attacker.id) ?? false);
+      const seesTarget = observer.id === target.id || (watching.get(observer.id)?.has(target.id) ?? false);
+      if (!seesAttacker && !seesTarget) continue;
+      send(observer.id, {
+        t: 'attackResolved',
+        attacker: attacker.id,
+        target: target.id,
+        hit: true,
+        critical: false,
+        damage,
+        natural: 0,
+        outcome: 'hit',
+        swing: 'slash',
+      });
+    }
+    if (result.death) {
+      death = result.death;
+      break;
+    }
+    if (result.incapacitated) break;
+  }
+  for (const actor of changed) syncEntityState(actor);
+  if (death) resolveDeath(death);
+  else syncEntityState(target);
+  if (isPlayer(target)) send(target.id, { t: 'self', view: sim.selfViewOf(target) });
+
+  // The proc on the proc — off its own blows, exactly as the source's re-entered hit() had it.
+  if (special.recurses && !death) fireWeaponProc(attacker, target, depth + 1);
 }
 
 /** The tail every completed strike shares: the declaration, the swing back, the syncs. */
@@ -8182,6 +8293,11 @@ setInterval(() => {
   // knockdown was — the player timing a re-bash is reading exactly this line.
   for (const mob of combat.stood) actAround(mob, 'combat', (who) => `${who} clambers to its feet.`);
   for (const death of combat.deaths) resolveDeath(death);
+  // **Weapons get their say last** — a separate walk, after every announce and notch above, so a
+  // proc that kills cannot leave an earlier walk narrating a corpse; `fireWeaponProc` re-checks
+  // every gate itself. Ability blows deliberately do not proc yet (the source procs backstab and we
+  // have none); the day they should, `useAbility` calls the same function.
+  for (const outcome of combat.attacks) maybeWeaponProc(outcome);
 
   // Corpses age. Almost every tick this does nothing, and the map is empty in a world nobody is fighting
   // in — so it is a walk over a handful of entries rather than a scan of anything.

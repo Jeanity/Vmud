@@ -1,5 +1,5 @@
 {
-  "next": 9000007,
+  "next": 9000008,
   "mobs": {
     "9000005": {
       "vnum": 9000005,
@@ -84,6 +84,49 @@
       "experience": 450,
       "wimpyAt": 0,
       "at": "2026-08-07T03:24:52.403Z"
+    },
+    "9000007": {
+      "vnum": 9000007,
+      "keywords": [
+        "elven",
+        "master",
+        "ranger",
+        "elf"
+      ],
+      "name": "&+Gan elven master ranger&N",
+      "room": "&+GAn elven master ranger moves through the trees with unhurried grace.&N",
+      "level": 32,
+      "hp": "30d10+280",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 1860,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 16,
+        "damage": {
+          "count": 3,
+          "sides": 6,
+          "bonus": 4
+        },
+        "attackBonus": 10,
+        "roundMs": 3000
+      },
+      "experience": 42000,
+      "wimpyAt": 0,
+      "at": "2026-08-07T08:43:14.591Z"
     }
   }
 }

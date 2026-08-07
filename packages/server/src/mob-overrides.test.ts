@@ -91,6 +91,29 @@ describe('the mob overlay', () => {
     assert.notEqual(first.carried[0], second.carried[0], 'looting one must not empty the other');
   });
 
+  it('rolls the rare-drop percent at spawn, through the injected roll', () => {
+    // The owner's fifty-kills ask: the piece is on the body or was never there. The roll is
+    // injected, so which seeded stream the world's luck rides on is the caller's decision.
+    const rare = { loot: [{ vnum: 100, percent: 2 }] };
+    const lucky = outfitFor(rare, CATALOGUE, instantiate, () => true);
+    const unlucky = outfitFor(rare, CATALOGUE, instantiate, () => false);
+    assert.equal(lucky.carried.length, 1, 'the fiftieth ranger has the blade');
+    assert.equal(unlucky.carried.length, 0, 'the other forty-nine honestly never did');
+    assert.deepEqual(unlucky.missing, [], 'a failed roll is not a missing item');
+    // No roll injected (older callers, shape tests): every row drops, exactly as before.
+    assert.equal(outfitFor(rare, CATALOGUE, instantiate).carried.length, 1);
+  });
+
+  it('round-trips the percent through the overlay file, dropping the malformed', () => {
+    const file = tempFile();
+    saveMobOverrides(
+      new Map([[61, { loot: [{ vnum: 100, percent: 2 }, { vnum: 200 }], at: '2026-08-07T00:00:00.000Z' }]]),
+      file,
+    );
+    const back = loadMobOverrides(file);
+    assert.deepEqual(back.get(61)?.loot, [{ vnum: 100, percent: 2 }, { vnum: 200 }]);
+  });
+
   it('is additive: a contested slot displaces to the hands rather than destroying', () => {
     const harvested = { ...template(500, 'a harvested cap') } as unknown as Item;
     const mob = { equipped: { head: harvested } as Record<string, Item>, carrying: [] as Item[] };

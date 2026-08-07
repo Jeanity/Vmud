@@ -1,4 +1,33 @@
 {
-  "next": 9000000,
-  "items": {}
+  "next": 9000001,
+  "items": {
+    "9000000": {
+      "vnum": 9000000,
+      "keywords": [
+        "windsong",
+        "scimitar",
+        "elven",
+        "blade"
+      ],
+      "name": "&+WWindsong&N&+w, scimitar of the elven winds&N",
+      "roomLine": "&+WA slender elven scimitar hums softly here, stirring the air around it.&N",
+      "type": 5,
+      "ac": 0,
+      "size": 2,
+      "cost": 250000,
+      "stackLimit": 1,
+      "slot": "mainHand",
+      "damage": {
+        "count": 2,
+        "sides": 6,
+        "bonus": 2
+      },
+      "proc": {
+        "t": "special",
+        "id": "windsong"
+      },
+      "at": "2026-08-07T08:42:31.715Z",
+      "by": "panel"
+    }
+  }
 }

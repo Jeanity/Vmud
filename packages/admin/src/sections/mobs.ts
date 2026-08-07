@@ -51,7 +51,7 @@ interface TemplateRow {
   readonly level: number;
   readonly keywords: readonly string[];
   /** A4c: what this template is authored to carry, folded into the search response by the server. */
-  readonly loot?: readonly { readonly vnum: number; readonly slot?: string; readonly name?: string }[];
+  readonly loot?: readonly { readonly vnum: number; readonly slot?: string; readonly name?: string; readonly percent?: number }[];
   /** A9: which of its own fields are authored over the harvest. Absent when none are. */
   readonly edited?: readonly string[];
   /** A9b: made here rather than harvested — a different fact from *edited*, and a different mark. */
@@ -402,10 +402,11 @@ export const mobsSection = {
  */
 function lootEditor(template: TemplateRow, done: () => void): HTMLElement {
   const flash = el('p', { class: 'note' });
-  const rows: { vnum: number; name: string; slot: string }[] = (template.loot ?? []).map((row) => ({
+  const rows: { vnum: number; name: string; slot: string; percent: string }[] = (template.loot ?? []).map((row) => ({
     vnum: row.vnum,
     name: row.name ?? `item ${row.vnum}`,
     slot: row.slot ?? '',
+    percent: row.percent === undefined ? '' : String(row.percent),
   }));
 
   const list = el('div', { class: 'rows' });
@@ -424,13 +425,21 @@ function lootEditor(template: TemplateRow, done: () => void): HTMLElement {
       slot.addEventListener('change', () => {
         row.slot = slot.value;
       });
+      // The rare-drop rate (owner, 2026-08-07): blank is always; 2 means one repop in fifty spawns
+      // carrying it. Rolled at spawn, so the piece is on the body or was never there.
+      const percent = el('input', {
+        type: 'number', min: '1', max: '99', placeholder: '%', value: row.percent, title: 'drop rate % — blank means always; rolled when the mob spawns',
+      }) as HTMLInputElement;
+      percent.addEventListener('input', () => {
+        row.percent = percent.value;
+      });
       const drop = el('button', { type: 'button', class: 'danger' }, '×');
       drop.addEventListener('click', () => {
         rows.splice(index, 1);
         redraw();
       });
       list.append(
-        el('div', { class: 'row' }, el('span', { class: 'vnum' }, String(row.vnum)), coloured(row.name), slot, drop),
+        el('div', { class: 'row' }, el('span', { class: 'vnum' }, String(row.vnum)), coloured(row.name), slot, percent, drop),
       );
     });
   };
@@ -464,7 +473,7 @@ function lootEditor(template: TemplateRow, done: () => void): HTMLElement {
             flash.textContent = `At most ${MAX_LOOT} pieces.`;
             return;
           }
-          rows.push({ vnum: item.vnum, name: item.name, slot: '' });
+          rows.push({ vnum: item.vnum, name: item.name, slot: '', percent: '' });
           redraw();
         });
         found.append(
@@ -483,7 +492,11 @@ function lootEditor(template: TemplateRow, done: () => void): HTMLElement {
     void (async () => {
       save.disabled = true;
       const result = await call<{ spawned: number }>('PATCH', `/mobs/${template.vnum}/loot`, {
-        loot: rows.map((row) => ({ vnum: row.vnum, ...(row.slot ? { slot: row.slot } : {}) })),
+        loot: rows.map((row) => ({
+          vnum: row.vnum,
+          ...(row.slot ? { slot: row.slot } : {}),
+          ...(row.percent.trim() !== '' ? { percent: Number(row.percent) } : {}),
+        })),
       });
       save.disabled = false;
       if (!result.ok || !result.body) {

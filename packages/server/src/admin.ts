@@ -2344,21 +2344,31 @@ export class AdminApi {
       if (typeof entry !== 'object' || entry === null) {
         return { status: 400, body: { error: 'each piece must be {"vnum": <integer>, "slot": <slot|null>}' } };
       }
-      const row = entry as { vnum?: unknown; slot?: unknown };
+      const row = entry as { vnum?: unknown; slot?: unknown; percent?: unknown };
       if (typeof row.vnum !== 'number' || !Number.isInteger(row.vnum)) {
         return { status: 400, body: { error: 'each piece needs an integer item vnum' } };
       }
       if (!this.deps.items.has(row.vnum)) {
         return { status: 404, body: { error: `no item ${row.vnum} in the catalogue` } };
       }
+      // The rare-drop rate. 100 and absence mean the same thing and are stored the same way; a
+      // typed 0 is refused rather than stored, because a piece that can never appear is a lie the
+      // editor would keep repeating.
+      let percent: { percent?: number } = {};
+      if (row.percent !== undefined && row.percent !== null && row.percent !== 100) {
+        if (typeof row.percent !== 'number' || !Number.isInteger(row.percent) || row.percent < 1 || row.percent > 99) {
+          return { status: 400, body: { error: 'percent must be a whole number from 1 to 99, or blank for always' } };
+        }
+        percent = { percent: row.percent };
+      }
       if (row.slot === undefined || row.slot === null || row.slot === '') {
-        loot.push({ vnum: row.vnum });
+        loot.push({ vnum: row.vnum, ...percent });
         continue;
       }
       if (typeof row.slot !== 'string' || !(EQUIP_SLOTS as readonly string[]).includes(row.slot)) {
         return { status: 400, body: { error: `no such slot: ${String(row.slot)}` } };
       }
-      loot.push({ vnum: row.vnum, slot: row.slot as EquipSlot });
+      loot.push({ vnum: row.vnum, slot: row.slot as EquipSlot, ...percent });
     }
 
     const applied = this.deps.live.authorMobLoot(vnum, loot);

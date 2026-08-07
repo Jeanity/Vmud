@@ -21,6 +21,7 @@
 
 import type { Dice } from './rules.ts';
 import type { EquipSlot, Item } from './equipment.ts';
+import type { WeaponProc } from './procs.ts';
 
 /* -------------------------------------------------------------------------- */
 /* Duris' own constants, transcribed                                           */
@@ -524,6 +525,15 @@ export interface ItemTemplate {
    * stay recorded here and begin working the day the registry grows them.
    */
   readonly scroll?: { readonly level: number; readonly spells: readonly number[] };
+  /**
+   * What a weapon does on its own — the proc. Harvested from `value[5..7]` for the 210 weapons the
+   * catalogue ships with the data path (`weapon_proc`, `fight.c:7764` — chance, cast level, packed
+   * spell numbers kept raw per the scroll rule), or a `special` reference into `procs.ts`'s
+   * registry for the bespoke blades whose behaviour was C in the source and is authored here —
+   * Windsong first. Template-only, like `scroll`: the instance in a bag needs no copy because the
+   * executor reads the wielder's template at proc time.
+   */
+  readonly proc?: WeaponProc;
 }
 
 /**
