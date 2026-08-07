@@ -31,6 +31,9 @@ describe('lookupCommand — abbreviation by table order', () => {
       // 15b. Both of these are free letters — nothing above them starts with `g` or `i` — so they
       // land on the abbreviation Diku has always given them.
       ['g', 'get'], ['i', 'inventory'],
+      // The crowded `re` neighbourhood, pinned so nothing silently moves: rest owns the short
+      // forms, and read — sitting at the bottom of the table — needs its third letter.
+      ['r', 'rest'], ['re', 'rest'], ['rea', 'read'], ['rec', 'recite'],
     ];
     for (const [typed, command] of expected) {
       assert.equal(lookupCommand(typed), command, `"${typed}" should be ${command}`);

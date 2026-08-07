@@ -22,6 +22,7 @@
 import type { Dice } from './rules.ts';
 import type { EquipSlot, Item } from './equipment.ts';
 import type { WeaponProc } from './procs.ts';
+import type { ExtraDescription } from './world.ts';
 
 /* -------------------------------------------------------------------------- */
 /* Duris' own constants, transcribed                                           */
@@ -550,6 +551,16 @@ export interface ItemTemplate {
    * executor reads the wielder's template at proc time.
    */
   readonly proc?: WeaponProc;
+  /**
+   * The item's `E` blocks — what `read <keyword>` finds on it. The writing on a note, the runes on
+   * a blade: prose the item offers only when asked by the right word. Template-only like
+   * {@link scroll}, because the text is the same on every copy; **14,911 of the catalogue's
+   * objects carry at least one**, which is why the owner's "there is a lot of notes and other
+   * things to read in the game" was right. The `_id_name_`-family marker blocks the source's own
+   * `find_ex_description` refuses (`actinf.c:675`) are dropped at harvest instead of at every
+   * lookup.
+   */
+  readonly extras?: readonly ExtraDescription[];
 }
 
 /**

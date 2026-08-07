@@ -73,6 +73,8 @@ export interface RawObject {
   readonly cost: number;
   /** `A` blocks: what the item modifies while worn. */
   readonly affects: readonly { readonly location: number; readonly modifier: number }[];
+  /** `E` blocks: prose answered to `read <keyword>`. Keywords lowercased; `_id_*` markers dropped. */
+  readonly extras: readonly { readonly keywords: string; readonly text: string }[];
 }
 
 /**
@@ -133,12 +135,23 @@ export function parseObjectRecord(vnum: number, body: string): RawObject | undef
   if (numbers.length < 22 || numbers.some((n) => !Number.isFinite(n))) return undefined;
 
   const affects: { location: number; modifier: number }[] = [];
+  const extras: { keywords: string; text: string }[] = [];
   if (stop) {
     const blocks = rest.slice(stop.index);
-    // `A <location> <modifier>` on its own line. `E` blocks are extra descriptions — flavour text for
-    // `look <keyword>`, which is Track V's, so they are skipped rather than carried.
+    // `A <location> <modifier>` on its own line.
     for (const match of blocks.matchAll(/^[ \t]*A[ \t]*\r?\n?[ \t]*(-?\d+)[ \t]+(-?\d+)/gm)) {
       affects.push({ location: Number(match[1]), modifier: Number(match[2]) });
+    }
+    // `E` on its own line, a `~`-terminated keyword list, a `~`-terminated body: the prose `read`
+    // answers with. The `_id_name_`/`_id_short_`/`_id_desc_` marker rows are the builders' own
+    // metadata, refused by name in the source's `find_ex_description` (`actinf.c:675`) — dropping
+    // them at harvest is the same rule enforced once instead of at every lookup. The body cannot
+    // contain `~` (the terminator), so `[^~]*` reads exactly one string.
+    for (const match of blocks.matchAll(/^[ \t]*E[ \t]*\r?\n[ \t]*([^~\r\n]*)~[^\S\r\n]*\r?\n?([^~]*)~/gm)) {
+      const keywords = (match[1] ?? '').trim().toLowerCase();
+      const text = cleanProse(match[2] ?? '');
+      if (!keywords || keywords.includes('_id_') || !text) continue;
+      extras.push({ keywords, text });
     }
   }
 
@@ -159,7 +172,23 @@ export function parseObjectRecord(vnum: number, body: string): RawObject | undef
     weight: numbers[19]!,
     cost: numbers[20]!,
     affects,
+    extras,
   };
+}
+
+/**
+ * E-block prose, tidied the way `duris.ts` tidies room descriptions and for the same reason: the
+ * text is hard-wrapped for an 80-column terminal, and left alone it wraps twice. Paragraph breaks
+ * survive; the typesetting line breaks inside them do not. Colour stays — the notes were written
+ * in it.
+ */
+function cleanProse(raw: string): string {
+  return raw
+    .split(/\n\s*\n/)
+    .map((para) => para.split('\n').map((l) => l.trim()).join(' ').trim())
+    .filter((para) => para.length > 0)
+    .join('\n\n')
+    .trim();
 }
 
 export function parseObjectFile(path: string): RawObject[] {
@@ -349,6 +378,8 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
     // And a meal: fullness hours, the two regeneration multipliers, and the poison flag — exactly
     // the four values `do_eat` reads (`actobj.c:3327-3346`), raw as ever.
     ...(raw.type === DURIS_ITEM.food ? { food: foodFrom(raw.values) } : {}),
+    // The E blocks, last: prose `read` answers with, on any type of item at all.
+    ...(raw.extras.length > 0 ? { extras: raw.extras } : {}),
   };
 }
 

@@ -175,6 +175,7 @@ import {
   type Direction,
   type EntityId,
   type EntityView,
+  type ExtraDescription,
   type GroupMemberView,
   type LogChannel,
   type Place,
@@ -3746,6 +3747,88 @@ function doEat(player: Player, rest: string): void {
 }
 
 /**
+ * `read <keyword>` — and in the source this is one line: `do_read` (`actinf.c:3206`) builds
+ * `"at <arg>"` and calls `do_look`. Reading IS looking at an extra description; the machinery is
+ * `new_look` case 7 (`actinf.c:2591-2712`), and the search order transcribed from it is fixed:
+ *
+ * 1. **The room's own extras** — the sign on the wall answers before anything in a bag does.
+ * 2. **Worn equipment**, 3. **the bag**, 4. **the ground**, in exactly that order.
+ *
+ * Matching is `find_ex_description` over `isname`: **exact word, case-insensitive** — `read sig`
+ * does not find a `sign`, because the live `isname` (`handler.c:908`) returns true only when the
+ * search word ends where a keyword does. The two refusals are the source's own shape: a thing that
+ * answered to the word but had no prose gets *"You see nothing special about it."* (the
+ * `LISTOBJ_ACTIONDESC` fallback), and a word nothing answered to gets *"You do not see that
+ * here."* Dropped and named: the dark-room vis gates (our light model is per-tile and
+ * body-to-body, not room-wide), and `look at` routing through this same search — `look`'s
+ * chain has its own order here (directions, containers, entities) and grafting extras into it is
+ * its own decision for its own day.
+ */
+function doRead(player: Player, rest: string): void {
+  const word = rest.trim().toLowerCase().split(/\s+/)[0] ?? '';
+  if (!word) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Read what?' });
+    return;
+  }
+
+  const prose = (text: string): void => send(player.id, { t: 'log', channel: 'room', text });
+
+  const room = sim.room(player.roomId);
+  const roomHit = matchExtra(word, room?.extras);
+  if (roomHit !== undefined) {
+    prose(roomHit);
+    return;
+  }
+
+  // The source shows the item's own line before its prose (`show_obj_to_char` with
+  // `LISTOBJ_SHORTDESC`, then `page_string`) — you are told *what* you are reading off of.
+  const readOff = (item: Item, text: string): void => {
+    prose(`${capitalise(item.name)}&N:`);
+    prose(text);
+  };
+
+  for (const worn of Object.values(player.equipped)) {
+    if (!worn) continue;
+    const hit = matchExtra(word, templateOf(worn)?.extras);
+    if (hit !== undefined) return readOff(worn, hit);
+  }
+  for (const stack of player.inventory.stacks) {
+    const hit = matchExtra(word, templateOf(stack.item)?.extras);
+    if (hit !== undefined) return readOff(stack.item, hit);
+  }
+  for (const entry of itemsIn(ground, player.roomId)) {
+    const hit = matchExtra(word, templateOf(entry.item)?.extras);
+    if (hit !== undefined) return readOff(entry.item, hit);
+  }
+
+  // No prose anywhere — but did anything at least answer to the word? The source's two refusals
+  // are different sentences because they carry different information: "nothing special" says the
+  // thing exists and is mute, "do not see" says the word found nothing at all.
+  const answers = (item: Item): boolean => wordsFor(item).includes(word);
+  const named =
+    Object.values(player.equipped).some((worn) => worn !== undefined && answers(worn)) ||
+    player.inventory.stacks.some((stack) => answers(stack.item)) ||
+    itemsIn(ground, player.roomId).some((entry) => answers(entry.item));
+  send(player.id, {
+    t: 'log',
+    channel: 'error',
+    text: named ? 'You see nothing special about it.' : 'You do not see that here.',
+  });
+}
+
+/**
+ * `find_ex_description` (`actinf.c:671`): the first block whose keyword list contains the word,
+ * whole and case-blind. Keywords were lowercased at harvest; the caller lowercases the word.
+ */
+function matchExtra(word: string, extras: readonly ExtraDescription[] | undefined): string | undefined {
+  if (!extras) return undefined;
+  for (const extra of extras) {
+    if (extra.keywords.split(/\s+/).includes(word)) return extra.text;
+  }
+  return undefined;
+}
+
+/**
  * One second of wind-up — the source's own `event_spellcast`, whose comment owns its shape: *"this is
  * simplistic part, which just checks for _most_ obvious stuff like char moving around etc. this is
  * called once / second."* The simplicity is the design: no hook in `relocate`, no hook in `bash` —
@@ -5464,6 +5547,8 @@ function runCommand(player: Player, line: string): void {
     case 'quaff': return doQuaff(player, rest);
     // The meal beside the bottle — regeneration for as long as it lasts, one meal at a time.
     case 'eat': return doEat(player, rest);
+    // One line in the source: reading is looking at an extra description. Room, worn, bag, ground.
+    case 'read': return doRead(player, rest);
     // Never destroys on this pass: an unconfirmed junk arms the question and returns.
     case 'junk': return junkFromBag(player, rest, false);
     case 'wear': return wearFromBag(player, rest);

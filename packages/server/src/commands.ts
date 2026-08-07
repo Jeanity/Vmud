@@ -168,6 +168,11 @@ export const COMMANDS = [
   // taster two rooms up the trail — so only the exact word lands here, which is Diku's own
   // situation for exactly the same reason.
   'eat',
+  // The last of the owner's three typed-command asks, same evening. `r` and `re` are rest, `rem`
+  // is remove, `rec` is recite and `resc` is rescue, all above — so `rea` is the shortest thing
+  // that reaches this. In the source `read` is one line: `do_look(ch, "at <arg>")` — reading IS
+  // looking at an extra description, and ours transcribes the same search order.
+  'read',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -414,6 +419,11 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // no dinner under a sword: where the potion is one motion and worth a spill roll, a meal is a
   // sitting still, and the source refuses it in combat outright.
   eat: { status: 'resting', posture: 'prone', inCombat: false },
+  // `CMD_N(CMD_READ, STAT_RESTING + POS_PRONE, ...)` (`interp.c:2598`) — readable flat on your
+  // back like the scroll it is not, and refused mid-fight: nobody studies an inscription under a
+  // sword. `look` beside it needs only `prone` and stays combat-legal; the difference is the
+  // source's own, and it reads right — a glance is free, reading is attention.
+  read: { status: 'resting', posture: 'prone', inCombat: false },
 };
 
 /* -------------------------------------------------------------------------- */

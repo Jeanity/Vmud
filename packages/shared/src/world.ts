@@ -225,6 +225,21 @@ export const AUTHORED_ROOM_BASE = 1_000_000;
  */
 export const AUTHORED_ZONE_BASE = 100_000;
 
+/**
+ * One `E` block — prose the world offers only when asked by name. A sign on a wall, the writing on
+ * a note, the inscription on a blade: `read <keyword>` (and Diku's `look at <keyword>`, which is
+ * the same function in the source) finds these and prints the text.
+ *
+ * `keywords` is the block's own space-separated word list, lowercased at harvest. Matching is
+ * **exact word, case-insensitive** — `handler.c`'s live `isname` returns true only when the search
+ * word ends exactly where a keyword does, so `read sig` does not find a `sign`. Rooms and items
+ * carry the same shape because the source stores them in the same `extra_descr_data` list.
+ */
+export interface ExtraDescription {
+  readonly keywords: string;
+  readonly text: string;
+}
+
 export interface Room {
   readonly id: RoomId;
   readonly zone: ZoneId;
@@ -239,6 +254,11 @@ export interface Room {
    * it, and stripped from any build we distribute.
    */
   readonly description?: string;
+  /**
+   * Prose shown only on request — `read sign` where {@link description} is what `look` volunteers.
+   * Same third-party posture as `description`, and gated on the same `--descriptions` switch.
+   */
+  readonly extras?: readonly ExtraDescription[];
 }
 
 /* -------------------------------------------------------------------------- */

@@ -15,11 +15,12 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { ItemTemplate, RoomId, Zone, ZoneSpawns } from '@mygame/shared';
+import type { ExtraDescription, ItemTemplate, RoomId, Zone, ZoneSpawns } from '@mygame/shared';
 
 import { diffuseSectors, type DiffusionResult } from './diffuse.ts';
-import { harvest, harvestCompatible, loadDurisRooms, type HarvestResult } from './duris.ts';
+import { harvest, harvestCompatible, loadDurisRooms, type DurisRoom, type HarvestResult } from './duris.ts';
 import {
+  buildRoomMap,
   buildZoneSpawns,
   companionPaths,
   newSpawnStats,
@@ -276,6 +277,39 @@ function reportSpawns(spawns: readonly ZoneSpawns[], stats: SpawnBuildStats): vo
   }
 }
 
+/**
+ * Folds a matched `.wld` file's room extras onto the zone's rooms, through {@link buildRoomMap} —
+ * the same name join the spawns ride, because the `.wld` vnums and the zMUD ids parted ways thirty
+ * years ago and the room *name* is the one thing both sides still agree on. Returns undefined when
+ * the file offers nothing, so the caller can leave the zone object untouched rather than rebuilding
+ * 46,000 rooms to attach prose to 2,800.
+ */
+function attachRoomExtras(
+  zone: Zone,
+  durisRooms: readonly DurisRoom[],
+): { zone: Zone; attached: number } | undefined {
+  const withExtras = durisRooms.filter((r) => r.extras && r.extras.length > 0);
+  if (withExtras.length === 0) return undefined;
+  const byVnum = buildRoomMap(zone, durisRooms);
+  const byRoom = new Map<RoomId, ExtraDescription[]>();
+  for (const durisRoom of withExtras) {
+    const roomId = byVnum.get(durisRoom.vnum);
+    if (roomId === undefined) continue;
+    byRoom.set(roomId, [...(byRoom.get(roomId) ?? []), ...durisRoom.extras!]);
+  }
+  if (byRoom.size === 0) return undefined;
+  return {
+    zone: {
+      ...zone,
+      rooms: zone.rooms.map((room) => {
+        const extras = byRoom.get(room.id);
+        return extras ? { ...room, extras } : room;
+      }),
+    },
+    attached: [...byRoom.values()].reduce((sum, list) => sum + list.length, 0),
+  };
+}
+
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
 
@@ -346,12 +380,25 @@ function main(): void {
   if (harvested) {
     const areas = durisAreas(args.wld);
     const durisByFile = loadDurisRooms(args.wld);
+    const zoneList = [...zones];
+    let extrasAttached = 0;
     for (const [zoneId, match] of harvested.matches) {
-      const zone = zones.find((z) => z.id === zoneId);
-      if (!zone) continue;
+      const index = zoneList.findIndex((z) => z.id === zoneId);
+      if (index === -1) continue;
+      const durisRooms = durisByFile.get(match.file) ?? [];
+      // Room extras ride the same name join the spawns use, and the same `--descriptions` switch
+      // the zMUD prose does: both are third-party text, and one flag governs all of it.
+      if (args.descriptions) {
+        const enriched = attachRoomExtras(zoneList[index]!, durisRooms);
+        if (enriched) {
+          zoneList[index] = enriched.zone;
+          extrasAttached += enriched.attached;
+        }
+      }
+      const zone = zoneList[index]!;
       const { mob, zon } = companionPaths(areas, match.file);
       try {
-        const built = buildZoneSpawns(zone, match.file, mob, zon, durisByFile.get(match.file) ?? [], spawnStats);
+        const built = buildZoneSpawns(zone, match.file, mob, zon, durisRooms, spawnStats);
         if (built) spawns.push(built);
       } catch (err) {
         // A matched `.wld` with no `.mob`/`.zon` beside it is ordinary — plenty of zones are rooms only —
@@ -360,7 +407,9 @@ function main(): void {
       }
     }
     spawns.sort((a, b) => a.zone - b.zone);
+    zones = zoneList;
     reportSpawns(spawns, spawnStats);
+    if (args.descriptions) console.log('     %s room extra descriptions attached', String(extrasAttached));
   }
 
   if (args.statsOnly) {

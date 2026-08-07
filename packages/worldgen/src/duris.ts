@@ -79,6 +79,12 @@ export interface DurisRoom {
   readonly flags: number;
   /** Raw `sector_type`. See {@link DURIS_SECTOR}. */
   readonly sector: number;
+  /**
+   * The room's `E` blocks — the sign on the wall, the carving over the arch: prose only `read
+   * <keyword>` surfaces. Keywords lowercased at parse; `_id_*` marker rows dropped. Absent rather
+   * than empty on the overwhelming majority of rooms that have none.
+   */
+  readonly extras?: readonly { readonly keywords: string; readonly text: string }[];
 }
 
 /**
@@ -101,10 +107,13 @@ export interface DurisRoom {
  * `areas/wld/surface.wld` is large enough that the regex split overflows the call stack, and a
  * parser that silently drops the biggest file in the set is worse than one that is slightly longer.
  *
- * Only the header is read. Exit records are deliberately ignored — the room graph comes from the
- * zMUD map, the two disagree after thirty years of independent editing, and Diku's direction
- * encoding is a *third* one in this project (`0=N, 1=E, 2=S, 3=W, 4=U, 5=D`). Nothing here needs to
- * touch it, so nothing here can get it wrong.
+ * The header is read in full, and then the record is *walked* rather than abandoned: `D` exit
+ * records are stepped over string by string — their graph is still deliberately ignored, since the
+ * room graph comes from the zMUD map, the two disagree after thirty years of independent editing,
+ * and Diku's direction encoding is a *third* one in this project (`0=N, 1=E, 2=S, 3=W, 4=U, 5=D`) —
+ * but `E` records are now kept: they are the signs and carvings `read` answers with. Walking `D`
+ * properly matters even while ignoring it, because a door description containing a line that says
+ * only `E` would otherwise be mistaken for an extra-description header.
  */
 export function parseWld(text: string, file: string): DurisRoom[] {
   const lines = text.split(/\r?\n/);
@@ -145,6 +154,50 @@ export function parseWld(text: string, file: string): DurisRoom[] {
     // a NaN sector that would render as the fallback everywhere.
     if (numbers.length < 3 || !Number.isFinite(numbers[1]) || !Number.isFinite(numbers[2])) continue;
 
+    // The record's tail, walked rather than skipped: `D<n>` exits stepped over, `E` extras kept,
+    // `S` (or the next `#`, on a record missing its terminator) ending the room.
+    const extras: { keywords: string; text: string }[] = [];
+    while (i < lines.length) {
+      const line = (lines[i] ?? '').trim();
+      if (/^#\d/.test(line) || line === 'S') break;
+      if (/^D\d/.test(line)) {
+        i++;
+        // Two `~`-terminated strings — the door's description, then its keyword list — and one line
+        // of numbers. None of it is wanted, but stepping over it string by string is what keeps a
+        // door description containing a bare `E` line from being taken for an extras header.
+        for (let s = 0; s < 2; s++) {
+          while (i < lines.length && !(lines[i] ?? '').includes('~')) i++;
+          i++;
+        }
+        i++;
+        continue;
+      }
+      if (line === 'E') {
+        i++;
+        let keywordText = '';
+        while (i < lines.length && !(lines[i] ?? '').includes('~')) {
+          keywordText += `${lines[i] ?? ''} `;
+          i++;
+        }
+        keywordText += (lines[i] ?? '').split('~')[0] ?? '';
+        i++;
+        const text: string[] = [];
+        while (i < lines.length && !(lines[i] ?? '').includes('~')) {
+          text.push(lines[i] ?? '');
+          i++;
+        }
+        const lastLine = (lines[i] ?? '').split('~')[0] ?? '';
+        if (lastLine.trim().length > 0) text.push(lastLine);
+        i++;
+        const keywords = keywordText.trim().toLowerCase();
+        const body = cleanDescription(text.join('\n'));
+        // `_id_*` marker rows are builder metadata the source's own lookup refuses by name.
+        if (keywords && !keywords.includes('_id_') && body) extras.push({ keywords, text: body });
+        continue;
+      }
+      i++;
+    }
+
     rooms.push({
       vnum,
       file,
@@ -153,6 +206,7 @@ export function parseWld(text: string, file: string): DurisRoom[] {
       description: cleanDescription(description.join('\n')),
       flags: numbers[1]!,
       sector: numbers[2]!,
+      ...(extras.length > 0 ? { extras } : {}),
     });
   }
 

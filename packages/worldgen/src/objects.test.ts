@@ -111,6 +111,35 @@ describe('one object record', () => {
     assert.equal(parseObjectRecord(1, 'a~\nb~\nc~\nd~\n5 18 3\n'), undefined, 'too few numbers');
   });
 
+  it('keeps E blocks as extras and drops the _id_ marker rows', () => {
+    // The khopis as shipped carries only the `_id_name_` marker, which `find_ex_description`
+    // refuses by name in the source — so a real block is grafted on beside it. The A blocks that
+    // follow must still parse: E and A interleave freely in the files.
+    const withProse = KHOPIS.replace(
+      'E\n_id_name_~\n~\n',
+      'E\n_id_name_~\n~\nE\nblade runes WINDRAGE~\nThin runes run the length of the fuller,\nspelling out a name in dwarvish.\n~\n',
+    );
+    const parsed = parseObjectRecord(420_000, withProse.slice(withProse.indexOf('\n') + 1));
+    assert.ok(parsed);
+    assert.deepEqual(parsed.extras, [
+      { keywords: 'blade runes windrage', text: 'Thin runes run the length of the fuller, spelling out a name in dwarvish.' },
+    ]);
+    assert.deepEqual(parsed.affects, [
+      { location: 18, modifier: 6 },
+      { location: 19, modifier: 5 },
+    ], 'the A blocks after the grafted E still parse');
+    const template = toTemplate(parsed);
+    assert.ok(template);
+    assert.deepEqual(template.extras, parsed.extras, 'carried onto the template');
+  });
+
+  it('puts no extras field on a template whose only E block was a marker', () => {
+    const parsed = parseObjectRecord(420_000, KHOPIS.slice(KHOPIS.indexOf('\n') + 1));
+    const template = toTemplate(parsed!);
+    assert.ok(template);
+    assert.equal('extras' in template, false);
+  });
+
   it('harvests what a scroll recites — level, spells, duplicates kept, empty slots dropped', () => {
     // `#97558` from `shady.obj`, unedited: **a scroll of ice**. Its values are `25 8 8 -1 …` —
     // level 25, chill touch (Duris spell 8) stored TWICE, then the `-1` empty-slot marker

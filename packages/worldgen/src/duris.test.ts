@@ -98,6 +98,40 @@ describe('parseWld', () => {
     );
   });
 
+  it('keeps E blocks as extras — the signs `read` answers with', () => {
+    // The door description deliberately contains a line that says only `E`: the walker must step
+    // over the D record string by string, or that line becomes a phantom extras header.
+    const text = wldRecord({
+      vnum: 7,
+      name: 'Chapel',
+      exits: [
+        'D0',
+        'A heavy oak door. Scratched on it, a single letter:',
+        'E',
+        '~',
+        'door oak~',
+        '0 -1 8',
+        'E',
+        'sign plaque BRASS~',
+        '  Herein lie the bones of Aldric,',
+        'last warden of the vale.',
+        '~',
+        'E',
+        '_id_name_~',
+        '~',
+      ].join('\n'),
+    });
+    const room = parseWld(text, 'x.wld')[0]!;
+    assert.deepEqual(room.extras, [
+      { keywords: 'sign plaque brass', text: 'Herein lie the bones of Aldric, last warden of the vale.' },
+    ]);
+  });
+
+  it('leaves extras absent, not empty, on a room with none', () => {
+    const room = parseWld(wldRecord({ vnum: 8, name: 'Bare' }), 'x.wld')[0]!;
+    assert.equal('extras' in room, false);
+  });
+
   it('skips a record whose numeric line is malformed rather than importing NaN', () => {
     // A NaN sector would silently render as the fallback tile everywhere it landed.
     const text = ['#9', 'Broken~', 'desc', '~', 'not numbers here', 'S'].join('\n');
