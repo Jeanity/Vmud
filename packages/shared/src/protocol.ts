@@ -253,14 +253,21 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * Was 6: doors have live state — the `door` message, and `open`/`close` losing their required `dir`.
  * Was 5: carried light sources — `SelfView` gained `light`.
  *
- * Is 21: a group member's exact hit points — Phase 20 slice 5, and the change `DESIGN-spells.md`
+ * Was 21: a group member's exact hit points — Phase 20 slice 5, and the change `DESIGN-spells.md`
  * promised would land "with the first aimable heal". {@link GroupMemberView} gains `hp`/`maxHp`
  * beside the fraction: a healer choosing where a `cure light`'s ten points go needs the number, not
  * the bar — 40% of an ogre and 40% of a halfling are different emergencies. Group members only;
  * a stranger's exact pools remain unreadable (`EntityView.healthFraction` is unchanged), because
  * consenting into a group is exactly the boundary at which that information becomes yours.
+ *
+ * Is 22: the body moves for what it does — the owner's animations ask (2026-08-07), two additive
+ * fields and no new message. `attackResolved` gains `swing` (which motion the blow plays, derived
+ * from the attack type server-side) and {@link EntityView} gains `casting` (the held wind-up pose,
+ * an observer-visible loop where the caster's own affect row was always visible). Posture needed
+ * nothing: it has been on the view since protocol 8 with the promise that a sleeping stranger looks
+ * asleep — this is the version where a client finally reads it.
  */
-export const PROTOCOL_VERSION = 21;
+export const PROTOCOL_VERSION = 22;
 
 /**
  * One member of your group, as the roster draws them — protocol 19.
@@ -465,6 +472,13 @@ export interface EntityView {
    */
   readonly posture?: Posture;
   readonly status?: Status;
+  /**
+   * Set while a wind-up is in flight — protocol 22, and the observer's half of what the caster's own
+   * affect row already shows. A flag rather than a duration because the pose is a held loop: the
+   * client plays the spellcast cycle while this is set and stops the frame an update clears it,
+   * which is also exactly when the room hears the strike or the fizzle. Mobs and players alike.
+   */
+  readonly casting?: true;
 }
 
 /** The one-line summary a client gets about a room it can see into but is not standing in. */
@@ -807,6 +821,14 @@ export type ServerMessage =
        * A client should treat an unknown value as a plain miss rather than refusing to draw it.
        */
       readonly outcome?: AttackOutcomeKind;
+      /**
+       * Which swing animation the blow plays — protocol 22, the owner's animations ask. Derived
+       * server-side from the attack type (`SWING_ANIMATION` in `attacks.ts`: pierce, sting and bite
+       * lunge, everything else swings) because the client knows art ids, not weapon classes. Present
+       * on misses too — you swing and miss; the verb describes the landing, the motion the attempt.
+       * Absent means the client animates nothing, which is every message from before this field.
+       */
+      readonly swing?: 'slash' | 'thrust';
     }
   | { readonly t: 'died'; readonly id: EntityId; readonly killer?: EntityId }
   /**

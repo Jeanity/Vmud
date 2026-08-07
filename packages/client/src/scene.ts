@@ -275,6 +275,35 @@ const WALK_MOVING_EPSILON = 0.25;
  */
 const IDLE_SUFFIX = '-idle';
 
+/* -------------------------------------------------------------------------- */
+/* Action poses — protocol 22, the owner's animations ask (2026-08-07)         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The pose suffixes beside `-idle`: staged by `worldgen/src/kit-actions.ts` for the same
+ * full-fidelity set the idle twins cover, guarded per layer on `textures.exists` exactly as the
+ * idle swap is — a layer without the staged twin holds its walk frame, the contract indexed art
+ * has lived under since 15a.
+ *
+ * Frame counts are **measured, not assumed** (the walk sheet's empty ninth column is this file's
+ * founding trauma): the kit pack's swing is 7 real frames, thrust 9, magic 8, hurt 7, none padded.
+ */
+const ACTION_SUFFIXES = { slash: '-slash', thrust: '-thrust' } as const;
+const ACTION_COLUMNS: Readonly<Record<'-slash' | '-thrust', number>> = { '-slash': 7, '-thrust': 9 };
+/** ~90 ms a frame lands a slash at ~0.6 s — inside a 2–3 s round, so swings read as distinct events. */
+const ACTION_FRAME_MS = 90;
+/** The held wind-up loop. Slower than a swing on purpose: a chant is effort, not violence. */
+const CAST_SUFFIX = '-spellcast';
+const CAST_COLUMNS = 8;
+const CAST_FRAME_MS = 140;
+/**
+ * The down pose — the hurt sheet's final frame, a body flat on the ground. One frame for every
+ * non-standing posture (a bash's "knocked to the ground", sleep, rest, the dying window) because
+ * the kit pack ships no sit sheet and a body on the ground has no facing worth drawing: `hurt.png`
+ * is the one LPC sheet with a single row, so the frame index ignores `LPC_ROW` entirely.
+ */
+const DOWN_SUFFIX = '-hurt';
+
 /**
  * Sheets that ship a real `idle.png` beside their walk cycle.
  *
@@ -835,6 +864,13 @@ interface Entity {
   /** Latest authoritative position. */
   serverX: number;
   serverY: number;
+  /**
+   * A one-shot motion in flight — protocol 22. Set by an `attackResolved` carrying `swing`, expired
+   * by the update loop when its last frame has shown, at which point the very next `faceEntity`
+   * rederives the pose from what remains true (casting, posture, walking) — there is no transition
+   * to manage because pose was always rederived, never stored.
+   */
+  action?: { readonly suffix: '-slash' | '-thrust'; readonly startedAt: number };
 }
 
 export class WorldScene extends Phaser.Scene {
@@ -1841,6 +1877,14 @@ export class WorldScene extends Phaser.Scene {
         // which way am I looking" should be settled together rather than a frame apart.
         if (move.id !== this.selfId) this.faceEntity(entity, move.facing);
       }
+    });
+
+    // Protocol 22: the structured half announceAttack has sent since Phase 11 finally has its
+    // reader — the swing plays on the attacker's body. The prose stays the combat feed's; this is
+    // the motion. An attacker the client holds no entity for (unseen, or the message raced the
+    // room view) animates nothing, which is the same sight gate every other per-entity visual keeps.
+    this.net.on('attackResolved', (message) => {
+      if (message.swing) this.playSwing(message.attacker, message.swing);
     });
 
     this.net.on('path', (message) => {
@@ -3166,6 +3210,31 @@ export class WorldScene extends Phaser.Scene {
    * server sent, so the absence is handled here, once.
    */
   private faceEntity(entity: Entity, facing: Direction): void {
+    // **Protocol 22: what the body is doing outranks how it is moving.** Each pose below is a
+    // suffix-sheet swap guarded per layer on `textures.exists` — the idle swap's own contract — and
+    // pose is *re-derived* on every call rather than transitioned, so an expired swing simply falls
+    // through to whatever is still true: the wind-up loop, the ground, or the stride.
+    const action = entity.action;
+    if (action) {
+      const elapsed = this.time.now - action.startedAt;
+      const column = Math.min(Math.floor(elapsed / ACTION_FRAME_MS), ACTION_COLUMNS[action.suffix] - 1);
+      this.poseLayers(entity, facing, action.suffix, column);
+      return;
+    }
+    if (entity.view.casting) {
+      // A held loop, not a one-shot: the server's flag opens it and its clearing closes it, which is
+      // also exactly when the room hears the strike or the fizzle. Phased off wall time because the
+      // chant has no start worth honouring — every caster in the room chanting in step reads as a
+      // choir, which for a MUD is the right kind of wrong.
+      this.poseLayers(entity, facing, CAST_SUFFIX, Math.floor(this.time.now / CAST_FRAME_MS) % CAST_COLUMNS);
+      return;
+    }
+    if (entity.view.posture !== undefined && entity.view.posture !== 'standing') {
+      // The promise protocol 8 wrote and nothing kept until now: a sleeping stranger looks asleep —
+      // and a bashed one looks knocked to the ground, which is the sentence the room was told.
+      this.poseLayers(entity, facing, DOWN_SUFFIX, 0);
+      return;
+    }
     // Standing and walking are different *sheets*, not different columns of one — see `IDLE_SUFFIX`.
     const standing = entity.walked === 0;
     const column = walkColumn(entity);
@@ -3182,6 +3251,49 @@ export class WorldScene extends Phaser.Scene {
         if (layer.texture.key !== wanted) layer.setTexture(wanted);
       }
       layer.setFrame(layerFrame(layer.texture, facing, column));
+    }
+  }
+
+  /**
+   * A blow's motion, restarted rather than queued when a second lands mid-swing — a haste fighter's
+   * three attacks read as three restarts, which loses frames but never truth: every swing that
+   * happened moved the body that made it. Queuing would still be playing round one during round two.
+   */
+  private playSwing(id: EntityId, swing: 'slash' | 'thrust'): void {
+    const entity = this.entities.get(id);
+    if (!entity) return;
+    entity.action = { suffix: ACTION_SUFFIXES[swing], startedAt: this.time.now };
+    this.faceEntity(entity, entity.view.facing);
+  }
+
+  /**
+   * One pose, every layer — the suffix-sheet swap behind every protocol-22 pose. A layer whose
+   * staged twin does not exist (indexed art, recoloured `#ramp` canvases) holds its walk sheet's
+   * standing frame, which is precisely how it already behaves when its `-idle` twin is missing:
+   * the graceful-degradation contract is inherited, not invented here.
+   */
+  private poseLayers(entity: Entity, facing: Direction, suffix: string, column: number): void {
+    for (const layer of entity.layers) {
+      const walkSheet = layer.getData('sheet') as string | undefined;
+      if (!walkSheet) {
+        layer.setFrame(layerFrame(layer.texture, facing, column));
+        continue;
+      }
+      const posed = walkSheet + suffix;
+      if (this.textures.exists(posed)) {
+        if (layer.texture.key !== posed) layer.setTexture(posed);
+        if (suffix === DOWN_SUFFIX) {
+          // The one sheet with no facing rows: a single row whose last frame is the body flat on
+          // the floor, so the frame index is the column alone and `LPC_ROW` stays out of it.
+          const columns = Math.max(1, Math.floor(layer.texture.getSourceImage().width / LPC_FRAME));
+          layer.setFrame(columns - 1);
+        } else {
+          layer.setFrame(layerFrame(layer.texture, facing, column));
+        }
+      } else {
+        if (layer.texture.key !== walkSheet) layer.setTexture(walkSheet);
+        layer.setFrame(layerFrame(layer.texture, facing, WALK_STANDING_COLUMN));
+      }
     }
   }
 
@@ -3586,6 +3698,17 @@ export class WorldScene extends Phaser.Scene {
         this.faceEntity(entity, entity.view.facing);
       } else if (entity.walked !== 0) {
         entity.walked = 0;
+        this.faceEntity(entity, entity.view.facing);
+      }
+      // **Protocol 22: time-driven poses advance every frame**, where the stride above only redraws
+      // when ground was covered — a swing plays out standing perfectly still. Expiry is here rather
+      // than in `faceEntity` because a pose function that deletes its own inputs mid-derivation is
+      // how a frame gets drawn from a record that no longer exists; deleted first, the same call
+      // rederives the pose from whatever remains true.
+      if (entity.action || entity.view.casting) {
+        if (entity.action && this.time.now - entity.action.startedAt >= ACTION_COLUMNS[entity.action.suffix] * ACTION_FRAME_MS) {
+          delete entity.action;
+        }
         this.faceEntity(entity, entity.view.facing);
       }
       entity.container.setPosition(Math.round(entity.x), Math.round(entity.y));

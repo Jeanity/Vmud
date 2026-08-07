@@ -90,6 +90,28 @@ export const ATTACK_VERBS: Readonly<Record<AttackType, AttackVerb>> = {
   thrash: { second: 'thrash', third: 'thrashes', past: 'thrashed' },
 };
 
+/**
+ * Which of the two staged swing motions each attack type plays — protocol 22, the animations slice.
+ *
+ * LPC ships exactly two melee motions (an overhead arc and a straight lunge), so eleven verbs fold
+ * onto two: **pierce, sting and bite lunge; everything else swings.** Beside {@link ATTACK_VERBS}
+ * for the reason the verb table itself is a `Record` — a type added to one and not the other is a
+ * type error, not a silently un-animated blow.
+ */
+export const SWING_ANIMATION: Readonly<Record<AttackType, 'slash' | 'thrust'>> = {
+  hit: 'slash',
+  bludgeon: 'slash',
+  pierce: 'thrust',
+  slash: 'slash',
+  whip: 'slash',
+  claw: 'slash',
+  bite: 'thrust',
+  sting: 'thrust',
+  crush: 'slash',
+  maul: 'slash',
+  thrash: 'slash',
+};
+
 /** Duris' weapon classes, `objmisc.h:362`. The same ladder `skills.ts` reads, named again locally. */
 const WEAPON_CLASS = {
   axe: 1,

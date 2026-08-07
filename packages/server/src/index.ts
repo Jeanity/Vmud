@@ -65,6 +65,7 @@ import {
   RESCUE_NOTCH_CHANCE,
   arrivalTile,
   ATTACK_VERBS,
+  SWING_ANIMATION,
   attackTypeForRace,
   attackTypeForWeapon,
   type AttackType,
@@ -1906,6 +1907,9 @@ function announceAttack(outcome: AttackOutcome): void {
             : outcome.hit
               ? 'hit'
               : 'miss',
+      // Protocol 22: which motion the blow plays, from the same table the verb reads — pierce, sting
+      // and bite lunge, everything else swings. On misses too: you swing and miss.
+      swing: SWING_ANIMATION[attackTypeOf(attacker)],
     });
   }
 
@@ -3209,6 +3213,27 @@ function useAbility(player: Player, id: CombatAbilityId, rest: string): void {
   scheduler.cancel(player.id, 'swing');
   scheduler.schedule('swing', player.id, Math.max(lagMs, player.roundMs));
 
+  // Protocol 22: the ability's motion, to everyone with sight of either party — the same structured
+  // form a swing sends, because a bash the room cannot see moving is a sentence pretending to be an
+  // event. `natural` is 0 by honest convention: abilities roll d100 against the skill, and there is
+  // no d20 to report. Sent before the outcome branches so a miss animates the attempt it was.
+  for (const observer of sim.playersIn(player.roomId)) {
+    const seesAttacker = observer.id === player.id || (watching.get(observer.id)?.has(player.id) ?? false);
+    const seesTarget = observer.id === target.id || (watching.get(observer.id)?.has(target.id) ?? false);
+    if (!seesAttacker && !seesTarget) continue;
+    send(observer.id, {
+      t: 'attackResolved',
+      attacker: player.id,
+      target: target.id,
+      hit: landed,
+      critical: false,
+      damage: 0,
+      natural: 0,
+      outcome: landed ? 'hit' : 'miss',
+      swing: 'slash',
+    });
+  }
+
   if (!landed) {
     send(player.id, {
       t: 'log',
@@ -3450,6 +3475,8 @@ function doCast(player: Player, rest: string): void {
 
   send(player.id, { t: 'log', channel: 'combat', text: `&+CYou begin casting ${DEV_SPELL.name}...&N` });
   actToRoom(player, 'combat', (who) => `${who} begins casting...`);
+  // Protocol 22: the room sees the pose, not just the sentence — the view now carries `casting`.
+  syncEntityState(player);
   scheduler.schedule('cast', player.id, 1000);
 }
 
@@ -3604,6 +3631,8 @@ function stopCasting(caster: Actor, why?: string): void {
   delete caster.casting;
   scheduler.cancel(caster.id, 'cast');
   sim.removeAffects(caster, 'casting');
+  // The pose ends with the state — protocol 22's flag rides the view.
+  syncEntityState(caster);
   if (isPlayer(caster)) {
     send(caster.id, {
       t: 'log',
@@ -3629,6 +3658,8 @@ function completeCast(caster: Actor): void {
   if (!cast) return;
   delete caster.casting;
   sim.removeAffects(caster, 'casting');
+  // Before the strike's own syncs, so observers see the pose end and the blow land in that order.
+  syncEntityState(caster);
 
   const target = cast.target === undefined ? undefined : sim.get(cast.target);
 
@@ -4037,9 +4068,12 @@ function mobStartCast(mob: Mob, target: Actor): boolean {
     completeCast(mob);
     return true;
   }
-  // The same shown affect a player's wind-up wears, so the room's entity views carry the tell.
+  // The same shown affect a player's wind-up wears; and since protocol 22 the view itself carries
+  // `casting`, so the pose reaches observers — the sync this site was missing until the animations
+  // slice went looking for the machine-readable tell its own stale comment promised.
   sim.addAffect(mob, newAffect({ type: 'casting', durationMs: castMs + 1500, flags: AffectFlag.NoSave }));
   actAround(mob, 'combat', (who) => `&+C${who} begins casting...&N`);
+  syncEntityState(mob);
   scheduler.schedule('cast', mob.id, 1000);
   return true;
 }

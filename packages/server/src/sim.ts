@@ -2008,6 +2008,9 @@ export class Simulation {
       // the client's combat indicator. `DESIGN-engagement.md` §2: the wire form *is* the outbound pointer,
       // so nothing about the protocol had to change when combat finally arrived.
       ...(actor.fighting === undefined ? {} : { fighting: actor.fighting }),
+      // Protocol 22: the wind-up is visible on the body, not just in the caster's own affect list —
+      // the observer's half of "begins casting...". The client holds the spellcast pose while set.
+      ...(actor.casting === undefined ? {} : { casting: true as const }),
       // What they are wearing, so the body on screen is the one the character sheet describes.
       // Players only — a mob's appearance is its template's `sprite`, and dressing mobs from an
       // equipment list is Phase 16's, when they have gear worth taking off them.
