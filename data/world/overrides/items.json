@@ -39639,8 +39639,9 @@
   },
   "67252": {
     "art": "neck-necklace-beaded-large-steel",
-    "at": "2026-08-06T11:22:59.767Z",
-    "by": "artassign"
+    "at": "2026-08-07T11:10:35.092Z",
+    "by": "artassign",
+    "ac": 2
   },
   "67253": {
     "art": "shield-heater-revised-pattern-barry",
@@ -56676,9 +56677,9 @@
   },
   "97066": {
     "art": "cape-tattered",
+    "slot": "back",
     "at": "2026-08-07T10:06:14.854Z",
-    "by": "artsweep",
-    "slot": "back"
+    "by": "artsweep"
   },
   "97068": {
     "art": "torso-clothes-tunic-black",
@@ -56717,8 +56718,9 @@
   },
   "97075": {
     "art": "facial-earrings-stud-steel",
-    "at": "2026-08-07T01:51:19.327Z",
-    "by": "artsweep"
+    "at": "2026-08-07T11:17:47.028Z",
+    "by": "artsweep",
+    "ac": 1
   },
   "97076": {
     "art": "torso-clothes-longsleeve2-scoop#cloth_ulpc.purple",
