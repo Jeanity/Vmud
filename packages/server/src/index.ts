@@ -1013,7 +1013,8 @@ function accountMessage(account: AccountRecord): Extract<ServerMessage, { t: 'ac
   const characters = account.characters.map((slug): CharacterSummary => {
     const summary = stored.get(slug);
     return {
-      name: summary?.name ?? slug,
+      // Live cache first: a character created this boot has a name before it has a file.
+      name: store.nameOf(slug) ?? summary?.name ?? slug,
       ...(summary?.level !== undefined ? { level: summary.level } : {}),
       ...(summary?.savedAt !== undefined ? { lastPlayed: summary.savedAt } : {}),
     };

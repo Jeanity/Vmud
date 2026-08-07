@@ -365,6 +365,16 @@ export class PlayerStore {
     return this.records.has(slug) || existsSync(join(this.dir, `${slug}.json`));
   }
 
+  /**
+   * The display name of a loaded record, if this slug has one this boot. The account picker asks
+   * here before falling back to files: a character created minutes ago exists only in this cache
+   * until the debounce or a disconnect flushes it, and its picker row must still say `Aldric`
+   * rather than the slug the join found nothing under.
+   */
+  nameOf(slug: string): string | undefined {
+    return this.records.get(slug)?.name;
+  }
+
   /** Loads a character from disk, or creates a blank one. */
   load(name: string): PlayerRecord {
     const slug = slugify(name);

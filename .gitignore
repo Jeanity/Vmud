@@ -21,6 +21,11 @@ data/world/overrides/settings.json
 # Per-character save data (explored maps, inventories, worn kit).
 data/players/
 
+# Accounts: who may connect and which characters are theirs. Runtime state like the players
+# beside it, and a password hash is exactly the file the design note says must never be
+# committed. See docs/DESIGN-accounts.md §4.
+data/accounts/
+
 # The admin API's audit trail. Runtime history, not content.
 data/admin-audit.jsonl
 
