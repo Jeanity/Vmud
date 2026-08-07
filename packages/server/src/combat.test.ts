@@ -996,6 +996,48 @@ describe('morale on the round boundary', () => {
 });
 
 /**
+ * Phase 20 slice 3's drive-found bug, pinned: `mobact.c:7091` (mundane_autostand). Nothing but this
+ * pass ever stands a mob back up, so before it, one bash silenced a caster **permanently** — the cast
+ * beat is the first mechanic to read a mob's posture, and it found every bashed shaman still sitting.
+ */
+describe('a knocked-down mob stands back up on its round boundary', () => {
+  it('stands, is reported, and still takes its round', () => {
+    const f = makeFixture();
+    engage(f.scheduler, f.player, f.mob);
+    engage(f.scheduler, f.mob, f.player);
+    f.sim.setStance(f.mob, { posture: 'sitting' });
+
+    const stood: Actor[] = [];
+    const attacks: ReturnType<typeof advanceCombat>['attacks'][number][] = [];
+    for (let elapsed = 0; elapsed < ROUND_MS + 200; elapsed += 100) {
+      const tick = advanceCombat(f.sim, f.scheduler, f.book, f.ledger, f.rng, f.scheduler.advance(100));
+      stood.push(...tick.stood);
+      attacks.push(...tick.attacks);
+    }
+
+    assert.equal(f.mob.posture, 'standing', 'the round boundary is where a fighting mob recovers its feet');
+    assert.deepEqual(stood.map((a) => a.id), [f.mob.id], 'reported once, so the room hears the recovery');
+    // The source's `goto normal`: standing does not consume the round — the bash lag already was the cost.
+    assert.ok(attacks.some((a) => a.attacker.id === f.mob.id), 'it stood *and* swung in the same round');
+  });
+
+  it('leaves a knocked-down player where they are — standing is their decision', () => {
+    const f = makeFixture();
+    engage(f.scheduler, f.player, f.mob);
+    engage(f.scheduler, f.mob, f.player);
+    f.sim.setStance(f.player, { posture: 'sitting' });
+
+    const stood: Actor[] = [];
+    for (let elapsed = 0; elapsed < ROUND_MS + 200; elapsed += 100) {
+      stood.push(...advanceCombat(f.sim, f.scheduler, f.book, f.ledger, f.rng, f.scheduler.advance(100)).stood);
+    }
+
+    assert.equal(f.player.posture, 'sitting', 'no hand pulls a player up');
+    assert.deepEqual(stood, []);
+  });
+});
+
+/**
  * Phase 19 slice 4 — `rescueFrom`, the mechanism under `rescue <ally>`.
  *
  * The contract worth pinning is threefold: exactly **one** attacker is peeled (`rescue all` is a

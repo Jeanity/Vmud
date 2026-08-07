@@ -38,9 +38,13 @@ import {
   SECTORS,
   UNLIMITED_DURATION,
   AUTHORED_MOB_BASE,
+  SPELL_IDS,
   formatArtId,
   isKnownArt,
+  isSpellId,
+  spellByName,
   suggestColour,
+  type SpellId,
   newAffect,
   parseArtId,
   parseDice,
@@ -508,6 +512,7 @@ const ITEM_PATCH_KEYS = new Set(['name', 'keywords', 'ac', 'damage', 'cost', 'ar
  * here would mean one endpoint whose body is half a form and half a table.
  */
 const MOB_PATCH_KEYS = new Set([
+  'spells',
   'name',
   'room',
   'keywords',
@@ -2470,9 +2475,34 @@ export class AdminApi {
       experience?: number;
       wimpyAt?: number;
       sprite?: string;
+      spells?: readonly SpellId[];
       by?: string;
     } = {};
     const cleared: string[] = [];
+
+    // Phase 20 slice 3: the field that turns a shaman's name into behaviour. Whole spell names or
+    // ids, validated against the shared registry — the refusal lists what exists, because "no such
+    // spell" with nothing after it is a guessing game.
+    if (patch.spells !== undefined) {
+      if (patch.spells === null) cleared.push('spells');
+      else if (!Array.isArray(patch.spells)) {
+        return { status: 400, body: { error: 'spells must be an array of spell ids, or null' } };
+      } else {
+        const spells: SpellId[] = [];
+        for (const raw of patch.spells as unknown[]) {
+          const id = typeof raw === 'string' ? (isSpellId(raw) ? raw : spellByName(raw)?.id) : undefined;
+          if (!id) {
+            return {
+              status: 400,
+              body: { error: `"${String(raw)}" is not a spell — one of: ${SPELL_IDS.join(', ')}` },
+            };
+          }
+          if (!spells.includes(id)) spells.push(id);
+        }
+        if (spells.length === 0) return { status: 400, body: { error: 'spells must name at least one spell, or null' } };
+        next.spells = spells.slice(0, 8);
+      }
+    }
 
     for (const [key, max] of [['name', MOB_NAME_MAX], ['room', MOB_ROOM_MAX], ['sprite', MOB_SPRITE_MAX]] as const) {
       const value = patch[key];

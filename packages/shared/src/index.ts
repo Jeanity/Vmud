@@ -12,6 +12,7 @@ export * from './morale.ts';
 export * from './colour.ts';
 export * from './progression.ts';
 export * from './skills.ts';
+export * from './spells.ts';
 export * from './attacks.ts';
 export * from './abilities.ts';
 export * from './defence.ts';

@@ -44,6 +44,16 @@ import {
   rollDice,
   HP_DEAD_BELOW,
   ITEM_TYPE_BOAT,
+  MOB_CAST_CHANCE,
+  SPELLS,
+  defaultSaveMod,
+  isSpellId,
+  mobCastMs,
+  rollSave,
+  rollShrug,
+  rollSpellBlows,
+  shrugChance,
+  type Spell,
   OFFENSIVE_NOTCH_CHANCE,
   RESCUE_NOTCH_CHANCE,
   arrivalTile,
@@ -218,6 +228,7 @@ import {
   advanceAssists,
   advanceCombat,
   attackersOf,
+  canBeAttacked,
   clearEngagements,
   disengage,
   engage,
@@ -3427,28 +3438,39 @@ function doCast(player: Player, rest: string): void {
  * called once / second."* The simplicity is the design: no hook in `relocate`, no hook in `bash` —
  * a forced exit changes the room and a knockdown changes the posture, and the next beat notices both.
  */
-function castBeat(player: Player): void {
-  const cast = player.casting;
+/** A room line about any actor — `actToRoom` for bodies that are not players, same gate, same render. */
+function actAround(actor: Actor, channel: LogChannel, render: (who: string) => string, excludeId?: EntityId): void {
+  const observers = [...sim.playersIn(actor.roomId)].filter((p) => p.id !== excludeId);
+  for (const line of actLines(actor, observers, canSee, render)) {
+    send(line.to, { t: 'log', channel, text: line.text });
+  }
+}
+
+function castBeat(caster: Actor): void {
+  const cast = caster.casting;
   if (!cast) return; // A stale event after a stop; `cancel` covers this, the return is the belt.
 
-  if (player.roomId !== cast.room) return stopCasting(player, 'you are no longer where you began');
-  if (player.posture !== 'standing' || player.status !== 'normal') {
-    return stopCasting(player, 'you have lost your footing');
+  if (caster.roomId !== cast.room) return stopCasting(caster, 'you are no longer where you began');
+  if (caster.posture !== 'standing' || caster.status !== 'normal') {
+    return stopCasting(caster, 'you have lost your footing');
   }
   if (cast.target !== undefined) {
     const target = sim.get(cast.target);
-    if (!target || target.roomId !== player.roomId) return stopCasting(player, 'your target is gone');
+    if (!target || target.roomId !== caster.roomId) return stopCasting(caster, 'your target is gone');
   }
 
   cast.remainingMs -= 1000;
   if (cast.remainingMs > 0) {
-    // The source's star meter, one star per second left — the visible half of the wind-up.
-    const stars = '*'.repeat(Math.ceil(cast.remainingMs / 1000));
-    send(player.id, { t: 'log', channel: 'combat', text: `Casting: ${cast.name} &+C${stars}&N` });
-    scheduler.schedule('cast', player.id, 1000);
+    // The source's star meter, one star per second left — the visible half of the wind-up. The
+    // caster's own line only: a mob's telegraph is the "begins casting" the room already heard.
+    if (isPlayer(caster)) {
+      const stars = '*'.repeat(Math.ceil(cast.remainingMs / 1000));
+      send(caster.id, { t: 'log', channel: 'combat', text: `Casting: ${cast.name} &+C${stars}&N` });
+    }
+    scheduler.schedule('cast', caster.id, 1000);
     return;
   }
-  completeCast(player);
+  completeCast(caster);
 }
 
 /**
@@ -3456,22 +3478,24 @@ function castBeat(player: Player): void {
  * interruption loses time and never the spell. The swing comes back if a fight is on, because the
  * held piece is released either way.
  */
-function stopCasting(player: Player, why?: string): void {
-  if (!player.casting) return;
-  delete player.casting;
-  scheduler.cancel(player.id, 'cast');
-  sim.removeAffects(player, 'casting');
-  send(player.id, {
-    t: 'log',
-    channel: 'combat',
-    text: `&+RYour spell is disrupted${why ? ` — ${why}` : ''}!&N`,
-  });
-  actToRoom(player, 'combat', (who) => `${who}'s spell fizzles away.`);
-  if (player.fighting !== undefined) {
-    scheduler.cancel(player.id, 'swing');
-    scheduler.schedule('swing', player.id, Math.max(MIN_ROUND_MS, player.roundMs));
+function stopCasting(caster: Actor, why?: string): void {
+  if (!caster.casting) return;
+  delete caster.casting;
+  scheduler.cancel(caster.id, 'cast');
+  sim.removeAffects(caster, 'casting');
+  if (isPlayer(caster)) {
+    send(caster.id, {
+      t: 'log',
+      channel: 'combat',
+      text: `&+RYour spell is disrupted${why ? ` — ${why}` : ''}!&N`,
+    });
   }
-  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+  actAround(caster, 'combat', (who) => `${who}'s spell fizzles away.`);
+  if (caster.fighting !== undefined) {
+    scheduler.cancel(caster.id, 'swing');
+    scheduler.schedule('swing', caster.id, Math.max(MIN_ROUND_MS, caster.roundMs));
+  }
+  if (isPlayer(caster)) send(caster.id, { t: 'self', view: sim.selfViewOf(caster) });
 }
 
 /**
@@ -3479,45 +3503,148 @@ function stopCasting(player: Player, why?: string): void {
  * that seam existing: a killing bolt pays experience, leaves a corpse and clears engagements by
  * construction. Slice 3's real spells replace the rig; this path is what they inherit.
  */
-function completeCast(player: Player): void {
-  const cast = player.casting;
+function completeCast(caster: Actor): void {
+  const cast = caster.casting;
   if (!cast) return;
-  delete player.casting;
-  sim.removeAffects(player, 'casting');
+  delete caster.casting;
+  sim.removeAffects(caster, 'casting');
 
   const target = cast.target === undefined ? undefined : sim.get(cast.target);
-  if (!target || target.roomId !== player.roomId) {
-    // The pay-then-fizzle quirk is authentic (`DESIGN-spells.md` §0.4) — with the rig costing
-    // nothing, this is just the fizzle half, kept in the shape the costs will land into.
-    send(player.id, { t: 'log', channel: 'combat', text: '&+RYour spell fizzles — nothing is there to strike.&N' });
-    if (player.fighting !== undefined) {
-      scheduler.cancel(player.id, 'swing');
-      scheduler.schedule('swing', player.id, Math.max(MIN_ROUND_MS, player.roundMs));
+  if (!target || target.roomId !== caster.roomId) {
+    // The pay-then-fizzle quirk is authentic (`DESIGN-spells.md` §0.4) — with nothing costing
+    // anything yet, this is just the fizzle half, kept in the shape the costs will land into.
+    if (isPlayer(caster)) {
+      send(caster.id, { t: 'log', channel: 'combat', text: '&+RYour spell fizzles — nothing is there to strike.&N' });
     }
-    send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+    resumeSwing(caster);
     return;
   }
 
-  const damage = rollDice(combatRng, DEV_SPELL.damage);
-  const result = landBlow({ sim, scheduler, book: threat, ledger }, player, target, damage);
-  send(player.id, {
-    t: 'log',
-    channel: 'combat',
-    text: `&+C-=[ Your ${DEV_SPELL.name} strikes ${target.name}&N&+C for ${damage}! ]=-&N`,
-  });
-  actToRoom(player, 'combat', (who) => `${who}'s ${DEV_SPELL.name} strikes ${target.name}&N.`);
-
-  // A completed aggressive cast is a declaration exactly as a missed kick is.
-  if (player.fighting === undefined) engage(scheduler, player, target);
-  if (player.fighting !== undefined) {
-    scheduler.cancel(player.id, 'swing');
-    scheduler.schedule('swing', player.id, Math.max(MIN_ROUND_MS, player.roundMs));
+  if (isSpellId(cast.spell)) {
+    completeSpellStrike(caster, SPELLS[cast.spell], target);
+    return;
   }
 
-  for (const actor of result.changed) syncEntityState(actor);
-  if (result.death) resolveDeath(result.death);
+  // The rig's bolt — no gates on purpose: the machinery slice drove wind-up and interruption with it,
+  // and it stays as the costless, gateless control the real spells are measured against.
+  const damage = rollDice(combatRng, DEV_SPELL.damage);
+  const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, target, damage);
+  if (isPlayer(caster)) {
+    send(caster.id, {
+      t: 'log',
+      channel: 'combat',
+      text: `&+C-=[ Your ${DEV_SPELL.name} strikes ${target.name}&N&+C for ${damage}! ]=-&N`,
+    });
+  }
+  actAround(caster, 'combat', (who) => `${who}'s ${DEV_SPELL.name} strikes ${target.name}&N.`);
+  settleStrike(caster, target, result.changed, result.death);
+}
+
+/**
+ * A registry spell lands — **the two gates, in the damage order** (`DESIGN-spells.md` §1): the save
+ * first, adjusting the amount by the spell's own convention, then the shrug per blow — which is why
+ * magic missile's bolts arrive as a list, each facing the shrug alone (`magic.c:495-512`). A raceless
+ * victim — every player until Phase 21 — never shrugs; that is the source's own shape, MR being an
+ * innate and innates riding races.
+ */
+function completeSpellStrike(caster: Actor, spell: Spell, target: Actor): void {
+  // Gate 1, once per cast: the save. Only conventions the shipped spells use are modelled.
+  let doubled = false;
+  if (spell.save === 'double-on-fail') {
+    const mod = defaultSaveMod(caster.level, target.level, spell.circle);
+    doubled = !rollSave(combatRng, target.level, mod, isMob(target));
+  }
+  // Gate 2's chance, computed once; rolled per blow.
+  const race = isMob(target) ? mobTemplates.get(target.vnum)?.race : undefined;
+  const shrug = shrugChance(race, target.level);
+
+  const changed: Actor[] = [];
+  let death: Death | undefined;
+  let struck = 0;
+  let shrugged = 0;
+  for (const blow of rollSpellBlows(combatRng, spell.id, caster.level)) {
+    if (rollShrug(combatRng, shrug)) {
+      shrugged++;
+      continue;
+    }
+    const damage = doubled ? blow.damage * 2 : blow.damage;
+    struck += damage;
+    const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, target, damage);
+    changed.push(...result.changed);
+    if (result.death) {
+      death = result.death;
+      break; // The source stops the volley when the victim dies — nothing left to strike.
+    }
+    if (result.incapacitated) break;
+  }
+
+  const spellName = `&+C${spell.name}&N`;
+  if (shrugged > 0 && struck === 0) {
+    if (isPlayer(caster)) send(caster.id, { t: 'log', channel: 'combat', text: `${capitalise(target.name)}&N shrugs off your ${spellName}!` });
+    if (isPlayer(target)) send(target.id, { t: 'log', channel: 'combat', text: `&+WYou shrug off ${caster.name}&N&+W's ${spellName}&+W!&N` });
+    actAround(caster, 'combat', (who) => `${target.name}&N shrugs off ${who}'s ${spellName}.`, target.id);
+  } else {
+    if (isPlayer(caster)) {
+      send(caster.id, { t: 'log', channel: 'combat', text: `&+C-=[ Your ${spell.name} strikes ${target.name}&N&+C for ${struck}!${doubled ? ' (no save)' : ''} ]=-&N` });
+    }
+    if (isPlayer(target)) {
+      send(target.id, { t: 'log', channel: 'combat', text: `&+R-=[ ${capitalise(caster.name)}&N&+R's ${spell.name} strikes you for ${struck}! ]=-&N` });
+    }
+    actAround(caster, 'combat', (who) => `${who}'s ${spellName} strikes ${target.name}&N.`, target.id);
+  }
+
+  settleStrike(caster, target, changed, death);
+}
+
+/** The tail every completed strike shares: the declaration, the swing back, the syncs. */
+function settleStrike(caster: Actor, target: Actor, changed: readonly Actor[], death: Death | undefined): void {
+  if (caster.fighting === undefined && canBeAttacked(target)) engage(scheduler, caster, target);
+  resumeSwing(caster);
+  for (const actor of changed) syncEntityState(actor);
+  if (death) resolveDeath(death);
   else syncEntityState(target);
-  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+  if (isPlayer(caster)) send(caster.id, { t: 'self', view: sim.selfViewOf(caster) });
+}
+
+/** The held piece released: the swing comes back on a fresh round, when there is a fight to swing in. */
+function resumeSwing(caster: Actor): void {
+  if (caster.fighting === undefined) return;
+  scheduler.cancel(caster.id, 'swing');
+  scheduler.schedule('swing', caster.id, Math.max(MIN_ROUND_MS, caster.roundMs));
+}
+
+/**
+ * A mob reaches for a spell instead of its swing — `MobCastSpell`'s shape (`mobact.c:542-784`),
+ * injected into `advanceCombat`'s round boundary: what a shaman knows is authored content
+ * (`MobTemplate.spells`, the panel's field), the odds are {@link MOB_CAST_CHANCE}, and the wind-up
+ * gets the source's level-rolled quick chant — a young shaman telegraphs, an old one is dangerous.
+ */
+function mobStartCast(mob: Mob, target: Actor): boolean {
+  const known = mobTemplates.get(mob.vnum)?.spells;
+  if (!known || known.length === 0) return false;
+  if (randomInt(combatRng, 1, 100) > MOB_CAST_CHANCE) return false;
+
+  const spell = SPELLS[known[randomInt(combatRng, 0, known.length - 1)]!];
+  const castMs = mobCastMs(combatRng, spell, mob.level);
+  scheduler.cancel(mob.id, 'swing');
+  mob.casting = {
+    spell: spell.id,
+    name: spell.name,
+    remainingMs: castMs,
+    totalMs: castMs,
+    room: mob.roomId,
+    target: target.id,
+  };
+  if (castMs <= 0) {
+    // Level 60+ casts instantly in the source; none of ours reaches it, but the branch is the rule.
+    completeCast(mob);
+    return true;
+  }
+  // The same shown affect a player's wind-up wears, so the room's entity views carry the tell.
+  sim.addAffect(mob, newAffect({ type: 'casting', durationMs: castMs + 1500, flags: AffectFlag.NoSave }));
+  actAround(mob, 'combat', (who) => `&+C${who} begins casting...&N`);
+  scheduler.schedule('cast', mob.id, 1000);
+  return true;
 }
 
 function stepRoom(player: Player, dir: Direction): void {
@@ -7514,7 +7641,7 @@ setInterval(() => {
       case 'cast': {
         // Phase 20's beat — before `advanceCombat`, so a cast that completes this tick strikes
         // before this tick's swings land on its caster, which is the order the wind-up promised.
-        const caster = sim.player(event.actor);
+        const caster = sim.get(event.actor);
         if (caster) castBeat(caster);
         break;
       }
@@ -7540,6 +7667,8 @@ setInterval(() => {
       return outcome.kind === 'fled';
     },
     defenceOf,
+    // Phase 20 slice 3: what a shaman knows is content, so the decision lives here, not in combat.ts.
+    (mob, target) => mobStartCast(mob, target),
   );
   for (const outcome of combat.attacks) announceAttack(outcome);
   // **Phase 19: you get better at what you do.** Only on a blow that landed, only for a player, and
@@ -7551,6 +7680,9 @@ setInterval(() => {
   // the attacker for a blow that landed, one on the defender for a defence that did not.
   for (const outcome of combat.attacks) notchFromDefence(outcome);
   for (const change of combat.switches) announceSwitch(change);
+  // The source's own sentence (`actmove.c:3586`), so a bashed caster's recovery is as visible as the
+  // knockdown was — the player timing a re-bash is reading exactly this line.
+  for (const mob of combat.stood) actAround(mob, 'combat', (who) => `${who} clambers to its feet.`);
   for (const death of combat.deaths) resolveDeath(death);
 
   // Corpses age. Almost every tick this does nothing, and the map is empty in a world nobody is fighting

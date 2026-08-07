@@ -35,12 +35,14 @@ import { fileURLToPath } from 'node:url';
 import {
   EQUIP_SLOTS,
   attackBonusFor,
+  isSpellId,
   parseDice,
   roundLengthFor,
   type EquipSlot,
   type Item,
   type ItemTemplate,
   type MobTemplate,
+  type SpellId,
 } from '@mygame/shared';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -118,6 +120,13 @@ export interface MobOverride {
   readonly wimpyAt?: number;
   /** Which body it is drawn with — an art key, the same vocabulary `spriteFor` produces. */
   readonly sprite?: string;
+  /**
+   * The spells it casts in a fight — Phase 20 slice 3, the field that turns a shaman's name into
+   * behaviour. Whole-name spell ids from the shared registry; an unknown id is dropped by the loader
+   * for the reason every sibling field is validated: a hand-typed spell nothing implements would be
+   * a mob that winds up and casts silence, in the wrong sense of the word.
+   */
+  readonly spells?: readonly SpellId[];
   /** When it was last written, so the panel can say how stale it is. */
   readonly at?: string;
   /** Who or what wrote it — the provenance every overlay here records. */
@@ -184,6 +193,14 @@ function readWords(raw: unknown): readonly string[] | undefined {
 }
 
 /** One authored line of prose, trimmed — or nothing. */
+/** A well-formed spell list, or nothing: known ids only, deduplicated, capped where sanity lives. */
+function readSpellList(raw: unknown): readonly SpellId[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const spells = [...new Set((raw as unknown[]).filter((id): id is SpellId => typeof id === 'string' && isSpellId(id)))];
+  if (spells.length === 0) return undefined;
+  return spells.slice(0, 8);
+}
+
 function readProse(raw: unknown): string | undefined {
   if (typeof raw !== 'string' || !raw.trim()) return undefined;
   return raw.trim();
@@ -220,6 +237,7 @@ export function applyMobOverride(template: MobTemplate, override: MobOverride): 
     ...(override.experience !== undefined ? { experience: override.experience } : {}),
     ...(override.wimpyAt !== undefined ? { wimpyAt: override.wimpyAt } : {}),
     ...(override.sprite !== undefined ? { sprite: override.sprite } : {}),
+    ...(override.spells !== undefined ? { spells: override.spells } : {}),
     combat: {
       ...template.combat,
       ...(override.armourClass !== undefined ? { armourClass: override.armourClass } : {}),
@@ -319,6 +337,7 @@ export function loadMobOverrides(file = MOBS_FILE): MobOverrides {
       ...(experience === undefined ? {} : { experience }),
       ...(wimpyAt === undefined ? {} : { wimpyAt }),
       ...(readProse(record.sprite) === undefined ? {} : { sprite: readProse(record.sprite)! }),
+      ...(readSpellList(record.spells) === undefined ? {} : { spells: readSpellList(record.spells)! }),
       ...(typeof record.at === 'string' ? { at: record.at } : {}),
       ...(typeof record.by === 'string' ? { by: record.by } : {}),
     };

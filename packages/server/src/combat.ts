@@ -99,6 +99,8 @@ export interface CombatTick {
   readonly switches: readonly TargetSwitch[];
   /** Anything that died this tick, with the ledger the caller pays out from. */
   readonly deaths: readonly Death[];
+  /** Mobs that got back on their feet this round — the caller says so ("$n clambers to $s feet."). */
+  readonly stood: readonly Actor[];
 }
 
 /** One body reaching the end of the status ladder. */
@@ -704,11 +706,17 @@ export function advanceCombat(
   morale?: MoraleCheck,
   /** Phase 19 slice 2. Absent means nobody dodges or parries — combat exactly as it was before. */
   defence?: DefenceLookup,
+  /**
+   * Phase 20 slice 3. A mob's chance to open a wind-up instead of swinging, on its round boundary.
+   * Returns true when it took the round; absent means no mob anywhere casts — combat as it was.
+   */
+  tryCast?: (mob: Mob, target: Actor) => boolean,
 ): CombatTick {
   const attacks: AttackOutcome[] = [];
   const changed: Actor[] = [];
   const switches: TargetSwitch[] = [];
   const deaths: Death[] = [];
+  const stood: Actor[] = [];
 
   // **A mob that lost its target picks up the next one.**
   //
@@ -794,6 +802,18 @@ export function advanceCombat(
       continue;
     }
 
+    // **A fighting mob that was knocked down stands back up** — `mobact.c:7091` (mundane_autostand):
+    // below standing and still in a fight, `do_stand` and then *carry on with the round* (`goto
+    // normal`), so the bash's lag was the whole cost and the knockdown is not paid for twice. Slice
+    // 3's drive found the gap: nothing else ever stands a mob up, so the first mechanic to read a
+    // mob's posture — the cast beat — turned one knockdown into a permanent silence. A player is
+    // deliberately not stood here: standing back up is their decision, and their `stand` command.
+    if (isMob(attacker) && attacker.posture !== 'standing') {
+      sim.setStance(attacker, { posture: 'standing' });
+      changed.push(attacker);
+      stood.push(attacker);
+    }
+
     // **Morale, on the round boundary** — `DESIGN-mobs-and-movement.md` §2.8. A mob below its template's
     // threshold turns to run *instead of* swinging, because it has stopped fighting you.
     //
@@ -808,6 +828,16 @@ export function advanceCombat(
       // nothing here to reschedule.
       continue;
     }
+
+    // **Phase 20 slice 3: a caster is a held piece here too.** A body mid-wind-up does not swing —
+    // its swing was cancelled at cast start and this is the belt for the event already in flight —
+    // and a mob that knows spells may reach for one *instead of* swinging, on its own round boundary
+    // exactly as morale is asked there. When `tryCast` takes the round, the cast's own ending gives
+    // the swing back, so nothing is rescheduled here; the injection decides everything else
+    // (which spell, the wind-up, the messages), because what a shaman knows is content and content
+    // stays on `index.ts`'s side of the seam.
+    if (attacker.casting) continue;
+    if (tryCast && isMob(attacker) && tryCast(attacker, target)) continue;
 
     // How many people are on this defender right now — the one modifier from the source's hundred lines
     // that we have the number for, and the one that matters: it is why ganging up works.
@@ -828,7 +858,7 @@ export function advanceCombat(
     scheduler.schedule('swing', attacker.id, Math.max(MIN_ROUND_MS, attacker.roundMs));
   }
 
-  return { attacks, changed, switches, deaths };
+  return { attacks, changed, switches, deaths, stood };
 }
 
 /** How many bodies in the room are currently fighting this one. `GET_OPPONENT(tch) == vict`, verbatim. */

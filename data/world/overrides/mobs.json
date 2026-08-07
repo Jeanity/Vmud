@@ -1,1 +1,10 @@
-{}
+{
+  "1400": {
+    "spells": [
+      "magic_missile",
+      "burning_hands"
+    ],
+    "at": "2026-08-07T03:58:23.302Z",
+    "by": "slice3-drive"
+  }
+}

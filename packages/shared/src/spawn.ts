@@ -19,6 +19,7 @@
 import type { AggroRule } from './aggression.ts';
 import type { CombatStats } from './combat.ts';
 import type { PursuitRule } from './pursuit.ts';
+import type { SpellId } from './spells.ts';
 import type { RoomId, ZoneId } from './world.ts';
 
 /* -------------------------------------------------------------------------- */
@@ -99,6 +100,13 @@ export interface MobTemplate {
    * `data/world` from being a crash instead of a rebuild.
    */
   readonly race?: string;
+  /**
+   * The spells it reaches for in a fight — **Phase 20 slice 3**, and authored rather than harvested:
+   * Duris derives a mob's list from its class tables, which are Phase 21's, so until then a casting
+   * mob is a decision somebody made in the panel. Optional like `race`, for the same stale-checkout
+   * reason; absent means it only ever swings, which is every mob the harvest ships.
+   */
+  readonly spells?: readonly SpellId[];
   /**
    * Who this objects to and how quickly it works it out — Duris' `ACT_*` and three aggression words,
    * reduced to what has a reader. See `aggression.ts`, which is where the reasoning lives.
