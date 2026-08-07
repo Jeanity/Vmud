@@ -410,6 +410,14 @@ export interface ContainerRule {
 }
 
 /** One catalogue entry. Harvested; never authored by hand. */
+/**
+ * Duris' `ITEM_BOAT` (type 22) — the shipped game's **live** deep-water key: carried at the top level
+ * or worn (*"water walking items actually"* — `actmove.c`'s own comment), it answers *"You need a
+ * boat to go there"*. 29 exist in the harvest, canoes and rafts and boots of water-walking. Phase 19
+ * slice 5 keeps them as the swim bundle's exemption: a boat means you are not swimming.
+ */
+export const ITEM_TYPE_BOAT = 22;
+
 export interface ItemTemplate {
   /** Duris' object vnum. The join key between the `.obj` files and every `G`/`E`/`P` reset command. */
   readonly vnum: number;

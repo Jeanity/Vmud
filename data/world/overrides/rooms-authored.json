@@ -1,12 +1,12 @@
 {
-  "next": 1000006,
+  "next": 1000008,
   "deleted": [],
   "extents": {
     "100000:0": {
       "minX": 0,
       "maxX": 1,
       "minY": 0,
-      "maxY": 0
+      "maxY": 1
     }
   },
   "rooms": {
@@ -34,6 +34,34 @@
         "west": 1000004
       },
       "at": "2026-08-07T00:56:49.557Z",
+      "by": "drive"
+    },
+    "1000006": {
+      "id": 1000006,
+      "zone": 100000,
+      "name": "Black Water Over the Stair",
+      "sector": "deep_water",
+      "x": 0,
+      "y": 1,
+      "level": 0,
+      "exits": {
+        "north": 1000004
+      },
+      "at": "2026-08-07T01:38:37.011Z",
+      "by": "drive"
+    },
+    "1000007": {
+      "id": 1000007,
+      "zone": 100000,
+      "name": "A Drowned Gallery",
+      "sector": "deep_water",
+      "x": 1,
+      "y": 1,
+      "level": 0,
+      "exits": {
+        "north": 1000005
+      },
+      "at": "2026-08-07T01:38:37.046Z",
       "by": "drive"
     }
   }

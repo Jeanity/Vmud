@@ -97,6 +97,10 @@ export const SKILL_IDS = [
   // Phase 19 slice 4. `SKILL_CREATE("rescue", SKILL_RESCUE, TAR_PHYS)` — the first skill that is neither
   // a way to hit nor a way to avoid being hit: it moves a fight from one body to another.
   'rescue',
+  // Phase 19 slice 5, and the last. `SKILL_CREATE("swim", SKILL_SWIM, TAR_PHYS)` — a skill the shipped
+  // source registers and never reads: its only consumer is a function whose whole body is commented
+  // out. Ours prices deep water rather than gating it — see {@link swimSurcharge}.
+  'swim',
 ] as const;
 
 export type SkillId = (typeof SKILL_IDS)[number];
@@ -130,6 +134,7 @@ export const SKILLS: Readonly<Record<SkillId, Skill>> = {
   'bash': { id: 'bash', name: 'bash', category: 'physical' },
   'kick': { id: 'kick', name: 'kick', category: 'physical' },
   'rescue': { id: 'rescue', name: 'rescue', category: 'physical' },
+  'swim': { id: 'swim', name: 'swim', category: 'physical' },
 };
 
 /** Whether a string is a skill this build knows. The load path's gate — see `players.ts`. */
@@ -318,6 +323,24 @@ export const OFFENSIVE_NOTCH_CHANCE = 7;
  * something about rescuing is a moment you fumble one; the consolation runs the other way round.
  */
 export const RESCUE_NOTCH_CHANCE = 10;
+
+/**
+ * What a deep-water stroke costs **on top of** the terrain rate, in movement points — Phase 19
+ * slice 5, and the owner's ruling (2026-08-07): *the skill prices deep water, a boat exempts you.*
+ *
+ * The curve is the dead code's own, adopted the way the notch curve was: `specials.c:191` drains
+ * `4 − skill/25` vitality per swim beat, inside a function whose entire body is commented out — the
+ * fifth mechanism this phase found wired to code the shipped game does not run. So the numbers are
+ * Duris' even though the behaviour never was: **+4 at the floor, −1 per 25 learned, +0 at 100.** On
+ * our terrain table (deep water 6) a novice pays 10 a stroke and a master 6 — a full pool crosses
+ * ten rooms of open water untrained, sixteen mastered, and the difference is the skill working.
+ *
+ * A swimmer with a boat pays no surcharge, notches nothing and cannot drown: the bundle is what
+ * *swimming* costs, and a boat means you are not swimming.
+ */
+export function swimSurcharge(learned: number): number {
+  return Math.max(0, 4 - Math.floor(Math.max(0, learned) / 25));
+}
 
 /**
  * The chance this notch attempt succeeds, as a percentage — **the compiled-out branch, on purpose.**

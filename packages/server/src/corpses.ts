@@ -20,6 +20,7 @@
  */
 
 import {
+  SECTOR_REQUIRES_MOVEMENT,
   TILE_SIZE,
   carry,
   type EntityId,
@@ -27,7 +28,9 @@ import {
   type Inventory,
   type Item,
   type Place,
+  type Room,
   type RoomId,
+  type Sector,
 } from '@mygame/shared';
 
 import { keywordsFromName } from './commands.ts';
@@ -61,10 +64,11 @@ export interface Corpse {
   readonly of: string;
   /** Whether it was a player's. Decides the decay clock and whether it may be looted by others. */
   readonly wasPlayer: boolean;
-  readonly roomId: RoomId;
+  /** Mutable, with `x`/`y`: the wash-ashore rule is the one thing that moves a body after it falls. */
+  roomId: RoomId;
   readonly place: Place;
-  readonly x: number;
-  readonly y: number;
+  x: number;
+  y: number;
   /**
    * What is in it. Phase 15b, and the thing Phase 13 built the corpse to eventually hold.
    *
@@ -140,6 +144,49 @@ export function makeCorpse(yard: Graveyard, actor: Actor, wasPlayer: boolean, co
 /** How a corpse reads in a sentence. Duris' own phrasing, which is hard to improve on. */
 export function corpseName(corpse: Corpse): string {
   return `the corpse of ${corpse.of}`;
+}
+
+/**
+ * Where the water gives up a body — **Phase 19 slice 5**, and two owner rules in one (2026-08-07).
+ *
+ * A corpse left in deep water is loot nobody can reach, which is the failure the owner named first.
+ * But *nearest shore* alone is a ferry: drown deliberately and your bag crosses the ocean free. So a
+ * body comes ashore at the **`preferred`** room — the shore its owner entered the water from, tracked
+ * on the player — and only falls back to the nearest dry room by breadth-first search through the
+ * water when no entry shore is known (a reconnect mid-lake forgets it; a mob never had one). The
+ * search walks water rooms only, which is how a current would actually carry a body, and gives up on
+ * an all-water Place rather than teleporting the dead across dry land.
+ *
+ * Pure over its lookup, like everything here: the caller owns rooms, placement and the announcement.
+ */
+export function shoreFor(
+  from: RoomId,
+  roomOf: (id: RoomId) => { readonly sector: Sector; readonly exits: Room['exits'] } | undefined,
+  preferred?: RoomId,
+): RoomId | undefined {
+  const drowns = (sector: Sector): boolean => SECTOR_REQUIRES_MOVEMENT[sector] === 'swim';
+
+  const entry = preferred === undefined ? undefined : roomOf(preferred);
+  if (entry && !drowns(entry.sector)) return preferred;
+
+  const seen = new Set<RoomId>([from]);
+  const queue: RoomId[] = [from];
+  // Bounded, so an ocean the size of the harvest's 1,609 deep rooms cannot make a death expensive.
+  // A body 400 rooms from any coast stays where it sank, which is honest about what happened to it.
+  let budget = 400;
+  while (queue.length > 0 && budget-- > 0) {
+    const here = roomOf(queue.shift()!);
+    if (!here) continue;
+    for (const exit of Object.values(here.exits)) {
+      if (seen.has(exit.to)) continue;
+      seen.add(exit.to);
+      const next = roomOf(exit.to);
+      if (!next) continue;
+      if (!drowns(next.sector)) return exit.to;
+      queue.push(exit.to);
+    }
+  }
+  return undefined;
 }
 
 /**

@@ -23,6 +23,9 @@ import {
   clampPool,
   encumberedMoveCost,
   hasType,
+  learnedAt,
+  swimSurcharge,
+  SECTOR_REQUIRES_MOVEMENT,
   isResting,
   needsRegen,
   newAffect,
@@ -388,6 +391,18 @@ export interface Player extends Actor {
   intentX: number;
   intentY: number;
   /**
+   * The last dry room this character stood in before entering water — **the entry shore**, and the
+   * owner's anti-ferry rule (2026-08-07): a drowned corpse washes up where you went in, or drowning
+   * is a free crossing of any ocean. Transient on purpose; a reconnect mid-lake forgets it and the
+   * wash falls back to the nearest shore, which is recorded as the corner it is rather than defended.
+   */
+  lastShore?: RoomId;
+  /**
+   * The room a continuous step was just refused into for lack of movement — the edge-trigger that
+   * says "too exhausted" once per shoreline instead of ten times a second. See the tick's gate.
+   */
+  shoreBlocked?: number;
+  /**
    * The route being walked by click-to-move, or undefined when moving manually.
    *
    * Tile coordinates only mean anything against `place`'s grid, so this is dropped the instant the
@@ -590,6 +605,8 @@ export interface TickResult {
   readonly transitions: readonly Transition[];
   /** Routes that finished or were given up on this tick, so the client can be told to stop drawing. */
   readonly pathsEnded: readonly PathEnded[];
+  /** Players a continuous step just refused for lack of movement — edge-triggered, one per shoreline. */
+  readonly winded: readonly Player[];
   /**
    * Players whose lit set changed for a reason **other than moving** — a torch lit, a spell cast, a
    * Beacon of Hope crumbling to dust.
@@ -1610,7 +1627,20 @@ export class Simulation {
       if (!regenerates(player)) continue;
       let moved = false;
 
+      // **Treading deep water gives no wind back** — the commented-out source's own rule, and the
+      // drive proved the mechanic is dead without it: `swimming_char` calls `StartRegen` only when
+      // you *leave* the waters, and without that suppression a drowning swimmer's pool ticked back
+      // above zero between beats and the water let go for ever. Movement only; health and mana mend
+      // as they always did — it is your arms that are busy.
+      const room = this.room(player.roomId);
+      const treading =
+        room !== undefined &&
+        SECTOR_REQUIRES_MOVEMENT[room.sector] === 'swim' &&
+        isPlayer(player) &&
+        !this.hasSwimAid(player);
+
       for (const pool of REGEN_POOLS) {
+        if (pool.name === 'move' && treading) continue;
         const current = player[pool.current];
         const max = player[pool.max];
         // The affect total for this pool's location, summed fresh each tick for the same reason the
@@ -1658,10 +1688,37 @@ export class Simulation {
    * stamina for.
    */
   spendMove(actor: Actor, from: Sector, to: Sector): boolean {
-    const cost = encumberedMoveCost(from, to, this.loadOf(actor));
+    let cost = encumberedMoveCost(from, to, this.loadOf(actor));
+    // **Phase 19 slice 5: deep water is priced, not gated** — the owner's ruling. A player without a
+    // swim aid pays the dead drain's own surcharge on top of the terrain rate, falling with the swim
+    // skill; a boat (the aid, injected — this class knows no catalogue, A7d's rule) means you are not
+    // swimming and pay the plain rate. Mobs never pay the surcharge for the reason they never pay
+    // encumbrance: their movement is governed by their own clocks, not by a pool they can empty.
+    if (SECTOR_REQUIRES_MOVEMENT[to] === 'swim' && isPlayer(actor) && !this.hasSwimAid(actor)) {
+      cost += swimSurcharge(learnedAt(actor.skills.get('swim'), actor.level, 'swim'));
+    }
     if (!canAffordStep(actor.move, cost)) return false;
     actor.move -= cost;
     return true;
+  }
+
+  /**
+   * Whether something the actor has makes deep water free — a boat, in the source's own live rule
+   * (`ITEM_BOAT`, carried at the top level or worn; a canoe inside a sack floats nobody).
+   *
+   * Injected by `index.ts` at boot rather than derived here, because *what is a boat* is a catalogue
+   * question and this class deliberately holds no catalogue. Everything that bundles with swimming —
+   * the surcharge, the notch, the drowning — asks this one predicate, so "a boat means you are not
+   * swimming" cannot come apart across three call sites.
+   */
+  hasSwimAid(actor: Actor): boolean {
+    return this.swimAid(actor);
+  }
+
+  private swimAid: (actor: Actor) => boolean = () => false;
+
+  setSwimAid(check: (actor: Actor) => boolean): void {
+    this.swimAid = check;
   }
 
   /**
@@ -1694,6 +1751,8 @@ export class Simulation {
     const moved: Player[] = [];
     const transitions: Transition[] = [];
     const pathsEnded: PathEnded[] = [];
+    // Players a continuous step just refused for lack of movement — edge-triggered, see the gate.
+    const winded: Player[] = [];
 
     // Players only, and this is the one pass where that is the *mechanic* rather than a limitation:
     // movement here is driven by a held steering vector or a server-walked route, and both are things a
@@ -1764,9 +1823,33 @@ export class Simulation {
       //
       // The threshold counts as outside: a corridor tile reports -1, and stopping at it is what "you
       // cannot leave" should feel like from inside the room.
+      const into = roomAtTile(grid, Math.floor(next.x / TILE_SIZE), Math.floor(next.y / TILE_SIZE));
       if (player.fighting !== undefined) {
-        const into = roomAtTile(grid, Math.floor(next.x / TILE_SIZE), Math.floor(next.y / TILE_SIZE));
         if (into !== player.roomId) continue;
+      }
+
+      // **The same bill the typed step pays — Phase 19 slice 5 closed the gap.** `stepRoom` has
+      // charged `SECTOR_MOVE_COST` since Phase 16; a WASD or click crossing landed here, where
+      // nothing charged — so the default way of walking was the free way, and "all terrain costs"
+      // (owner, 2026-08-07) was a rule with a hole in it. This is the only place that can see a
+      // continuous step about to cross, the same fact the fighting gate above states, so the pool is
+      // asked before the step and the transition block below merely records what was already paid.
+      //
+      // Refused like the fighting gate refuses: the step clamps at the boundary. `shoreBlocked` is
+      // the edge-trigger for the message — holding W against a shoreline you cannot afford should say
+      // so once, not sixty times a second — and a *path* is left to the stall counter, which ends it
+      // as stuck within the second: which is what it is.
+      if (into !== -1 && into !== player.roomId) {
+        const from = this.room(player.roomId);
+        const to = this.room(into as RoomId);
+        if (from && to && !this.spendMove(player, from.sector, to.sector)) {
+          if (player.shoreBlocked !== into) {
+            player.shoreBlocked = into;
+            winded.push(player);
+          }
+          continue;
+        }
+        delete player.shoreBlocked;
       }
 
       player.x = next.x;
@@ -1810,7 +1893,7 @@ export class Simulation {
 
     // Drained rather than read: a light change is an edge, and reporting it twice would have the
     // server re-send `self` and re-fold `seen` every tick for the rest of the character's life.
-    return { moved, transitions, pathsEnded, relit: this.drainRelit(), affectEvents, vitalsChanged };
+    return { moved, transitions, pathsEnded, winded, relit: this.drainRelit(), affectEvents, vitalsChanged };
   }
 
   /**

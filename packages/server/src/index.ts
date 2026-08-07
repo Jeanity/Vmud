@@ -41,8 +41,11 @@ import {
   type SkillId,
   randomInt,
   rollDice,
+  HP_DEAD_BELOW,
+  ITEM_TYPE_BOAT,
   OFFENSIVE_NOTCH_CHANCE,
   RESCUE_NOTCH_CHANCE,
+  arrivalTile,
   ATTACK_VERBS,
   attackTypeForRace,
   attackTypeForWeapon,
@@ -238,6 +241,7 @@ import {
   lootRefusal,
   corpseAnswersTo,
   corpseName,
+  shoreFor,
   makeCorpse,
   withinReach,
   type Corpse,
@@ -349,6 +353,21 @@ const PORT = Number(process.env['GAME_PORT'] ?? 8787);
 // Which zones exist is configuration, not code: `world.config.json` is the only thing that decides.
 const world = GameWorld.load();
 const sim = new Simulation(world);
+
+// **What is a boat is a catalogue question**, so the sim is handed the answer rather than the
+// catalogue — the same injection `artClassOf` rides in on, for A7d's reason: `sim.ts` knows no
+// catalogue. The source's own live rule (`actmove.c`): `ITEM_BOAT`, carried **at the top level** or
+// worn — a canoe inside a sack floats nobody, so `stack.held` is deliberately not searched.
+sim.setSwimAid((actor) => {
+  if (!isPlayer(actor)) return false;
+  for (const stack of actor.inventory.stacks) {
+    if (templateOf(stack.item)?.type === ITEM_TYPE_BOAT) return true;
+  }
+  for (const item of Object.values(actor.equipped)) {
+    if (item !== undefined && templateOf(item)?.type === ITEM_TYPE_BOAT) return true;
+  }
+  return false;
+});
 
 for (const zone of world.allZones()) {
   const levels = world.levelsOf(zone.id);
@@ -1895,6 +1914,107 @@ function announceAttack(outcome: AttackOutcome): void {
  * the thing you chose to be carrying, leaves you able to fight your way back to it, and makes the
  * thirty-minute player-corpse clock in `corpses.ts` a deadline that means something.
  */
+/**
+ * Slice 5's arrival bookkeeping, identical on the typed and continuous paths.
+ *
+ * The **entry shore** is written when a dry room is left for a swimming one — the owner's anti-ferry
+ * rule: a drowned corpse washes up where its owner went in, so drowning is never a free crossing.
+ * And a stroke swum without a boat **notches**, at the deliberate-act rate every verb uses: swimming
+ * is the one skill you practise by going somewhere.
+ */
+function noteWaterCrossing(player: Player, from: RoomId): void {
+  const here = sim.room(player.roomId);
+  if (!here || SECTOR_REQUIRES_MOVEMENT[here.sector] !== 'swim') return;
+  const shore = sim.room(from);
+  if (shore && SECTOR_REQUIRES_MOVEMENT[shore.sector] !== 'swim') player.lastShore = from;
+  if (!sim.hasSwimAid(player)) notchSkill(player, 'swim', OFFENSIVE_NOTCH_CHANCE);
+}
+
+/** How often drowning collects, and what it takes per beat. Data, beside the clocks it joins. */
+const DROWN_BEAT_MS = 2000;
+const drowningFor = new Map<EntityId, number>();
+
+/**
+ * Deep water collecting from anyone treading it on an empty pool — **what drowning is** (owner,
+ * 2026-08-07): not a breath bar, but exhaustion with consequences. A swimmer with movement left is
+ * merely tired; at zero, every second beat costs a sixteenth of their health until they reach ground,
+ * find a boat, or die into the ordinary death — `reapPlayer`, corpse and all, where the wash-ashore
+ * rule takes over. Mercy does not apply: mercy protects a downed body from *blows*, and water is not
+ * swinging at anyone. A body the current is drowning keeps drowning until somebody gets it out.
+ */
+function advanceDrowning(): void {
+  for (const player of sim.allPlayers()) {
+    const room = sim.room(player.roomId);
+    const treading =
+      room !== undefined &&
+      SECTOR_REQUIRES_MOVEMENT[room.sector] === 'swim' &&
+      player.move <= 0 &&
+      player.status !== 'dead' &&
+      !sim.hasSwimAid(player);
+    if (!treading) {
+      drowningFor.delete(player.id);
+      continue;
+    }
+    const held = (drowningFor.get(player.id) ?? 0) + TICK_MS;
+    if (held < DROWN_BEAT_MS) {
+      drowningFor.set(player.id, held);
+      continue;
+    }
+    drowningFor.set(player.id, 0);
+
+    const beat = Math.max(3, Math.ceil(player.maxHp / 16));
+    player.hp = Math.max(HP_DEAD_BELOW - 1, player.hp - beat);
+    send(player.id, { t: 'log', channel: 'combat', text: '&+BYou are drowning!&N' });
+    actToRoom(player, 'combat', (who) => `${who} thrashes in the water, drowning!`);
+    sim.refreshStatus(player, player.fighting !== undefined);
+    syncEntityState(player);
+    send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+    // The tick's own reap pass watches `vitalsChanged`, which this damage is not part of — so the
+    // death a beat causes is resolved here, by the same door every other death goes through.
+    if (player.status === 'dead') reapPlayer(player);
+  }
+}
+
+/**
+ * The water gives the body up — the placement half of `shoreFor`, which owns the rules and the two
+ * owner decisions behind them. In-Place only: the lookup refuses rooms on another grid, so a corpse
+ * never crosses a level or a zone by drifting, and its coordinates stay on the grid it died over.
+ */
+function comeAshore(corpse: Corpse, entryShore?: RoomId): void {
+  const sank = sim.room(corpse.roomId);
+  if (!sank || SECTOR_REQUIRES_MOVEMENT[sank.sector] !== 'swim') return;
+
+  const shore = shoreFor(
+    corpse.roomId,
+    (id) => {
+      const room = sim.room(id);
+      if (!room) return undefined;
+      // Same Place only — a drift that changed grids would leave x/y meaning another map's tiles.
+      return room.zone === sank.zone && room.pos.z === sank.pos.z ? room : undefined;
+    },
+    entryShore,
+  );
+  if (shore === undefined || shore === corpse.roomId) return;
+
+  const origin = world.grid(corpse.place)?.roomOrigins.get(shore);
+  if (!origin) return;
+  const rest = arrivalTile(origin, undefined);
+  const sankIn = corpse.roomId;
+  corpse.roomId = shore;
+  corpse.x = tileCentre(rest.tx);
+  corpse.y = tileCentre(rest.ty);
+
+  syncEntitiesIn(sankIn);
+  syncEntitiesIn(shore);
+  for (const observer of sim.playersIn(shore)) {
+    send(observer.id, {
+      t: 'log',
+      channel: 'room',
+      text: `&+bThe waters give up ${corpseName(corpse)}&N&+b, washed ashore.&N`,
+    });
+  }
+}
+
 function reapPlayer(player: Player): void {
   const diedIn = player.roomId;
 
@@ -1911,6 +2031,9 @@ function reapPlayer(player: Player): void {
   const carried = loose(player.inventory);
   const corpse = makeCorpse(graveyard, player, true, carried);
   sim.setInventory(player, emptyInventory(player.inventory.capacity));
+  // A death in deep water surrenders the body to it — to the shore its owner swam in from, which is
+  // what keeps the bag from crossing an ocean for the price of dying (the owner's ferry rule).
+  comeAshore(corpse, player.lastShore);
 
   const cost = applyDeathCost({ level: player.level, experience: player.experience, maxHp: player.maxHp });
   player.level = cost.level;
@@ -1950,15 +2073,23 @@ function reapPlayer(player: Player): void {
   send(player.id, { t: 'log', channel: 'combat', text: '&+RYou have died.&N' });
   // **The cost, named.** Phase 14b's completion test is "dying costs something you can point at in
   // the log", so it is spelled out rather than left to be inferred from a number that moved.
+  //
+  // The corpse line reads `corpse.roomId`, not `diedIn`, and the drive is why: a drowned body has
+  // already washed ashore by here, and "your corpse lies where you fell" naming open water was the
+  // one lie in an otherwise honest death. Where the two differ, the water is given its sentence.
+  const washed = corpse.roomId !== diedIn;
+  const resting = washed
+    ? `The waters have carried ${corpse.of}'s remains ashore, to ${describeRoomName(corpse.roomId)}.`
+    : `Your corpse lies where you fell — ${corpse.of}'s remains, in ${describeRoomName(diedIn)}.`;
   send(player.id, {
     t: 'log',
     channel: 'system',
     text:
       cost.experienceLost === 0
-        ? 'You were too green to lose anything by it. Your corpse lies where you fell.'
+        ? `You were too green to lose anything by it. ${washed ? resting : 'Your corpse lies where you fell.'}`
         : `It cost you ${cost.experienceLost} experience` +
           (cost.levelsLost > 0 ? ` and ${cost.levelsLost} level${cost.levelsLost === 1 ? '' : 's'}` : '') +
-          `. Your corpse lies where you fell — ${corpse.of}'s remains, in ${describeRoomName(diedIn)}.`,
+          `. ${resting}`,
   });
   // **Said only when there was something to lose**, and said plainly, because it is the half of the
   // cost a player can still do something about. The clock is named for the same reason: thirty minutes
@@ -2135,6 +2266,9 @@ function resolveDeath(death: Death): void {
   // oldest reward loop there is, and a guard that kept its sword would make the fight pointless.
   const spoils = isMob(actor) ? [...actor.carrying, ...Object.values(actor.equipped).filter((i) => i !== undefined)] : [];
   const corpse = makeCorpse(graveyard, actor, isPlayer(actor), spoils);
+  // A mob killed over deep water gives its loot to the nearest shore — it has no entry shore to owe
+  // anybody, and a reward nobody can reach is the failure the wash exists to prevent.
+  comeAshore(corpse);
   const room = actor.roomId;
   sim.remove(actor.id);
   // Every mob forgets it, and nothing keeps chasing it.
@@ -3217,23 +3351,26 @@ function stepRoom(player: Player, dir: Direction): void {
 
   const destination = sim.room(exit.to);
 
-  // **Phase 16: terrain you cannot cross on foot.** `SECTOR_REQUIRES_MOVEMENT` has been written and
-  // tested with zero callers since the beginning — one of the four mechanisms `ROADMAP.md` rule 1
-  // names as the failure it exists to prevent. This is the caller.
-  //
-  // Refused *before* stamina is charged, because being unable to enter deep water is not the same
-  // kind of no as being too tired: paying for a step you were never going to take would drain the
-  // pool of somebody standing on a riverbank pressing east. Nothing grants `swim` or `fly` yet —
-  // both are Phase 19/20 — so today this is a wall, and the message says which wall it is rather
-  // than pretending the exit does not exist.
+  // **Phase 16's wall, with slice 5's door in it.** Deep water is now priced rather than gated — the
+  // owner's ruling (2026-08-07): anyone may swim, the surcharge in `spendMove` is what the skill
+  // buys down, and a boat means you are not swimming at all. Two walls remain, each named: `fly`
+  // waits for Phase 20, and **`underwater` keeps refusing** because diving is the source's *breath*
+  // mechanism, not its swim skill — a rule worth building the day one of the harvest's 192
+  // underwater rooms is actually loaded, and not before.
   const needs = destination ? SECTOR_REQUIRES_MOVEMENT[destination.sector] : undefined;
-  if (needs) {
+  if (needs === 'fly') {
     send(player.id, {
       t: 'log',
       channel: 'error',
-      text: needs === 'swim'
-        ? 'The water is far too deep to wade. You would have to swim.'
-        : 'There is nothing to stand on. You would have to fly.',
+      text: 'There is nothing to stand on. You would have to fly.',
+    });
+    return;
+  }
+  if (needs === 'swim' && destination!.sector === 'underwater') {
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text: 'The water closes overhead there. Diving is more than swimming, and nothing teaches it yet.',
     });
     return;
   }
@@ -3278,6 +3415,9 @@ function stepRoom(player: Player, dir: Direction): void {
   if (hadPath && samePlace(fromPlace, player.place)) send(player.id, { t: 'path', points: [] });
 
   announceArrival(player, from, fromPlace, dir);
+  // Slice 5's bookkeeping — the entry shore and the stroke's notch — on the typed path exactly as on
+  // the continuous one, so which key you walked with cannot change what the water knows about you.
+  noteWaterCrossing(player, from);
 
   // **Phase 18: the train.** After the leader has actually arrived, so a follower who steps into the
   // room behind them finds them already there — and after `announceArrival`, so the order in
@@ -6990,12 +7130,13 @@ wss.on('connection', (socket) => {
 });
 
 setInterval(() => {
-  const { moved, transitions, pathsEnded, relit, affectEvents, vitalsChanged } = sim.tick();
+  const { moved, transitions, pathsEnded, winded, relit, affectEvents, vitalsChanged } = sim.tick();
 
   // Walking never crosses a Place today, but `fromPlace` means anything that moves a player mid-tick
   // (a trap, a portal tile, a summon) is announced correctly without a second code path.
   for (const { player, from, fromPlace } of transitions) {
     announceArrival(player, from, fromPlace);
+    noteWaterCrossing(player, from);
     // §5: **leaving the room ends engagement.** Reachable only via flee or by being moved — §4 refuses the
     // exits outright while fighting — so this is not a free disengage; it is the bookkeeping for one that
     // was already paid for. Both directions, because the pointer breaking is not symmetric: whoever was
@@ -7018,6 +7159,15 @@ setInterval(() => {
       );
     }
   }
+
+  // A continuous step refused for lack of movement — once per shoreline, the sim's edge-trigger, so
+  // holding W against water you cannot afford says this once rather than ten times a second.
+  for (const player of winded) {
+    send(player.id, { t: 'log', channel: 'system', text: 'You are too exhausted to go on. (Try "rest".)' });
+  }
+
+  // Deep water collecting its due from anyone treading it on an empty pool — see the function.
+  advanceDrowning();
 
   // Said before the state that follows it lands, so the player reads "your torch gutters and dies"
   // and *then* sees the dark close in, rather than watching the radius drop and being told why
