@@ -152,6 +152,9 @@ export const COMMANDS = [
   // close. A caster's fingers will grumble; moving `close` would rebind a door key mid-game, which
   // is the worse trade. Revisit if Phase 21 makes casters the common case.
   'cast',
+  // Phase 20 slice 4. `r`/`re` are rest, `rem` is remove and `resc` is rescue, all above, so `rec`
+  // is the shortest thing that reaches this — Duris' own shortest form, for the same reason.
+  'recite',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -381,6 +384,12 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // standing up front is the same outcome said politely, and the skill arrives as its own row later.
   // Allowed in combat, which is most of the point.
   cast: { status: 'normal', posture: 'standing' },
+  // Phase 20 slice 4, and both halves are the source's own registration
+  // (`CMD_N(CMD_RECITE, STAT_RESTING + POS_PRONE, ...)`): recitable flat on your back — a scroll
+  // asks nothing of the body, which is the whole classless point — and **refused mid-fight**, the
+  // `CMD_N` half. A scroll is an opener and a utility, not combat spam; reciting an attack scroll
+  // *starts* the fight (`IS_AGG_CMD` lists recite), and then you are in one and cannot recite again.
+  recite: { status: 'resting', posture: 'prone', inCombat: false },
 };
 
 /* -------------------------------------------------------------------------- */

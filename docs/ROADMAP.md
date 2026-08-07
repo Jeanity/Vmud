@@ -1254,9 +1254,14 @@ whole interruption system, swing held and returned. Free interruption, costs at 
 transcribed dice, the ×5 save-mod trap, save-then-shrug in the damage order, per-bolt shrug) and
 mob casters (`MobCastSpell`'s 50% + level-rolled quick chant, `tryCast` injected into
 `advanceCombat`, `MobTemplate.spells` live-authorable; the kobold shaman ships casting). The drive
-found and fixed `mundane_autostand` — see the handoff. **Left: slice 4 scrolls/`recite` (players
-cast), slice 5 heals/buffs (`joinBySupporting`, `THREAT_PER_HEAL`, the group exact-pools protocol
-change), slice 6 areas (`cast_as_damage_area`, players-only thinning).**
+found and fixed `mundane_autostand` — see the handoff.
+**Slice 4 ✅ (2026-08-07)** — scrolls: `ItemTemplate.scroll` harvested on all 135 (`value[0]` level,
+`value[1..3]` raw Duris spell numbers — 37 is shocking grasp, not 48), `recite` with the source's
+own no-gate rule (`CMD_N` mid-fight refusal kept), cast at the scroll's level, per-slot targets and
+saves, duplicates cast twice, burnt on recital even at nothing. Players cast for the first time.
+**Left: slice 5 heals/buffs (`joinBySupporting`, `THREAT_PER_HEAL`, the group exact-pools protocol
+change, `ac`/`hit`/`saves` affect locations), slice 6 areas (`cast_as_damage_area`, players-only
+thinning).**
 
 **[DESIGN-spells.md](DESIGN-spells.md) is the thing to read first** — six readers over the magic
 source, and the findings bend the phase: memorization beat mana in the shipped fork and both wait

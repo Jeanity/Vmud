@@ -53,6 +53,27 @@ export function isSpellId(value: string): value is SpellId {
   return Object.hasOwn(SPELLS, value);
 }
 
+/**
+ * Duris' own spell numbers for the registry — `spells.h`, read rather than remembered, because folk
+ * memory is wrong about at least one of them (shocking grasp is **37**, not the 48 other Dikus use).
+ * This is the join key a scroll's `value[1..3]` speaks (`do_recite`, `actoth.c:4234`), kept raw in
+ * the catalogue exactly as `ItemTemplate.type` is, and translated here at the edge — a scroll whose
+ * number names a spell we do not model yet stays recorded, and starts working the day its spell
+ * joins {@link SPELLS}.
+ */
+export const DURIS_SPELL_NUMBERS: Readonly<Record<number, SpellId>> = {
+  5: 'burning_hands',
+  8: 'chill_touch',
+  32: 'magic_missile',
+  37: 'shocking_grasp',
+};
+
+/** The spell a Duris number means, or nothing — this world does not model all 700 of them yet. */
+export function spellFromDurisNumber(n: number): Spell | undefined {
+  const id = DURIS_SPELL_NUMBERS[n];
+  return id === undefined ? undefined : SPELLS[id];
+}
+
 /** The spell a typed or authored name means, matched whole — `magic missile`, not `magic`. */
 export function spellByName(name: string): Spell | undefined {
   const wanted = name.trim().toLowerCase();

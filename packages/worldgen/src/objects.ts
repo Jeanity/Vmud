@@ -332,6 +332,18 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
     // platinum, in that order per `utils.h`. Zeroes are dropped so a purse of pure gold does not
     // record three empty currencies.
     ...(raw.type === DURIS_ITEM.money ? { coins: coinsFrom(raw.values) } : {}),
+    // Phase 20 slice 4. A scroll's stored level and up to three spell numbers, exactly the fields
+    // `do_recite` reads (`actoth.c:4234`: `value[0]` as the cast level, `value[1..3]` as spells,
+    // a slot `< 1` skipped). Numbers kept raw — the source's vocabulary, `spells.ts` translates.
+    ...(raw.type === DURIS_ITEM.scroll ? { scroll: scrollFrom(raw.values) } : {}),
+  };
+}
+
+/** A scroll's recitation, off its values. Duplicates kept — a slot is a casting, not a set. */
+function scrollFrom(values: readonly number[]): { level: number; spells: number[] } {
+  return {
+    level: Math.max(1, Math.floor(values[0] ?? 1)),
+    spells: [values[1], values[2], values[3]].filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1),
   };
 }
 

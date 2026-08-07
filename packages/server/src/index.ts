@@ -53,6 +53,7 @@ import {
   rollShrug,
   rollSpellBlows,
   shrugChance,
+  spellFromDurisNumber,
   type Spell,
   OFFENSIVE_NOTCH_CHANCE,
   RESCUE_NOTCH_CHANCE,
@@ -3433,6 +3434,91 @@ function doCast(player: Player, rest: string): void {
 }
 
 /**
+ * `recite <scroll> [target]` — **Phase 20 slice 4**, and the first way a *player* casts a registry
+ * spell. `do_recite` (`actoth.c:4166-4278`), transcribed: found in your carried things, **no class,
+ * mana or memorization check of any kind** — the classless path is the whole reason scrolls carry
+ * this phase (`DESIGN-spells.md` §2.1) — up to three stored spells cast **at the scroll's level**,
+ * one round of lag, and the scroll burns the moment the recital starts, spells or no spells: the
+ * source says the dust line first and extracts unconditionally, so a scroll aimed at nobody is a
+ * scroll wasted, exactly as a cast into an empty room is paid for (§0.4's quirk, third appearance).
+ *
+ * No wind-up, deliberately: the source's recite is instant — the wind-up belongs to `do_cast`, and
+ * a scroll trades the interruption window for the consumed item. Combat refusal is the command
+ * table's (`CMD_N`, the source's own registration), so this is an opener, not combat spam.
+ *
+ * Per-slot skips are the source's `continue`: a slot naming a spell this world does not model yet
+ * is skipped (said once, not per slot — the honest analogue of dropped-and-named), a target that
+ * cannot be resolved skips that slot, and the PvP gate refuses per-slot with the scroll already
+ * dust — `should_not_kill`'s own shape.
+ */
+function doRecite(player: Player, rest: string): void {
+  const { word: scrollWord, rest: targetWord } = splitCommand(rest);
+  if (!scrollWord) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Recite what?' });
+    return;
+  }
+  const index = matchInventory(player.inventory, scrollWord, wordsFor);
+  if (index === -1) {
+    // The source's own line, and it is deliberately not "you are not carrying" — recite also reads
+    // the held slot there; ours searches the bag alone until a held-item slot exists to search.
+    send(player.id, { t: 'log', channel: 'error', text: 'You do not have that item.' });
+    return;
+  }
+  const stack = player.inventory.stacks[index]!;
+  const template = templateOf(stack.item);
+  if (template?.type !== DURIS_ITEM.scroll || !template.scroll) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Recite is normally used for scrolls.' });
+    return;
+  }
+
+  // The scroll burns first — dust line, room line, one round of lag, all before any spell fires.
+  const removed = removeAt(player.inventory, index);
+  if (!removed) return;
+  sim.setInventory(player, removed.inventory);
+  send(player.id, { t: 'log', channel: 'combat', text: `You recite ${stack.item.name}&N which turns to dust in your hands.` });
+  actToRoom(player, 'combat', (who) => `${who} recites ${stack.item.name}&N.`);
+  sim.addAffect(player, newAffect({ type: 'off_balance', durationMs: Math.round(ROUND_MS), flags: AffectFlag.NoSave }));
+
+  let unknown = false;
+  for (const number of template.scroll.spells) {
+    const spell = spellFromDurisNumber(number);
+    if (!spell) {
+      unknown = true;
+      continue;
+    }
+    // Per-slot targeting, the source's parse-per-slot: the explicit word wins, and without one the
+    // slot falls to whoever you are fighting — which slot 1 may just have arranged, so a bare
+    // `recite scroll` mid-volley keeps hitting what the first spell engaged.
+    let target: Actor | undefined;
+    if (targetWord) {
+      const view = resolveTarget(player, targetWord);
+      if (!view) continue;
+      target = sim.get(view.id);
+    } else {
+      target = player.fighting === undefined ? undefined : sim.get(player.fighting);
+    }
+    if (!target || target.roomId !== player.roomId || !canBeAttacked(target)) continue;
+    if (target.id === player.id) {
+      // The source lets you nuke yourself; ours refuses until there is a spell worth aiming inward —
+      // every registry spell today is a nuke, and self-engagement is a pointer the fight loop must
+      // never see. Named divergence, revisited when heals land (slice 5).
+      send(player.id, { t: 'log', channel: 'error', text: 'You cannot bring yourself to.' });
+      continue;
+    }
+    if (!settings.pvp && isPlayer(target)) {
+      send(player.id, { t: 'log', channel: 'error', text: `You cannot attack ${target.name}. Player killing is switched off.` });
+      continue;
+    }
+    completeSpellStrike(player, spell, target, template.scroll.level);
+  }
+  if (unknown) {
+    send(player.id, { t: 'log', channel: 'combat', text: '&+LPart of the writing speaks of magic this world does not know yet.&N' });
+  }
+  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+  rememberProgress(player);
+}
+
+/**
  * One second of wind-up — the source's own `event_spellcast`, whose comment owns its shape: *"this is
  * simplistic part, which just checks for _most_ obvious stuff like char moving around etc. this is
  * called once / second."* The simplicity is the design: no hook in `relocate`, no hook in `bash` —
@@ -3547,11 +3633,14 @@ function completeCast(caster: Actor): void {
  * victim — every player until Phase 21 — never shrugs; that is the source's own shape, MR being an
  * innate and innates riding races.
  */
-function completeSpellStrike(caster: Actor, spell: Spell, target: Actor): void {
+function completeSpellStrike(caster: Actor, spell: Spell, target: Actor, atLevel = caster.level): void {
   // Gate 1, once per cast: the save. Only conventions the shipped spells use are modelled.
+  // `atLevel` diverges from the body's own for exactly one caller: a recited scroll casts at the
+  // *scroll's* stored level (`do_recite` passes `value[0]` where `do_cast` passes `GET_LEVEL`), and
+  // it feeds the save mod and the dice together because the source's `level` parameter is one value.
   let doubled = false;
   if (spell.save === 'double-on-fail') {
-    const mod = defaultSaveMod(caster.level, target.level, spell.circle);
+    const mod = defaultSaveMod(atLevel, target.level, spell.circle);
     doubled = !rollSave(combatRng, target.level, mod, isMob(target));
   }
   // Gate 2's chance, computed once; rolled per blow.
@@ -3562,7 +3651,7 @@ function completeSpellStrike(caster: Actor, spell: Spell, target: Actor): void {
   let death: Death | undefined;
   let struck = 0;
   let shrugged = 0;
-  for (const blow of rollSpellBlows(combatRng, spell.id, caster.level)) {
+  for (const blow of rollSpellBlows(combatRng, spell.id, atLevel)) {
     if (rollShrug(combatRng, shrug)) {
       shrugged++;
       continue;
@@ -4745,6 +4834,8 @@ function runCommand(player: Player, line: string): void {
     case 'rescue': return doRescue(player, rest);
     // Phase 20 slice 2. The wind-up — see `doCast` for what is machinery and what still waits.
     case 'cast': return doCast(player, rest);
+    // Phase 20 slice 4. The classless casting path — a scroll asks nothing of who you are.
+    case 'recite': return doRecite(player, rest);
     // Never destroys on this pass: an unconfirmed junk arms the question and returns.
     case 'junk': return junkFromBag(player, rest, false);
     case 'wear': return wearFromBag(player, rest);

@@ -513,6 +513,17 @@ export interface ItemTemplate {
    * would report fifteen thousand coppers and lose the platinum entirely.
    */
   readonly coins?: Readonly<Partial<Record<"copper" | "silver" | "gold" | "platinum", number>>>;
+  /**
+   * What a scroll recites — Phase 20 slice 4, on all 135 scrolls the catalogue holds.
+   *
+   * `value[0]` is the level every stored spell casts at and `value[1..3]` are **Duris' own spell
+   * numbers** (`do_recite` reads exactly these, `actoth.c:4234`), kept raw for the same reason
+   * {@link ItemTemplate.type} is: they are the file's own vocabulary, and the translation lives in
+   * one place (`spells.ts`'s `spellFromDurisNumber`). Duplicates are legal and meaningful — the
+   * shipped *scroll of ice* stores chill touch twice and casts it twice. Spells we do not model yet
+   * stay recorded here and begin working the day the registry grows them.
+   */
+  readonly scroll?: { readonly level: number; readonly spells: readonly number[] };
 }
 
 /**

@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
-import { loadObjects, parseObjectFile, parseObjectRecord } from './objects.ts';
+import { loadObjects, parseObjectFile, parseObjectRecord, toTemplate } from './objects.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'mygame-obj-'));
 function write(name: string, text: string): string {
@@ -109,6 +109,28 @@ describe('one object record', () => {
   it('refuses a truncated record rather than inventing fields', () => {
     assert.equal(parseObjectRecord(1, 'only~ two~ strings~\n'), undefined);
     assert.equal(parseObjectRecord(1, 'a~\nb~\nc~\nd~\n5 18 3\n'), undefined, 'too few numbers');
+  });
+
+  it('harvests what a scroll recites — level, spells, duplicates kept, empty slots dropped', () => {
+    // `#97558` from `shady.obj`, unedited: **a scroll of ice**. Its values are `25 8 8 -1 …` —
+    // level 25, chill touch (Duris spell 8) stored TWICE, then the `-1` empty-slot marker
+    // `do_recite` skips with its `value[i] >= 1` gate. The duplicate is the interesting half:
+    // a slot is a casting, not a set, and this scroll legitimately casts chill touch twice.
+    const parsed = parseObjectRecord(
+      97_558,
+      'scroll ice~\n&+Wa scroll of ice&N~\nAn unwanted scroll collects among the rubble here.~\n~\n2 29 1 2 7 0 0 16385 0 0 0\n25 8 8 -1 0 0 0 0\n1 30999 100\n',
+    );
+    assert.ok(parsed);
+    const template = toTemplate(parsed);
+    assert.ok(template);
+    assert.deepEqual(template.scroll, { level: 25, spells: [8, 8] });
+  });
+
+  it('puts no recitation on anything that is not a scroll', () => {
+    const parsed = parseObjectRecord(420_000, KHOPIS.slice(KHOPIS.indexOf('\n') + 1));
+    const template = toTemplate(parsed!);
+    assert.ok(template);
+    assert.equal(template.scroll, undefined);
   });
 });
 

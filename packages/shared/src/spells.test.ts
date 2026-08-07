@@ -19,6 +19,7 @@ import {
   saveFailurePercent,
   shrugChance,
   spellByName,
+  spellFromDurisNumber,
 } from './spells.ts';
 
 describe('the registry', () => {
@@ -26,6 +27,16 @@ describe('the registry', () => {
     assert.equal(spellByName('magic missile')?.id, 'magic_missile');
     assert.equal(spellByName('MAGIC MISSILE')?.id, 'magic_missile');
     assert.equal(spellByName('magic'), undefined);
+  });
+
+  it("translates Duris' own spell numbers — including the one folk memory gets wrong", () => {
+    // `spells.h`, read not remembered: shocking grasp is 37 here, where most Dikus put it at 48.
+    assert.equal(spellFromDurisNumber(5)?.id, 'burning_hands');
+    assert.equal(spellFromDurisNumber(8)?.id, 'chill_touch');
+    assert.equal(spellFromDurisNumber(32)?.id, 'magic_missile');
+    assert.equal(spellFromDurisNumber(37)?.id, 'shocking_grasp');
+    assert.equal(spellFromDurisNumber(48), undefined, 'the other tradition\'s shocking grasp is nothing here');
+    assert.equal(spellFromDurisNumber(-1), undefined, 'the empty-slot marker a scroll carries');
   });
 });
 
