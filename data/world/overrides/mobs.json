@@ -1,9 +1,11 @@
 {
   "1400": {
     "spells": [
+      "magic_missile",
+      "burning_hands",
       "cure_light"
     ],
-    "at": "2026-08-07T04:35:32.868Z",
+    "at": "2026-08-07T04:45:00.000Z",
     "by": "slice3-drive"
   }
 }
