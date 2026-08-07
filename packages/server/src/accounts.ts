@@ -167,8 +167,9 @@ export class AccountStore {
   private readonly resumes = new Map<string, { slug: string; expires: number }>();
   private readonly dir: string;
   private readonly now: () => number;
-  /** Burned for unknown accounts so their failures cost the same as a wrong password. */
-  private readonly dummyHash = hashPassword(randomBytes(16).toString('base64'));
+  /** Burned for unknown accounts so their failures cost the same as a wrong password. Lazy: a
+   * store that never sees a bad name never pays for one, and tests build many stores. */
+  private dummyHash: string | undefined;
 
   constructor(options: AccountStoreOptions = {}) {
     this.dir = options.dir ?? DEFAULT_ACCOUNT_DIR;
@@ -255,6 +256,7 @@ export class AccountStore {
   verify(name: string, password: string): AuthResult {
     const record = this.accounts.get(slugify(name.trim()));
     if (!record) {
+      this.dummyHash ??= hashPassword(randomBytes(16).toString('base64'));
       verifyPassword(password, this.dummyHash);
       return { ok: false, reason: 'wrong account or password' };
     }

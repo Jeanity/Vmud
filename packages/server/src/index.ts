@@ -8253,6 +8253,7 @@ sim.lightOf = (id) => {
 const admin = new AdminApi({
   world,
   store,
+  accounts,
   live: adminLive,
   // The same catalogue the simulation instantiates from, not a second copy read off disk — an Items
   // section showing something the running world does not have would be worse than no section.

@@ -42,6 +42,7 @@ import {
   type AuthoredStore,
   type ItemDraft,
 } from './item-authoring.ts';
+import { AccountStore } from './accounts.ts';
 import { PlayerStore, slugify } from './players.ts';
 import type { MobOverrides } from './mob-overrides.ts';
 import { loadAuthoredRooms } from './room-authoring.ts';
@@ -99,6 +100,7 @@ function fakePlayer(name: string): Player {
 interface Rig {
   api: AdminApi;
   store: PlayerStore;
+  accounts: AccountStore;
   dir: string;
   players: Player[];
   calls: string[];
@@ -109,6 +111,9 @@ interface Rig {
 function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string; itemOverridesFile?: string; authoredRoomsFile?: string; mobOverridesFile?: string; authoredMobsFile?: string; placementsFile?: string; noPopulation?: boolean; zone?: Zone; occupants?: { players: string[]; mobs: string[]; corpses: string[] }; resets?: Record<string, number> } = {}): Rig {
   const dir = mkdtempSync(join(tmpdir(), 'mygame-admin-'));
   const store = new PlayerStore({ dir });
+  // A real store in its own corner of the temp dir: the account routes are thin enough that mocking
+  // the store would test the mock.
+  const accounts = new AccountStore({ dir: join(dir, 'accounts') });
   const world = new GameWorld([options.zone ?? testZone()], { zone: 600, room: null });
   const players: Player[] = [];
   const calls: string[] = [];
@@ -365,6 +370,7 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
   const deps: AdminDeps = {
     world,
     store,
+    accounts,
     live,
     items,
     // Records the scope as well as the line: what these tests are checking is that the router
@@ -385,7 +391,7 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     itemOverridesFile: options.itemOverridesFile,
     facts: { protocol: 9, tickMs: 100, roundMs: 3000, startedAt: Date.now() },
   };
-  return { api: new AdminApi(deps), store, dir, players, calls, heard, scopes };
+  return { api: new AdminApi(deps), store, accounts, dir, players, calls, heard, scopes };
 }
 
 function req(method: string, path: string, body?: unknown): AdminRequest {
@@ -2160,5 +2166,50 @@ describe('creating a zone', () => {
     assert.equal(api.route(req('POST', '/zones', { name: '   ' })).status, 400);
     assert.equal(api.route(req('POST', '/zones', { name: 'x'.repeat(61) })).status, 400);
     assert.equal(api.route(req('POST', '/zones', 'nonsense')).status, 400);
+  });
+});
+
+describe('accounts — the reset path', () => {
+  it('lists accounts without ever shipping a hash', () => {
+    const { api, accounts } = makeRig();
+    accounts.create('Danny', 'first-password');
+    accounts.claim('danny', 'aldric');
+    const response = api.route(req('GET', '/accounts'));
+    assert.equal(response.status, 200);
+    const body = response.body as { accounts: Array<Record<string, unknown>> };
+    assert.equal(body.accounts.length, 1);
+    assert.equal(body.accounts[0]?.['slug'], 'danny');
+    assert.deepEqual(body.accounts[0]?.['characters'], ['aldric']);
+    assert.equal(JSON.stringify(body).includes('scrypt'), false);
+  });
+
+  it('resets a password, and the old one stops working', () => {
+    const { api, accounts } = makeRig();
+    accounts.create('Danny', 'old-password');
+    const response = quietly(() => api.route(req('POST', '/accounts/danny/password', { password: 'new-password' })));
+    assert.equal(response.status, 200);
+    assert.equal(accounts.verify('Danny', 'old-password').ok, false);
+    assert.equal(accounts.verify('Danny', 'new-password').ok, true);
+  });
+
+  it('refuses a reset for nobody, a bad body, and a bad password', () => {
+    const { api, accounts } = makeRig();
+    accounts.create('Danny', 'fine-password');
+    assert.equal(api.route(req('POST', '/accounts/nobody/password', { password: 'x-password' })).status, 404);
+    assert.equal(api.route(req('POST', '/accounts/danny/password', { nope: true })).status, 400);
+    assert.equal(api.route(req('POST', '/accounts/danny/password', { password: '   ' })).status, 400);
+  });
+
+  it('assigns an unowned character and refuses a held one', () => {
+    const { api, accounts } = makeRig();
+    accounts.create('First', 'pw-first');
+    accounts.create('Second', 'pw-second');
+    const assigned = quietly(() => api.route(req('POST', '/accounts/first/claim', { character: 'Aldric' })));
+    assert.equal(assigned.status, 200);
+    assert.equal(accounts.ownerOf('aldric'), 'first');
+    const stolen = api.route(req('POST', '/accounts/second/claim', { character: 'aldric' }));
+    assert.equal(stolen.status, 409);
+    assert.equal(api.route(req('POST', '/accounts/nobody/claim', { character: 'aldric' })).status, 404);
+    assert.equal(api.route(req('POST', '/accounts/first/claim', { character: '!!!' })).status, 400);
   });
 });

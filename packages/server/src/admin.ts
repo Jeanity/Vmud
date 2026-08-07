@@ -94,6 +94,7 @@ import {
   MAX_AUTHORED_LIGHT_RADIUS,
   readAuthoredLight, readDice, saveItemOverrides, type ItemOverride, type ItemOverrides } from './item-overrides.ts';
 import type { AuthoredItems, ItemDraft } from './item-authoring.ts';
+import type { AccountStore } from './accounts.ts';
 import { seenTileCount, slugify, type PlayerStore, type StoredSummary } from './players.ts';
 import type { WorldSettings } from './settings.ts';
 import type { Player } from './sim.ts';
@@ -420,6 +421,12 @@ export type AnnounceScope =
 export interface AdminDeps {
   readonly world: GameWorld;
   readonly store: PlayerStore;
+  /**
+   * Who may connect, and which characters are theirs — DESIGN-accounts.md §7. The admin surface
+   * *is* the password-reset path (there is no email on purpose), so this dep is required: an admin
+   * panel that cannot reset a password makes the no-email decision a lie.
+   */
+  readonly accounts: AccountStore;
   readonly live: LiveOps;
   /**
    * The harvested item catalogue, by vnum — what the Items section reads.
@@ -762,6 +769,15 @@ export class AdminApi {
       if (request.method === 'GET') return this.item(slug);
       if (request.method === 'PATCH') return this.authorItem(slug, request.body);
       if (request.method === 'DELETE') return this.destroyItem(slug);
+    }
+    // DESIGN-accounts.md §7. Three routes, and they are the whole reset story: with no email on an
+    // account, the operator over loopback is what "forgot my password" resolves to.
+    if (head === 'accounts' && parts.length === 1 && request.method === 'GET') return this.accounts();
+    if (head === 'accounts' && slug !== undefined && action === 'password' && parts.length === 3 && request.method === 'POST') {
+      return this.resetPassword(slug, request.body);
+    }
+    if (head === 'accounts' && slug !== undefined && action === 'claim' && parts.length === 3 && request.method === 'POST') {
+      return this.assignCharacter(slug, request.body);
     }
     if (head === 'players' && parts.length === 1 && request.method === 'GET') return this.roster();
     if (head === 'players' && slug !== undefined && parts.length === 2) {
@@ -1651,6 +1667,59 @@ export class AdminApi {
         }),
       },
     };
+  }
+
+  /**
+   * Every account: who they are, what they hold, when they last came by. Read-only, and it never
+   * ships a hash — the list exists so the operator can find the slug the two writes below want.
+   */
+  private accounts(): AdminResponse {
+    const accounts = this.deps.accounts.all().map((account) => ({
+      slug: account.slug,
+      name: account.name,
+      characters: account.characters,
+      createdAt: account.createdAt,
+      lastSeen: account.lastSeen ?? null,
+    }));
+    return { status: 200, body: { accounts } };
+  }
+
+  /** The operator-mediated reset — the whole of the "forgot my password" story, on purpose. */
+  private resetPassword(slug: string, body: unknown): AdminResponse {
+    const raw = asRecord(body);
+    if (!raw || typeof raw['password'] !== 'string') {
+      return { status: 400, body: { error: 'body must be { password }' } };
+    }
+    const outcome = this.deps.accounts.setPassword(slug, raw['password']);
+    if (!outcome.ok) {
+      const missing = outcome.reason === 'no such account';
+      return { status: missing ? 404 : 400, body: { error: outcome.reason } };
+    }
+    // The slug and nothing else: an audit line that recorded the password would *be* the breach.
+    this.audit('account.password', { slug });
+    return { status: 200, body: { ok: true } };
+  }
+
+  /**
+   * Assign an unowned character to an account — the post-bind claim path (DESIGN-accounts.md §6:
+   * once the bind opens, flotsam is not enterable remotely, and this is how it finds an owner).
+   * Someone else's character is refused here exactly as at `enter`; moving a character *between*
+   * accounts is a release mechanism nobody has needed yet.
+   */
+  private assignCharacter(slug: string, body: unknown): AdminResponse {
+    const raw = asRecord(body);
+    if (!raw || typeof raw['character'] !== 'string') {
+      return { status: 400, body: { error: 'body must be { character }' } };
+    }
+    const character = slugify(raw['character']);
+    if (!character) return { status: 400, body: { error: 'that name cannot be used' } };
+    const outcome = this.deps.accounts.claim(slug, character);
+    if (!outcome.ok) {
+      const missing = outcome.reason === 'no such account';
+      return { status: missing ? 404 : 409, body: { error: outcome.reason } };
+    }
+    this.audit('account.claim', { slug, character });
+    return { status: 200, body: { ok: true } };
   }
 
   private roster(): AdminResponse {
@@ -3391,6 +3460,13 @@ export function serveAdmin(api: AdminApi, req: IncomingMessage, res: ServerRespo
         respond({ status: 500, body: { error: (err as Error).message ?? 'admin route failed' } });
       });
   });
+}
+
+/** The body as a plain record, or undefined for anything that is not one. */
+function asRecord(body: unknown): Record<string, unknown> | undefined {
+  return typeof body === 'object' && body !== null && !Array.isArray(body)
+    ? (body as Record<string, unknown>)
+    : undefined;
 }
 
 export type { StoredSummary };
