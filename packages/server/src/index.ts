@@ -63,6 +63,7 @@ import {
   rollSave,
   rollShrug,
   rollSpellBlows,
+  scaleSpellDamage,
   rollSpellBuff,
   rollSpellHeal,
   shrugChance,
@@ -3982,7 +3983,9 @@ function completeSpellStrike(caster: Actor, spell: Spell, target: Actor, atLevel
       shrugged++;
       continue;
     }
-    const damage = doubled ? blow.damage * 2 : blow.damage;
+    // The economy translation, after the save doubling so the two compose the way the pools do:
+    // transcribed dice against a mob's Duris-scale pool, a quarter of them against a player's.
+    const damage = scaleSpellDamage(doubled ? blow.damage * 2 : blow.damage, isPlayer(target));
     struck += damage;
     const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, target, damage);
     changed.push(...result.changed);
@@ -4124,7 +4127,7 @@ function completeSpellArea(caster: Actor, spell: Spell, atLevel: number, named?:
       if (!kept) {
         if (isPlayer(body)) send(body.id, { t: 'log', channel: 'combat', text: '&+WYou fall and injure yourself!&N' });
         actAround(body, 'combat', (who) => `${who} crashes to the ground!`, body.id);
-        const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, body, rolls.felled);
+        const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, body, scaleSpellDamage(rolls.felled, isPlayer(body)));
         changed.push(...result.changed);
         if (result.death) { death = result.death; resolveDeath(result.death); continue; }
         if (!result.incapacitated) {
@@ -4136,7 +4139,7 @@ function completeSpellArea(caster: Actor, spell: Spell, atLevel: number, named?:
       } else {
         if (isPlayer(body)) send(body.id, { t: 'log', channel: 'combat', text: '&+LYou stagger and almost break your leg!&N' });
         actAround(body, 'combat', (who) => `${who} staggers and almost falls!`, body.id);
-        const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, body, rolls.grazed);
+        const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, body, scaleSpellDamage(rolls.grazed, isPlayer(body)));
         changed.push(...result.changed);
         if (result.death) { death = result.death; resolveDeath(result.death); continue; }
         syncEntityState(body);
@@ -4172,9 +4175,10 @@ function completeSpellArea(caster: Actor, spell: Spell, atLevel: number, named?:
     if (skipped.has(body.id)) continue;
     if (!canBeAttacked(body) || body.roomId !== caster.roomId) continue;
     for (const blow of rollSpellBlows(combatRng, spell.id, atLevel)) {
-      const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, body, blow.damage);
-      if (isPlayer(body)) send(body.id, { t: 'log', channel: 'combat', text: `&+R-=[ ${capitalise(caster.name)}&N&+R's storm of ice crushes you for ${blow.damage}! ]=-&N` });
-      if (isPlayer(caster)) send(caster.id, { t: 'log', channel: 'combat', text: `&+C-=[ Your storm of ice crushes ${body.name}&N&+C for ${blow.damage}! ]=-&N` });
+      const dealt = scaleSpellDamage(blow.damage, isPlayer(body));
+      const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, body, dealt);
+      if (isPlayer(body)) send(body.id, { t: 'log', channel: 'combat', text: `&+R-=[ ${capitalise(caster.name)}&N&+R's storm of ice crushes you for ${dealt}! ]=-&N` });
+      if (isPlayer(caster)) send(caster.id, { t: 'log', channel: 'combat', text: `&+C-=[ Your storm of ice crushes ${body.name}&N&+C for ${dealt}! ]=-&N` });
       for (const actor of result.changed) syncEntityState(actor);
       if (result.death) { resolveDeath(result.death); break; }
       syncEntityState(body);

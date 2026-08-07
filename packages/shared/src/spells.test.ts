@@ -14,6 +14,7 @@ import {
   MAGIC_RESISTANT_RACES,
   SPELLS,
   areaHitCount,
+  scaleSpellDamage,
   defaultSaveMod,
   mobCastMs,
   rollEarthquake,
@@ -204,6 +205,28 @@ describe('the nukes', () => {
       // 7d6×4: 28..168.
       assert.ok(blow!.damage >= 28 && blow!.damage <= 168, String(blow!.damage));
     }
+  });
+});
+
+describe('the economy translation', () => {
+  it('leaves a mob’s pool taking the transcribed number as written', () => {
+    assert.equal(scaleSpellDamage(109, false), 109);
+    assert.equal(scaleSpellDamage(1, false), 1);
+  });
+
+  it('quarters what lands on a player, floored, never below one', () => {
+    // The autopsy’s own numbers: the 109 magic missile and the 120 burning hands become bruises
+    // proportionate to an ~87-hp pool instead of erasing it.
+    assert.equal(scaleSpellDamage(109, true), 27);
+    assert.equal(scaleSpellDamage(120, true), 30);
+    assert.equal(scaleSpellDamage(4, true), 1);
+    assert.equal(scaleSpellDamage(3, true), 1, 'floored but never zero');
+    assert.equal(scaleSpellDamage(1, true), 1);
+  });
+
+  it('composes after the save doubling, which is the delivery order', () => {
+    // A doubled 50 against a player is 100 ÷ 4 = 25 — not (50 ÷ 4) × 2 = 24 off a floored half.
+    assert.equal(scaleSpellDamage(50 * 2, true), 25);
   });
 });
 

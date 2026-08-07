@@ -348,6 +348,31 @@ export function rollShrug(rng: Rng, chance: number): boolean {
 export const MOB_CAST_CHANCE = 50;
 
 /**
+ * The economy translation for spell damage landing on a **player** — the fix for the kobold shaman
+ * killing a level-30 rig character twice in one evening (owner's tuning ask, 2026-08-07).
+ *
+ * The nuke formulas above are transcribed verbatim, `× 4`s and all — and the source wrote them
+ * against its own hit-point pools. A Duris fighter in his twenties stands on several hundred hp,
+ * and our **harvested mobs still do** (the kobold shaman's `23d44+207` averages 725) — but our
+ * players walk on SRD-scale pools a quarter that size: ~87 hp at level 30 by real progression.
+ * So a volley the source costed as a third of a pool is **all** of ours: the autopsy drive measured
+ * magic missile for 109 and burning hands for 120, back to back, against a character with 360.
+ *
+ * The formulas stay verbatim — transcription doctrine; re-deriving dice invites drift — and the
+ * translation happens once, at the delivery layer, keyed on **whose pool is being hit**. A mob's
+ * pool is the source's own economy and takes the number as written (player nukes against 725-hp
+ * mobs were tuned on exactly that). A player's pool takes a quarter, floored, never less than 1 a
+ * blow. Melee needs no counterpart: mob swing dice are harvested small (the shaman's 3d5+3) and
+ * were already proportionate. Symmetric for any future player-versus-player spell by construction.
+ */
+export const PLAYER_POOL_DIVISOR = 4;
+
+/** {@link PLAYER_POOL_DIVISOR}, applied. Every spell-damage delivery path routes through this. */
+export function scaleSpellDamage(damage: number, victimIsPlayer: boolean): number {
+  return victimIsPlayer ? Math.max(1, Math.floor(damage / PLAYER_POOL_DIVISOR)) : damage;
+}
+
+/**
  * The source's level-rolled quick chant for mobs (`mobact.c:735-742`): full wind-up when
  * `number(1,101) > 20 + 3·level/2`, half otherwise — and at level 60+ a mob casts instantly, which
  * none of ours reaches. What it buys: a low-level shaman telegraphs, a high-level one is dangerous.
