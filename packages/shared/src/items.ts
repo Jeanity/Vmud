@@ -534,6 +534,14 @@ export interface ItemTemplate {
    */
   readonly potion?: { readonly level: number; readonly spells: readonly number[] };
   /**
+   * What a meal does — the owner's fast-heal memory, and it was in the source all along
+   * (`do_eat`, `actobj.c:3318-3357`): food grants **regeneration** for `1 + value[0]` ticks —
+   * `value[1] × 15` hp a minute (15 flat when unset), `value[2]` movement (defaulting to the hp
+   * figure) — and `value[3] > 0` is a poisoned meal that drains instead. Raw values kept; the
+   * server computes at eating time exactly as the source does. 541 foods carry one; 36 are traps.
+   */
+  readonly food?: { readonly hours: number; readonly hpBoost: number; readonly moveBoost: number; readonly poison: number };
+  /**
    * What a weapon does on its own — the proc. Harvested from `value[5..7]` for the 210 weapons the
    * catalogue ships with the data path (`weapon_proc`, `fight.c:7764` — chance, cast level, packed
    * spell numbers kept raw per the scroll rule), or a `special` reference into `procs.ts`'s

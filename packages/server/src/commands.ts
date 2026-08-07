@@ -163,6 +163,11 @@ export const COMMANDS = [
   // — nothing at all, in fact — so `q` alone is quaff, which is what a Diku player's fingers reach
   // for mid-fight, spill risk and all.
   'quaff',
+  // The meal beside the bottle, same evening. **It takes all three letters**: `e` and `ea` are
+  // east — the prefix scan reaches 'east' first, and the drive that assumed otherwise walked the
+  // taster two rooms up the trail — so only the exact word lands here, which is Diku's own
+  // situation for exactly the same reason.
+  'eat',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -405,6 +410,10 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // where reciting under one is simply refused. The asymmetry is the source's own and it reads
   // right — tipping a vial down your throat is one motion; an incantation is a paragraph.
   quaff: { status: 'resting', posture: 'sitting' },
+  // `CMD_N(CMD_EAT, STAT_RESTING + POS_PRONE, ...)` — a meal can be taken lying down, and there is
+  // no dinner under a sword: where the potion is one motion and worth a spill roll, a meal is a
+  // sitting still, and the source refuses it in combat outright.
+  eat: { status: 'resting', posture: 'prone', inCombat: false },
 };
 
 /* -------------------------------------------------------------------------- */

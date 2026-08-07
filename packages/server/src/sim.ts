@@ -1589,6 +1589,11 @@ export class Simulation {
       // line says so out loud. Sixth payment from the wall of cases.
       case 'potion_sated':
         return [];
+
+      // A meal ending chains to nothing: the regeneration nodes lapse with it, and the vitals fold
+      // simply stops seeing them — second wind's own shape. Seventh payment.
+      case 'eaten':
+        return [];
     }
   }
 

@@ -133,6 +133,20 @@ describe('one object record', () => {
     assert.equal(template.scroll, undefined);
   });
 
+  it("harvests a meal's regeneration and its poison, raw", () => {
+    // The khopis rewritten as food: type 19, 48 hours of fullness, x30 hp boost, 25 move, clean —
+    // the white dragon egg soup's own numbers (`do_eat` reads value[0..3], `actobj.c:3327`).
+    const soup = KHOPIS
+      .replace('5 18 3 0 15 0 101724433 8413185 125 534712316 256', '19 18 3 0 15 0 101724433 8413185 125 534712316 256')
+      .replace('9 5 5 0 0 589 46 45', '48 30 25 0 0 0 0 0');
+    const template = toTemplate(parseObjectRecord(420_000, soup.slice(soup.indexOf('\n') + 1))!);
+    assert.deepEqual(template!.food, { hours: 48, hpBoost: 30, moveBoost: 25, poison: 0 });
+    // And the trap: a poisoned plate keeps its number for the server to drain by.
+    const bad = soup.replace('48 30 25 0 0 0 0 0', '2 0 0 9 0 0 0 0');
+    const trap = toTemplate(parseObjectRecord(420_000, bad.slice(bad.indexOf('\n') + 1))!);
+    assert.deepEqual(trap!.food, { hours: 2, hpBoost: 0, moveBoost: 0, poison: 9 });
+  });
+
   it('harvests a potion exactly as a scroll — the layout is the same, the field is not', () => {
     // The khopis fixture rewritten as a potion: type 10, cure light twice at level 15 in the
     // scroll positions (`do_quaff` reads value[0..3] as `do_recite` does, `actoth.c:4145`).

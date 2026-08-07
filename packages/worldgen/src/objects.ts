@@ -346,6 +346,19 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
     // `value[7]` the 1-in-N odds, `value[6]` the cast level, `value[5]` the packed spell numbers.
     // 210 weapons carry it. `value[4]`'s one-shot poison is dropped and named: no poison yet.
     ...(isWeapon && procFrom(raw.values) ? { proc: procFrom(raw.values)! } : {}),
+    // And a meal: fullness hours, the two regeneration multipliers, and the poison flag — exactly
+    // the four values `do_eat` reads (`actobj.c:3327-3346`), raw as ever.
+    ...(raw.type === DURIS_ITEM.food ? { food: foodFrom(raw.values) } : {}),
+  };
+}
+
+/** A meal's worth, off its values — negative fullness is the stale-food marker, floored to zero. */
+function foodFrom(values: readonly number[]): { hours: number; hpBoost: number; moveBoost: number; poison: number } {
+  return {
+    hours: Math.max(0, Math.floor(values[0] ?? 0)),
+    hpBoost: Math.max(0, Math.floor(values[1] ?? 0)),
+    moveBoost: Math.max(0, Math.floor(values[2] ?? 0)),
+    poison: Math.max(0, Math.floor(values[3] ?? 0)),
   };
 }
 

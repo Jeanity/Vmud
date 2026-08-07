@@ -211,7 +211,7 @@ export interface AffectKind {
  * error rather than a silent gap. It is also the only way to have {@link AffectKind.id} typed as an
  * affect type at all — a table that derived its own key type from itself would reference itself.
  */
-export const AFFECT_TYPE_IDS = ['light', 'settling', 'second_wind', 'notch_physical', 'notch_mental', 'off_balance', 'casting', 'armor', 'bless', 'potion_sated'] as const;
+export const AFFECT_TYPE_IDS = ['light', 'settling', 'second_wind', 'notch_physical', 'notch_mental', 'off_balance', 'casting', 'armor', 'bless', 'potion_sated', 'eaten'] as const;
 
 export type AffectType = (typeof AFFECT_TYPE_IDS)[number];
 
@@ -353,6 +353,18 @@ export const AFFECT_TYPES: Readonly<Record<AffectType, AffectKind>> = {
     id: 'potion_sated',
     name: 'potion-sated',
     wearOff: '&+cYou feel ready to try another potion.&N',
+  },
+  /**
+   * A meal working through you — `TAG_EATEN` (`do_eat`, `actobj.c:3322-3357`), the regeneration
+   * nodes riding `hpRegen`/`moveRegen` exactly as second wind's do, so the vitals fold needs
+   * nothing new. The source hides it (`AFFTYPE_NOSHOW`); ours is **shown**, because the buff is the
+   * whole reason to eat — a fast-heal you cannot see is one nobody shops for — and "You feel sated
+   * already" deserves a countdown beside it. Saved: a good meal survives a reconnect.
+   */
+  eaten: {
+    id: 'eaten',
+    name: 'well fed',
+    wearOff: 'You could eat again.',
   },
 };
 

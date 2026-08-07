@@ -25,6 +25,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 
 import {
   AUTHORED_VNUM_BASE,
+  BASE_REGEN,
   DIRECTIONS,
   PLAYER_RADIUS,
   PROTOCOL_VERSION,
@@ -3679,6 +3680,72 @@ function doQuaff(player: Player, rest: string): void {
 }
 
 /**
+ * `eat <food>` — the owner's fast-heal memory, and it was in the source all along: `do_eat`
+ * (`actobj.c:3208-3357`) grants **regeneration** from a meal. `value[1] × 15` hit points a minute
+ * (15 flat when unset), `value[2]` movement (defaulting to the hp figure), for `1 + value[0]` of
+ * the source's ticks — so a great meal is a standing fast-heal that the regen soft cap
+ * (`regenBonus`, the source's own anti-stacking clause) keeps honest: the white dragon egg soup's
+ * ×30 lands near 85 a minute rather than 450, and fighting still zeroes everything.
+ *
+ * **One meal at a time** ("You feel sated already"), and 36 of the catalogue's 541 foods are
+ * poisoned — `value[3]` drains instead of feeding, which is why "You feel sick" prints before the
+ * numbers move. Dropped and named: the stat-food values (`value[4..6]`, STR through WIS) wait on
+ * Phase 21's ability scores, and staleness timers on nothing we model.
+ */
+function doEat(player: Player, rest: string): void {
+  const wanted = rest.trim();
+  if (!wanted) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Eat what?' });
+    return;
+  }
+  const index = matchInventory(player.inventory, wanted, wordsFor);
+  if (index === -1) {
+    send(player.id, { t: 'log', channel: 'error', text: "You can't find it!" });
+    return;
+  }
+  const stack = player.inventory.stacks[index]!;
+  const template = templateOf(stack.item);
+  if (template?.type !== DURIS_ITEM.food || !template.food) {
+    send(player.id, { t: 'log', channel: 'error', text: "That's not very edible, I'm afraid." });
+    return;
+  }
+  if (sim.affectsOf(player, 'eaten').length > 0) {
+    send(player.id, { t: 'log', channel: 'error', text: 'You feel sated already.' });
+    return;
+  }
+
+  const eaten = removeAt(player.inventory, index);
+  if (!eaten) return;
+  sim.setInventory(player, eaten.inventory);
+  send(player.id, { t: 'log', channel: 'system', text: `You eat ${stack.item.name}&N.` });
+  actToRoom(player, 'room', (who) => `${who} eats ${stack.item.name}&N.`);
+
+  const meal = template.food;
+  const durationMs = (1 + meal.hours) * MS_PER_DURIS_HOUR;
+  let hpRegen: number;
+  let moveRegen: number;
+  if (meal.poison > 0) {
+    // The poisoned plate: the node cancels what you would have regenerated and drains on top —
+    // `-value[3] - hit_regen(ch)`, transcribed against our base rather than a live read.
+    send(player.id, { t: 'log', channel: 'combat', text: 'You feel &+gs&+Gi&+gc&+Gk&N.' });
+    hpRegen = -(meal.poison + BASE_REGEN.hp);
+    moveRegen = 0;
+  } else {
+    hpRegen = meal.hpBoost > 0 ? meal.hpBoost * 15 : 15;
+    moveRegen = meal.moveBoost > 0 ? meal.moveBoost : hpRegen;
+  }
+  // Two nodes of one cause, second wind's own shape — and handed over **in one call**, which the
+  // drive proved is not a style point: `addAffect`'s replace policy treats a type as one cause, so
+  // a second call with the same type quietly evicted the first node, and the taster's hit points
+  // crawled at the base rate while the panel said "well fed".
+  const nodes = [newAffect({ type: 'eaten', durationMs, apply: 'hpRegen', modifier: hpRegen })];
+  if (moveRegen !== 0) nodes.push(newAffect({ type: 'eaten', durationMs, apply: 'moveRegen', modifier: moveRegen }));
+  sim.addAffect(player, nodes);
+  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+  rememberProgress(player);
+}
+
+/**
  * One second of wind-up — the source's own `event_spellcast`, whose comment owns its shape: *"this is
  * simplistic part, which just checks for _most_ obvious stuff like char moving around etc. this is
  * called once / second."* The simplicity is the design: no hook in `relocate`, no hook in `bash` —
@@ -4096,9 +4163,13 @@ function completeSpellBuff(caster: Actor, spell: Spell, target: Actor, atLevel: 
       });
     }
   } else {
-    for (const node of rolled.nodes) {
-      sim.addAffect(target, newAffect({ type: spell.id as AffectType, durationMs: rolled.durationMs, apply: node.apply, modifier: node.modifier }));
-    }
+    // One call for the whole cause — the eaten lesson, found the same night it was written into
+    // `doEat`: per-node calls under the replace policy evict each other, and bless's `saves` node
+    // had been quietly deleting its `hit` node since the slice landed.
+    sim.addAffect(
+      target,
+      rolled.nodes.map((node) => newAffect({ type: spell.id as AffectType, durationMs: rolled.durationMs, apply: node.apply, modifier: node.modifier })),
+    );
     if (isPlayer(target) && spell.felt) send(target.id, { t: 'log', channel: 'combat', text: spell.felt });
     actAround(caster, 'combat', (who) => caster.id === target.id ? `${who} is briefly outlined in soft light.` : `${who} wards ${target.name}&N.`, target.id);
   }
@@ -5391,6 +5462,8 @@ function runCommand(player: Player, line: string): void {
     case 'recite': return doRecite(player, rest);
     // The scroll's sibling, drunk — everything lands on the drinker, and mid-fight the bottle is a bet.
     case 'quaff': return doQuaff(player, rest);
+    // The meal beside the bottle — regeneration for as long as it lasts, one meal at a time.
+    case 'eat': return doEat(player, rest);
     // Never destroys on this pass: an unconfirmed junk arms the question and returns.
     case 'junk': return junkFromBag(player, rest, false);
     case 'wear': return wearFromBag(player, rest);
