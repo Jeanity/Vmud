@@ -19,12 +19,13 @@
  * leaves and the second member is promoted — is the case a keyed diff would get subtly wrong. Thirteen
  * `div`s is nothing; a row that kept a stale leader mark is a lie about who is in charge.
  *
- * ## The three bars, and why health is a fraction
+ * ## The three bars, and the number on the first one
  *
  * Health, movement and mana, in that order, coloured to match the world's own bars so a body on screen
- * and its row in this list cannot disagree at the same fraction. **They are fractions on the wire**, by
- * protocol 19's own note: a bar is what a client draws, and exact hit points are what a *healer* needs,
- * which is Phase 20's problem and Phase 20's protocol change.
+ * and its row in this list cannot disagree at the same fraction. Movement and mana are fractions on the
+ * wire; **health carries the exact pair too since protocol 21** — the aimable-heal change protocol 19's
+ * note promised — and this panel puts it on the hp bar's hover, where a healer deciding who gets the
+ * cure reads it without thirteen rows growing thirteen permanent labels.
  */
 
 /** The world's own ramp — `scene.ts`'s `HEALTH_HURT_BELOW` / `HEALTH_LOW_BELOW`, deliberately copied. */
@@ -38,6 +39,9 @@ export interface RosterMember {
   readonly level: number;
   readonly leader: boolean;
   readonly health: number;
+  /** Exact hit points — protocol 21, the aimable-heal change. Negative in the dying window, shown as such. */
+  readonly hp: number;
+  readonly maxHp: number;
   readonly move: number;
   readonly mana: number;
   readonly here: boolean;
@@ -93,11 +97,12 @@ export class GroupRoster {
 
     const bars = document.createElement('div');
     bars.className = 'bars';
-    bars.append(
-      bar('hp', member.health, healthClass(member.health)),
-      bar('mv', member.move),
-      bar('mn', member.mana),
-    );
+    const hpBar = bar('hp', member.health, healthClass(member.health));
+    // Protocol 21: the number a healer aims by, on the bar it colours. A title rather than a always-on
+    // label because the row is 120 pixels wide — the bar answers "roughly", the hover answers "exactly",
+    // and the dying window's negative number is deliberately shown as the negative it is.
+    hpBar.title = `${member.hp} / ${member.maxHp}`;
+    bars.append(hpBar, bar('mv', member.move), bar('mn', member.mana));
 
     row.append(who, level, bars);
     return row;

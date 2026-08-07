@@ -46,12 +46,15 @@ import {
   ITEM_TYPE_BOAT,
   MOB_CAST_CHANCE,
   SPELLS,
+  THREAT_PER_HEAL,
   defaultSaveMod,
   isSpellId,
   mobCastMs,
   rollSave,
   rollShrug,
   rollSpellBlows,
+  rollSpellBuff,
+  rollSpellHeal,
   shrugChance,
   spellFromDurisNumber,
   type Spell,
@@ -64,6 +67,8 @@ import {
   type AttackType,
   AffectFlag,
   newAffect,
+  sumApply,
+  type AffectType,
   ceilingFor,
   DODGE_NOTCH_CHANCE,
   PARRY_NOTCH_CHANCE,
@@ -233,6 +238,7 @@ import {
   clearEngagements,
   disengage,
   engage,
+  joinBySupporting,
   landBlow,
   forgetThreat,
   openingTarget,
@@ -1639,6 +1645,13 @@ function announceAffect(event: AffectEvent): void {
   if (!isPlayer(event.actor)) return;
   const player = event.actor;
 
+  // Slice 5: a lapsed buff changes numbers the profile folds, and the expiry pass cannot know that
+  // (`chainFrom`'s own comment sends the duty here). Refit before the sentence, so a player who
+  // reads "less protected" and checks their sheet finds the sheet already agreeing.
+  if (event.kind === 'expired' && (event.affect.type === 'armor' || event.affect.type === 'bless')) {
+    refitCombat(player);
+  }
+
   const text = affectLine(event);
   if (text) send(player.id, { t: 'log', channel: 'system', text });
 
@@ -2832,6 +2845,10 @@ function pushGroup(who: EntityId): void {
       // Clamped, because a dying character is on negative hit points and a bar drawn from a negative
       // fraction renders inside-out.
       health: fraction(member.hp, member.maxHp),
+      // Protocol 21: the exact pair, unclamped on purpose — a healer looking at a groupmate in the
+      // dying window should read the truth (−4 of 126), because that is the number they are racing.
+      hp: member.hp,
+      maxHp: member.maxHp,
       move: fraction(member.move, member.maxMove),
       mana: fraction(member.mana, member.maxMana),
       here: member.roomId === player.roomId,
@@ -3486,30 +3503,35 @@ function doRecite(player: Player, rest: string): void {
       unknown = true;
       continue;
     }
-    // Per-slot targeting, the source's parse-per-slot: the explicit word wins, and without one the
-    // slot falls to whoever you are fighting — which slot 1 may just have arranged, so a bare
-    // `recite scroll` mid-volley keeps hitting what the first spell engaged.
+    // Per-slot targeting, the source's parse-per-slot: the explicit word wins; without one an
+    // aggressive slot falls to whoever you are fighting — which slot 1 may just have arranged, so a
+    // bare `recite scroll` mid-volley keeps hitting what the first spell engaged — and a defensive
+    // one falls to **yourself**, the parser's own `TAR_CHAR_DEFENSIVE` default (slice 5).
     let target: Actor | undefined;
     if (targetWord) {
       const view = resolveTarget(player, targetWord);
       if (!view) continue;
       target = sim.get(view.id);
-    } else {
+    } else if (spell.kind === 'nuke') {
       target = player.fighting === undefined ? undefined : sim.get(player.fighting);
+    } else {
+      target = player;
     }
-    if (!target || target.roomId !== player.roomId || !canBeAttacked(target)) continue;
-    if (target.id === player.id) {
-      // The source lets you nuke yourself; ours refuses until there is a spell worth aiming inward —
-      // every registry spell today is a nuke, and self-engagement is a pointer the fight loop must
-      // never see. Named divergence, revisited when heals land (slice 5).
-      send(player.id, { t: 'log', channel: 'error', text: 'You cannot bring yourself to.' });
-      continue;
+    if (!target || target.roomId !== player.roomId) continue;
+    if (spell.kind === 'nuke') {
+      if (!canBeAttacked(target)) continue;
+      if (target.id === player.id) {
+        // The source lets you nuke yourself; ours refuses until there is a reason to allow it —
+        // self-engagement is a pointer the fight loop must never see. Named divergence.
+        send(player.id, { t: 'log', channel: 'error', text: 'You cannot bring yourself to.' });
+        continue;
+      }
+      if (!settings.pvp && isPlayer(target)) {
+        send(player.id, { t: 'log', channel: 'error', text: `You cannot attack ${target.name}. Player killing is switched off.` });
+        continue;
+      }
     }
-    if (!settings.pvp && isPlayer(target)) {
-      send(player.id, { t: 'log', channel: 'error', text: `You cannot attack ${target.name}. Player killing is switched off.` });
-      continue;
-    }
-    completeSpellStrike(player, spell, target, template.scroll.level);
+    deliverSpell(player, spell, target, template.scroll.level);
   }
   if (unknown) {
     send(player.id, { t: 'log', channel: 'combat', text: '&+LPart of the writing speaks of magic this world does not know yet.&N' });
@@ -3607,7 +3629,7 @@ function completeCast(caster: Actor): void {
   }
 
   if (isSpellId(cast.spell)) {
-    completeSpellStrike(caster, SPELLS[cast.spell], target);
+    deliverSpell(caster, SPELLS[cast.spell], target);
     return;
   }
 
@@ -3640,7 +3662,9 @@ function completeSpellStrike(caster: Actor, spell: Spell, target: Actor, atLevel
   // it feeds the save mod and the dice together because the source's `level` parameter is one value.
   let doubled = false;
   if (spell.save === 'double-on-fail') {
-    const mod = defaultSaveMod(atLevel, target.level, spell.circle);
+    // Slice 5: bless's `saves` nodes join the mod here — negative helps the defender, and the ×5
+    // inside `saveFailurePercent` applies to them exactly as it does to the offensive mod.
+    const mod = defaultSaveMod(atLevel, target.level, spell.circle) + sumApply(target.affects, 'saves');
     doubled = !rollSave(combatRng, target.level, mod, isMob(target));
   }
   // Gate 2's chance, computed once; rolled per blow.
@@ -3685,6 +3709,96 @@ function completeSpellStrike(caster: Actor, spell: Spell, target: Actor, atLevel
   settleStrike(caster, target, changed, death);
 }
 
+/**
+ * One completed spell reaches its target — the routing seam every casting path converges on: a
+ * finished wind-up (player or mob) and a recited scroll slot both land here, so the three kinds
+ * cannot come to behave differently by arrival route.
+ */
+function deliverSpell(caster: Actor, spell: Spell, target: Actor, atLevel = caster.level): void {
+  switch (spell.kind) {
+    case 'nuke': return completeSpellStrike(caster, spell, target, atLevel);
+    case 'heal': return completeSpellHeal(caster, spell, target, atLevel);
+    case 'buff': return completeSpellBuff(caster, spell, target, atLevel);
+  }
+}
+
+/**
+ * A heal lands — **slice 5, and `joinBySupporting`'s second producer** (rescue was the first).
+ * `heal()`'s shape (`magic.c:5858-5891`): the roll is small and level-blind, the recipient hears the
+ * handler's own sentence, and helping a combatant makes their fight yours — threat rides
+ * `THREAT_PER_HEAL` of what was actually restored inside `joinBySupporting`, so topping up an
+ * unhurt ally costs nothing and saving a tank's life is remembered.
+ */
+function completeSpellHeal(caster: Actor, spell: Spell, target: Actor, atLevel: number): void {
+  const amount = rollSpellHeal(combatRng, spell.id, atLevel);
+  const restored = Math.max(0, Math.min(target.maxHp - target.hp, amount));
+  target.hp = Math.min(target.maxHp, target.hp + amount);
+  sim.refreshStatus(target, target.fighting !== undefined);
+
+  if (isPlayer(target) && spell.felt) send(target.id, { t: 'log', channel: 'combat', text: spell.felt });
+  if (isPlayer(caster) && caster.id !== target.id) {
+    send(caster.id, { t: 'log', channel: 'combat', text: `&+WYour ${spell.name} restores ${target.name}&N&+W. (+${restored})&N` });
+  }
+  actAround(caster, 'combat', (who) => caster.id === target.id ? `${who} glows briefly with soft light.` : `${who} tends to ${target.name}&N.`, target.id);
+
+  const joined = joinBySupporting(threat, ledger, sim, caster, target, THREAT_PER_HEAL * restored);
+  for (const actor of joined) syncEntityState(actor);
+  resumeSwing(caster);
+  syncEntityState(target);
+  if (isPlayer(target)) send(target.id, { t: 'self', view: sim.selfViewOf(target) });
+  if (isPlayer(caster)) send(caster.id, { t: 'self', view: sim.selfViewOf(caster) });
+  // The roster is how a healer aims (protocol 21), so the number it shows must move when the heal
+  // does — the tick's own roster push rides regeneration, which can be most of a minute away.
+  if (isPlayer(target)) for (const id of membersWith(grouping, target.id)) pushGroup(id);
+}
+
+/**
+ * A buff takes hold — slice 5's other half, and the affect registry's first spell-borne nodes.
+ * The source's re-cast rule kept exactly (`magic.c:4326-4340`): already affected means the duration
+ * refreshes and **the numbers are never re-rolled** — a lucky armor roll is yours to keep alive.
+ * Bless is `TAR_NOCOMBAT` in its registration, so a fighting recipient refuses it by name.
+ */
+function completeSpellBuff(caster: Actor, spell: Spell, target: Actor, atLevel: number): void {
+  if (spell.id === 'bless' && target.fighting !== undefined) {
+    // The registration's TAR_NOCOMBAT half — the blessing is a rite, not a battle cry.
+    if (isPlayer(caster)) send(caster.id, { t: 'log', channel: 'combat', text: 'The blessing cannot take hold in the fury of combat.' });
+    resumeSwing(caster);
+    return;
+  }
+  const rolled = rollSpellBuff(combatRng, spell.id, atLevel);
+  if (!rolled) {
+    resumeSwing(caster);
+    return;
+  }
+
+  const existing = sim.affectsOf(target, spell.id as AffectType);
+  if (existing.length > 0) {
+    // The source's else-branch: glow as new, duration back to full, numbers untouched.
+    for (const node of existing) node.durationMs = rolled.durationMs;
+    if (isPlayer(target)) {
+      send(target.id, {
+        t: 'log',
+        channel: 'combat',
+        text: spell.id === 'armor' ? '&+WThe bands of magic armor glow as new!&N' : '&+WThe blessing is renewed!&N',
+      });
+    }
+  } else {
+    for (const node of rolled.nodes) {
+      sim.addAffect(target, newAffect({ type: spell.id as AffectType, durationMs: rolled.durationMs, apply: node.apply, modifier: node.modifier }));
+    }
+    if (isPlayer(target) && spell.felt) send(target.id, { t: 'log', channel: 'combat', text: spell.felt });
+    actAround(caster, 'combat', (who) => caster.id === target.id ? `${who} is briefly outlined in soft light.` : `${who} wards ${target.name}&N.`, target.id);
+  }
+
+  // `ac` and `hit` are folded by `refitCombat`, so the profile must pass the seam now — and only a
+  // player has one to refit; mobs never receive buffs until their profile learns the same fold.
+  if (isPlayer(target)) refitCombat(target);
+  resumeSwing(caster);
+  syncEntityState(target);
+  if (isPlayer(target)) send(target.id, { t: 'self', view: sim.selfViewOf(target) });
+  if (isPlayer(caster) && caster.id !== target.id) send(caster.id, { t: 'self', view: sim.selfViewOf(caster) });
+}
+
 /** The tail every completed strike shares: the declaration, the swing back, the syncs. */
 function settleStrike(caster: Actor, target: Actor, changed: readonly Actor[], death: Death | undefined): void {
   if (caster.fighting === undefined && canBeAttacked(target)) engage(scheduler, caster, target);
@@ -3713,7 +3827,19 @@ function mobStartCast(mob: Mob, target: Actor): boolean {
   if (!known || known.length === 0) return false;
   if (randomInt(combatRng, 1, 100) > MOB_CAST_CHANCE) return false;
 
-  const spell = SPELLS[known[randomInt(combatRng, 0, known.length - 1)]!];
+  // Slice 5: what of its list this round can *use*. A heal aims inward and a whole mob wastes no
+  // round topping itself up (`MobCastSpell` weighs its choices by state; this is the two-line
+  // version of that judgement). Buffs are skipped by name: a mob's combat profile is template data
+  // with no affect fold, and a ward that changed nothing would be a lie with a duration.
+  const usable = known.filter((id) => {
+    const kind = SPELLS[id].kind;
+    if (kind === 'nuke') return true;
+    if (kind === 'heal') return mob.hp < mob.maxHp;
+    return false;
+  });
+  if (usable.length === 0) return false;
+
+  const spell = SPELLS[usable[randomInt(combatRng, 0, usable.length - 1)]!];
   const castMs = mobCastMs(combatRng, spell, mob.level);
   scheduler.cancel(mob.id, 'swing');
   mob.casting = {
@@ -3722,7 +3848,7 @@ function mobStartCast(mob: Mob, target: Actor): boolean {
     remainingMs: castMs,
     totalMs: castMs,
     room: mob.roomId,
-    target: target.id,
+    target: spell.kind === 'heal' ? mob.id : target.id,
   };
   if (castMs <= 0) {
     // Level 60+ casts instantly in the source; none of ours reaches it, but the branch is the rule.
@@ -5323,10 +5449,15 @@ function refitCombat(player: Player): void {
   // through, and a notch calls it too: the six callers become seven and the fight loop learns nothing.
   const skill = weaponSkillFor(player.equipped.mainHand);
   const skillBonus = skill === undefined ? 0 : toHitFrom(learnedAt(player.skills.get(skill), player.level, skill));
+  // **Phase 20 slice 5: what magic is doing for you, beside what the kit does.** `sumApply` over the
+  // affect list — armor's node arrives already compressed through `armourBonusFrom`, so it adds in
+  // our AC points exactly as a worn breastplate does, and bless's `hit` is Duris hitroll, which is
+  // the same 1:1 mapping gear's `hitrollFrom` already rides. The eighth caller learns nothing new;
+  // affect installs and expiries simply have to pass through this seam too, and do.
   player.combat = {
     ...base,
-    armourClass: base.armourClass + armourClassFrom(player.equipped),
-    attackBonus: base.attackBonus + hitrollFrom(player.equipped) + skillBonus,
+    armourClass: base.armourClass + armourClassFrom(player.equipped) + sumApply(player.affects, 'ac'),
+    attackBonus: base.attackBonus + hitrollFrom(player.equipped) + skillBonus + sumApply(player.affects, 'hit'),
     damage: { ...weapon, bonus: weapon.bonus + player.damageBonus + damrollFrom(player.equipped) },
   };
   player.roundMs = base.roundMs;
@@ -7108,6 +7239,9 @@ const adminLive: LiveOps = {
     sim.refreshStatus(player);
     send(player.id, { t: 'self', view: sim.selfViewOf(player) });
     syncEntityState(player);
+    // And their groupmates' rosters — found by slice 5's drive: the tick's push rides regeneration,
+    // so a panel-set pool sat stale on everyone else's screen for up to a minute.
+    for (const id of membersWith(grouping, player.id)) pushGroup(id);
     persistAdminEdit(player);
   },
   setLevel(player, level) {

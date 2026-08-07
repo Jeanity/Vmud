@@ -252,8 +252,15 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  *
  * Was 6: doors have live state — the `door` message, and `open`/`close` losing their required `dir`.
  * Was 5: carried light sources — `SelfView` gained `light`.
+ *
+ * Is 21: a group member's exact hit points — Phase 20 slice 5, and the change `DESIGN-spells.md`
+ * promised would land "with the first aimable heal". {@link GroupMemberView} gains `hp`/`maxHp`
+ * beside the fraction: a healer choosing where a `cure light`'s ten points go needs the number, not
+ * the bar — 40% of an ogre and 40% of a halfling are different emergencies. Group members only;
+ * a stranger's exact pools remain unreadable (`EntityView.healthFraction` is unchanged), because
+ * consenting into a group is exactly the boundary at which that information becomes yours.
  */
-export const PROTOCOL_VERSION = 20;
+export const PROTOCOL_VERSION = 21;
 
 /**
  * One member of your group, as the roster draws them — protocol 19.
@@ -267,8 +274,11 @@ export interface GroupMemberView {
   readonly level: number;
   /** Whether this is the head of the group. Exactly one member has it. */
   readonly leader: boolean;
-  /** Health, 0–1. See the version note for why this is not hit points. */
+  /** Health, 0–1. Kept beside the exact pair below — the bar renders from this, the label from those. */
   readonly health: number;
+  /** Exact hit points — protocol 21, the aimable-heal change. Group members only, by design. */
+  readonly hp: number;
+  readonly maxHp: number;
   /** Movement, 0–1. */
   readonly move: number;
   /** Mana, 0–1. */

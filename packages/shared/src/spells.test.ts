@@ -16,6 +16,8 @@ import {
   defaultSaveMod,
   mobCastMs,
   rollSpellBlows,
+  rollSpellBuff,
+  rollSpellHeal,
   saveFailurePercent,
   shrugChance,
   spellByName,
@@ -37,6 +39,57 @@ describe('the registry', () => {
     assert.equal(spellFromDurisNumber(37)?.id, 'shocking_grasp');
     assert.equal(spellFromDurisNumber(48), undefined, 'the other tradition\'s shocking grasp is nothing here');
     assert.equal(spellFromDurisNumber(-1), undefined, 'the empty-slot marker a scroll carries');
+    // Slice 5's four: armor and bless from the single digits, the cures from where Duris put them.
+    assert.equal(spellFromDurisNumber(1)?.id, 'armor');
+    assert.equal(spellFromDurisNumber(3)?.id, 'bless');
+    assert.equal(spellFromDurisNumber(16)?.id, 'cure_light');
+    assert.equal(spellFromDurisNumber(57)?.id, 'cure_serious');
+  });
+});
+
+describe('heals and buffs — slice 5, the handlers\' own numbers', () => {
+  const rng = makeRng(0x5e11a);
+
+  it('cure light restores 2..10 and cure serious 3..24, level-blind', () => {
+    for (let i = 0; i < 200; i++) {
+      const light = rollSpellHeal(rng, 'cure_light', 60);
+      assert.ok(light >= 2 && light <= 10, `cure light rolled ${light}`);
+      const serious = rollSpellHeal(rng, 'cure_serious', 1);
+      assert.ok(serious >= 3 && serious <= 24, `cure serious rolled ${serious}`);
+    }
+  });
+
+  it('a nuke heals nothing and a heal throws no blows — the kinds cannot cross', () => {
+    assert.equal(rollSpellHeal(rng, 'magic_missile', 30), 0);
+    assert.deepEqual(rollSpellBlows(rng, 'cure_light', 30), []);
+  });
+
+  it('armor is one ac node for 20 ticks, compressed through the armour law', () => {
+    for (let i = 0; i < 100; i++) {
+      const rolled = rollSpellBuff(rng, 'armor', 25);
+      assert.ok(rolled);
+      assert.equal(rolled.durationMs, 20 * 10_000, 'the torch calibration: a Duris tick is ten seconds');
+      assert.equal(rolled.nodes.length, 1);
+      assert.equal(rolled.nodes[0]!.apply, 'ac');
+      // armourBonusFrom(25..35): sqrt puts it at 5, and the law's floor and cap bound it either way.
+      assert.ok(rolled.nodes[0]!.modifier >= 1, 'armour that protects for nothing is not a spell');
+    }
+  });
+
+  it('bless is two nodes of one cause: +hit, and a save mod that helps by being negative', () => {
+    const rolled = rollSpellBuff(rng, 'bless', 25);
+    assert.ok(rolled);
+    assert.equal(rolled.durationMs, 12 * 10_000, 'max(5, 25/2) = 12 ticks');
+    assert.deepEqual(rolled.nodes, [
+      { apply: 'hit', modifier: 2 },
+      { apply: 'saves', modifier: -1 },
+    ]);
+    // And the floor: a level-1 blessing still lasts its 5 ticks.
+    assert.equal(rollSpellBuff(rng, 'bless', 1)?.durationMs, 5 * 10_000);
+  });
+
+  it('a nuke installs nothing', () => {
+    assert.equal(rollSpellBuff(rng, 'chill_touch', 25), undefined);
   });
 });
 

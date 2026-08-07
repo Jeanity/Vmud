@@ -51,7 +51,7 @@
 /**
  * Which derived stat an affect feeds — Duris' `APPLY_*` (`defines.h:820`).
  *
- * Duris has 58 of these. **We have five, and every one has a reader**, which is the discipline this
+ * Duris has 58 of these. **We have eight, and every one has a reader**, which is the discipline this
  * project keeps for a reason: `ROADMAP.md` rule 1 exists because four mechanisms were written, tested
  * and never called, and a taxonomy of locations nothing derives from would be the same mistake spread
  * over a table. Rows get added when a consumer arrives, and no sooner.
@@ -63,8 +63,15 @@
  *   them. This is the location that proves the fold has to hand out lists as well as totals.
  * - `hpRegen`, `manaRegen`, `moveRegen` — added to the per-minute base in `vitals.ts`. Duris'
  *   `APPLY_HIT_REG` / `APPLY_MANA_REG` / `APPLY_MOVE_REG`, which feed `points.hit_reg` and friends.
+ * - `ac`, `hit` — **Phase 20 slice 5**, `APPLY_AC` / `APPLY_HITROLL`, folded by `refitCombat` beside
+ *   the same numbers gear contributes. `ac` is in **our** AC points (higher is better), compressed at
+ *   the producer through the one law items already use (`armourBonusFrom`), so a spell and a
+ *   breastplate cannot come to different opinions about what armour is worth.
+ * - `saves` — `APPLY_SAVING_SPELL`, summed into the save modifier where the save is rolled. Duris'
+ *   sign convention kept: **negative helps the defender** (`sparser.c`'s "less is more"), and the ×5
+ *   every modifier gets applies to this one too, which is why bless at `-1` is worth five points.
  */
-export const APPLY_LOCATIONS = ['none', 'light', 'hpRegen', 'manaRegen', 'moveRegen'] as const;
+export const APPLY_LOCATIONS = ['none', 'light', 'hpRegen', 'manaRegen', 'moveRegen', 'ac', 'hit', 'saves'] as const;
 
 export type ApplyLocation = (typeof APPLY_LOCATIONS)[number];
 
@@ -204,7 +211,7 @@ export interface AffectKind {
  * error rather than a silent gap. It is also the only way to have {@link AffectKind.id} typed as an
  * affect type at all — a table that derived its own key type from itself would reference itself.
  */
-export const AFFECT_TYPE_IDS = ['light', 'settling', 'second_wind', 'notch_physical', 'notch_mental', 'off_balance', 'casting'] as const;
+export const AFFECT_TYPE_IDS = ['light', 'settling', 'second_wind', 'notch_physical', 'notch_mental', 'off_balance', 'casting', 'armor', 'bless'] as const;
 
 export type AffectType = (typeof AFFECT_TYPE_IDS)[number];
 
@@ -311,6 +318,29 @@ export const AFFECT_TYPES: Readonly<Record<AffectType, AffectKind>> = {
   casting: {
     id: 'casting',
     name: 'casting',
+  },
+  /**
+   * The armor spell — **Phase 20 slice 5**, the first affect that changes a number a fight reads.
+   *
+   * One node, `apply: 'ac'`, its modifier compressed through `armourBonusFrom` at the producer so a
+   * spell speaks the same armour language a breastplate does. **Shown and saved** — Duris saves
+   * spell affects, and a ward that vanished on reconnect would make logging out the counterspell.
+   * The wear-off sentence is the source's own for the ward going (`smagic.c:2854`).
+   */
+  armor: {
+    id: 'armor',
+    name: 'magic armor',
+    wearOff: 'You suddenly feel less protected.',
+  },
+  /**
+   * Bless — two nodes of one type, `hit` and `saves` (`spell_bless`, `magic.c:5145-5155`), which is
+   * exactly the several-nodes-one-cause shape {@link Affect.type}'s comment warns about. Shown and
+   * saved, as armor is.
+   */
+  bless: {
+    id: 'bless',
+    name: 'blessed',
+    wearOff: 'Your blessing fades.',
   },
 };
 

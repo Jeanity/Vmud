@@ -1576,6 +1576,13 @@ export class Simulation {
       // screen is deliberately the tell. Fourth time the wall of cases has paid for itself.
       case 'casting':
         return [];
+
+      // Slice 5's buffs chain to nothing — but their lapsing changes numbers `refitCombat` folds, so
+      // index.ts refits on their expiry (it sees the event; the timing pass here cannot know about
+      // combat profiles). Fifth time the wall of cases has paid for itself.
+      case 'armor':
+      case 'bless':
+        return [];
     }
   }
 

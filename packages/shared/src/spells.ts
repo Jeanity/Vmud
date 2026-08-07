@@ -10,13 +10,23 @@
  */
 
 import { randomInt, type Dice, type Rng } from './rules.ts';
+import { MS_PER_DURIS_HOUR, armourBonusFrom } from './items.ts';
+import type { ApplyLocation } from './affects.ts';
 
 /* -------------------------------------------------------------------------- */
 /* The registry                                                                */
 /* -------------------------------------------------------------------------- */
 
-export const SPELL_IDS = ['magic_missile', 'burning_hands', 'chill_touch', 'shocking_grasp'] as const;
+export const SPELL_IDS = ['magic_missile', 'burning_hands', 'chill_touch', 'shocking_grasp', 'cure_light', 'cure_serious', 'armor', 'bless'] as const;
 export type SpellId = (typeof SPELL_IDS)[number];
+
+/**
+ * What a completed cast *does* — the routing fact. A nuke runs the gates and lands blows; a heal
+ * restores and pays threat (`joinBySupporting`'s second producer); a buff installs affect nodes.
+ * The source has no such field — its spell functions simply do different things — but our completion
+ * is one seam and it has to route somehow, and a string it can switch on beats eight callbacks.
+ */
+export type SpellKind = 'nuke' | 'heal' | 'buff';
 
 /**
  * How a spell meets the saving throw — the note's finding that save-for-half is spelled two inverse
@@ -29,6 +39,7 @@ export type SaveConvention = 'none' | 'double-on-fail';
 export interface Spell {
   readonly id: SpellId;
   readonly name: string;
+  readonly kind: SpellKind;
   /** The wind-up. `beats × PULSE_SPELLCAST` ≈ 2.25 s per beat in the source; ours lands on seconds. */
   readonly castMs: number;
   /** The circle `SPELL_ADD` writes — unread until Phase 21's classes, carried because it is identity. */
@@ -36,17 +47,24 @@ export interface Spell {
   readonly save: SaveConvention;
   /** Second-person flavour of the strike, for the caster's own line. */
   readonly noun: string;
+  /** The recipient's own sentence when a heal or a buff takes — the source's `send_to_char` line. */
+  readonly felt?: string;
 }
 
 /**
- * The four first nukes, each verified live in `magic.c` with its dice and its convention
- * (`skills.c:845-881` registrations; handlers cited per formula below).
+ * The registry — the four first nukes (slice 3) and the first heals and buffs (slice 5), each
+ * verified live in `magic.c` with its dice and its convention (`skills.c` registrations; handlers
+ * cited per formula below). The `felt` lines are the source's own sentences, colour and all.
  */
 export const SPELLS: Readonly<Record<SpellId, Spell>> = {
-  magic_missile: { id: 'magic_missile', name: 'magic missile', castMs: 2000, circle: 1, save: 'none', noun: 'missiles' },
-  burning_hands: { id: 'burning_hands', name: 'burning hands', castMs: 2000, circle: 2, save: 'none', noun: 'flames' },
-  chill_touch: { id: 'chill_touch', name: 'chill touch', castMs: 2000, circle: 2, save: 'double-on-fail', noun: 'chill' },
-  shocking_grasp: { id: 'shocking_grasp', name: 'shocking grasp', castMs: 2500, circle: 3, save: 'double-on-fail', noun: 'shock' },
+  magic_missile: { id: 'magic_missile', name: 'magic missile', kind: 'nuke', castMs: 2000, circle: 1, save: 'none', noun: 'missiles' },
+  burning_hands: { id: 'burning_hands', name: 'burning hands', kind: 'nuke', castMs: 2000, circle: 2, save: 'none', noun: 'flames' },
+  chill_touch: { id: 'chill_touch', name: 'chill touch', kind: 'nuke', castMs: 2000, circle: 2, save: 'double-on-fail', noun: 'chill' },
+  shocking_grasp: { id: 'shocking_grasp', name: 'shocking grasp', kind: 'nuke', castMs: 2500, circle: 3, save: 'double-on-fail', noun: 'shock' },
+  cure_light: { id: 'cure_light', name: 'cure light', kind: 'heal', castMs: 1500, circle: 1, save: 'none', noun: 'healing touch', felt: '&+WYou feel a little better!&N' },
+  cure_serious: { id: 'cure_serious', name: 'cure serious', kind: 'heal', castMs: 2000, circle: 2, save: 'none', noun: 'healing touch', felt: '&+WYou feel a lot better!&N' },
+  armor: { id: 'armor', name: 'armor', kind: 'buff', castMs: 2000, circle: 1, save: 'none', noun: 'warding', felt: '&+WBands of magic armor wrap around you!&N' },
+  bless: { id: 'bless', name: 'bless', kind: 'buff', castMs: 2000, circle: 1, save: 'none', noun: 'blessing', felt: '&+WYou suddenly feel blessed!&N' },
 };
 
 export function isSpellId(value: string): value is SpellId {
@@ -62,10 +80,14 @@ export function isSpellId(value: string): value is SpellId {
  * joins {@link SPELLS}.
  */
 export const DURIS_SPELL_NUMBERS: Readonly<Record<number, SpellId>> = {
+  1: 'armor',
+  3: 'bless',
   5: 'burning_hands',
   8: 'chill_touch',
+  16: 'cure_light',
   32: 'magic_missile',
   37: 'shocking_grasp',
+  57: 'cure_serious',
 };
 
 /** The spell a Duris number means, or nothing — this world does not model all 700 of them yet. */
@@ -120,6 +142,66 @@ export function rollSpellBlows(rng: Rng, spell: SpellId, level: number): SpellBl
     case 'shocking_grasp':
       // dice(level/6 + 5, 6) * 4, doubled on a failed save (`magic.c:626-645`).
       return [{ damage: die(Math.floor(lvl / 6) + 5, 6) * 4 }];
+    case 'cure_light':
+    case 'cure_serious':
+    case 'armor':
+    case 'bless':
+      // Not nukes. Their arithmetic lives in {@link rollSpellHeal} and {@link rollSpellBuff}; an
+      // empty volley here keeps a misrouted call harmless rather than inventive.
+      return [];
+  }
+}
+
+/**
+ * What a heal restores — the handlers' own rolls, small on purpose (`magic.c:5858-5891`): cure
+ * light is `number(2, 10)` and cure serious `dice(3, 8)`, and neither reads the level at all, which
+ * is the source's own shape — a first-circle heal is a bandage, not a percentage.
+ */
+export function rollSpellHeal(rng: Rng, spell: SpellId, _level: number): number {
+  switch (spell) {
+    case 'cure_light': return randomInt(rng, 2, 10);
+    case 'cure_serious': return rollDiceLocal(rng, 3, 8);
+    default: return 0;
+  }
+}
+
+/** One installed node of a buff: a location and how much, `affects.ts`'s own vocabulary. */
+export interface SpellBuffNode {
+  readonly apply: ApplyLocation;
+  readonly modifier: number;
+}
+
+/**
+ * What a buff installs — durations in the source's own ticks, converted at the one rate this
+ * project already fixed (`MS_PER_DURIS_HOUR`, the torch calibration: a Duris hour is ten of our
+ * seconds), and every number the handler's own:
+ *
+ * - **armor** (`magic.c:4295-4325`): `-(level) - number(0, 10)` of Duris AC for 20 ticks — ours
+ *   compresses that roll through {@link armourBonusFrom}, the same law a breastplate's value passes,
+ *   so the node arrives in our AC points and `refitCombat` adds it beside gear.
+ * - **bless** (`magic.c:5118-5156`): `+(level/20 + 1)` hitroll and `-(level/30 + 1)` on the spell
+ *   save (negative helps — the source's inverted scale, kept), for `max(5, level/2)` ticks.
+ *
+ * Re-casting refreshes the duration and never re-rolls the numbers — the source's own else-branch.
+ */
+export function rollSpellBuff(rng: Rng, spell: SpellId, level: number): { readonly durationMs: number; readonly nodes: readonly SpellBuffNode[] } | undefined {
+  const lvl = Math.max(1, level);
+  switch (spell) {
+    case 'armor':
+      return {
+        durationMs: 20 * MS_PER_DURIS_HOUR,
+        nodes: [{ apply: 'ac', modifier: armourBonusFrom(lvl + randomInt(rng, 0, 10)) }],
+      };
+    case 'bless':
+      return {
+        durationMs: Math.max(5, Math.floor(lvl / 2)) * MS_PER_DURIS_HOUR,
+        nodes: [
+          { apply: 'hit', modifier: Math.floor(lvl / 20) + 1 },
+          { apply: 'saves', modifier: -(Math.floor(lvl / 30) + 1) },
+        ],
+      };
+    default:
+      return undefined;
   }
 }
 

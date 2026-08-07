@@ -1259,9 +1259,14 @@ found and fixed `mundane_autostand` — see the handoff.
 `value[1..3]` raw Duris spell numbers — 37 is shocking grasp, not 48), `recite` with the source's
 own no-gate rule (`CMD_N` mid-fight refusal kept), cast at the scroll's level, per-slot targets and
 saves, duplicates cast twice, burnt on recital even at nothing. Players cast for the first time.
-**Left: slice 5 heals/buffs (`joinBySupporting`, `THREAT_PER_HEAL`, the group exact-pools protocol
-change, `ac`/`hit`/`saves` affect locations), slice 6 areas (`cast_as_damage_area`, players-only
-thinning).**
+**Slice 5 ✅ (2026-08-07)** — heals and buffs: the cures (`number(2,10)`, `dice(3,8)`, level-blind),
+armor and bless as affect nodes on the new `ac`/`hit`/`saves` locations **with their readers**
+(`refitCombat` folds, the save roll sums), durations at the torch calibration, re-cast refreshes
+and never re-rolls, `joinBySupporting` + `THREAT_PER_HEAL` produced at last, **protocol 21** (exact
+group pools, pushed when a heal lands), and mob casters healing themselves when hurt — buffs
+skipped by name until a mob profile fold exists.
+**Left: slice 6 areas (`cast_as_damage_area`, player-count thinning, earthquake then ice storm,
+mob-areas-cannot-hit-mobs kept).**
 
 **[DESIGN-spells.md](DESIGN-spells.md) is the thing to read first** — six readers over the magic
 source, and the findings bend the phase: memorization beat mana in the shipped fork and both wait
