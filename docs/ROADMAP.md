@@ -96,7 +96,8 @@ a new idea still answers the three questions; its second question now also picks
 | **8 — closed** | V4 — Places as a graph ✅ | dropped-item decay ✅ and `junk` ✅ | A4c — loot on a mob ✅ |
 | **9 ✅** | V5 — arrival cards ✅ | Phase 18 — following ✅, grouping ✅ | A4c — loot on a mob ✅ |
 | **10 ✅** | V7 — attack verbs ✅ | Phase 19 — skills: slice 1 ✅ | A7d-bag ✅ |
-| **11 — under way** | *(Track V complete again; §2b says it skips)* | Phase 19 — slice 3: `bash` and `kick` ✅, behind a `landBlow` extraction | A6c — authoring a light ✅ |
+| **11 ✅** | *(Track V complete again; §2b says it skips)* | Phase 19 — slice 3: `bash` and `kick` ✅, behind a `landBlow` extraction | A6c — authoring a light ✅ |
+| **12 — under way** | *(skips)* | Phase 19 — slice 4: `rescue` ✅ | A7g quality — the model re-decides the 8,077 fallbacks (sweep running) |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
 A5, because A5's prose editor is a colour editor and building the palette before the renderer would
@@ -1188,7 +1189,7 @@ because taking one hit from a level 50 mob *is* contribution and a share of that
 1's entire career. Verified live in a single fight with three contributors, two grouped and one not:
 the ungrouped one earned exactly its contribution share and the grouped pair exactly 1.6× theirs.
 
-#### Phase 19 — Skills — **slice 1 done 2026-08-06**
+#### Phase 19 — Skills — **slices 1–4 done; swim remains**
 
 Percentages notched by use, per-category rate limits, a level-driven floor. Mobs derive proficiency
 from level and store nothing.
@@ -1197,9 +1198,18 @@ from level and store nothing.
 **Slice 1 landed 2026-08-06: skills exist and combat notches them.** A landing blow can raise the skill
 its weapon trains, the raise is announced in the source's own words, the value persists sparsely, and the
 skill is worth `floor(learned / 10)` on the attack bonus. Driven live — see the note's §8 for the numbers,
-including the bonus read straight out of the combat log at levels 30 and 1. Four slices remain there, and
-the next one (`dodge` and `parry`) needs an **active defence roll**, which is a combat change rather than a
-skill change.
+including the bonus read straight out of the combat log at levels 30 and 1.
+
+**Slice 2 landed 2026-08-06: dodge and parry**, the active defence roll — and it shipped broken for a
+day (*every* blow missed; see the handoff's combat-regression row for the lesson). **Slice 3 landed
+2026-08-06: `bash` and `kick`**, behind the `landBlow` extraction that keeps an ability from becoming a
+second damage path. **Slice 4 landed 2026-08-07: `rescue`** — the first ability that makes grouping mean
+something mechanically, and `joinBySupporting`'s first caller. Two transcription notes worth keeping: a
+bare pointer flip would un-rescue itself at the next round boundary, so the redirect seats the rescuer at
+the rescuee's threat standing (the grudge transfers with the fight); and rescue's notch runs **backwards**
+from bash and kick's — `notch || fail`, so the moment you learn is a moment you fumble, where theirs is
+`!notch && miss`. What remains is **swim**, which is really a deep-water design decision (what swimming
+costs, what drowning is) wearing a skill's clothes.
 
 **[DESIGN-skills.md](DESIGN-skills.md) is the thing to read first**, and it exists because three of its
 six decisions turn on **which branch of the source is compiled**. Two findings shaped the whole phase:

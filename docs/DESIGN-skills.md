@@ -282,8 +282,12 @@ Each slice is driveable on its own, and the first cannot break anything that exi
    `1d6 + floor(learned/10)` and a bash of `1d4 + floor(learned/10)` stay inside the band 14b calibrated —
    but the number wants the same rounds-to-kill measurement §5 asked for, and the alternative worth
    weighing is scaling off the character's own damage bonus instead.
-4. **`rescue`**, which needs a group — and now has one (Phase 18). Taking a blow meant for somebody
-   else is a threat-table operation, and the threat table exists.
+4. **`rescue`** ✅ **built 2026-08-07**, which needs a group — and now has one (Phase 18). Taking a blow
+   meant for somebody else is a threat-table operation, and the threat table exists. Two things the
+   build settled: the redirect must also seat the rescuer at the rescuee's threat standing, because
+   `pickByThreat` re-decides every round and a bare pointer flip hands the mob straight back; and the
+   notch roll is `notch_skill(…) || roll > skill` — **backwards from bash and kick's** `!notch && miss` —
+   so a successful notch forces the fumble and short-circuits past the success roll. Kept, not tidied.
 5. **`swim`**, last, because it is not really a skill problem. Phase 16 made deep water a wall that says
    *"you need to swim"*; opening it means deciding what swimming costs and what drowning is, and
    `specials.c:191` is the only thing the source spends the skill on (a vitality drain reduced by
