@@ -3619,17 +3619,6 @@ export class WorldScene extends Phaser.Scene {
   }
 
   /**
-   * The stack of sheets one body is drawn from.
-   *
-   * **A dressed character is drawn from what they are wearing**, which is Phase 15a and the roadmap's
-   * completion test for this phase — the hardcoded outfit that used to live in `SPRITE_LAYERS` was a
-   * placeholder with a comment saying exactly this would replace it.
-   *
-   * `SPRITE_LAYERS` survives for everything with no equipment list: mobs, whose look is their
-   * template's own, and any character the server has not dressed. So the fallback is not dead code,
-   * it is the answer for bodies that wear nothing.
-   */
-  /**
    * The texture key for what the wire says is worn in a slot, or nothing if it is not drawn.
    *
    * **The index first, the starter kit second.** `artgen` stages every sheet under its own art id, so
@@ -3835,6 +3824,17 @@ export class WorldScene extends Phaser.Scene {
     this.faceEntity(entity, entity.view.facing);
   }
 
+  /**
+   * The stack of sheets one body is drawn from.
+   *
+   * **A dressed character is drawn from what they are wearing**, which is Phase 15a and the roadmap's
+   * completion test for this phase — the hardcoded outfit that used to live in `SPRITE_LAYERS` was a
+   * placeholder with a comment saying exactly this would replace it.
+   *
+   * `SPRITE_LAYERS` survives for everything with no equipment list: mobs, whose look is their
+   * template's own, and any character the server has not dressed. So the fallback is not dead code,
+   * it is the answer for bodies that wear nothing.
+   */
   /**
    * The images one art key is drawn from, stacked bottom-first and lifted onto its feet.
    *
