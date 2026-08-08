@@ -54,8 +54,11 @@ and the modifier is what every rule consults. The fold from Duris's ten:
 - **Kar and Luk are dropped entirely** — the player never saw them, and a hidden stat is a debug
   session waiting to happen.
 
-**The roll**: `3d6` per ability, **racial bonus applied inside the roll** (the source's own
-keeper: no combination can produce an impossible score), clamped 3–20. The racial bonus derives
+**The roll**: **4d6 drop the lowest** per ability — the owner's follow-up (2026-08-08, *"stats
+rolls that can be rerolled according to DnD rules"*) naming the SRD's own standard method, which
+supersedes this note's first draft of a flat 3d6 — **racial bonus applied inside the roll** (the
+source's own keeper: no combination can produce an impossible score), clamped 3–20. The racial
+bonus derives
 from the live factor table: **bonus = round((factor − 100) / 15)** — chosen so the loudest row in
 the data (Barbarian Con 165) lands at **+4** and ordinary favours (110–120) land at +1, which is
 5e's own racial range. **Five bonus points** follow, +1 each, no score past 18 + racial bonus.

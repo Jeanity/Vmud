@@ -45,19 +45,32 @@ export function scoreWord(score: number): string {
   return 'quite excellent';
 }
 
-const THREE_D_SIX = { count: 3, sides: 6, bonus: 0 } as const;
+const ONE_D_SIX = { count: 1, sides: 6, bonus: 0 } as const;
 
 /**
- * One fresh character's scores: 3d6 per ability, racial bonus inside the roll, clamped 3–20, then
- * raised to any class minimum left unmet. Deterministic under the seeded {@link Rng}, like every
- * roll in the simulation.
+ * The D&D roll, by name: four d6, drop the lowest — the owner's rule (2026-08-08 follow-up,
+ * *"stats rolls that can be rerolled according to DnD rules"*), and the SRD's own standard method,
+ * which supersedes this file's first draft of a flat 3d6. Kinder on average (12.24 against 10.5)
+ * and bounded 3–18 exactly as before.
+ */
+function rollFourDropLowest(rng: Rng): number {
+  const dice = [rollDice(rng, ONE_D_SIX), rollDice(rng, ONE_D_SIX), rollDice(rng, ONE_D_SIX), rollDice(rng, ONE_D_SIX)];
+  dice.sort((a, b) => a - b);
+  return dice[1]! + dice[2]! + dice[3]!;
+}
+
+/**
+ * One fresh character's scores: 4d6-drop-lowest per ability, racial bonus inside the roll,
+ * clamped 3–20, then raised to any class minimum left unmet. Deterministic under the seeded
+ * {@link Rng}, like every roll in the simulation — and rerollable without limit at creation,
+ * because the seed moves on and the five bonus points reset with it.
  */
 export function rollScores(rng: Rng, raceId: RaceId, classId: ClassId): AbilityScores {
   const race = RACES[raceId];
   const mins = CLASSES[classId].mins;
   const out = {} as Record<Ability, number>;
   for (const ability of ABILITIES) {
-    const rolled = rollDice(rng, THREE_D_SIX) + racialBonus(race, ability);
+    const rolled = rollFourDropLowest(rng) + racialBonus(race, ability);
     const clamped = Math.min(SCORE_MAX, Math.max(SCORE_MIN, rolled));
     out[ability] = Math.max(clamped, mins[ability] ?? SCORE_MIN);
   }
