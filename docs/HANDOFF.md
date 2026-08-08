@@ -391,6 +391,7 @@ See `CLAUDE.md` for the full list. The ones that bite hardest:
 | `RESEARCH-map-data.md` | Where the world data comes from, and the traps in it |
 | `DESIGN-skills.md` | **Read before starting Phase 19.** What a skill is, the floor and the ceiling, the per-weapon-type mapping, how a 0–100 percentage meets a d20 roll — and the two places our own reference doc cites code the shipped source does not compile |
 | `DESIGN-zone-geometry.md` | **Read before starting A8.** Adding and removing rooms: the id space, the `seen`-invalidation edge, two-sided exits, orphaned resets, and the build order whose first slice is safe |
+| `DESIGN-spell-memory.md` | **Read before touching casting costs.** The seven things `DESIGN-spells.md` handed forward, settled: real mem times, the `spl_table` generator, a spell's circle belonging to its class, spellbooks and scribing cut, the psionicist, the full gate stack — and a third build flag our own code cites the wrong side of |
 | `PLAN-3d-migration.md` | If the 3D question returns: engine choice, costs, milestones, go/no-go |
 
 **The single best reference is on disk, not on the web:** the complete Duris MUD C source at
