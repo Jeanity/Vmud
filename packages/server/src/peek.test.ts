@@ -12,7 +12,7 @@ import { describe, it } from 'node:test';
 
 import type { Room } from '@mygame/shared';
 
-import { directionFrom, peek } from './peek.ts';
+import { afterLook, directionFrom, peek, revealShownIn } from './peek.ts';
 
 function room(id: number, over: Partial<Room> = {}): Room {
   return { id, zone: 400, name: `Room ${id}`, sector: 'inside', pos: { x: 0, y: 0, z: 0 }, exits: {}, ...over } as Room;
@@ -125,5 +125,47 @@ describe('what is standing there', () => {
     const outcome = peek(near, 'east', deps([near, far]));
     assert.equal(outcome.t, 'view');
     assert.deepEqual((outcome as { occupants: readonly unknown[] }).occupants, []);
+  });
+});
+
+/**
+ * The reveal a peek leaves behind — ranged slice 2.
+ *
+ * **Both rules here are restrictions, so neither can fail visibly.** `look west` naming three kobolds
+ * reads identically whether or not the set dies when you walk, and the day it stops dying is the day a
+ * player is reading a room two away — the one thing the owner ruled out by name: *"I shouldn't be able
+ * to see from 2 rooms away"*. Hence tests, rather than trusting the happy path.
+ */
+describe('what a peek leaves behind', () => {
+  it('shows the room you looked at, while you stay put', () => {
+    const reveal = afterLook(undefined, 1, 2);
+    assert.deepEqual([...revealShownIn(reveal, 1)], [2]);
+  });
+
+  it('adds a second direction rather than replacing the first', () => {
+    const west = afterLook(undefined, 1, 2);
+    const north = afterLook(west, 1, 3);
+    assert.deepEqual([...revealShownIn(north, 1)].sort(), [2, 3]);
+  });
+
+  it('**does not chain** — walking into the room you peeked at reveals nothing beyond it', () => {
+    // Stand in 1, look east into 2, then walk into 2. Room 3 is one further east and was never seen.
+    const reveal = afterLook(undefined, 1, 2);
+    assert.deepEqual([...revealShownIn(reveal, 2)], [], 'standing in the revealed room must show nothing');
+  });
+
+  it('goes dark the moment you are anywhere else, not only in the room you saw', () => {
+    const reveal = afterLook(undefined, 1, 2);
+    assert.equal(revealShownIn(reveal, 9).size, 0);
+  });
+
+  it('starts over when you look from somewhere new, so a trail cannot accumulate behind you', () => {
+    const fromOne = afterLook(undefined, 1, 2);
+    const fromTwo = afterLook(fromOne, 2, 3);
+    assert.deepEqual([...revealShownIn(fromTwo, 2)], [3], 'the room seen from the old spot must not survive the move');
+  });
+
+  it('reads as nothing when no direction has been looked at', () => {
+    assert.equal(revealShownIn(undefined, 1).size, 0);
   });
 });

@@ -4035,8 +4035,14 @@ export class WorldScene extends Phaser.Scene {
     //
     // The local player is always drawn: you know where you are, and a bad or not-yet-reconciled
     // position must not make the character vanish.
+    // **A revealed body is drawn on unlit ground, and that is the whole of ranged slice 2 on this side.**
+    // Everything else here is gated on the character's own light; a kobold one room west never is, and
+    // hiding it would throw away the thing `look west` just earned. The server decides — the flag is on
+    // the wire — so this client is not inventing an exception to the fog, it is drawing one it was told
+    // about. See `EntityView.revealed`.
     for (const [id, entity] of this.entities) {
-      entity.container.setVisible(id === this.selfId || this.litAt(entity.serverX, entity.serverY));
+      const seen = id === this.selfId || entity.view.revealed === true || this.litAt(entity.serverX, entity.serverY);
+      entity.container.setVisible(seen);
     }
   }
 

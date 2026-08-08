@@ -468,6 +468,20 @@ export interface Player extends Actor {
    */
   visible: ReadonlySet<number>;
   /**
+   * Rooms this character has peeked into with `look <direction>`, and **where they were standing when
+   * they did** — ranged slice 2, `DESIGN-ranged.md`.
+   *
+   * **`from` is the invalidation, and it is a field rather than a hook on purpose.** The reveal is
+   * supposed to last while you stay put and die the moment you move, and a player's room changes in two
+   * unrelated places — the walk in {@link Simulation.advance} and the teleport in
+   * {@link Simulation.relocate}. Clearing it at both would work until somebody adds a third, and the
+   * failure would be silent and exactly wrong: seeing into a room two away is the one thing the owner
+   * ruled out (*"I shouldn't be able to see from 2 rooms away"*). Comparing `from` against the current
+   * room instead makes a stale set unreadable by construction, and makes the no-chaining rule fall out
+   * rather than be enforced — walk into the room you peeked at and the whole set is void, including it.
+   */
+  revealed: { readonly from: RoomId; readonly rooms: ReadonlySet<RoomId> } | undefined;
+  /**
    * The tile and radius `visible` was computed for.
    *
    * Shadowcasting a couple of hundred tiles is cheap, but not free ten times a second per player for
@@ -881,6 +895,9 @@ export class Simulation {
       // vision until they walk onto something.
       light: undefined,
       visible: NOTHING_VISIBLE,
+      // Nothing peeked at yet. A fresh character has looked nowhere, which is the same state a moved
+      // one is in — see the field's own note on why that is a comparison rather than a reset.
+      revealed: undefined,
       visibleTx: NEVER,
       visibleTy: NEVER,
       visibleRadius: NEVER,

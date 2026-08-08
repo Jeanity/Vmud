@@ -103,6 +103,43 @@ export type PeekOutcome =
     };
 
 /**
+ * What a peek is still showing, and where it was made from — ranged slice 2, `DESIGN-ranged.md`.
+ *
+ * Kept beside {@link peek} and pure, for the same reason the gauntlet is: the two rules that matter
+ * here are both *restrictions*, and a restriction never shows up on the happy path. `look west` naming
+ * three kobolds looks identical whether or not the set correctly dies when you walk — right up until a
+ * player is reading a room two away, which is the one thing the owner ruled out.
+ */
+export interface Reveal {
+  readonly from: RoomId;
+  readonly rooms: ReadonlySet<RoomId>;
+}
+
+/**
+ * The reveal after looking into `saw` while standing in `standingIn`.
+ *
+ * **Additive only while you have not moved.** Looking west and then north from one spot shows both;
+ * looking from somewhere else starts over rather than accumulating a trail of rooms behind you.
+ */
+export function afterLook(prev: Reveal | undefined, standingIn: RoomId, saw: RoomId): Reveal {
+  const keep = prev?.from === standingIn ? prev.rooms : undefined;
+  return { from: standingIn, rooms: new Set([...(keep ?? []), saw]) };
+}
+
+/**
+ * What that reveal shows to somebody standing in `standingIn` — **empty unless they have not moved.**
+ *
+ * This is the no-chaining rule and it falls out rather than being enforced: walk into the room you
+ * peeked at and `from` no longer matches, so the set goes dark *including the room you are now in*,
+ * which is right — you can see that one by standing in it, and you have earned nothing beyond it.
+ */
+export function revealShownIn(prev: Reveal | undefined, standingIn: RoomId): ReadonlySet<RoomId> {
+  return prev && prev.from === standingIn ? prev.rooms : EMPTY_REVEAL;
+}
+
+const EMPTY_REVEAL: ReadonlySet<RoomId> = new Set();
+
+/**
  * What lies one exit away. Pure over its lookups, so the whole gauntlet is testable without a world:
  * the caller supplies rooms, doors and occupants, and this supplies the order the rules fire in.
  */

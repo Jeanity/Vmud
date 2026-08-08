@@ -277,7 +277,7 @@ import {
   type PlayerRecord,
 } from './players.ts';
 import { QUESTS_FILE, carriedForQuest, consumeBrought, loadQuests, objectivePhrase, questsBy } from './quests.ts';
-import { directionFrom, peek } from './peek.ts';
+import { afterLook, directionFrom, peek, revealShownIn } from './peek.ts';
 import {
   isUntouchable,
   setUntouchableVnums,
@@ -1320,6 +1320,24 @@ function actToRoom(
  * the moment one of them learned about a new kind of entity, which is exactly what ground pickups
  * are.
  */
+/**
+ * The rooms a peek is currently showing this player — **and the one place a stale set is dropped.**
+ *
+ * Reading clears, which is deliberate. `Player.revealed` invalidates by comparing where it was made
+ * against where the character is standing, and that alone would have a hole: walk out of the room and
+ * back, and the old set matches again, so a reveal you earned minutes ago and walked away from would
+ * light up without looking. Clearing it the first time it reads stale closes that, and keeps the whole
+ * rule in one function rather than at every site that can move a body.
+ *
+ * Empty is the common case by a long way — nobody has looked anywhere — so it costs a comparison.
+ */
+function revealedRooms(player: Player): ReadonlySet<RoomId> {
+  const shown = revealShownIn(player.revealed, player.roomId);
+  // Dropped, not merely ignored — see the note above on walking back.
+  if (shown.size === 0 && player.revealed) player.revealed = undefined;
+  return shown;
+}
+
 function visibleEntities(observer: Player): EntityView[] {
   const grid = world.grid(observer.place);
   if (!grid) return [];
@@ -1331,6 +1349,28 @@ function visibleEntities(observer: Player): EntityView[] {
   // revealed by a torch through the code that was already doing it for players.
   for (const other of sim.actorsIn(observer.roomId)) {
     if (canSee(observer, other)) out.push(sim.viewOf(other));
+  }
+
+  // **Ranged slice 2 — the bodies you peeked at, which no other rule here would send.**
+  //
+  // `DESIGN-ranged.md` guessed these were already on the wire because interest management covers "the
+  // room and its immediate neighbours". That is true of *rooms* and not of *bodies*: the loop above is
+  // `actorsIn(observer.roomId)` and nothing else, so until now a kobold one room west was never sent at
+  // all. Slice 2 is therefore server work, not the client work the plan expected.
+  //
+  // Deliberately **not** through `canSee`: that asks whether the observer's own light reaches the body,
+  // and it never does across a room boundary. `peek` has already answered the question that matters —
+  // the far room lights itself or somebody in it carries a torch — so the gate was passed at the moment
+  // of looking, and re-asking the wrong one here would send nothing.
+  //
+  // Same Place only. A revealed body is drawn at its world position, and positions are tile coordinates
+  // on one grid; a neighbour across a zone or level edge belongs to another and would be drawn at a
+  // meaningless spot on this one.
+  for (const roomId of revealedRooms(observer)) {
+    for (const other of sim.actorsIn(roomId)) {
+      if (!samePlace(other.place, observer.place)) continue;
+      out.push({ ...sim.viewOf(other), revealed: true });
+    }
   }
 
   const pickup = visiblePickup(observer, grid);
@@ -5359,6 +5399,19 @@ function lookDirection(player: Player, dir: Direction): void {
       send(player.id, { t: 'log', channel: 'room', text: "&+LIt's much too dark there for you to see!&N" });
       return;
     case 'view': {
+      // **Ranged slice 2: what you just made out is now on the map, not only in the log.** Recorded
+      // here rather than in `peek` because peeking is a pure question and this is a fact about one
+      // player — and recorded only on `view`, so a shut door, a dark room or the world's edge reveals
+      // nothing, which is the same gate the prose already passes.
+      //
+      // Additive while you stand still: looking west then north shows both, which is what the sentence
+      // "the reveal lasts while you stay put" means when you look twice. Standing somewhere else makes
+      // the whole set unreadable — see `Player.revealed`.
+      player.revealed = afterLook(player.revealed, player.roomId, outcome.room.id);
+      // The same diff every other arrival goes through, so a revealed body enters by `entityEnter` and
+      // leaves by the ordinary rule when the set stops being readable. Nothing bespoke on the wire.
+      syncEntities(player);
+
       if (outcome.door) {
         send(player.id, { t: 'log', channel: 'room', text: `${capitalise(outcome.door)} is open.` });
       }

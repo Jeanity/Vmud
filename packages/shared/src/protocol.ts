@@ -506,6 +506,20 @@ export interface EntityView {
    * the answer to the verb.
    */
   readonly container?: true;
+  /**
+   * **Seen by looking, not by standing there** — ranged slice 2, `DESIGN-ranged.md`.
+   *
+   * A body in the room you peeked into. It is on the wire under a different rule from everything else
+   * here: every other entity passes the observer's own lit-tile gate, and this one deliberately does
+   * not, because `look west` has already established that the far room is lit enough to make out who is
+   * in it. Without the flag the client would receive these and then hide them, since they stand on
+   * ground the character's own light does not reach.
+   *
+   * The reveal is **not** a claim that the body is still there — it is what you saw when you looked, and
+   * it lasts exactly as long as you stay put (the server drops the whole set the moment you move, which
+   * is what stops a peek chaining into the room beyond).
+   */
+  readonly revealed?: true;
   /** Position within the room cell, in tiles. Sub-tile precision for smooth movement. */
   readonly x: number;
   readonly y: number;
