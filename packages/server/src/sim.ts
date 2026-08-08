@@ -6,6 +6,7 @@
  */
 
 import {
+  CLASSES,
   AffectFlag,
   HP_FLOOR,
   PLAYER_SPEED,
@@ -1760,7 +1761,14 @@ export class Simulation {
     // swimming and pay the plain rate. Mobs never pay the surcharge for the reason they never pay
     // encumbrance: their movement is governed by their own clocks, not by a pool they can empty.
     if (SECTOR_REQUIRES_MOVEMENT[to] === 'swim' && isPlayer(actor) && !this.hasSwimAid(actor)) {
-      cost += swimSurcharge(learnedAt(actor.skills.get('swim'), actor.level, 'swim'));
+      cost += swimSurcharge(
+        learnedAt(
+          actor.skills.get('swim'),
+          actor.level,
+          'swim',
+          isPlayer(actor) && actor.identity ? CLASSES[actor.identity.class].group : undefined,
+        ),
+      );
     }
     if (!canAffordStep(actor.move, cost)) return false;
     actor.move -= cost;

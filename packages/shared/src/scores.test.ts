@@ -12,6 +12,7 @@ import { CLASSES, CLASS_IDS, circleAt, knownSpells, knowsSpell, maxManaFor, slot
 import { RACES, RACE_IDS, racialBonus, racialBonuses } from './races.ts';
 import { ABILITIES, abilityMod, type Rng } from './rules.ts';
 import { BONUS_POINTS, readScores, rollScores, scoreWord, spendBonus } from './scores.ts';
+import { ceilingFor, learnedAt } from './skills.ts';
 
 /** An rng that always rolls the same face — 0 → every die shows 1, 0.99 → every die shows max. */
 const always = (fraction: number): Rng => () => fraction;
@@ -181,5 +182,31 @@ describe('circles, slots and mana — slice 2', () => {
     const cleric = maxManaFor('cleric', 1, 20, 100);
     assert.ok(paladin < cleric, 'half-casters pool at half');
     assert.ok(maxManaFor('sorcerer', -4, 1, 80) >= 10, 'the floor holds');
+  });
+});
+
+describe('skill ceilings by temperament — slice 4', () => {
+  it('keys the ceiling on the group, defaulting flat for the identity-less', () => {
+    assert.equal(ceilingFor('slashing-1h'), 95);
+    assert.equal(ceilingFor('slashing-1h', 'warrior'), 95);
+    assert.equal(ceilingFor('slashing-1h', 'wizard'), 25);
+    assert.equal(ceilingFor('bludgeon-1h', 'priest'), 85);
+    assert.equal(ceilingFor('piercing-1h', 'rogue'), 90);
+    assert.equal(ceilingFor('dodge', 'warrior'), 70); // plate is not a dancing costume
+    assert.equal(ceilingFor('dodge', 'rogue'), 90);
+  });
+
+  it('reads zero as training that never happened', () => {
+    assert.equal(ceilingFor('bash', 'wizard'), 0);
+    assert.equal(ceilingFor('bash', 'rogue'), 0);
+    assert.equal(ceilingFor('bash', 'warrior'), 95);
+    assert.equal(ceilingFor('bash', 'priest'), 60);
+  });
+
+  it('clamps the level floor under a low ceiling', () => {
+    // At level 27+ the floor is 40; a wizard's slashing ceiling is 25 and must win.
+    assert.equal(learnedAt(undefined, 50, 'slashing-1h', 'wizard'), 25);
+    assert.equal(learnedAt(undefined, 50, 'slashing-1h', 'warrior'), 40);
+    assert.equal(learnedAt(80, 50, 'dodge', 'rogue'), 80); // ground skill kept under its own roof
   });
 });

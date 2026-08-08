@@ -193,6 +193,7 @@ import {
   characterNameProblem,
   type Ability,
   type AbilityScores,
+  type ClassGroup,
   type AdjacentRoomView,
   type CharacterSummary,
   type ClassId,
@@ -3399,7 +3400,15 @@ function useAbility(player: Player, id: CombatAbilityId, rest: string): void {
     return;
   }
 
-  const learned = learnedAt(player.skills.get(ability.skill), player.level, ability.skill);
+  // Slice 4: a ceiling of zero is not "bad at it", it is "the training never happened" — a wizard
+  // does not bash badly, a wizard does not bash. Free, unlike a failed attempt: you cannot be
+  // charged a round for a move your class has never heard of.
+  if (ceilingFor(ability.skill, groupOf(player)) === 0) {
+    send(player.id, { t: 'log', channel: 'error', text: `Your training never covered ${ability.skill}.` });
+    return;
+  }
+
+  const learned = learnedAt(player.skills.get(ability.skill), player.level, ability.skill, groupOf(player));
   const landed = randomInt(combatRng, 1, 100) <= abilityChance(learned);
 
   // Charged whether it lands or not — the cost is the attempt. Both clocks are set before anything else can
@@ -3542,7 +3551,7 @@ function doRescue(player: Player, rest: string): void {
   const lagMs = Math.round(ROUND_MS);
   sim.addAffect(player, newAffect({ type: 'off_balance', durationMs: lagMs, flags: AffectFlag.NoSave }));
 
-  const learned = learnedAt(player.skills.get('rescue'), player.level, 'rescue');
+  const learned = learnedAt(player.skills.get('rescue'), player.level, 'rescue', groupOf(player));
   // The source's shape, `||` and all — a notch forces the fumble and skips the success roll entirely.
   const fumbled = notchSkill(player, 'rescue', RESCUE_NOTCH_CHANCE) || randomInt(combatRng, 1, 100) > learned;
 
@@ -6340,7 +6349,7 @@ function refitCombat(player: Player): void {
       ? { weaponClass: templateOf(mainHand)!.weaponClass!, ...(mainHand.twoHanded ? { twoHanded: true as const } : {}) }
       : mainHand,
   );
-  const skillBonus = skill === undefined ? 0 : toHitFrom(learnedAt(player.skills.get(skill), player.level, skill));
+  const skillBonus = skill === undefined ? 0 : toHitFrom(learnedAt(player.skills.get(skill), player.level, skill, groupOf(player)));
   // **Phase 20 slice 5: what magic is doing for you, beside what the kit does.** `sumApply` over the
   // affect list — armor's node arrives already compressed through `armourBonusFrom`, so it adds in
   // our AC points exactly as a worn breastplate does, and bless's `hit` is Duris hitroll, which is
@@ -6419,9 +6428,9 @@ function defenceOf(defender: Actor): DefenceSkills {
   }
   const weaponSkill = weaponSkillFor(defender.equipped.mainHand);
   return {
-    dodge: learnedAt(defender.skills.get('dodge'), defender.level, 'dodge'),
-    parry: learnedAt(defender.skills.get('parry'), defender.level, 'parry'),
-    weapon: weaponSkill === undefined ? 0 : learnedAt(defender.skills.get(weaponSkill), defender.level, weaponSkill),
+    dodge: learnedAt(defender.skills.get('dodge'), defender.level, 'dodge', groupOf(defender)),
+    parry: learnedAt(defender.skills.get('parry'), defender.level, 'parry', groupOf(defender)),
+    weapon: weaponSkill === undefined ? 0 : learnedAt(defender.skills.get(weaponSkill), defender.level, weaponSkill, groupOf(defender)),
     // **`unarmed` is a weapon skill but not a weapon.** `weaponSkillFor` answers `unarmed` for an empty
     // hand by design — that is the skill you swing *with* — but `getCharParryVal` refuses outright
     // without an object: *you do not parry a sword with your arm*. So this reads the hand, not the skill.
@@ -6477,8 +6486,8 @@ function notchFromSwing(outcome: AttackOutcome): void {
 function notchSkill(player: Player, skill: SkillId, base: number): boolean {
   const category = SKILLS[skill].category;
   const cooldown = category === 'physical' ? 'notch_physical' : 'notch_mental';
-  const learned = learnedAt(player.skills.get(skill), player.level, skill);
-  const chance = notchChance(base, learned, ceilingFor(skill), {
+  const learned = learnedAt(player.skills.get(skill), player.level, skill, groupOf(player));
+  const chance = notchChance(base, learned, ceilingFor(skill, groupOf(player)), {
     onCooldown: sim.affectsOf(player, cooldown).length > 0,
   });
   if (!rollNotch(combatRng, chance)) return false;
@@ -6512,9 +6521,11 @@ function notchSkill(player: Player, skill: SkillId, base: number): boolean {
  */
 function listSkills(player: Player): void {
   const floor = skillFloor(player.level);
-  const rows = SKILL_IDS.map((id) => {
-    const learned = learnedAt(player.skills.get(id), player.level, id);
-    const ceiling = ceilingFor(id);
+  const rows = SKILL_IDS.filter((id) => ceilingFor(id, groupOf(player)) > 0).map((id) => {
+    // Slice 4's one change to the list: a zero-ceiling skill does not appear at all — a wizard's
+    // sheet showing "bash 0/0 (mastered)" would be the interface lying twice in one line.
+    const learned = learnedAt(player.skills.get(id), player.level, id, groupOf(player));
+    const ceiling = ceilingFor(id, groupOf(player));
     // The owner's own format (2026-08-07): "dodge 12/50" — where you are over where this skill tops
     // out, in one glance. The notes keep saying *why* a number is what it is.
     const note = learned >= ceiling ? ' &+Y(mastered)&N' : learned <= floor ? " &+L(at your level's floor)&N" : '';
@@ -7588,6 +7599,11 @@ function listShopStock(player: Player): void {
 /** The shopper's charisma modifier — CHA's first reader, zero for the identity-less. Phase 21. */
 function shopCha(player: Player): number {
   return player.identity ? abilityMod(player.identity.scores.cha) : 0;
+}
+
+/** Which temperament's ceilings apply — slice 4. Undefined (the flat 95) for the identity-less. */
+function groupOf(player: Player): ClassGroup | undefined {
+  return player.identity ? CLASSES[player.identity.class].group : undefined;
 }
 
 /** `buy <keyword|number>` — the coin leaves, the item arrives, and the bag has to have room. */

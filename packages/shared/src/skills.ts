@@ -42,6 +42,7 @@
  * error; both get no skill rather than a wrong one.
  */
 
+import { type ClassGroup } from './classes.ts';
 import type { ItemTemplate } from './items.ts';
 import { randomInt, type Rng } from './rules.ts';
 
@@ -253,20 +254,81 @@ export function skillFloor(level: number): number {
 }
 
 /**
- * The ceiling, with no classes to ask — **Phase 21's seam, and the whole reason this is a function.**
- *
- * `taught` is `maxlearn[spec]` per class per skill in the source, and we have no classes until Phase 21.
- * One number for everyone until then, and the day the class table arrives this body changes and no
- * caller does.
+ * The ceiling — **Phase 21 slice 4 gave the seam its body**: `taught` is `maxlearn[spec]` per class
+ * per skill in the source, and the class table has arrived. The ceiling is keyed on the class
+ * *group* rather than the class, which is `guild.c`'s own grain — nine classes, four temperaments.
  *
  * **95 rather than 100**, because Duris' teachers stop short of the ceiling: the top of a skill should
  * be somewhere the game can later put a teacher, a quest or a specialisation. A ceiling reached by
  * grinding alone leaves nothing for any of them.
+ *
+ * A group without a row keeps the default; a row of **0 means the training never happened at all** —
+ * a wizard does not bash badly, a wizard does not bash. The verbs read that as a refusal. The
+ * identity-less (pre-phase characters, and every mob path that asks) get the flat ceiling, exactly
+ * as before the slice.
  */
 export const SKILL_CEILING = 95;
 
-export function ceilingFor(_skill: SkillId): number {
-  return SKILL_CEILING;
+/** The four temperaments' `maxlearn` rows. Sparse: an absent skill sits at {@link SKILL_CEILING}. */
+const GROUP_CEILINGS: Readonly<Record<ClassGroup, Readonly<Partial<Record<SkillId, number>>>>> = {
+  // Weapons and the fighting verbs at the full 95; the warrior's one soft spot is pure evasion —
+  // plate is not a dancing costume.
+  warrior: { dodge: 70 },
+  priest: {
+    'bludgeon-1h': 85,
+    'bludgeon-2h': 85,
+    'slashing-1h': 40,
+    'piercing-1h': 40,
+    'flaying-1h': 40,
+    'slashing-2h': 40,
+    'flaying-2h': 40,
+    reach: 40,
+    unarmed: 60,
+    dodge: 60,
+    parry: 55,
+    bash: 60,
+    kick: 50,
+    rescue: 60,
+    swim: 90,
+  },
+  wizard: {
+    'piercing-1h': 45,
+    'bludgeon-1h': 40,
+    'bludgeon-2h': 55,
+    'slashing-1h': 25,
+    'flaying-1h': 25,
+    'slashing-2h': 25,
+    'flaying-2h': 25,
+    reach: 30,
+    unarmed: 40,
+    dodge: 50,
+    parry: 30,
+    bash: 0,
+    kick: 40,
+    rescue: 30,
+    swim: 85,
+  },
+  rogue: {
+    'piercing-1h': 90,
+    'slashing-1h': 85,
+    'bludgeon-1h': 60,
+    'flaying-1h': 60,
+    'slashing-2h': 45,
+    'bludgeon-2h': 45,
+    'flaying-2h': 45,
+    reach: 45,
+    unarmed: 70,
+    dodge: 90,
+    parry: 70,
+    bash: 0,
+    kick: 75,
+    rescue: 50,
+  },
+};
+
+export function ceilingFor(skill: SkillId, group?: ClassGroup): number {
+  if (!group) return SKILL_CEILING;
+  return GROUP_CEILINGS[group][skill] ?? SKILL_CEILING;
 }
 
 /**
@@ -284,8 +346,8 @@ export function ceilingFor(_skill: SkillId): number {
  * level is worth — and it is the price of not writing 9 rows into every character's file at every
  * level-up.
  */
-export function learnedAt(stored: number | undefined, level: number, skill: SkillId): number {
-  return Math.min(ceilingFor(skill), Math.max(skillFloor(level), stored ?? 0));
+export function learnedAt(stored: number | undefined, level: number, skill: SkillId, group?: ClassGroup): number {
+  return Math.min(ceilingFor(skill, group), Math.max(skillFloor(level), stored ?? 0));
 }
 
 /* -------------------------------------------------------------------------- */
