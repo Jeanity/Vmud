@@ -9,9 +9,11 @@
   ],
   "scripts": {
     "dev": "concurrently -n server,client,admin -c cyan,magenta,yellow \"npm:dev:server\" \"npm:dev:client\" \"npm:dev:admin\"",
+    "dev:supervised": "concurrently -n supervisor,client,admin -c green,magenta,yellow \"npm:supervisor\" \"npm:dev:client\" \"npm:dev:admin\"",
     "dev:server": "npm run dev --workspace @mygame/server",
     "dev:client": "npm run dev --workspace @mygame/client",
     "dev:admin": "npm run dev --workspace @mygame/admin",
+    "supervisor": "node --disable-warning=ExperimentalWarning packages/server/src/supervisor.ts",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",

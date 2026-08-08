@@ -9540,19 +9540,37 @@ setInterval(() => {
   }
 }, TICK_MS);
 
+/**
+ * Flush everything a connected character is holding, then go.
+ *
+ * `PlayerStore` writes on a debounce, so anything not captured here is worth up to
+ * `SAVE_DEBOUNCE_MS` of lost progress on every exit.
+ */
+function shutdown(): void {
+  // Nobody's socket closes on a restart, so the burn each connected player is holding has to be
+  // captured here or every `node --watch` reload hands them back a full torch.
+  for (const player of sim.allPlayers()) {
+    rememberAffects(player);
+    rememberVitals(player);
+    rememberProgress(player);
+  }
+  store.flushAll();
+  process.exit(0);
+}
+
 // `node --watch` restarts on SIGTERM/SIGINT; without this, up to SAVE_DEBOUNCE_MS of exploration
 // is lost on every code change.
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(signal, () => {
-    // Nobody's socket closes on a restart, so the burn each connected player is holding has to be
-    // captured here or every `node --watch` reload hands them back a full torch.
-    for (const player of sim.allPlayers()) {
-      rememberAffects(player);
-      rememberVitals(player);
-      rememberProgress(player);
-    }
-    store.flushAll();
-    process.exit(0);
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, shutdown);
+
+// The same exit, asked for over the IPC channel instead of by a signal — `supervisor.ts`'s Stop and
+// Restart. **It has to be a message rather than a signal, and the reason is Windows**: there are no
+// POSIX signals there, so a parent's `child.kill('SIGTERM')` is `TerminateProcess` and the handler
+// above never runs. A restart button that silently cost every player their last few seconds would
+// be worse than no button. Wired only when a channel exists, so nothing changes when this process
+// is started by hand.
+if (process.channel) {
+  process.on('message', (message: unknown) => {
+    if ((message as { t?: unknown } | null)?.t === 'shutdown') shutdown();
   });
 }
 

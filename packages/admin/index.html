@@ -294,6 +294,24 @@
         color: var(--warn);
       }
       .muted { color: var(--dim); }
+
+      /* A10. The supervisor's log tail. Fixed height and scrolled rather than growing the page:
+         this pane is polled every 1.5s, and a card that changed height on every poll would walk the
+         buttons above it out from under the pointer. */
+      .sup-log {
+        margin: 0;
+        max-height: 46vh;
+        overflow: auto;
+        font-size: 12px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #cfd8c0;
+        background: #11140e;
+        border: 1px solid var(--edge);
+        border-radius: 2px;
+        padding: 8px 10px;
+      }
       /* Items. A search result is a scan target, so the rows are dense and the vnum is a fixed
          column — neighbouring vnums are the same builder's work and the eye follows the number. */
       .controls { display: flex; gap: 8px; margin-bottom: 10px; }

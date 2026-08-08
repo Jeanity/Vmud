@@ -50,9 +50,87 @@ export async function call<T>(method: string, path: string, body?: unknown): Pro
   }
 }
 
+/**
+ * The same call, aimed at the **supervisor** instead of the game server.
+ *
+ * A separate function rather than a path argument, because the difference is not cosmetic: this one
+ * reaches a different process on a different port, and it is the only part of the panel expected to
+ * work while the game server is down. Its unreachable message says so — "is the supervisor running"
+ * is a different question from "is the game running", and answering the first with the second is how
+ * an operator ends up restarting something that was never the problem.
+ */
+export async function callSupervisor<T>(method: string, path: string, body?: unknown): Promise<ApiResult<T>> {
+  try {
+    const response = await fetch(`/supervisor/api${path}`, {
+      method,
+      headers: {
+        'x-admin-token': storedToken(),
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    const parsed: unknown = await response.json().catch(() => undefined);
+    if (!response.ok) {
+      const error =
+        typeof (parsed as { error?: unknown } | undefined)?.error === 'string'
+          ? (parsed as { error: string }).error
+          : `${response.status} ${response.statusText}`;
+      return { ok: false, status: response.status, body: undefined, error };
+    }
+    return { ok: true, status: response.status, body: parsed as T, error: undefined };
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      body: undefined,
+      error: 'supervisor unreachable — is `npm run supervisor` running?',
+    };
+  }
+}
+
 /* -------------------------------------------------------------------------- */
 /* Response shapes — hand-written mirrors of what `server/src/admin.ts` sends   */
 /* -------------------------------------------------------------------------- */
+
+/* ---- A10: the supervisor -------------------------------------------------- */
+
+/** Mirrors `supervisor.ts`'s `statusBody`. */
+export interface SupervisorBody {
+  ok: boolean;
+  supervisor: {
+    startedAt: number;
+    uptimeMs: number;
+    port: number;
+    gamePort: number;
+    token: string;
+    giveUpAfter: number;
+    command: string;
+  };
+  server: {
+    state: 'up' | 'starting' | 'backoff' | 'stopped' | 'gave-up';
+    /** The state as a sentence, written server-side so the two cannot disagree. */
+    detail: string;
+    pid: number | null;
+    since: number | null;
+    uptimeMs: number | null;
+    /** Milliseconds from spawn to the first `/health` answer. */
+    readyMs: number | null;
+    restarts: number;
+    failures: number;
+    backoffUntil: number | null;
+    attempt: number | null;
+    lastExit: { at: number; code: number | null; signal: string | null; text: string; ranMs: number } | null;
+  };
+  /** What the game server itself says — the only honest source for "how many am I about to drop". */
+  game: { reachable: boolean; players: number | null; zones: number | null };
+  log: { total: number; dropped: number };
+}
+
+export interface SupervisorLogBody {
+  lines: { seq: number; at: number; stream: 'out' | 'err' | 'sup'; text: string }[];
+  total: number;
+  dropped: number;
+}
 
 export interface StatusBody {
   ok: boolean;

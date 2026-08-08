@@ -21,6 +21,14 @@ export default defineConfig({
         target: 'http://127.0.0.1:8787',
         changeOrigin: false,
       },
+      // A10: the supervisor, on its own port and deliberately **not** behind the game server. Every
+      // other route here dies with 8787, which is exactly why lifecycle cannot live there — the
+      // Server section has to keep answering while the thing it restarts is down. See
+      // `server/src/supervisor.ts`.
+      '/supervisor': {
+        target: 'http://127.0.0.1:8790',
+        changeOrigin: false,
+      },
     },
   },
 });

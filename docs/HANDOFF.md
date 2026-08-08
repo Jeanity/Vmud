@@ -41,23 +41,31 @@ Two standing lessons for anyone picking this up after the next letter shuffle:
 ## Run it
 
 ```bash
-npm install          # once
-npm run dev          # server + client + admin panel together
-npm run typecheck    # tsc across all five packages
-npm test             # 1,680 tests
-npm run worldgen     # rebuild world JSON from the zMUD source DB
+npm install            # once
+npm run dev            # server + client + admin panel together
+npm run dev:supervised  # the same, but the server runs under the supervisor (A10)
+npm run typecheck      # tsc across all five packages
+npm test               # 1,739 tests
+npm run worldgen       # rebuild world JSON from the zMUD source DB
 ```
 
 Client on **5273**, game server on **8787**, admin panel on **5274** (`npm run dev` starts all
 three). The server reads **`GAME_PORT`, never `PORT`** — dev harnesses set `PORT` for the web server
 and `concurrently` passes it to every child.
 
+**`npm run dev` and `npm run dev:supervised` are alternatives, never both.** The first runs the
+server under `node --watch`, which is what you want while editing code. The second runs it under the
+**supervisor** on **8790** (`SUPERVISOR_PORT`, and it reads that and never `PORT` either), which is
+what you want while *operating* it — the panel's Server tab can then stop and start it, and it comes
+back on its own when it crashes. Running both would put two things on `GAME_PORT`, and gotcha 2 says
+Windows would tell you that succeeded.
+
 Which zones load is **data, not code**: `world.config.json` at the repo root. Adding a zone id there
 and restarting is the whole of "installing" a zone.
 
 ## State: green
 
-- **1,680 tests** (919 server, 618 shared, 143 worldgen), typecheck clean across all five packages.
+- **1,739 tests** (952 server, 644 shared, 143 worldgen), typecheck clean across all five packages.
   Four of the server's are `world.test.ts`'s, which **skip themselves when `data/world` is absent** —
   a fresh clone or a new worktree reports fewer until `npm run worldgen` has run.
 - **Connecting now takes an account** — protocol 23, `DESIGN-accounts.md`. In dev:
@@ -469,17 +477,36 @@ sees nothing for a mob that never moves and never fights, and reads as a server 
 there. All three paths build their views through `sim.viewOf`, which is the only thing in the
 project that constructs an `EntityView`.
 
+**Track A's biggest operator row is now closed: the server-lifecycle supervisor landed as A10.** The
+panel can start, stop and restart the game server, and it keeps answering while the game server does
+not — which is the whole of why lifecycle could not be a route on the thing it restarts. A **separate
+process** (`server/src/supervisor.ts`) owns the game server as a child and serves `/supervisor/api`
+on **8790**; `supervisor-policy.ts` holds the decisions and **imports nothing**, because a supervisor
+that reached into `@mygame/shared` would die of the parse error it exists to report. Crash detection
+restarts on a **1-2-4-8-16 s** ladder and **gives up after 5**, with the count resetting after 60 s of
+healthy uptime — without that reset the counter is a lifetime tally and a server that crashed once in
+a week would be judged against restarts from the week before. Driven end to end: five kills by pid
+walked the whole ladder and then *gave up*; a stop exits **code 0** in 395 ms; and with the server
+down, `/admin/api/status` answered nothing at all while the Server tab answered **200 · stopped by
+the operator** through the same panel origin.
+
+**Two things it taught that are worth carrying.** The game server's `SIGINT`/`SIGTERM` flush
+**cannot be reached from a parent on Windows** — `child.kill` is `TerminateProcess` there and no
+handler runs — so the polite stop goes over an **IPC channel** (`index.ts` wires it when
+`process.channel` exists) with the signals as escalation behind it; the exit code is how you tell
+which path ran, `0` against `4294967295`. And a forced kill on Windows *reports* `4294967295`, which
+is why the status card renders large codes beside their hex. `docs/DESIGN-admin-panel.md` §10 has the
+rest, including why the token stays optional (the argv is fixed in the file, so no route can ask it to
+run a command).
+
 **What next, with no numbered phase left**: the parking lot's agreed rows (either-hand weapons →
-dual-wield, opening moves on the mob click menu, weapon procs, whisper's room half), Track A's
-**server-lifecycle supervisor** (the biggest operator row standing), the **mob and worn-gear art
+dual-wield, opening moves on the mob click menu, weapon procs, whisper's room half), the **mob and worn-gear art
 drawing problem** (Phase 15's tail, and the whole visual ceiling now), and the spells inheritance
 (memorization times, spellbooks, penetration, globes). Two chips were open: does admin-spawn merge
 authored spells, and the creation card's mid-disconnect recovery — the second is now closed, a
 reconnect replaying whatever protocol 24 state the old socket held (`login.ts`'s `resumeChargen`,
 decided by the pure `chargenResumeAction` in `shared/src/chargen-resume.ts`) rather than leaving the
 card stuck over a dead connection.
-
-### Before that — earlier the same day
 
 **Phase 21 opened the same day accounts closed — designed whole, slice 1 built and driven.** The
 owner took the three decisions ([DESIGN-characters.md](DESIGN-characters.md)): nine races (the

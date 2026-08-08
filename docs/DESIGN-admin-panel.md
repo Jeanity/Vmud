@@ -92,6 +92,7 @@ follows.
 | **Dashboard** | with players slice | `/health` grown up: uptime, zones and places loaded, populated zones, players online, tick and round lengths, protocol version |
 | **Players** | **built first** | §6 below |
 | **Messaging** | **built (A2)** | global announcement, line to a place, line to a room, line to a player. One endpoint with an optional target rather than three, because the validation, the audit line and the "how many heard it" answer are identical and only the set of listeners differs. The player-targeted half lives in the player editor, where you can already see who you are talking to |
+| **Server** | **built (A10)** | §10 below — start, stop, restart, crash detection and the console tail. **The one section not served by the game server**, because two of its three verbs cannot be: it talks to a supervisor on its own port, which is what lets it report an outage instead of joining it |
 | **World rules** | **built (15b)** | §9 below — the switches that change how the world behaves for everyone. One today: player killing |
 | **Zones** | **built (A3), read-only** | read first: zone list, room browser with flags/sector/prose, door states, repop clocks. Live ops second: force a repop, work a door. Authoring last, as §1 overlays: room prose, flags, sector |
 | **Mobs** | with zones | live: instances by zone, slay, spawn from template. Authoring: template overrides (name, level, combat numbers, aggro) as §1 overlays over the harvested spawn files |
@@ -281,3 +282,116 @@ operator chose, and restoring is a **stop-the-server** operation anyway: charact
 memory while someone is online and written out afterwards, so a file replaced under a running server is
 overwritten by what the server still holds. The panel says both of those things instead of automating
 half of one.
+
+---
+
+## 10. The supervisor — lifecycle, and the one thing §1 cannot serve
+
+Added with A10 (2026-08-08), on the owner's ask of 2026-08-03: *start, restart and stop the server
+from the admin dashboard*.
+
+### Why it is a process and not a route
+
+§1's rule — the game server is the only writer, the panel is a client of it — holds for every
+operation in this document except these three, and it is worth being precise about which part
+breaks. **Stop** can in fact be served by the process it kills; what cannot be served is everything
+*after* it, because the thing answering is gone. **Start** has to be answered by something running
+while the game server is not. **Restart** is both. So lifecycle needs a survivor, and a survivor
+cannot be a route on the thing it restarts.
+
+That inverts this document's usual dependency, and the components are shaped around it:
+
+```
+packages/server/src/supervisor.ts          the process: spawns, monitors, serves /supervisor/api
+packages/server/src/supervisor-policy.ts   the decisions: backoff, the ring, exit bookkeeping
+packages/admin/src/sections/supervisor.ts  the Server tab — the one section not served by the game
+```
+
+**`supervisor-policy.ts` imports nothing, and `supervisor.ts` imports only node builtins and it.**
+The supervisor exists to be running when the game server is not, *including when it is not running
+because it does not parse* — so reaching for `admin.ts`'s `LOOPBACK`, or anything through
+`@mygame/shared`, would make it die of the fault it exists to report. The loopback set is duplicated
+for exactly that reason, and the duplication is cheaper than the coupling.
+
+### Ports, and what it owns
+
+`SUPERVISOR_PORT`, default **8790**, loopback only. `PORT` is not read here any more than it is in
+`index.ts` — `CLAUDE.md` gotcha 2, and this process is started by `concurrently`, which is exactly
+where that trap is laid. `GAME_PORT` is passed down to the child explicitly, so what status reports
+and what the child binds cannot drift apart.
+
+**It owns the game server and nothing else.** `npm run dev` runs three children; the two Vite servers
+are deliberately not the supervisor's business, because they hold no state, survive a restart
+untouched, and the panel staying up *while the game server is down* is the whole point.
+`npm run dev:supervised` is the operator's arrangement — supervisor plus the two Vite servers — so
+nothing runs two things that start a game server. It also spawns **without `node --watch`**: a
+watcher under a supervisor restarts the process without the parent seeing an exit, which would make
+the pid a lie and freeze the crash counter.
+
+### Stopping gracefully, and why a signal is not enough
+
+`PlayerStore` writes on a debounce, so a hard kill costs everyone up to `SAVE_DEBOUNCE_MS` of
+progress — a restart button that quietly ate the last kill would be worse than no button. The game
+server already flushes on `SIGINT`/`SIGTERM`, but **that handler cannot be reached from a parent on
+Windows**: there are no POSIX signals there, `child.kill('SIGTERM')` is `TerminateProcess`, and the
+handler never runs on the platform this is developed on. So the polite request goes over the **IPC
+channel** — `index.ts` wires `shutdown` to a `{t:'shutdown'}` message when `process.channel` exists —
+and the signals are the escalation behind it: ask, then `SIGTERM`, then `SIGKILL`.
+
+**The exit code is the proof.** A graceful stop exits `0`; a forced kill on Windows exits
+`4294967295`. Measured on the drive: stop in 395 ms, code 0, no escalation.
+
+### Crash detection
+
+A child that dies without being asked is restarted on a **1-2-4-8-16 s** ladder and **given up on
+after 5** consecutive failures. Two rules make that honest rather than arbitrary:
+
+- **The count resets after a healthy run** (60 s up). Without it the counter is a lifetime tally, and
+  a server that ran for a week and crashed once would be judged against restarts from the week
+  before — a supervisor that gives up on the first crash in seven days is one nobody keeps running.
+- **Giving up is a state of its own**, distinct from *stopped*. Both mean nothing is running; only
+  one means read the log first. A supervisor that retried for ever would write the same failure into
+  the ring a thousand times and push the first — the only one with the real cause above it — out the
+  back.
+
+An **unexpected clean exit is not a crash** and is not restarted: the supervisor cannot tell a
+deliberate shutdown from a quiet fall-over, and of the two available mistakes, fighting an operator
+who meant it is the one that loops.
+
+### The log is a tail, not an audit
+
+The last 1,000 lines of the child's output, in memory, with the supervisor's own notes interleaved.
+§4's `data/admin-audit.jsonl` is the permanent record of what an operator *did*; this is the
+server's console, which is unbounded and whose value decays in minutes. Chunks are split into lines
+with a partial held **per stream**, and the partial is published when the pipe closes — a process
+that dies mid-write leaves no trailing newline, and that line usually names the cause.
+
+### Auth
+
+The same three layers as §3 and the same `GAME_ADMIN_TOKEN`, so an operator sets one token and the
+panel's one field reaches both surfaces: loopback bind, loopback check on every request, a mandatory
+`x-admin-token` header whose *presence* is the CSRF defence, and the value checked when one is set.
+
+**This is the most security-sensitive surface in the project, so the argument for leaving the token
+optional in dev is made rather than inherited.** It rests on one property, enforced by construction:
+**the argv is fixed in the file.** No route on any path accepts a command, so the supervisor starts
+exactly one program with exactly one set of arguments — a token nobody set therefore costs an
+unauthorised loopback caller a game-server restart, not a shell. The day this binds anything but
+loopback that argument expires with the bind, and `requireToken` is the one place that changes.
+
+### API
+
+```
+GET  /supervisor/api/status               state, pid, uptime, readiness, restarts, last exit, and
+                                          the game's own /health (players, zones)
+GET  /supervisor/api/log?limit=&since=    the ring, oldest first
+POST /supervisor/api/start
+POST /supervisor/api/stop                 {announce?: string | false}
+POST /supervisor/api/restart              {announce?: string | false}
+```
+
+A stop or restart **announces itself world-wide first**, through A2's own endpoint and best effort:
+a server too wedged to answer is one that especially needs stopping, so a failed announcement never
+blocks the stop. The panel's confirm names how many people are online, read off the game's own
+`/health` rather than guessed here — *"restart?"* with no number is a question an operator answers
+wrongly.

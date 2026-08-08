@@ -13,6 +13,7 @@ import { messagingSection } from './sections/messaging.ts';
 import { itemsSection } from './sections/items.ts';
 import { mobsSection } from './sections/mobs.ts';
 import { playersSection } from './sections/players.ts';
+import { supervisorSection } from './sections/supervisor.ts';
 import { worldSection } from './sections/world.ts';
 import { zonesSection } from './sections/zones.ts';
 import { stubSection } from './sections/stubs.ts';
@@ -31,6 +32,9 @@ const SECTIONS: Section[] = [
   dashboardSection,
   playersSection,
   messagingSection,
+  // A10. Deliberately above the content sections: it is the one that answers when the game server
+  // is down, so it is where an operator goes first when the rest of the panel has gone blank.
+  supervisorSection,
   worldSection,
   zonesSection,
   mobsSection,
