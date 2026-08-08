@@ -9,9 +9,13 @@
 import Phaser from 'phaser';
 
 import {
+  ABILITIES,
+  abilityMod,
+  CLASSES,
   LPC_ART_BY_ID,
   LPC_SHEET_GEOMETRY,
   PLAYER_SPEED,
+  RACES,
   ROOM_TILES,
   parseArtId,
   TILE_SIZE,
@@ -1942,6 +1946,20 @@ export class WorldScene extends Phaser.Scene {
 
     this.net.on('self', (message) => {
       setText('hud-name', `${message.view.name}  lvl ${message.view.level}`);
+      // Protocol 24: who you are, under the name — and the sheet's numbers, words' opposite.
+      // A pre-identity character shows nothing here, exactly as before the phase.
+      const who = document.getElementById('hud-who');
+      if (who) {
+        const identity = message.view.identity;
+        who.textContent = identity ? `${RACES[identity.race].name} ${CLASSES[identity.class].name}` : '';
+        who.title = identity
+          ? ABILITIES.map(
+              (a) =>
+                `${a.toUpperCase()} ${identity.scores[a]} (${abilityMod(identity.scores[a]) >= 0 ? '+' : ''}${abilityMod(identity.scores[a])})`,
+            ).join('  ')
+          : '';
+        who.hidden = !identity;
+      }
       this.setSelfRoom(message.view.roomId);
       this.applyLight(message.view.lightRadius, message.view.light);
       this.applyEquipment(message.view.light, message.view.equipped);

@@ -10,8 +10,11 @@
  * structure and keeps bandwidth flat no matter how large the world grows.
  */
 
+import type { ClassId } from './classes.ts';
 import type { Equipped } from './equipment.ts';
 import type { Posture, Status } from './position.ts';
+import type { RaceId } from './races.ts';
+import type { Ability } from './rules.ts';
 import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
 
 /**
@@ -267,15 +270,24 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * nothing: it has been on the view since protocol 8 with the promise that a sleeping stranger looks
  * asleep — this is the version where a client finally reads it.
  *
- * Is 23: the door gets a lock — `DESIGN-accounts.md`, and the reason accounts were pulled ahead of
+ * Was 23: the door gets a lock — `DESIGN-accounts.md`, and the reason accounts were pulled ahead of
  * Phase 21: the *first message changes*, so every phase shipped before this one made it more
  * expensive. `hello` is removed, not deprecated — a name is no longer an identity. In its place the
  * handshake is `auth` (account + password, or a resume token) answered by `account` (your character
  * list) or `authFailed` (the socket survives, unlike `rejected`, because a mistyped password is not
  * a protocol violation), then `enter` picks or creates a character and everything from `welcome` on
  * is exactly what protocol 22 sent.
+ *
+ * Is 24: a body is made, not assumed — DESIGN-characters.md §6, and the owner's own ask. Between
+ * `account` and `enter` sits a conversation: `charCreate` names a race and a class (or neither,
+ * when adopting), `charRolled` answers in the source's *words* — never numbers, that is the rule —
+ * `charCreate` again rerolls, and `charConfirm` (carrying any bonus spend) mints the identity and
+ * refreshes the `account` list for the client to enter. A pre-phase character entered bare gets
+ * `charAdopt` instead of `welcome`: same cards, no name step, level and map kept. `SelfView` gains
+ * `identity` (race, class, the six scores — the sheet shows numbers; the roll showed words) and
+ * {@link CharacterSummary} gains `race`/`class`, so the picker can say what a body is.
  */
-export const PROTOCOL_VERSION = 23;
+export const PROTOCOL_VERSION = 24;
 
 /**
  * One member of your group, as the roster draws them — protocol 19.
@@ -507,6 +519,15 @@ export interface RoomView {
 export interface SelfView {
   readonly id: EntityId;
   readonly name: string;
+  /**
+   * Race, class and the six scores — protocol 24. *Numbers* here, words at the roll: the sheet is
+   * where the arithmetic lives (owner's rule, 2026-08-08). Absent until the character has adopted.
+   */
+  readonly identity?: {
+    readonly race: RaceId;
+    readonly class: ClassId;
+    readonly scores: Readonly<Record<Ability, number>>;
+  };
   readonly level: number;
   readonly hp: number;
   readonly maxHp: number;
@@ -618,6 +639,19 @@ export type ClientMessage =
    * after `account` has been received.
    */
   | { readonly t: 'enter'; readonly name: string }
+  /**
+   * Start (or reroll) a character — protocol 24. With `name`, a fresh mint: the name must pass the
+   * law and be free. Without `name`, the connection must already be adopting (the server answered
+   * an `enter` with `charAdopt`). Sending it again rerolls; the bonus points reset with the dice.
+   */
+  | {
+      readonly t: 'charCreate';
+      readonly name?: string;
+      readonly race: RaceId;
+      readonly class: ClassId;
+    }
+  /** Take the roll, spending bonus points if any — the mint. Refused with `authFailed` if the spend overreaches. */
+  | { readonly t: 'charConfirm'; readonly spend?: Readonly<Partial<Record<Ability, number>>> }
   /** Walk one room in a direction. The server decides whether it is legal. */
   | { readonly t: 'move'; readonly dir: Direction }
   /** Sub-room movement intent: a normalised direction vector held since the last tick. */
@@ -739,6 +773,9 @@ export interface CharacterSummary {
   readonly level?: number;
   /** ISO timestamp of the last save, absent for a character never yet flushed. */
   readonly lastPlayed?: string;
+  /** Who they are — protocol 24. Absent on a pre-phase save, which is how the picker knows to say so. */
+  readonly race?: RaceId;
+  readonly class?: ClassId;
 }
 
 export type ServerMessage =
@@ -769,6 +806,24 @@ export type ServerMessage =
       readonly max: number;
       readonly resume: string;
     }
+  /**
+   * The roll, in the source's words — protocol 24, and deliberately never numbers: *"you learn
+   * your character is strong, not that it is 88"* survives the change of scale. One word per
+   * ability, the bonus points waiting, and the class minimums already satisfied inside the roll.
+   */
+  | {
+      readonly t: 'charRolled';
+      readonly race: RaceId;
+      readonly class: ClassId;
+      readonly words: Readonly<Record<Ability, string>>;
+      readonly bonus: number;
+    }
+  /**
+   * The character you tried to enter predates identities — pick who they always were. The same
+   * cards as creation minus the name; level, map and kit are kept, and `charCreate` (nameless)
+   * is the next legal message.
+   */
+  | { readonly t: 'charAdopt'; readonly name: string }
   /**
    * The map the player is now standing on. Sent on join **and again on every arrival at a new
    * {@link Place}** — a different zone, or a different level of the same zone.

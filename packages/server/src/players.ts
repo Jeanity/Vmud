@@ -346,6 +346,9 @@ export interface StoredSummary {
   readonly wound: { hp: number; mana: number; move: number } | undefined;
   /** The stored level, when one is recorded. See {@link PlayerRecord.progress}. */
   readonly level: number | undefined;
+  /** Who they are, when the save carries it — protocol 24's picker line. */
+  readonly race: RaceId | undefined;
+  readonly class: ClassId | undefined;
 }
 
 /**
@@ -869,6 +872,8 @@ export class PlayerStore {
           affectCount: cached.affects.length,
           wound: cached.missing ? { ...cached.missing } : undefined,
           level: cached.progress?.level,
+          race: cached.identity?.race,
+          class: cached.identity?.class,
         });
         continue;
       }
@@ -900,6 +905,8 @@ export class PlayerStore {
         affectCount: record.affects.length,
         wound: record.missing,
         level: record.progress?.level,
+        race: record.identity?.race,
+        class: record.identity?.class,
       });
     }
     return out.sort((a, b) => a.slug.localeCompare(b.slug));

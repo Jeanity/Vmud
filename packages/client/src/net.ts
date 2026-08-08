@@ -68,8 +68,12 @@ export class Net {
   }
 
   send(message: ClientMessage): void {
-    // The handshake's own messages bypass the queue and the `entered` gate — they are what ends it.
-    const handshake = message.t === 'auth' || message.t === 'enter';
+    // The handshake's own messages bypass the queue and the `entered` gate — they are what ends
+    // it. Protocol 24 widened the set: the creation conversation happens before any `welcome`, so
+    // queueing it against one would deadlock the door it is trying to open — found live, when the
+    // first race card's `charCreate` sat in the queue waiting for the world it was meant to mint.
+    const handshake =
+      message.t === 'auth' || message.t === 'enter' || message.t === 'charCreate' || message.t === 'charConfirm';
     if (this.socket && this.socket.readyState === WebSocket.OPEN && (handshake || this.entered)) {
       this.socket.send(encode(message));
       return;

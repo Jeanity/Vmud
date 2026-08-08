@@ -26,7 +26,20 @@
  * it.
  */
 
-import { PROTOCOL_VERSION, type CharacterSummary, type ServerMessage } from '@mygame/shared';
+import {
+  ABILITIES,
+  CLASSES,
+  CLASS_IDS,
+  PROTOCOL_VERSION,
+  RACES,
+  RACE_IDS,
+  racialBonuses,
+  type Ability,
+  type CharacterSummary,
+  type ClassId,
+  type RaceId,
+  type ServerMessage,
+} from '@mygame/shared';
 
 import type { Net } from './net.ts';
 
@@ -47,9 +60,34 @@ export class LoginGate {
   private readonly newForm: HTMLFormElement;
   private readonly newName: HTMLInputElement;
   private readonly pickerError: HTMLElement;
+  private readonly chargenPanel: HTMLElement;
+  private readonly chargenTitle: HTMLElement;
+  private readonly chargenGrid: HTMLElement;
+  private readonly chargenRoll: HTMLElement;
+  private readonly chargenScores: HTMLElement;
+  private readonly chargenBonus: HTMLElement;
+  private readonly chargenError: HTMLElement;
 
   /** Which step is waiting on the server, so `authFailed` lands under the right caret. */
-  private pending: 'none' | 'auth' | 'resume' | 'enter' | 'autoEnter' = 'none';
+  private pending: 'none' | 'auth' | 'resume' | 'enter' | 'autoEnter' | 'chargen' = 'none';
+  /**
+   * The creation card's held state — protocol 24. `name` for a fresh mint, `adoptName` when a
+   * pre-identity save is deciding who it always was; the spend is client-side bookkeeping the
+   * server re-validates at the confirm.
+   */
+  private chargen:
+    | {
+        name?: string;
+        adoptName?: string;
+        race?: RaceId;
+        class?: ClassId;
+        words?: Readonly<Record<Ability, string>>;
+        bonus: number;
+        spend: Partial<Record<Ability, number>>;
+      }
+    | undefined;
+  /** Entered the moment the refreshed `account` list confirms the mint. */
+  private pendingEnter: string | undefined;
   /** True while the current `auth` was sent without the user typing — resume or URL params. */
   private handsFree = false;
   /**
@@ -84,6 +122,13 @@ export class LoginGate {
     this.newForm = grab('login-new') as HTMLFormElement;
     this.newName = grab('login-new-name') as HTMLInputElement;
     this.pickerError = grab('login-picker-error');
+    this.chargenPanel = grab('login-chargen');
+    this.chargenTitle = grab('chargen-title');
+    this.chargenGrid = grab('chargen-grid');
+    this.chargenRoll = grab('chargen-roll');
+    this.chargenScores = grab('chargen-scores');
+    this.chargenBonus = grab('chargen-bonus');
+    this.chargenError = grab('chargen-error');
 
     this.nameInput.value = readSession(ACCOUNT_KEY) ?? '';
 
@@ -107,7 +152,43 @@ export class LoginGate {
     this.newForm.addEventListener('submit', (event) => {
       event.preventDefault();
       const name = this.newName.value.trim();
-      if (name) this.enter(name, 'enter');
+      // Protocol 24: a new name opens the creation cards; only `enter` on an existing body skips
+      // them. The server still owns every refusal — the cards are pages, not permissions.
+      if (name) this.startChargen({ name });
+    });
+
+    grab('chargen-back').addEventListener('click', () => {
+      this.chargen = undefined;
+      this.pendingEnter = undefined;
+      if (this.lastAccount) {
+        this.showPicker(this.lastAccount.account, this.lastAccount.characters, this.lastAccount.max);
+      } else {
+        this.showForm();
+      }
+    });
+    grab('chargen-reroll').addEventListener('click', () => this.sendCreate());
+    grab('chargen-confirm').addEventListener('click', () => {
+      const held = this.chargen;
+      if (!held || !held.words) return;
+      this.pending = 'chargen';
+      this.pendingEnter = held.adoptName ?? held.name;
+      this.net.send({ t: 'charConfirm', spend: held.spend });
+    });
+
+    net.on('charRolled', (message) => {
+      const held = this.chargen;
+      if (!held) return;
+      this.pending = 'none';
+      held.words = message.words;
+      held.bonus = message.bonus;
+      held.spend = {};
+      this.showRoll();
+    });
+
+    net.on('charAdopt', (message) => {
+      // The body predates identities: same cards, no name step, history kept.
+      this.pending = 'none';
+      this.startChargen({ adoptName: message.name });
     });
 
     grab('login-switch').addEventListener('click', () => {
@@ -121,6 +202,14 @@ export class LoginGate {
     net.on('account', (message) => {
       this.lastAccount = message;
       writeSession(RESUME_KEY, message.resume);
+      if (this.pendingEnter) {
+        // The refreshed list is the mint's success signal — walk straight into the new body.
+        const target = this.pendingEnter;
+        this.pendingEnter = undefined;
+        this.chargen = undefined;
+        this.enter(target, 'enter');
+        return;
+      }
       const wanted = params().get('character') ?? readSession(CHARACTER_KEY) ?? undefined;
       // Hands-free auth walks straight back into the remembered body; a typed login came to choose.
       if (this.handsFree && wanted) {
@@ -158,6 +247,11 @@ export class LoginGate {
         case 'enter':
           this.pickerError.textContent = message.reason;
           this.pickerError.hidden = false;
+          return;
+        case 'chargen':
+          this.pendingEnter = undefined;
+          this.chargenError.textContent = message.reason;
+          this.chargenError.hidden = false;
           return;
         default:
           this.fail(message.reason);
@@ -219,6 +313,7 @@ export class LoginGate {
   private showForm(): void {
     this.overlay.hidden = false;
     this.picker.hidden = true;
+    this.chargenPanel.hidden = true;
     this.accountForm.hidden = false;
     this.formError.hidden = true;
     this.onVisibility?.(true);
@@ -228,6 +323,7 @@ export class LoginGate {
   private showPicker(account: string, characters: readonly CharacterSummary[], max: number): void {
     this.overlay.hidden = false;
     this.accountForm.hidden = true;
+    this.chargenPanel.hidden = true;
     this.picker.hidden = false;
     this.pickerError.hidden = true;
     this.pickerTitle.textContent = `${account} — choose a character`;
@@ -260,6 +356,156 @@ export class LoginGate {
     this.newForm.hidden = characters.length >= max;
     this.newName.value = '';
     this.onVisibility?.(true);
+  }
+
+  /** Opens the cards at the race page — for a fresh name, or for a body deciding what it was. */
+  private startChargen(start: { name?: string; adoptName?: string }): void {
+    this.chargen = { ...start, bonus: 0, spend: {} };
+    this.overlay.hidden = false;
+    this.accountForm.hidden = true;
+    this.picker.hidden = true;
+    this.chargenPanel.hidden = false;
+    this.chargenError.hidden = true;
+    this.chargenRoll.hidden = true;
+    this.onVisibility?.(true);
+    this.showRaces();
+  }
+
+  private showRaces(): void {
+    const held = this.chargen;
+    if (!held) return;
+    this.chargenTitle.textContent = held.adoptName
+      ? `Who was ${held.adoptName} all along?`
+      : `${held.name} — choose a race`;
+    this.chargenRoll.hidden = true;
+    this.chargenGrid.hidden = false;
+    this.chargenGrid.replaceChildren(
+      ...RACE_IDS.map((id) => {
+        const race = RACES[id];
+        const bonuses = racialBonuses(race);
+        const traits = ABILITIES.filter((a) => bonuses[a] !== 0)
+          .map((a) => `${bonuses[a] > 0 ? '+' : ''}${bonuses[a]} ${a.toUpperCase()}`)
+          .join('  ');
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'chargen-choice';
+        const name = document.createElement('b');
+        name.textContent = race.name;
+        const line = document.createElement('span');
+        line.className = 'traits';
+        line.textContent = traits || 'no favours, no debts';
+        const blurb = document.createElement('span');
+        blurb.className = 'blurb';
+        blurb.textContent = race.flavour;
+        row.append(name, line, blurb);
+        row.addEventListener('click', () => {
+          held.race = id;
+          this.showClasses();
+        });
+        return row;
+      }),
+    );
+  }
+
+  private showClasses(): void {
+    const held = this.chargen;
+    if (!held) return;
+    this.chargenTitle.textContent = `${held.adoptName ?? held.name} the ${RACES[held.race!].name} — choose a calling`;
+    this.chargenGrid.hidden = false;
+    this.chargenGrid.replaceChildren(
+      ...CLASS_IDS.map((id) => {
+        const spec = CLASSES[id];
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'chargen-choice';
+        const name = document.createElement('b');
+        name.textContent = spec.name;
+        const line = document.createElement('span');
+        line.className = 'traits';
+        line.textContent = spec.casting
+          ? `${spec.casting.kind} caster${spec.casting.opensAt > 1 ? ` from level ${spec.casting.opensAt}` : ''}`
+          : 'no spells, no apologies';
+        const blurb = document.createElement('span');
+        blurb.className = 'blurb';
+        blurb.textContent = spec.flavour;
+        row.append(name, line, blurb);
+        row.addEventListener('click', () => {
+          held.class = id;
+          this.sendCreate();
+        });
+        return row;
+      }),
+    );
+  }
+
+  /** `charCreate` — the first ask and every reroll. The bonus points reset with the dice. */
+  private sendCreate(): void {
+    const held = this.chargen;
+    if (!held || !held.race || !held.class) return;
+    this.pending = 'chargen';
+    this.chargenError.hidden = true;
+    this.net.send({
+      t: 'charCreate',
+      ...(held.name !== undefined ? { name: held.name } : {}),
+      race: held.race,
+      class: held.class,
+    });
+  }
+
+  private spent(): number {
+    const held = this.chargen;
+    if (!held) return 0;
+    return ABILITIES.reduce((sum, a) => sum + (held.spend[a] ?? 0), 0);
+  }
+
+  /** The roll, in words — the owner's rule. `+1`s appear beside a word as points land on it. */
+  private showRoll(): void {
+    const held = this.chargen;
+    if (!held || !held.words) return;
+    this.chargenTitle.textContent = `${held.adoptName ?? held.name} the ${RACES[held.race!].name} ${CLASSES[held.class!].name}`;
+    this.chargenGrid.hidden = true;
+    this.chargenRoll.hidden = false;
+    const left = held.bonus - this.spent();
+    this.chargenBonus.textContent =
+      left > 0 ? `${left} point${left === 1 ? '' : 's'} to spend` : 'every point spent';
+    this.chargenScores.replaceChildren(
+      ...ABILITIES.map((ability) => {
+        const row = document.createElement('div');
+        row.className = 'score-row';
+        const ab = document.createElement('span');
+        ab.className = 'ab';
+        ab.textContent = ability;
+        const word = document.createElement('span');
+        word.className = 'word';
+        word.textContent = held.words![ability];
+        const plus = document.createElement('span');
+        plus.className = 'plus';
+        const spentHere = held.spend[ability] ?? 0;
+        plus.textContent = spentHere > 0 ? `+${spentHere}` : '';
+        const minus = document.createElement('button');
+        minus.type = 'button';
+        minus.textContent = '−';
+        minus.disabled = spentHere === 0;
+        minus.addEventListener('click', () => {
+          if ((held.spend[ability] ?? 0) > 0) {
+            held.spend[ability] = (held.spend[ability] ?? 0) - 1;
+            this.showRoll();
+          }
+        });
+        const more = document.createElement('button');
+        more.type = 'button';
+        more.textContent = '+';
+        more.disabled = left <= 0;
+        more.addEventListener('click', () => {
+          if (this.spent() < held.bonus) {
+            held.spend[ability] = (held.spend[ability] ?? 0) + 1;
+            this.showRoll();
+          }
+        });
+        row.append(ab, word, plus, minus, more);
+        return row;
+      }),
+    );
   }
 
   private fail(reason: string): void {

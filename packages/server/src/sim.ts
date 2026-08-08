@@ -2212,6 +2212,11 @@ export class Simulation {
     return {
       id: player.id,
       name: player.name,
+      // Protocol 24: the sheet gets the numbers the roll withheld — race, class and the six scores.
+      // Omitted for a character who has not adopted, so a pre-phase save's view is byte-identical.
+      ...(player.identity
+        ? { identity: { race: player.identity.race, class: player.identity.class, scores: player.identity.scores } }
+        : {}),
       level: player.level,
       hp: player.hp,
       maxHp: player.maxHp,

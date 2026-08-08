@@ -827,6 +827,54 @@
         cursor: pointer;
       }
       #login-switch:hover { color: var(--ink); }
+
+      /* Protocol 24: the creation cards. */
+      #login-chargen { display: flex; flex-direction: column; gap: 10px; }
+      #login-chargen[hidden] { display: none; }
+      #chargen-title { margin: 0; font-size: 12px; color: var(--dim); text-align: center; }
+      #chargen-grid { display: flex; flex-direction: column; gap: 5px; max-height: 320px; overflow-y: auto; }
+      #chargen-grid[hidden] { display: none; }
+      #chargen-grid .chargen-choice {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        text-align: left;
+      }
+      #chargen-grid .chargen-choice b { color: var(--ink); font-weight: 600; }
+      #chargen-grid .chargen-choice .traits { font-size: 10px; color: #f0d99a; }
+      #chargen-grid .chargen-choice .blurb { font-size: 10px; color: var(--dim); }
+      #chargen-roll { display: flex; flex-direction: column; gap: 8px; }
+      #chargen-roll[hidden] { display: none; }
+      #chargen-scores { display: flex; flex-direction: column; gap: 3px; }
+      #chargen-scores .score-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+      }
+      #chargen-scores .score-row .ab { width: 34px; color: var(--dim); text-transform: uppercase; font-size: 10px; }
+      #chargen-scores .score-row .word { flex: 1; color: var(--ink); }
+      #chargen-scores .score-row .plus { color: #f0d99a; width: 24px; }
+      #chargen-scores .score-row button {
+        width: 22px;
+        padding: 2px 0 !important;
+      }
+      #chargen-bonus { margin: 0; font-size: 11px; color: #f0d99a; text-align: center; }
+      #chargen-actions { display: flex; gap: 8px; }
+      #chargen-actions button { flex: 1; }
+      #chargen-back {
+        align-self: center;
+        background: none;
+        border: none;
+        color: var(--dim);
+        font: inherit;
+        font-size: 10px;
+        text-decoration: underline;
+        cursor: pointer;
+      }
+      #chargen-back:hover { color: var(--ink); }
+      #hud-who { font-size: 10px; color: var(--dim); margin-top: 1px; cursor: help; }
+      #hud-who[hidden] { display: none; }
     </style>
   </head>
   <body>
@@ -881,6 +929,8 @@
              survives the character sheet collapsing to a rail. -->
         <div id="status">
           <div class="name" id="hud-name">connecting…</div>
+          <!-- Protocol 24: race and class under the name; hover for the six scores as numbers. -->
+          <div id="hud-who" hidden></div>
           <!-- Hit points first because it is the one that kills you; movement last because it is the
                one that moves most. Each row is label, bar, numbers — the bar for the glance and the
                numbers for the decision. -->
@@ -1128,6 +1178,22 @@
           </form>
           <p id="login-picker-error" class="login-error" hidden></p>
           <button type="button" id="login-switch">switch account</button>
+        </div>
+        <!-- Protocol 24: the creation cards. One panel, three faces — race grid, class grid, then
+             the roll in the source's words with five points to spend. login.ts turns the pages. -->
+        <div id="login-chargen" hidden>
+          <p id="chargen-title"></p>
+          <div id="chargen-grid" hidden></div>
+          <div id="chargen-roll" hidden>
+            <div id="chargen-scores"></div>
+            <p id="chargen-bonus"></p>
+            <div id="chargen-actions">
+              <button type="button" id="chargen-reroll">reroll</button>
+              <button type="button" id="chargen-confirm">take this roll</button>
+            </div>
+          </div>
+          <p id="chargen-error" class="login-error" hidden></p>
+          <button type="button" id="chargen-back">back</button>
         </div>
       </div>
     </div>

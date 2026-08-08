@@ -102,13 +102,20 @@ import {
   abilityMod,
   armourToAc,
   attackBonusFor,
+  ABILITIES,
+  BONUS_POINTS,
   circleAt,
   CLASSES,
+  isClassId,
+  isRaceId,
   knownSpells,
   knowsSpell,
   maxManaFor,
   RACES,
+  rollScores,
+  scoreWord,
   slotsForCircle,
+  spendBonus,
   parseDice,
   roundLengthFor,
   type CombatStats,
@@ -184,8 +191,11 @@ import {
   shortfall,
   canonicalCharacterName,
   characterNameProblem,
+  type Ability,
+  type AbilityScores,
   type AdjacentRoomView,
   type CharacterSummary,
+  type ClassId,
   type ClientMessage,
   type Direction,
   type EntityId,
@@ -195,6 +205,7 @@ import {
   type LogChannel,
   type Place,
   type Posture,
+  type RaceId,
   type Requirement,
   type RoomId,
   type Status,
@@ -1031,6 +1042,8 @@ function accountMessage(account: AccountRecord): Extract<ServerMessage, { t: 'ac
       name: store.nameOf(slug) ?? summary?.name ?? slug,
       ...(summary?.level !== undefined ? { level: summary.level } : {}),
       ...(summary?.savedAt !== undefined ? { lastPlayed: summary.savedAt } : {}),
+      ...(summary?.race !== undefined ? { race: summary.race } : {}),
+      ...(summary?.class !== undefined ? { class: summary.class } : {}),
     };
   });
   return {
@@ -7885,6 +7898,8 @@ function handle(player: Player, message: ClientMessage): void {
 
     case 'auth':
     case 'enter':
+    case 'charCreate':
+    case 'charConfirm':
       // The handshake already happened; a repeat while embodied is ignored rather than trusted.
       break;
 
@@ -8545,6 +8560,13 @@ wss.on('connection', (socket, request) => {
   // The handshake's held state: a successful `auth` parks the account here for `enter` to spend.
   let account: AccountRecord | undefined;
   let authFailures = 0;
+  // Protocol 24's conversation state. `adopting` is set when an `enter` found a pre-identity save
+  // (the cards open minus the name step); `creating` holds the roll between `charRolled` and the
+  // confirm — a reroll simply overwrites it, which is what makes rerolls free.
+  let adopting: { name: string; slug: string } | undefined;
+  let creating:
+    | { name: string; slug: string; isAdopt: boolean; race: RaceId; class: ClassId; scores: AbilityScores }
+    | undefined;
   // Read once at connect — the §6 claim gate wants to know where the socket came from, and the
   // answer must not be able to change mid-connection.
   const overLoopback = LOOPBACK.has(request.socket.remoteAddress ?? '');
@@ -8576,13 +8598,107 @@ wss.on('connection', (socket, request) => {
         socket.send(encode(accountMessage(account)));
         return;
       }
+      // Protocol 24: name-then-race-then-class-then-roll. `charCreate` opens or rerolls; the
+      // confirm mints. Both speak `authFailed` for refusals, like everything else at this door.
+      if (message.t === 'charCreate') {
+        if (!account) return;
+        if (!isRaceId(message.race) || !isClassId(message.class)) {
+          socket.send(encode({ t: 'authFailed', reason: 'no such race or calling' }));
+          return;
+        }
+        let name: string;
+        let slug: string;
+        let isAdopt: boolean;
+        if (typeof message.name === 'string' && message.name.trim().length > 0) {
+          const requested = message.name.trim().slice(0, 24);
+          slug = slugify(requested);
+          if (!slug) {
+            socket.send(encode({ t: 'authFailed', reason: 'that name cannot be used' }));
+            return;
+          }
+          const problem = characterNameProblem(requested);
+          if (problem) {
+            socket.send(encode({ t: 'authFailed', reason: problem }));
+            return;
+          }
+          if (accounts.ownerOf(slug) !== undefined || store.hasStored(slug)) {
+            socket.send(encode({ t: 'authFailed', reason: 'that name is taken' }));
+            return;
+          }
+          name = canonicalCharacterName(requested);
+          isAdopt = false;
+        } else if (adopting) {
+          ({ name, slug } = adopting);
+          isAdopt = true;
+        } else {
+          return; // nameless with nothing to adopt is not a legal move
+        }
+        const scores = rollScores(progressRng, message.race, message.class);
+        creating = { name, slug, isAdopt, race: message.race, class: message.class, scores };
+        const words = {} as Record<Ability, string>;
+        for (const ability of ABILITIES) words[ability] = scoreWord(scores[ability]);
+        socket.send(
+          encode({ t: 'charRolled', race: message.race, class: message.class, words, bonus: BONUS_POINTS }),
+        );
+        return;
+      }
+      if (message.t === 'charConfirm') {
+        if (!account || !creating) return;
+        const spent = spendBonus(creating.scores, message.spend ?? {}, creating.race);
+        if (!spent.ok) {
+          socket.send(encode({ t: 'authFailed', reason: spent.reason }));
+          return;
+        }
+        const identity: PlayerIdentity = { race: creating.race, class: creating.class, scores: spent.scores };
+        if (!creating.isAdopt) {
+          // Re-checked at the mint: two windows can roll the same name, and only one may keep it.
+          if (accounts.ownerOf(creating.slug) !== undefined || store.hasStored(creating.slug)) {
+            socket.send(encode({ t: 'authFailed', reason: 'that name was taken while you rolled' }));
+            creating = undefined;
+            return;
+          }
+          const claim = accounts.claim(account.slug, creating.slug);
+          if (!claim.ok) {
+            socket.send(encode({ t: 'authFailed', reason: claim.reason }));
+            return;
+          }
+        }
+        const record = store.load(creating.name);
+        record.identity = identity;
+        if (!creating.isAdopt) {
+          // A minted body starts with constitution already in its hit points — the level-1 half of
+          // the bonus every later level rolls through `hpLevelBonus`. Adoption keeps its history.
+          store.setProgress(record, 1, 0, Math.max(6, STARTING_HIT_POINTS + hpLevelBonus(identity)));
+        }
+        store.flush(record);
+        console.log(
+          `[chargen] ${record.name}: ${identity.race} ${identity.class}` +
+            `${creating.isAdopt ? ' (adopted at level ' + String(record.progress?.level ?? 1) + ')' : ''}`,
+        );
+        adopting = undefined;
+        creating = undefined;
+        // The refreshed list is the success signal; the client enters the new body off it.
+        socket.send(encode(accountMessage(account)));
+        return;
+      }
       if (message.t !== 'enter' || !account) return;
+      // Read before `admitCharacter` caches a blank record: "has history" must mean history that
+      // predates this very attempt, or a fresh mint would be told to adopt itself.
+      const hadHistory = store.hasStored(slugify(message.name.trim().slice(0, 24)));
       const admitted = admitCharacter(account, message.name, overLoopback);
       if (!admitted.ok) {
         socket.send(encode({ t: 'authFailed', reason: admitted.reason }));
         return;
       }
       const record = admitted.record;
+      if (!record.identity && hadHistory) {
+        // A body from before the phase: it enters nothing until it decides who it always was.
+        // The claim (if this was flotsam) has already stuck, which is the right half to keep.
+        adopting = { name: record.name, slug: slugify(record.name) };
+        creating = undefined;
+        socket.send(encode({ t: 'charAdopt', name: record.name }));
+        return;
+      }
       // The stored spelling is canonical: `enter aldric` puts on the character named Aldric.
       const name = record.name;
       player = sim.spawn(name, progressRng);
