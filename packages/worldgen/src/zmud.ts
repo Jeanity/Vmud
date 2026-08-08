@@ -150,6 +150,53 @@ function mode(counts: ReadonlyMap<number, number>): number | undefined {
 }
 
 /**
+ * The room's own prose, cut out of the mapper's raw capture.
+ *
+ * **`Desc` is not a description.** It is whatever scrolled past the mapper the moment they walked in,
+ * and the MUD prints a room as four things in order: the room's **name**, its prose, the client's own
+ * **`Exits:`** line, and then the long-description of every creature and object standing there. zMUD
+ * stored the lot. Handed to a player unedited — which is what happened until 2026-08-08 — it reads as
+ * the name twice, then the prose, then a stray exits line, then a **years-old list of who was in the
+ * room on the day somebody mapped it**. In the Unseelie Court that list sat directly above the
+ * creatures actually standing there, describing five spiky faeries beside five spiky faeries.
+ *
+ * Measured across all 327 harvested zones: **3,947 rooms carried the exits tail and 5,018 repeated
+ * their own name**, and 4,831 of those name repeats are in zones the Duris harvest never matched — so
+ * this is a property of the capture, not of anything a builder wrote.
+ *
+ * **Two cuts, and the order matters.** The tail goes first, at the `Exits:` line, because a room whose
+ * whole capture is `name / Exits: / contents` must not have its name-line rescued by a prose test that
+ * is really looking at a creature. Then the leading name line, if the first non-blank line is nothing
+ * but the room's own name.
+ *
+ * **A room left with nothing gets no description at all**, which is the honest answer and a real case:
+ * hundreds of rooms were captured as their bare name, and they have been rendering it twice ever since.
+ *
+ * Trimming was checked against the thing it could have destroyed — every line following an `Exits:` in
+ * the whole harvest reads as a creature or an object (*"A dwarven warrior is here looking about."*),
+ * never as continued prose.
+ */
+export function proseFromCapture(raw: string | null | undefined, roomName: string): string | undefined {
+  if (!raw) return undefined;
+  const lines = raw.split(/\r?\n/);
+  const exits = lines.findIndex((line) => /^\s*Exits:/.test(line));
+  const body = exits === -1 ? [...lines] : lines.slice(0, exits);
+  const first = body.findIndex((line) => line.trim().length > 0);
+  if (first !== -1 && body[first]!.trim().toLowerCase() === roomName.trim().toLowerCase()) {
+    body.splice(first, 1);
+  }
+  // Blank lines off each end, but **the first line's indentation stays**. The MUD indents an opening
+  // paragraph by three spaces and the Duris half of the harvest keeps that (`duris.test.ts`), so
+  // trimming the whole string — which is what the old one-liner did — would have left the two halves
+  // of one world file indenting differently depending on which source a room came from.
+  while (body.length > 0 && body[0]!.trim().length === 0) body.shift();
+  while (body.length > 0 && body[body.length - 1]!.trim().length === 0) body.pop();
+  // Joined with `\n` rather than the capture's `\r\n`, for that same one-world-one-format reason.
+  const prose = body.join('\n').trimEnd();
+  return prose.trim().length > 0 ? prose : undefined;
+}
+
+/**
  * Per-room provenance for every sector guess, alongside the world itself.
  *
  * The `sources` map exists for the diffusion stage: it has to know which rooms are *evidence* and
@@ -339,7 +386,7 @@ function build(
       stats.sectorCounts[guess.sector] = (stats.sectorCounts[guess.sector] ?? 0) + 1;
       stats.sectorSources[guess.source] = (stats.sectorSources[guess.source] ?? 0) + 1;
 
-      const description = options.includeDescriptions ? r.Desc?.trim() : undefined;
+      const description = options.includeDescriptions ? proseFromCapture(r.Desc, name) : undefined;
       rooms.push({
         id: r.ObjId,
         zone: zoneId,
