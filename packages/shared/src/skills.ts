@@ -107,6 +107,12 @@ export const SKILL_IDS = [
   // second swing. It is neither a way to hit nor a way to avoid being hit but a way to hit *again*,
   // which is why it sits apart from the nine and gates on the off hand rather than on a weapon.
   'dual-wield',
+  // Ranged slice 3, and **one row for both delivery methods**. Duris' `SKILL_ARCHERY` is granted to the
+  // ranger and the three thief classes and covers `do_fire`; its throwing counterpart
+  // `SKILL_RANGE_WEAPONS` is defined, read once, and never `SKILL_CREATE`d or granted to anyone — so
+  // throwing accuracy in the shipped game is dexterity times a flat 1.1 and nothing else. Transcribing
+  // the dead row would add a skill no character can ever have. See `DESIGN-ranged.md` §0.2 and §2.3.
+  'ranged',
 ] as const;
 
 export type SkillId = (typeof SKILL_IDS)[number];
@@ -142,6 +148,9 @@ export const SKILLS: Readonly<Record<SkillId, Skill>> = {
   'rescue': { id: 'rescue', name: 'rescue', category: 'physical' },
   'swim': { id: 'swim', name: 'swim', category: 'physical' },
   'dual-wield': { id: 'dual-wield', name: 'dual wield', category: 'physical' },
+  // Ranged slice 3. The source's own display name is already the right words for both halves of the
+  // ask — `SKILL_CREATE("ranged weapons", SKILL_ARCHERY, TAR_PHYS)`, `skills.c:3457`.
+  'ranged': { id: 'ranged', name: 'ranged weapons', category: 'physical' },
 };
 
 /** Whether a string is a skill this build knows. The load path's gate — see `players.ts`. */
@@ -349,6 +358,9 @@ const CLASS_SKILLS: Readonly<Record<ClassId, Readonly<Partial<Record<SkillId, Sk
     rescue: { level: 10, max: 80 },
     swim: { level: 1, max: 90 },
     'dual-wield': { level: 1, max: 100 },
+    // Ranged slice 3. Duris grants `SKILL_ARCHERY` at level 1 to 100 (`skills.c:3458`); 95 is the house
+    // cap this table already applies to a ranger's other hundreds. "Rangers use bows" is this row.
+    ranged: { level: 1, max: 95 },
   },
   // **The one sanctioned deviation in this table** (owner, 2026-08-08), and it is a deviation rather
   // than a correction, because the source meant what it said. `CLASS_PALADIN` appears in `2h bludgeon`
@@ -435,6 +447,10 @@ const CLASS_SKILLS: Readonly<Record<ClassId, Readonly<Partial<Record<SkillId, Sk
     kick: { level: 1, max: 40 },
     swim: { level: 1, max: 90 },
     'dual-wield': { level: 1, max: 75 },
+    // Ranged slice 3. `SKILL_ADD(CLASS_THIEF/ROGUE/ASSASSIN, 1, 75)` (`skills.c:3459-61`) — taken at the
+    // source's own number, which needs no house cap. "Rogues throw knives" is this row, and it is the
+    // *same* skill the ranger's bow trains: one row, both delivery methods.
+    ranged: { level: 1, max: 75 },
   },
 };
 
