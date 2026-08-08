@@ -45,6 +45,7 @@ import {
   type RoomOverride,
   type RoomOverrides,
 } from './overrides.ts';
+import { applyLinks, loadLinks, type LinkDef } from './links.ts';
 import {
   applyDeletions,
   attachAuthoredRoom,
@@ -377,6 +378,12 @@ export class GameWorld {
    */
   readonly staleExtents: readonly Place[];
 
+  /** Authored crossings carved into the composed world — see `links.ts`. */
+  readonly linksApplied: number;
+
+  /** Why an authored link did nothing: a room in an unloaded zone, or a direction already taken. */
+  readonly linkRefusals: readonly string[];
+
   /**
    * What each authored room said *before* anybody wrote on it.
    *
@@ -412,6 +419,7 @@ export class GameWorld {
     overrides: RoomOverrides = new Map(),
     authoredRooms: AuthoredRoomStore = { rooms: new Map(), next: AUTHORED_ROOM_BASE, deleted: new Set(), extents: new Map() },
     authoredZones: AuthoredZoneStore = { zones: new Map(), next: AUTHORED_ZONE_BASE as ZoneId },
+    links: readonly LinkDef[] = [],
   ) {
     this.authoredZones = authoredZones;
     this.populate = populate;
@@ -462,6 +470,12 @@ export class GameWorld {
     this.locksRelaxed = relaxed;
     this.roomsAuthored = authored;
     this.authoredRefusals = refusals;
+
+    // **After every zone, because a link's two ends are in two zones by definition** — carving one
+    // inside the loop above would ask for a room whose zone has not been read yet. See `links.ts`.
+    const linked = applyLinks((id) => this.index.get(id)?.room, links);
+    this.linksApplied = linked.applied;
+    this.linkRefusals = linked.refused;
 
     // **A8 slice 3: has any Place's grid moved since this overlay was last written?**
     //
@@ -519,7 +533,7 @@ export class GameWorld {
     else this.authoredRooms.extents.delete(placeKey(place));
   }
 
-  /** Loads every zone named in the config, with all three authored overlays composed on top. */
+  /** Loads every zone named in the config, with all four authored overlays composed on top. */
   static load(configPath: string = CONFIG_PATH): GameWorld {
     const config = loadWorldConfig(configPath);
     const authoredZones = loadAuthoredZones();
@@ -530,6 +544,7 @@ export class GameWorld {
       loadRoomOverrides(),
       loadAuthoredRooms(),
       authoredZones,
+      loadLinks(),
     );
   }
 

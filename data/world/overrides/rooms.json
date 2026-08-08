@@ -1203,5 +1203,12 @@
     "at": "2026-08-03T01:35:43.661Z",
     "by": "gemma3:12b",
     "brief": "The Stump Bog, in the Forgotten Realms: a drowned wood along the River Dessarin — black standing water, rotted stumps, and a decrepit cemetery slowly going under. Realms atmosphere carried entirely by physical detail: what has grown, rotted, sunk, been broken or been left behind. This room: Shallows in the River Dessarin (Water)."
+  },
+  "41180": {
+    "name": "A Ring of Ancient Oaks",
+    "description": "&+gThe thick trunks of oaks and birches grow close together here, and the ground between them is rich and loamy, thick with ferns and blackberry. But the trees to the &+ynorth&+g stand apart from the rest &+G- nine old oaks in a circle, their roots lifting a ring of turf that no bramble has crossed. &+WToadstools&+g crowd the inside of it. The air over the ring shivers like heat off a road, and the birdsong of the wood does not carry into it.&N",
+    "brief": "The Evermeet end of the faerie ring (links.json, 2026-08-08). Overridden so the crossing is findable: without prose naming the ring and the north exit, a player has no reason to walk into what the map draws as more forest.",
+    "at": "2026-08-08",
+    "by": "claude-opus-5"
   }
 }

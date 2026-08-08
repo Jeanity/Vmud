@@ -473,6 +473,22 @@ flagged in the code rather than quietly corrected. `ClassGroup` and `CharClass.g
 `groupOf` is `classOf`. Verified beyond the suite (1,835 green) by re-deriving the whole table from
 `skills.c` and diffing it against `ceilingFor`: **144 class/skill pairs, 65 source grants, no
 discrepancies.**
+**The world became one place that night, and the measurement is the part worth keeping.** The owner
+asked whether the Faerie Realm could be walked to from the kobold zone. Measured across all 327
+harvested zones, it could not: zones **64, 190, 193, 226, 367 and 423 form a six-zone island with no
+walking route to the mainland's 268 from anywhere**, so no amount of loading could ever have joined
+them — in the MUD the Feywild was reached by magic, and our map is a record of routes somebody
+walked. Worse, the *loaded* world was six disconnected pieces and the kobold settlement was joined to
+nothing at all: a new character could reach 99 rooms, full stop. Two things fixed it. **321 Evermeet-
+Ancient Forest** was switched on — 100 rooms that already border the settlement in the harvest, its
+only harvested neighbour — and a **faerie ring** was authored through the new `links.json` overlay
+(`server/src/links.ts`) from deep in that wood to **7691 "A Ring of Rowan Trees"**, a room the map had
+already named, which already drops through a closed door into Finn's Keep, whose key one of the live
+quests pays. It is **17 rooms from the spawn point to the Feywild**, walked end to end by a client
+that discovered the route from nothing but the exits the server sent it. The whole faerie cluster is
+loaded on the owner's call — 906 rooms — and **only zone 64 has harvested population**, so
+Leuthilspar's forest and the Unseelie Court are 471 rooms of fully-described, entirely empty world.
+That is the next content job, and the mob-authoring tools already exist to do it.
 
 **And then the fleet finished the week's backlog in one delegated evening** — eleven agent
 branches reviewed and landed serially, ~65 new tests, the suite at 1,814. Beyond the paragraphs

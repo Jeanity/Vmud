@@ -467,6 +467,15 @@ if (world.locksRelaxed > 0) {
       `(objects are Phase 15). Doors still shut, and still have to be opened.`,
   );
 }
+if (world.linksApplied > 0) {
+  console.log(`[world] ${world.linksApplied} authored link(s) carved — see data/world/overrides/links.json`);
+}
+for (const why of world.linkRefusals) {
+  // Loud and one line each. A refused link is a door somebody authored and nobody can walk through,
+  // and the two reasons it happens — a zone switched off in the config, a direction the harvest
+  // already uses — are both invisible from inside the game.
+  console.warn(`[world] authored link refused: ${why}`);
+}
 
 /**
  * The world's population, and the clock that tops it up.
