@@ -184,6 +184,29 @@ describe('authoring what a mob is', () => {
     assert.deepEqual(applied.combat.damage, { count: 5, sides: 10, bonus: 7 });
   });
 
+  it('folds authored spells onto the template and moves nothing else', () => {
+    // Phase 20 slice 3's field. The fold is what turns the panel's list into behaviour — every round,
+    // `mobStartCast` reads `templates.get(mob.vnum)?.spells`, so a list this fold dropped would be a
+    // shaman that stands there swinging and nobody would know which layer lost it.
+    const applied = applyMobOverride(GUARD, { spells: ['magic_missile', 'burning_hands'] });
+    assert.deepEqual(applied.spells, ['magic_missile', 'burning_hands']);
+    assert.equal(applied.level, 8);
+    assert.deepEqual(applied.combat.damage, GUARD.combat.damage);
+  });
+
+  it('keeps authored spells when a later edit touches another field', () => {
+    // The drive-session shape: spells authored one day, melee tuned the next. The merge laying the
+    // patch *over* the record is what stops the second edit silently unauthoring the first — the exact
+    // loss A9's merge comment promises the panel cannot cause.
+    const knowing = mergeMobOverride(undefined, { spells: ['burning_hands'] }, [], 'test-time');
+    assert.ok(knowing);
+    const tuned = mergeMobOverride(knowing, { damage: '1d1' }, [], 'test-time');
+    assert.ok(tuned);
+    const applied = applyMobOverride(GUARD, tuned);
+    assert.deepEqual(applied.spells, ['burning_hands']);
+    assert.deepEqual(applied.combat.damage, { count: 1, sides: 1, bonus: 0 });
+  });
+
   it('is applied to the harvest and not to itself, so a clear is a real revert', () => {
     // Two edits in sequence, the second dropping the first: applying against the *pristine* template is
     // what makes the level come back as 8 rather than as whatever the last edit happened to leave.

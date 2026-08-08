@@ -460,9 +460,20 @@ hover. Driven whole in the browser (adoption, reroll, spend, refusals) and over 
 mint: Brunhild the gnome cleric entered level 1 with `circle 1 — 2 of 2 castings` and a swollen
 pool). The drive's catch: `Net`'s queue held `charCreate` hostage for a `welcome` it was meant to
 cause — creation is handshake traffic now. 1,705 tests. **Next in the phase**: skills-by-class,
-channels, sun/senses, the one quest. Note for the next drive: fight the *placement-repopped*
-shaman, not an admin-spawned twin (a chip is open on whether the spawn path merges authored
-spells), and remember `PlayerStore`'s cache means save-file surgery needs the server down.
+channels, sun/senses, the one quest. **The admin-spawn casting suspicion is
+closed — not a bug (verified live, 2026-08-08).** A fresh server, a bot player, the drive's exact
+action (`POST /admin/api/mobs {vnum: 1400}` into the spawn field, fight opened by the returned
+entity id): the admin-spawned shaman rolled past its first round boundary and **opened its wind-up
+on the second, burning hands for 33** — because both spawn doors read the one folded `mobTemplates`
+map (`spawnMob` in `index.ts`, `templates.get` at `reset.ts:313`) and `mobStartCast` re-reads it
+through `mob.vnum` on every round, so even a mob standing since before an authoring session casts
+from the newest list. The drive's fifty castless seconds were the confound the note suspected:
+three same-named shamans, and this template is passive with `assists: false` — a bystander twin
+does *nothing* while its sibling fights, whereas fifty seconds of actual fighting without one cast
+is a 1-in-65,000 run against `MOB_CAST_CHANCE` 50. Pinned so it stays true: both doors resolve the
+folded list through the instance's vnum (`reset.test.ts`), and the spells fold — including a later
+damage edit *not* unauthoring the spells — in `mob-overrides.test.ts`. Still true and still worth
+remembering: `PlayerStore`'s cache means save-file surgery needs the server down.
 
 **Earlier the same day: accounts and login — Phase 20b, pulled out of the parking lot exactly as
 the owner ordered — and the character name law with them.** 1,680 tests (919 server / 618 shared / 143

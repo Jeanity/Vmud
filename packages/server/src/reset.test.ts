@@ -30,6 +30,7 @@ import {
 } from '@mygame/shared';
 
 import { MAX_MOB_KIT_ARMOUR, advanceZones, newZoneClock, rollLifespan, runReset } from './reset.ts';
+import { applyMobOverride } from './mob-overrides.ts';
 import { Simulation, isMob } from './sim.ts';
 import { GameWorld } from './world.ts';
 
@@ -176,6 +177,29 @@ describe('reset only loads', () => {
 
     const after = runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, NO_LOOT, stream);
     assert.equal(after.spawned.length, 1, 'the slot is free, so it is filled');
+  });
+
+  it('spawns instances whose vnum keys back into the folded map — the read every cast rides on', () => {
+    // The 2026-08-08 drive suspected the admin spawn door resolved a different template than the zone
+    // reset — a shaman that repopped casting while its admin-spawned twin stood swinging. Verified
+    // live to be a misread (the doors share one map; see `docs/HANDOFF.md`), but the property doubted
+    // is worth pinning: however a mob is born, `mob.vnum` is the template's own, because that number
+    // is what `mobStartCast` re-reads the folded spell list through on every round boundary. A spawn
+    // door that cloned templates under synthetic vnums would break exactly this.
+    const { sim, templates } = makeSim();
+    templates.set(GUARD.vnum, applyMobOverride(GUARD, { spells: ['burning_hands'] }));
+    const stream = rng();
+    const clock = newZoneClock(spawnsFor([mob({ limit: 1 })]), stream);
+
+    const repopped = runReset(sim, clock, templates, NO_ITEMS, NO_OBJECTS, NO_LOOT, stream, true).spawned[0];
+    assert.ok(repopped);
+    // The admin door, as `index.ts`'s `spawnMob` performs it: the map entry, handed to the simulation.
+    const adminSpawned = sim.spawnMob(templates.get(GUARD.vnum)!, 7001, stream);
+    assert.ok(adminSpawned);
+
+    for (const born of [repopped, adminSpawned]) {
+      assert.deepEqual(templates.get(born.vnum)?.spells, ['burning_hands'], `${born.id} resolves the folded list`);
+    }
   });
 
   it('counts each vnum on its own', () => {
