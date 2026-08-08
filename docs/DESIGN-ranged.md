@@ -180,30 +180,74 @@ animation is vocabulary in two places: `ACTION_DIRS` knows only `slash`/`thrust`
 
 ---
 
-## 2. Decisions to make before writing code
+## 2. Decisions before writing code
 
-### 2.1 What does a pulled mob do when its `pursuit.tier` is `sentinel`? **(blocking)**
+**§2.1 is settled** (provoked, owner 2026-08-08) — it was the pivot and the plan is no longer blocked on
+it. §2.2 was never really a choice and is recorded as a requirement. §2.3–2.5 are ordinary calls the
+implementer can make, with a recommendation on each.
 
-83% of the world. Three honest options:
+### 2.1 What does a pulled mob do when its `pursuit.tier` is `sentinel`? ✅ **DECIDED — provoked**
+
+83% of the world, so this was the plan's pivot. Three options were costed:
 
 - **(a) Accept it.** A sentinel takes the arrow and stays. Ranged becomes free damage on approach rather
-  than a pull, and the crowded-room problem is unsolved for most of the world. Cheapest, and closest to
-  the harvested data's intent.
-- **(b) Diverge like Duris.** Being hit from outside the room overrides `sentinel` for that one mob —
-  a hurt thing comes looking regardless of its patrol rule. This is what Duris does via
-  `HUNT_JUSTICE_INVADER`. It makes the feature work everywhere and it silently rewrites 1,248 mob rules.
-- **(c) A new tier between them** — `provoked`: will not wander, *will* cross one room to answer an
-  attacker, then return. Most work, best fidelity to what a player expects, and it is a new concept in
-  `DESIGN-mobs-and-movement.md` rather than a tweak.
+  than a pull, and the crowded-room problem stays unsolved for most of the world.
+- **(b) Diverge like Duris.** Being hit from outside overrides `sentinel` entirely, as
+  `HUNT_JUSTICE_INVADER` does. Works everywhere, and silently rewrites 1,248 mob rules — every
+  shopkeeper, guard and quest giver becomes lurable.
+- **(c) Provoked.** Will not wander, *will* cross one room to answer an attacker, then go back.
 
-Recommendation: **(c)**, scoped to one room of movement, because (a) fails the owner's stated purpose and
-(b) makes every shopkeeper and guard lurable. But it is the owner's call and it is the plan's pivot.
+**The owner chose (c), 2026-08-08.** (a) fails the stated purpose and (b) makes the whole world lurable,
+including the quest givers Phase 21 spent a slice making un-attackable.
 
-### 2.2 Does aggro spread to room-mates on a ranged hit? **(blocking)**
+#### What provoked means, precisely
 
-The whole point is that it must not. Confirm against `aggression.ts` / `threat` before building, and if
-any spread exists, the ranged path needs an explicit single-target flag. This is the requirement that
-makes or breaks the feature and it is a *restriction*, so it will not show up in any happy-path test.
+> **Being shot provokes you. It does not change what kind of creature you are.**
+
+That sentence is the design, and it is why this is **a temporary state rather than a fourth
+`pursuit.tier`** — a refinement of the recommendation as approved, with identical behaviour, made while
+writing it up:
+
+- A tier is a *trait*, harvested per mob from the `.wld` data and true of the creature for ever. Nothing
+  in Duris harvests "provoked", so a fourth tier would be a value the harvest can never produce and only
+  runtime can set — a field that lies about where it comes from.
+- The existing `pursuit` object is `{ tier, trackRooms, giveUpMs, opensDoors, respectsSafeRooms,
+  staysInZone }`. Provocation only needs to lift `trackRooms` to `max(trackRooms, 1)` for a while, which
+  the shape already expresses without a new tier.
+- Keeping the harvested tiers untouched means the 1,248 sentinels are still sentinels on their sheet, and
+  a reader can still see that a shopkeeper does not chase people. That is worth preserving.
+
+So: **a `provoked` affect**, granted to a mob that takes damage from an attacker who is not in its room.
+
+| | |
+| --- | --- |
+| **trigger** | ranged damage from a non-co-located attacker |
+| **grants** | `trackRooms = max(trackRooms, 1)` — exactly one room, never two |
+| **target** | the attacker only. Never shared with room-mates (§2.2) |
+| **duration** | the mob's own `giveUpMs`, so the harvested patience is still what decides |
+| **on expiry or losing the target** | walks back to the room it was provoked in |
+| **respects** | `staysInZone` and `respectsSafeRooms` unchanged — a provoked mob still will not follow into a sanctuary or across a zone edge |
+| **does not** | stack, chain, or let a second shot buy a second room |
+
+**The one-room cap is the whole safety property.** It means a player cannot walk a sentinel across a zone
+by shooting it repeatedly, and it means a pull is a pull rather than a tow. Write the test for that before
+the feature: shoot a sentinel from two rooms away through an intermediate room and assert it does not
+arrive.
+
+**Sub-decision left open, deliberately:** whether walking back is instant, tick-paced, or interruptible.
+Tick-paced is right — a guard trudging back to his post is readable and a teleporting one is not — but it
+needs `DESIGN-mobs-and-movement.md`'s vocabulary and can be settled in slice 5 rather than now.
+
+### 2.2 Ranged aggro must never reach room-mates — **a requirement, not a choice**
+
+Kept in this section because it is the constraint everything else is built inside, but there is nothing
+to decide: *"so you don't have to enter a crowded room"* is the stated purpose, and a pull that wakes the
+crowd is worse than no pull at all. Confirm against `aggression.ts` and the threat book before building;
+if any spread exists, the ranged path needs an explicit single-target flag.
+
+**It is a restriction, so it will never show up in a happy-path test** — shoot one of three and watch one
+come is indistinguishable from correct until the day all three do. Hence the test written first, in
+slice 5.
 
 ### 2.3 Which skill, and granted to whom?
 
@@ -298,11 +342,21 @@ other two out of its corpse — and one of the six is gone for good.
 
 ### Slice 5 — the pull
 
-Whatever §2.1 decides, plus the threat that survives the arrow (`combat.ts:784-791` deletes it within a
-tick today). Single-target by construction (§2.2).
+The `provoked` affect from §2.1: granted on ranged damage from outside the room, lifts `trackRooms` to
+exactly 1, expires on the mob's own `giveUpMs`, walks home afterwards. Single-target by construction
+(§2.2). Plus the threat that survives the arrow — `advanceCombat`'s retarget pass deletes a mob's whole
+threat table within one tick when nothing is reachable (`combat.ts:784-791`), so threat has to be seeded
+at the moment the arrow lands or hunting mobs exempted from that pass.
 
 **Seen when:** three kobolds in the room west; you tag one; **one** walks out to you and the other two
-stay put.
+stay put. Then you let it go, and it walks back.
+
+**Write these two tests first, because both failures are invisible on the happy path:**
+
+1. Shoot a sentinel from **two** rooms away, through an intermediate room. It must not arrive — the
+   one-room cap is what stops a pull becoming a tow across the zone.
+2. Shoot one of three mobs in a room. The other two must not acquire threat. This is §2.2 and it is a
+   restriction, so nothing in a normal play session will reveal it broken.
 
 ### Slice 6 — the art
 

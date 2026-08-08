@@ -454,10 +454,13 @@ cold-readable, and **§0 is the part to read before estimating anything**. Two f
 there is **no bow in Duris' weapon-class ladder at all** (ranged is an item *type*, and all three types are
 already named in `DURIS_ITEM`, so `weaponSkillFor` is the wrong seam), and **only 17% of the world can be
 pulled** — 1,248 of 1,503 mob templates carry `pursuit.tier: sentinel` with `trackRooms: 0` and will never
-follow anyone. Two decisions are blocking and both are the owner's: what a sentinel does when shot from
-outside its room, and whether ranged aggro may spread to room-mates (it must not — that is the whole
-point). Slice 1, un-gating the harvest so the 108 ranged items stop arriving as zero-damage sticks, depends
-on neither and can start immediately.
+follow anyone. **The pivot is decided** — `provoked`: a mob shot from outside its room gets a temporary
+affect lifting `trackRooms` to exactly one, expiring on its own harvested `giveUpMs`, then walks home. An
+affect rather than a fourth `pursuit.tier`, so the 1,248 sentinels stay sentinel on their sheet; being shot
+provokes you, it does not change what kind of creature you are. The one-room cap is the safety property.
+The other requirement stands as a restriction: ranged aggro must never reach room-mates. Both get a test
+written before the feature, because neither failure shows on a happy path. Slice 1, un-gating the harvest
+so the 108 ranged items stop arriving as zero-damage sticks, depends on nothing and can start immediately.
 
 **Last in: skill ceilings re-keyed from four class groups to the nine classes** (owner's ask, after
 asking why a mage could bash). Slice 4 keyed `ceilingFor` on a temperament and the fold was lossy in
