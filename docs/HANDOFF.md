@@ -506,8 +506,35 @@ is why the status card renders large codes beside their hex. `docs/DESIGN-admin-
 rest, including why the token stays optional (the argv is fixed in the file, so no route can ask it to
 run a command).
 
-**What next, with no numbered phase left**: the parking lot's agreed rows (either-hand weapons →
-dual-wield, opening moves on the mob click menu, weapon procs, whisper's room half), the **mob and worn-gear art
+**The off hand swings now — either-hand weapons and dual wield landed as one slice**, which is what
+the parking-lot row insisted on: the flag alone would have been a stat stick wearing a sword's name.
+**The research overturned that row's own premise, and it is worth knowing before you touch this.**
+The row assumed the second attack carries *"its own to-hit penalty"*; in the live branch it carries
+none at all — `new_combat.c:2343` is `hit(ch, opponent, ch->equipment[WIELD2], …)`, identical to the
+main hand's call but for the weapon argument. The price is paid entirely up front: a skill roll for
+whether the hand moves (`skill > number(1, 101)`, inclusive at both ends, so `(skill − 1) / 101` and a
+perfect 100 still fails one round in fifty), and a wield-time gate that only lets light blades in
+there, so the second die is a dagger's. A related trap: **`PhasedAttack`, which the live round
+actually calls, is declared at `prototypes.h:950` and defined nowhere in the tree** — the inline form
+its own commented-out predecessor and the two live haste/blur branches all spell is the only version
+of the rule the source contains, so that is what we took. `dual-wield` is a `SkillId` with the class
+table folded onto our four temperaments, and **the wizard's row is 0 rather than small**: no mage
+class appears in `skills.c`'s list at all, so `wield … offhand` refuses them in the source's own
+sentence. Handedness is derived at `instantiate` from Duris' own `IS_DIRK` — dagger and short sword,
+one-handed, under three slots of bulk (the bulk ceiling is `actobj.c:4918`'s strength gate carried
+across as far as it honestly goes) — and it is **authorable** in both the authored-item and override
+paths, which is how Windsong rides the off hand at all: she is a `weaponClass` 5 scimitar and the
+automatic rule rightly declines her, so an operator says otherwise. The second blow goes through
+`advanceCombat`'s existing round and the same `swing`/`landBlow` pair as the first, so there is no
+second damage path to forget the ledger in. **`wield <weapon> offhand` is a suffix on the existing
+verb, not a new command word** — deliberately, because the command table's order is abbreviation
+priority and this needed none of it. 1,776 tests. The drive: two daggers, both blows **0 ms apart
+inside a 3,200 ms round**, the second line marked `(off hand)` in cyan, and `dual wield` notching
+40 → 41 off `notch_skill(…, 17)` — which fires on the *roll*, not on the hit, because the source
+notches on the line above its `hit()` call and what the skill governs is getting the hand moving.
+
+**What next, with no numbered phase left**: the parking lot's agreed rows (opening moves on the mob
+click menu, whisper's room half), the **mob and worn-gear art
 drawing problem** (Phase 15's tail, and the whole visual ceiling now), and the spells inheritance
 (memorization times, spellbooks, penetration, globes). Two chips were open: does admin-spawn merge
 authored spells, and the creation card's mid-disconnect recovery — the second is now closed, a

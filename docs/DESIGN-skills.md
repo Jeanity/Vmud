@@ -297,3 +297,36 @@ Each slice is driveable on its own, and the first cannot break anything that exi
    curve, boats exempt the whole swimming bundle, drowning is exhaustion at zero movement (with move
    regen paused while treading, which the drive proved is the rule that makes drowning possible at
    all), and the drowned wash ashore **at their entry shore** — the ferry rule.
+6. **`dual-wield`** ✅ **built 2026-08-08**, and the first skill here that the **live** combat actually
+   reads: the eight weapon classes come from the dead branch (§0), while `SKILL_DUAL_WIELD` is consulted
+   at `new_combat.c:2340` on every round of the shipped game. It is also the first that is neither a way
+   to hit nor a way to avoid being hit — it decides whether you hit *again* — so it gates on the off hand
+   rather than on a weapon, and `notchFromDualWield` is a third pass beside the offensive and defensive
+   ones rather than a branch inside either.
+
+   **Three findings from the transcription, each of which would have been guessed wrong.** First,
+   **there is no off-hand penalty** — the parking-lot row assumed one, and the live call
+   `hit(ch, opponent, ch->equipment[WIELD2], …)` is identical to the main hand's but for the weapon.
+   The price is the roll itself plus the light-blade restriction, which is a more elegant design than
+   the penalty would have been: a second blade is *unreliable* rather than *weak*. Second,
+   **`PhasedAttack` is declared and never defined** anywhere in the tree (`prototypes.h:950`), so the
+   rule had to be read off its own commented-out predecessor at `:2337` and the two live haste/blur
+   branches at `:2433` and `:2491`, all three of which spell `skill > number(1, 101)` — the fourth
+   mechanism this project has found wired to code that is not there, after the weapon skills, the
+   `wipe2011` notch rules and `swimming_char`. Third, the roll is against **101 inclusive**
+   (`random.c:75`), so the chance is `(skill − 1) / 101`: a skill of 1 — every level-1 character's
+   floor — can never win, and a perfect 100 fails about one round in fifty.
+
+   **The ceiling table is where the class data landed.** `skills.c:3818-3833` gives warriors, rangers
+   and mercenaries 100 at level 1, assassins 80, rogues 75, berserkers 90 at 11 — and **no mage class
+   at any level**, which is why our `wizard` row is `0` rather than a small number. That 0 is the same
+   refusal `wield … offhand` prints (*"You lack the training to use two weapons"*, `actobj.c:4912`), so
+   the hand a character may fill and the hand that may swing read one table and cannot disagree. The
+   priest's 40 comes from the table's one priest entry being a level-51 *specialisation*
+   (`SPEC_SKILL_ADD(CLASS_CLERIC, 51, 80, SPEC_ZEALOT)`), which with no specialisations of our own
+   becomes this group's ordinary "trained, badly" number.
+
+   **Notching fires on the roll rather than the blow**, which is the one place its shape differs from
+   every weapon skill here: `notch_skill(ch, SKILL_DUAL_WIELD, 17)` sits on the line *above* the
+   off-hand `hit()`, inside the branch the roll has just won. What the skill governs is getting the
+   second hand moving, and it did that whether or not the blade found anything.

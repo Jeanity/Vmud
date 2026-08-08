@@ -466,6 +466,22 @@ export interface ItemTemplate {
    */
   readonly twoHanded?: true;
   /**
+   * **Which hand this may occupy** — `'either'` for a blade light enough for the off hand, absent for
+   * the main hand only. Phase 21, and the doorway to dual wield.
+   *
+   * The **opposite question to {@link twoHanded}**, and the two are the whole of handedness between
+   * them: that one says a weapon needs more than one hand, this one says it is content with the
+   * weaker. Nothing may be both, and {@link handednessFor} refuses the combination rather than
+   * trusting an author not to write it.
+   *
+   * Optional and derived rather than harvested, because **Duris has no such flag to harvest.**
+   * `defines.h:165` carries exactly one wield bit, `ITEM_WIELD`; whether a weapon may go in the off
+   * hand is decided at wield time from the weapon's own properties (`actobj.c:4918`). So this is that
+   * decision made once and written down — see {@link handednessFor} for the rule, and note that an
+   * **authored** value overrides it, which is how a scimitar named Windsong is blessed by hand.
+   */
+  readonly handedness?: 'either';
+  /**
    * Duris' weapon class — `value[0]` of a weapon, `objmisc.h:362`'s 1–20 ladder.
    *
    * **Parsed and thrown away until Phase 19.** `objects.ts` has read `values[0]` since the harvest
@@ -563,6 +579,70 @@ export interface ItemTemplate {
   readonly extras?: readonly ExtraDescription[];
 }
 
+/* -------------------------------------------------------------------------- */
+/* Handedness                                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The two weapon classes the source itself calls light blades — `IS_DIRK`, `objmisc.h:423`:
+ *
+ * ```c
+ * #define IS_DIRK(obj) ((obj)->type == ITEM_WEAPON && !IS_SET((obj)->extra_flags, ITEM_TWOHANDS) &&
+ *                       ((obj)->value[0] == WEAPON_DAGGER || (obj)->value[0] == WEAPON_SHORTSWORD))
+ * ```
+ *
+ * **Duris' own name for the category, not one we coined.** The macro exists to answer exactly the
+ * question the owner asked — *"light blades… Windsong among them"* — and its one caller is the
+ * innate that rewards a sword in the main hand and a dirk in the off (`innates.c:4227`), which is
+ * dual wield's own idiom. Dagger is `2` and short sword is `9` on `objmisc.h:362`'s ladder.
+ */
+const DIRK_CLASSES: ReadonlySet<number> = new Set([2, 9]);
+
+/**
+ * The heaviest a blade may be and still ride the off hand, in slots of bulk.
+ *
+ * **Derived from the source's own gate rather than chosen.** `actobj.c:4918` refuses a secondary
+ * weapon when `GET_OBJ_WEIGHT(obj) * 3 > str_app[STR].wield_w` — so at *human excellent* strength,
+ * where `constant.c:867` puts `wield_w` at **33**, the heaviest legal off-hand weapon is 11 weight
+ * units, and {@link sizeFrom} turns 11 into `ceil(11 / 5)` = **3**.
+ *
+ * The strength scaling itself is deliberately **not** carried across, and this is the one place the
+ * transcription diverges. Duris compares pounds; our bulk is `ceil(weight / 5)` clamped at ten, so a
+ * strength table indexed against a clamped fifths-proxy would be arithmetic theatre — three decimal
+ * places of fidelity on a number that has already lost two. The class gate above is the half of the
+ * source's rule that actually names light blades, and this is the half that stops a dagger the size
+ * of a door.
+ */
+export const OFFHAND_MAX_SIZE = 3;
+
+/**
+ * Which hands this weapon may occupy — `'either'` for one the off hand can hold, otherwise `undefined`.
+ *
+ * **An authored answer wins outright**, which is the whole of the exception mechanism: the automatic
+ * rule below knows about daggers and short swords, and it will never know that a particular elven
+ * scimitar was made for the off hand. Windsong is `weaponClass` 5 — a longsword — so the rule refuses
+ * her and an operator blesses her by hand, which is exactly the split the owner asked for.
+ *
+ * The automatic rule is the source's, in its order: it must be a weapon (something with damage), it
+ * must not need both hands, it must be one of {@link DIRK_CLASSES}, and it must be under
+ * {@link OFFHAND_MAX_SIZE}. **A two-handed weapon is refused even when authored** — the two flags
+ * describe the same fact from opposite ends and an item that claimed both would have `wield` and
+ * `wield … offhand` disagreeing about how many hands it took.
+ */
+export function handednessFor(
+  weapon: Pick<ItemTemplate, 'weaponClass' | 'twoHanded' | 'size' | 'damage' | 'handedness'> | undefined,
+): 'either' | undefined {
+  if (!weapon) return undefined;
+  // Nothing needing both hands is ever content with the weaker one, however it was authored.
+  if (weapon.twoHanded === true) return undefined;
+  if (weapon.handedness === 'either') return 'either';
+  // Not a weapon at all. A shield and a lantern both live in the off hand and neither is dual wield;
+  // what this function answers is *may this swing from there*, and something with no dice cannot.
+  if (!weapon.damage) return undefined;
+  if (weapon.weaponClass === undefined || !DIRK_CLASSES.has(weapon.weaponClass)) return undefined;
+  return weapon.size > OFFHAND_MAX_SIZE ? undefined : 'either';
+}
+
 /**
  * Turns a catalogue entry into a thing you can hold.
  *
@@ -591,6 +671,13 @@ export function instantiate(template: ItemTemplate): Item {
     // a save file has to still need two hands after a restart, and `readItem` reads this back for the
     // same reason it reads `stackLimit` — a field with no line in its reader is deleted, silently.
     ...(template.twoHanded ? { twoHanded: true as const } : {}),
+    // **Resolved here rather than copied**, which is the one departure from the lines around it. The
+    // others carry the catalogue's own value down; this carries the catalogue's *answer* — so a
+    // dagger minted today knows it may ride the off hand without anything at wield time having to
+    // find its template, and Windsong's authored blessing rides along in the same field. `readItem`
+    // reads it back for the reason it reads `twoHanded`: a field with no line in its reader is
+    // deleted at the next login, silently.
+    ...(handednessFor(template) === 'either' ? { handedness: 'either' as const } : {}),
     // Phase 19: which skill this trains follows the object, not the catalogue — the same argument the
     // line above makes, and `readItem` reads it back for the same reason.
     ...(template.weaponClass === undefined ? {} : { weaponClass: template.weaponClass }),

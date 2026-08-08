@@ -85,6 +85,18 @@ export interface ItemOverride {
    * or corrected blade needs the same single fact said once.
    */
   readonly weaponClass?: number;
+  /**
+   * **May ride the off hand** — Phase 21, and it lands on the *allowed* side of the header's line by
+   * the header's own test. `twoHanded` is refused there because it *"clears the off hand"*: it drags
+   * a second slot with it and a slice that allowed it would owe that rule a re-validation. This one
+   * drags nothing. It widens where a weapon may go and empties no slot, displaces no item and needs
+   * no capacity — the same reason `slot` and `weaponClass` were let through, and the same sentence
+   * Windsong prompted: a blade with no way to say it was made for the weaker hand is a stat stick for
+   * ever.
+   *
+   * Only ever `'either'`. Absent means the main hand, so a second value would say the same thing twice.
+   */
+  readonly handedness?: 'either';
   /** When it was last written, so the panel can say how stale an item's authoring is. */
   readonly at?: string;
   /** Who or what wrote it — the same provenance rule the room overlay records. */
@@ -161,6 +173,10 @@ export function loadItemOverrides(file = ITEMS_FILE): ItemOverrides {
       ...(typeof patch.weaponClass === 'number' && Number.isInteger(patch.weaponClass) && patch.weaponClass >= 1 && patch.weaponClass <= 20
         ? { weaponClass: patch.weaponClass }
         : {}),
+      // One legal value, so the check is an equality rather than a range. Anything else is dropped
+      // the way every other malformed field here is — this is the disk reader as well as the panel's
+      // door, and a hand-edited `"handedness": "left"` should leave the weapon alone, not break boot.
+      ...(patch.handedness === 'either' ? { handedness: 'either' as const } : {}),
       ...(typeof patch.at === 'string' ? { at: patch.at } : {}),
       ...(typeof patch.by === 'string' ? { by: patch.by } : {}),
     };
@@ -196,6 +212,7 @@ export function applyItemOverride(template: ItemTemplate, override: ItemOverride
     ...(override.light !== undefined ? { light: override.light } : {}),
     ...(override.slot !== undefined ? { slot: override.slot } : {}),
     ...(override.weaponClass !== undefined ? { weaponClass: override.weaponClass } : {}),
+    ...(override.handedness !== undefined ? { handedness: override.handedness } : {}),
   };
 }
 

@@ -25,6 +25,8 @@ import {
   toHitFrom,
   WEAPON_NOTCH_CHANCE,
   weaponSkillFor,
+  DUAL_WIELD_NOTCH_CHANCE,
+  dualWieldSwings,
 } from './skills.ts';
 
 describe('the catalogue', () => {
@@ -189,5 +191,93 @@ describe('what a skill is worth', () => {
     assert.equal(mobWeaponSkill(1), 1);
     assert.equal(mobWeaponSkill(60), 100, 'capped');
     assert.equal(mobWeaponSkill(0), 1, 'and a level-0 record is treated as level 1');
+  });
+});
+
+/**
+ * **Dual wield — Phase 21**, and the rule under test is a transcription rather than a preference.
+ *
+ * `new_combat.c:2433` spells the roll `skill > number(1, 101)` with `number` inclusive at both ends
+ * (`random.c:75`), so the chance is `(skill − 1) / 101` and not `skill / 100`. The difference is
+ * invisible in a play session and exactly the kind of thing a later tidy-up would "fix", which is why
+ * both ends of it are pinned below.
+ */
+describe('the dual roll', () => {
+  /** How often the off hand swings over `runs` draws of a fresh seeded stream. */
+  function rate(skill: number, runs = 20_000): number {
+    const rng = makeRng(0xd0a1);
+    let swings = 0;
+    for (let i = 0; i < runs; i++) if (dualWieldSwings(rng, skill)) swings++;
+    return swings / runs;
+  }
+
+  it('never swings on a skill of zero, which is what a wizard has', () => {
+    // The ceiling table's `0` is a refusal rather than a bad chance, and this is the arithmetic half
+    // of it: `learnedAt` can never lift a wizard off zero, and zero never beats a roll of at least 1.
+    assert.equal(rate(0, 2_000), 0);
+  });
+
+  it('never swings at a skill of one either, because the roll is strictly greater', () => {
+    // `skill > number(1, 101)` with a minimum roll of 1 means a skill of 1 can never win. That is the
+    // level-1 warrior's floor, so a fresh character holds two blades and swings one.
+    assert.equal(rate(1, 2_000), 0);
+  });
+
+  it('is (skill - 1) / 101, not skill / 100', () => {
+    // The 101-sided die, pinned. At 50 the two candidate formulas differ by 1.5 points, which is more
+    // than the sampling noise below and is the whole reason this assertion is tight.
+    assert.ok(Math.abs(rate(50) - 49 / 101) < 0.015, `50 → ${rate(50)}`);
+    assert.ok(Math.abs(rate(95) - 94 / 101) < 0.015, `95 → ${rate(95)}`);
+  });
+
+  it('leaves even a perfect score short of certainty', () => {
+    // 99/101 ≈ 98%. A second blade that lands every single round is a different game, which is the
+    // same argument `rollDefence` makes for keeping its own `number(1, 101)`.
+    const perfect = rate(100);
+    assert.ok(perfect > 0.95 && perfect < 1, `100 → ${perfect}`);
+  });
+
+  it('rises monotonically, so grinding it is never a downgrade', () => {
+    const climb = [10, 30, 50, 70, 95].map((s) => rate(s, 8_000));
+    for (let i = 1; i < climb.length; i++) assert.ok(climb[i]! > climb[i - 1]!, climb.join(' '));
+  });
+
+  it("notches at the source's own 17, and above the weapon notch", () => {
+    assert.equal(DUAL_WIELD_NOTCH_CHANCE, 17);
+    // Deliberately steeper than a weapon's 6.67: that one fires on every landed blow, this one only
+    // on a round the roll was won.
+    assert.ok(DUAL_WIELD_NOTCH_CHANCE > WEAPON_NOTCH_CHANCE);
+  });
+});
+
+/**
+ * The class table, folded onto our four temperaments — `skills.c:3818-3833`.
+ *
+ * Worth pinning because the *shape* is the mechanic: a 0 is a refusal that `wield … offhand` reads, and
+ * if a later edit turned it into a small number the wizard would quietly start dual wielding.
+ */
+describe('who may dual wield', () => {
+  it("gives warriors the full ceiling, which is the table's own 100", () => {
+    assert.equal(ceilingFor('dual-wield', 'warrior'), SKILL_CEILING);
+  });
+
+  it('refuses wizards outright rather than making them bad at it', () => {
+    assert.equal(ceilingFor('dual-wield', 'wizard'), 0);
+    // And the refusal survives the level floor, which is the half that actually matters: without this,
+    // a level-27 wizard would be handed 40% for free by `skillFloor` and start swinging twice.
+    assert.equal(learnedAt(undefined, 27, 'dual-wield', 'wizard'), 0);
+    assert.equal(learnedAt(99, 60, 'dual-wield', 'wizard'), 0, 'and a hand-edited save cannot buy in');
+  });
+
+  it('leaves rogues real but short of a warrior, and priests merely trained', () => {
+    assert.equal(ceilingFor('dual-wield', 'rogue'), 80);
+    assert.equal(ceilingFor('dual-wield', 'priest'), 40);
+    assert.ok(ceilingFor('dual-wield', 'rogue') < ceilingFor('dual-wield', 'warrior'));
+  });
+
+  it('gives the identity-less the flat ceiling, exactly as every other skill does', () => {
+    // A pre-phase character and every mob path that asks. The rule is `ceilingFor`'s rather than this
+    // skill's, and it is asserted here so a special case added for dual wield would be caught.
+    assert.equal(ceilingFor('dual-wield', undefined), SKILL_CEILING);
   });
 });

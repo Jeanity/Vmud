@@ -135,6 +135,15 @@ export interface Item {
    */
   readonly twoHanded?: true;
   /**
+   * **May ride the off hand**, so `wield <weapon> offhand` will take it — Phase 21, `handednessFor`.
+   *
+   * The mirror of {@link twoHanded} and on the instance for the identical reason: the dagger in your
+   * save file is the dagger you wielded, and an **authored** blade (Windsong) has no catalogue entry
+   * for anything to look the answer up in. Resolved at `instantiate` rather than copied, so what is
+   * stored is the verdict rather than the ingredients.
+   */
+  readonly handedness?: 'either';
+  /**
    * Duris' weapon class, which decides **which skill swinging this trains** — Phase 19.
    *
    * On the item for the reason `twoHanded` is, and the argument is the same sentence with a different
@@ -414,6 +423,10 @@ export function readItem(raw: unknown, slot?: EquipSlot): Item | undefined {
     // Same rule as those two: a persisted field with no line here is deleted on the next login, and a
     // greatsword that quietly became one-handed over a restart would let a shield in beside it.
     ...(item.twoHanded === true ? { twoHanded: true as const } : {}),
+    // And its mirror. Without this line a dagger reloaded from disk would come home main-hand-only,
+    // and the off hand it had been swinging from all of yesterday would refuse it — silently, and
+    // only for characters who had logged out. `twoHanded`'s own lesson, one field over.
+    ...(item.handedness === 'either' ? { handedness: 'either' as const } : {}),
     // Phase 19, and the same rule again: without this line a sword reloaded from disk would train no
     // skill and lose its to-hit bonus, silently, and only for characters who had logged out.
     ...(typeof item.weaponClass === 'number' && item.weaponClass > 0 ? { weaponClass: item.weaponClass } : {}),

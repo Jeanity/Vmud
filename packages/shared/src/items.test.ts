@@ -8,7 +8,9 @@ import {
   CRAFT_AVERAGE,
   armourBonusFrom,
   craftsmanshipBonus,
+  handednessFor,
   instantiate,
+  OFFHAND_MAX_SIZE,
   sizeFrom,
   slotForWearPosition,
   vnumOf,
@@ -153,5 +155,75 @@ describe('a template becomes a thing you can hold', () => {
     // Unlike armour, taken unscaled: 14b proved our combat scale *against* these numbers.
     const sword = instantiate(template({ damage: { count: 2, sides: 6, bonus: 0 } }));
     assert.deepEqual(sword.damage, { count: 2, sides: 6, bonus: 0 });
+  });
+});
+
+/**
+ * **Handedness — Phase 21**, the catalogue half of dual wield.
+ *
+ * The rule is `IS_DIRK` (`objmisc.h:423`) plus the bulk ceiling derived from `actobj.c:4918`, and the
+ * thing most worth pinning is what it *refuses*: this is the gate that decides whether a weapon can
+ * ride the off hand at all, so a rule that quietly widened would put greatswords in people's fists.
+ */
+describe('which hand a weapon may occupy', () => {
+  /** A one-handed dagger — Duris' `WEAPON_DAGGER`, and the case that must work with no authoring. */
+  const dagger = (over: Partial<ItemTemplate> = {}) =>
+    template({ type: 5, weaponClass: 2, size: 1, damage: { count: 2, sides: 4, bonus: 0 }, ...over });
+
+  it('lets a plain dagger ride the off hand out of the box', () => {
+    // The whole point of having an automatic rule: nobody should have to author the obvious case.
+    assert.equal(handednessFor(dagger()), 'either');
+  });
+
+  it('and a short sword, which is the other half of IS_DIRK', () => {
+    assert.equal(handednessFor(dagger({ weaponClass: 9 })), 'either');
+  });
+
+  it('refuses everything that is not a light blade', () => {
+    // Longsword (5), axe (1), mace (6), polearm (8) — the source's macro names two classes and only
+    // two. Windsong is a 5, which is exactly why she needs authoring.
+    for (const cls of [1, 5, 6, 8, 12, 13, 15]) {
+      assert.equal(handednessFor(dagger({ weaponClass: cls })), undefined, `class ${cls}`);
+    }
+  });
+
+  it('refuses a blade heavier than the source\'s own strength gate allows', () => {
+    assert.equal(handednessFor(dagger({ size: OFFHAND_MAX_SIZE })), 'either', 'at the limit');
+    assert.equal(handednessFor(dagger({ size: OFFHAND_MAX_SIZE + 1 })), undefined, 'over it');
+  });
+
+  it('refuses anything needing both hands, and refuses it even when authored', () => {
+    // The two flags are the same fact from opposite ends. An item claiming both would have `wield`
+    // and `wield … offhand` disagreeing about how many hands it took, which is unresolvable rather
+    // than merely odd — so `twoHanded` is tested before the authored value is even read.
+    assert.equal(handednessFor(dagger({ twoHanded: true })), undefined);
+    assert.equal(handednessFor(dagger({ twoHanded: true, handedness: 'either' })), undefined);
+  });
+
+  it('refuses something with no dice, because a shield is not dual wield', () => {
+    // The off hand legitimately holds shields and lanterns; Duris' `WIELD2` never did. What this
+    // function answers is *may this swing from there*, and something with no damage cannot.
+    assert.equal(handednessFor(template({ type: 9, slot: 'offHand' })), undefined);
+    assert.equal(handednessFor(undefined), undefined, 'and an empty hand is not a weapon either');
+  });
+
+  it('lets an authored answer overrule the rule, which is how Windsong is blessed', () => {
+    // Her real shape: an elven scimitar, `weaponClass` 5, one-handed, two slots of bulk. The
+    // automatic rule refuses her on class and an operator says otherwise — the exception mechanism
+    // the owner asked for, in one field.
+    const windsong = template({ type: 5, weaponClass: 5, size: 2, damage: { count: 2, sides: 6, bonus: 2 } });
+    assert.equal(handednessFor(windsong), undefined, 'a longsword is not a dirk');
+    assert.equal(handednessFor({ ...windsong, handedness: 'either' }), 'either');
+    // And the authored answer beats the *bulk* gate too — an author overrules the whole rule, not
+    // the class half of it.
+    assert.equal(handednessFor({ ...windsong, size: MAX_ITEM_SIZE, handedness: 'either' }), 'either');
+  });
+
+  it('resolves the verdict onto the instance, so nothing looks it up at wield time', () => {
+    // `instantiate` stores the answer rather than the ingredients — the departure from the lines
+    // around it, and what lets an authored blade with no catalogue entry still know its own hands.
+    assert.equal(instantiate(dagger()).handedness, 'either');
+    assert.equal(instantiate(dagger({ weaponClass: 5 })).handedness, undefined);
+    assert.equal(instantiate(dagger({ weaponClass: 5, handedness: 'either' })).handedness, 'either');
   });
 });

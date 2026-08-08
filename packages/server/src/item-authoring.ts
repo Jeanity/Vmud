@@ -107,6 +107,7 @@ export interface ItemDraft {
   readonly damage?: unknown;
   readonly weaponClass?: unknown;
   readonly twoHanded?: unknown;
+  readonly handedness?: unknown;
   readonly hitroll?: unknown;
   readonly damroll?: unknown;
   readonly size?: unknown;
@@ -219,6 +220,24 @@ export function draftAuthoredItem(vnum: number, draft: ItemDraft): { item: ItemT
     if (type !== DURIS_ITEM.weapon) return { error: 'only a weapon (type 5) carries a weapon class' };
   }
 
+  // **The exception mechanism for the off hand** (Phase 21). `handednessFor` knows about daggers and
+  // short swords and will never know that a particular elven scimitar was made for the weaker hand —
+  // Windsong is `weaponClass` 5, a longsword, so the automatic rule refuses her and this is how an
+  // operator overrules it. `'either'` is the only value worth writing: absent already means the main
+  // hand, and a third state would be a way of saying the same thing twice.
+  //
+  // Refused rather than dropped, the art posture: "I marked it either-handed and it did not take" is
+  // a bug report nobody can act on. And refused **against `twoHanded`**, because the two flags
+  // describe the same fact from opposite ends — an item claiming both would have `wield` and
+  // `wield … offhand` disagreeing about how many hands it needed.
+  let handedness: 'either' | undefined;
+  if (draft.handedness !== undefined && draft.handedness !== null && draft.handedness !== '') {
+    if (draft.handedness !== 'either') return { error: "handedness must be \"either\", or absent for the main hand only" };
+    if (draft.twoHanded === true) return { error: 'a two-handed weapon cannot also ride the off hand' };
+    if (type !== DURIS_ITEM.weapon) return { error: 'only a weapon (type 5) has a handedness' };
+    handedness = 'either';
+  }
+
   const hitroll = draft.hitroll === undefined || draft.hitroll === null ? undefined : readInt(draft.hitroll, -1000, 1000);
   if (draft.hitroll !== undefined && draft.hitroll !== null && hitroll === undefined) {
     return { error: 'hitroll must be a whole number' };
@@ -285,6 +304,7 @@ export function draftAuthoredItem(vnum: number, draft: ItemDraft): { item: ItemT
       ...(damage ? { damage } : {}),
       ...(weaponClass !== undefined ? { weaponClass } : {}),
       ...(draft.twoHanded === true ? { twoHanded: true as const } : {}),
+      ...(handedness ? { handedness } : {}),
       ...(hitroll ? { hitroll } : {}),
       ...(damroll ? { damroll } : {}),
       ...(uses !== undefined ? { uses } : {}),

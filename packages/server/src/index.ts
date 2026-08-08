@@ -99,6 +99,9 @@ import {
   toHitFrom,
   weaponSkillFor,
   WEAPON_NOTCH_CHANCE,
+  DUAL_WIELD_NOTCH_CHANCE,
+  handednessFor,
+  type OffHandSwing,
   abilityMod,
   armourToAc,
   attackBonusFor,
@@ -2005,10 +2008,14 @@ function bracket(observer: Player, outcome: AttackOutcome, text: string): string
  * creature falls through to its race, which is exactly the branch the source takes
  * (`msg = weapon ? get_weapon_msg(weapon) : ch->only.npc->attack_type`).
  */
-function attackTypeOf(actor: Actor): AttackType {
+function attackTypeOf(actor: Actor, hand: 'mainHand' | 'offHand' = 'mainHand'): AttackType {
   // `equipped` lives on `Player` and `Mob` rather than on `Actor`, so the narrowing is the price of the
   // base type staying small. Every actor is one or the other; a corpse is not an actor.
-  const weapon = isPlayer(actor) || isMob(actor) ? actor.equipped.mainHand : undefined;
+  // **The hand is a parameter since Phase 21**, because the off hand's blow is the off hand's weapon:
+  // a swordsman with a dagger in the other fist slashes and then stabs, and one verb for both would
+  // undo the point of the table. An empty off hand falls through to the punch, exactly as an empty
+  // main hand does — and never reaches here, since nothing schedules a blow from an empty hand.
+  const weapon = isPlayer(actor) || isMob(actor) ? actor.equipped[hand] : undefined;
   // Instance first, template as the heal: an instance minted before its template knew its class —
   // Brynn93's own Windsong, looted the hour before the class existed — reads the catalogue's answer
   // instead of punching for ever. The copy-down at `instantiate` remains the rule; this is the
@@ -2035,7 +2042,16 @@ function announceAttack(outcome: AttackOutcome): void {
   //
   // **Only on a hit.** A miss keeps "miss", because you do not slash and miss — the verb describes the
   // blow that landed, which is what the table is for. A fumble keeps its own phrase for the same reason.
-  const verbs = ATTACK_VERBS[attackTypeOf(attacker)];
+  // **Phase 21: the off hand swings its own weapon**, so the verb comes from that hand's blade.
+  const hand = outcome.offHand ? 'offHand' : 'mainHand';
+  const verbs = ATTACK_VERBS[attackTypeOf(attacker, hand)];
+  // **And the line says which hand threw it.** The source's live combat prints nothing to
+  // distinguish the second blow — its off-hand call is `hit()` again — so the wording is taken from
+  // where Duris does name the hand: `common.c:322`'s `<secondary weapon>` and `actobj.c:4923`'s
+  // *"your secondary hand"*, in the owner's own shorter word. Cyan, because the two colours already
+  // spoken for are the critical's yellow and the machinery's grey, and a second blade landing is
+  // neither — it is the mechanic working, and it should be visible without shouting.
+  const offHand = outcome.offHand ? '&+c(off hand)&N ' : '';
   // The two rolls with rules attached get the two colours a MUD reserves for them: a critical is
   // bright yellow and a fumble is the same dim grey as the machinery, because a fumble *is* the
   // absence of an event. Everything between is uncoloured — if every line shouted, none would.
@@ -2076,11 +2092,11 @@ function announceAttack(outcome: AttackOutcome): void {
       // here starts with it; in this one it is mid-sentence — *"You parry a kobold's attack"* — and
       // "A kobold's" would be wrong. Uncapitalising the string would be worse, since a player's name is
       // a proper noun, so the caller hands over both forms.
-      return `${whom === 'you' ? 'You' : capitalise(whom)} ${verb} ${second ? 'your' : `${whoPlain}'s`} attack. ${roll}`;
+      return `${whom === 'you' ? 'You' : capitalise(whom)} ${verb} ${second ? 'your' : `${whoPlain}'s`} attack. ${offHand}${roll}`;
     }
     return outcome.hit
-      ? `${who} ${said.hit} ${whom} for ${outcome.damage} damage. ${roll}`
-      : `${who} ${said.miss} ${whom}. ${roll}`;
+      ? `${who} ${said.hit} ${whom} for ${outcome.damage} damage. ${offHand}${roll}`
+      : `${who} ${said.miss} ${whom}. ${offHand}${roll}`;
   };
 
   // Per recipient, gated on sight, like every other line about an entity — §4.10's warning about
@@ -2124,8 +2140,11 @@ function announceAttack(outcome: AttackOutcome): void {
               ? 'hit'
               : 'miss',
       // Protocol 22: which motion the blow plays, from the same table the verb reads — pierce, sting
-      // and bite lunge, everything else swings. On misses too: you swing and miss.
-      swing: SWING_ANIMATION[attackTypeOf(attacker)],
+      // and bite lunge, everything else swings. On misses too: you swing and miss. **And from the
+      // hand that threw it**, so an off-hand dagger lunges while the sword above it slashed; the
+      // wire needs no new field for that, because `wearing` has carried the off-hand item since
+      // Phase 16 and the animation is chosen from the same weapon the verb was.
+      swing: SWING_ANIMATION[attackTypeOf(attacker, hand)],
     });
   }
 
@@ -6661,14 +6680,63 @@ function refitCombat(player: Player): void {
   // pre-phase character fights exactly as they did the day before the phase landed.
   const strMod = player.identity ? abilityMod(player.identity.scores.str) : 0;
   const dexMod = player.identity ? abilityMod(player.identity.scores.dex) : 0;
+  // **Phase 21: what the off hand brings, folded here rather than asked for at swing time.** This is
+  // already the one seam every kit change and every notch passes through, so `advanceCombat` can add
+  // a second blow by reading one field instead of taking a third injected lookup — and a weapon
+  // swapped mid-fight or a dual-wield notch both reach the round through the call site that already
+  // existed. Everything below is the same arm as the main hand: `damageBonus`, damroll and strength
+  // are properties of the body, and only the dice change hands.
+  const offHandSwing = offHandFrom(player, strMod);
   player.combat = {
     ...base,
     armourClass: base.armourClass + armourClassFrom(player.equipped) + sumApply(player.affects, 'ac') + dexMod,
     attackBonus:
       base.attackBonus + hitrollFrom(player.equipped) + skillBonus + sumApply(player.affects, 'hit') + strMod,
     damage: { ...weapon, bonus: weapon.bonus + player.damageBonus + damrollFrom(player.equipped) + strMod },
+    ...(offHandSwing ? { offHand: offHandSwing } : {}),
   };
   player.roundMs = base.roundMs;
+}
+
+/**
+ * The second blade's contribution, or nothing — **the equipment half of the dual-wield gate**.
+ *
+ * Three refusals, and each one is a different question the source asks in a different place:
+ *
+ * - **Is there a weapon there at all?** A shield, a lantern and a bare hand all give the off-hand
+ *   slot nothing to swing with. `ch->equipment[WIELD2]` is the source's own test and it is a test for
+ *   an *object*; ours has to be a test for dice, because our off hand legitimately holds things
+ *   Duris' `WIELD2` never did.
+ * - **May it ride that hand?** {@link handednessFor} again, deliberately re-asked rather than trusted
+ *   from the wield. `wield … offhand` is the gate, but a save written before this phase could have a
+ *   weapon sitting in `offHand` from the two-hander displacement path — and it should go on being a
+ *   stat stick rather than quietly gaining a swing at the next login.
+ * - **Does this character dual wield?** `ceilingFor` answers, and a **0 ceiling is the refusal** —
+ *   `learnedAt` can never return anything above it, so a wizard's skill is 0 and the roll can never
+ *   succeed. That is the same table `wieldOffHand` reads to say *"You lack the training"*, so the
+ *   hand a character may fill and the hand that may swing cannot come to disagree.
+ *
+ * **Handled here and only for players**, matching `defenceOf`'s parry: the source's NPC branch is
+ * `GET_LEVEL(ch) * 2`, but our mobs' off-hand slots hold harvested shields and light sources rather
+ * than second weapons, so the branch would be a mechanism with no data behind it — the
+ * tested-and-never-called shape this project keeps refusing. It becomes true for mobs the day one is
+ * harvested with two blades, and `handednessFor` will be what notices.
+ */
+function offHandFrom(player: Player, strMod: number): OffHandSwing | undefined {
+  const held = player.equipped.offHand;
+  if (!held?.damage) return undefined;
+  // Instance first, template as the heal — `attackTypeOf`'s own rule, for the same saves: a dagger
+  // minted before this phase carries no `handedness`, and its catalogue entry still knows.
+  if (handednessFor(held) !== 'either' && handednessFor(templateOf(held)) !== 'either') return undefined;
+  const group = groupOf(player);
+  if (ceilingFor('dual-wield', group) <= 0) return undefined;
+  return {
+    damage: {
+      ...held.damage,
+      bonus: held.damage.bonus + player.damageBonus + damrollFrom(player.equipped) + strMod,
+    },
+    skill: learnedAt(player.skills.get('dual-wield'), player.level, 'dual-wield', group),
+  };
 }
 
 /**
@@ -6766,9 +6834,32 @@ function notchFromSwing(outcome: AttackOutcome): void {
   if (target.level < 2) return;
   if (sim.room(attacker.roomId)?.flags?.includes('safe')) return;
 
-  const skill = weaponSkillFor(attacker.equipped.mainHand);
+  // **The hand that threw it is the hand that learns.** A dagger in the off hand trains `piercing-1h`
+  // and not whatever the sword above it is, because the source's notch is inside `hit()` and `hit()`
+  // was handed `ch->equipment[WIELD2]` — the weapon is the argument, so the weapon is what improves.
+  const skill = weaponSkillFor(attacker.equipped[outcome.offHand ? 'offHand' : 'mainHand']);
   if (skill === undefined) return;
   notchSkill(attacker, skill, WEAPON_NOTCH_CHANCE);
+}
+
+/**
+ * The dual-wield notch — **`notch_skill(ch, SKILL_DUAL_WIELD, 17)`, `new_combat.c:2342`**.
+ *
+ * **Not gated on the blow landing**, and that is the whole difference from {@link notchFromSwing}
+ * above. The source puts this call on the line *before* its off-hand `hit()`, inside the branch the
+ * dual roll has just won — so what teaches you is getting the second blade moving, not what it then
+ * did. `outcome.offHand` is that won roll, which is why the flag rather than `hit` is the condition.
+ *
+ * The other three gates are the offensive notch's, unchanged and for its reasons: players only,
+ * nothing is learned from a level-1 creature, and nothing is learned in a safe room.
+ */
+function notchFromDualWield(outcome: AttackOutcome): void {
+  if (!outcome.offHand) return;
+  const { attacker, target } = outcome;
+  if (!isPlayer(attacker)) return;
+  if (target.level < 2) return;
+  if (sim.room(attacker.roomId)?.flags?.includes('safe')) return;
+  notchSkill(attacker, 'dual-wield', DUAL_WIELD_NOTCH_CHANCE);
 }
 
 /**
@@ -7660,8 +7751,31 @@ function wearFromBag(player: Player, rest: string): void {
  * in their hand rather than a lecture. Duris refuses both ways; that costs a beginner a swing and buys
  * nothing.
  */
+/**
+ * The words that mean *the other hand*, stripped off the tail of a `wield` argument.
+ *
+ * **A suffix rather than a command of its own, which is why `commands.ts` gains no row.** The parking
+ * lot asked for `wield <weapon> offhand`, and that is one verb taking two words — adding an `offhand`
+ * command would have put a new prefix into the abbreviation table for no gain, and that table's order
+ * is load-bearing (a mid-table insert once stole `g` from `get`).
+ *
+ * Four spellings because a player types what they think of, and `off hand`, `off-hand`, `offhand` and
+ * Duris' own `secondary` (`actobj.c:4923` — *"your secondary hand"*) are all the same thought.
+ */
+const OFFHAND_WORDS: readonly string[] = ['offhand', 'off-hand', 'off hand', 'secondary', 'second'];
+
 function wieldFromBag(player: Player, rest: string): void {
-  equipFromBag(player, rest, 'wield');
+  const trimmed = rest.trim();
+  const lowered = trimmed.toLowerCase();
+  // Longest first, so `off hand` is not matched as `hand`'s prefix by the shorter `second`. Matched
+  // on a **word** boundary — a space before the suffix — so nobody wielding "a dagger of the second
+  // moon" loses their moon.
+  const suffix = OFFHAND_WORDS.find((word) => lowered.endsWith(` ${word}`));
+  if (suffix === undefined) {
+    equipFromBag(player, trimmed, 'wield');
+    return;
+  }
+  equipFromBag(player, trimmed.slice(0, trimmed.length - suffix.length - 1).trim(), 'wield', 'offHand');
 }
 
 /**
@@ -7678,7 +7792,7 @@ function wieldFromBag(player: Player, rest: string): void {
  * greatsword. One of those is easy to forget, and forgetting it is a character quietly fighting with a
  * two-hander and a shield.
  */
-function equipFromBag(player: Player, rest: string, mode: 'wear' | 'wield'): void {
+function equipFromBag(player: Player, rest: string, mode: 'wear' | 'wield', hand?: 'offHand'): void {
   if (!rest.trim()) {
     send(player.id, { t: 'log', channel: 'error', text: mode === 'wield' ? 'Wield what?' : 'Wear what?' });
     return;
@@ -7708,11 +7822,35 @@ function equipFromBag(player: Player, rest: string, mode: 'wear' | 'wield'): voi
     return;
   }
 
+  // **`wield <weapon> offhand`** — the parking lot's own form, and the source's own two refusals in
+  // the source's own order (`actobj.c:4908` then `:4918`). Both are checked *before* anything is
+  // moved, so a refused wield leaves the bag exactly as it was.
+  if (hand === 'offHand') {
+    // The training gate. Duris asks `!GET_CHAR_SKILL(ch, SKILL_DUAL_WIELD)`, a per-class table; ours
+    // asks the ceiling, which is the same table in our shape — a group whose ceiling is 0 never
+    // learned this at all, and `learnedAt` can never lift them off the floor of it.
+    if (ceilingFor('dual-wield', groupOf(player)) <= 0) {
+      send(player.id, { t: 'log', channel: 'error', text: 'You lack the training to use two weapons.' });
+      return;
+    }
+    // The weapon gate. Two-handers, reach weapons and anything too heavy are all refused by
+    // `handednessFor` having declined to call them `'either'` — see there for how the source's
+    // strength-scaled weight test became a class-and-bulk one. Instance first, template as the heal.
+    if (handednessFor(item) !== 'either' && handednessFor(templateOf(item)) !== 'either') {
+      send(player.id, {
+        t: 'log',
+        channel: 'error',
+        text: `${capitalise(item.name)} is too much weapon for your off hand.`,
+      });
+      return;
+    }
+  }
+
   // **A ring goes on any finger** — owner's design, 2026-08-07: *"picks the first free slot and
   // wears it there"*. Item data only ever names a pair's first slot, so before this a second ring
   // displaced the first while the other hand stayed bare. Ears, wrists and neckwear are the same
   // shape — `resolveWearSlot` holds the rule and its tests.
-  const slot = resolveWearSlot(named, player.equipped);
+  const slot = hand ?? resolveWearSlot(named, player.equipped);
 
   // Every slot this equip empties. Normally one; a two-hander clears both hands, and so does putting
   // something in the off hand while a two-hander is held.
@@ -7746,8 +7884,17 @@ function equipFromBag(player: Player, rest: string, mode: 'wear' | 'wield'): voi
   for (const cleared of clears) delete kit[cleared];
   player.equipped = { ...kit, [slot]: item };
 
-  const verb = slot === 'mainHand' ? 'wield' : 'wear';
-  send(player.id, { t: 'log', channel: 'system', text: `You ${verb} ${item.name}.` });
+  // A blade in the off hand is still wielded, not worn — the slot alone used to decide this, and the
+  // slot alone would now say a player "wears" the dagger they just drew.
+  const verb = slot === 'mainHand' || hand === 'offHand' ? 'wield' : 'wear';
+  send(player.id, {
+    t: 'log',
+    channel: 'system',
+    // Duris' `where[]` names the two hands `<primary weapon>` and `<secondary weapon>` (`common.c:322`),
+    // and the confirmation says which one took it — otherwise the only way to tell a successful
+    // off-hand wield from an ordinary one is to look at the paper doll.
+    text: hand === 'offHand' ? `You wield ${item.name} in your off hand.` : `You ${verb} ${item.name}.`,
+  });
   if (item.twoHanded) {
     send(player.id, { t: 'log', channel: 'system', text: `It takes both hands.` });
   }
@@ -9405,6 +9552,10 @@ setInterval(() => {
   // above rather than folded into it because they fire on opposite bodies for opposite reasons: one on
   // the attacker for a blow that landed, one on the defender for a defence that did not.
   for (const outcome of combat.attacks) notchFromDefence(outcome);
+  // **Phase 21: and you get better at swinging twice.** A third pass rather than a branch inside the
+  // first, because it fires on a different condition — the dual roll rather than a landed blow — and
+  // folding the two would have hidden that difference inside an `if`. See `notchFromDualWield`.
+  for (const outcome of combat.attacks) notchFromDualWield(outcome);
   for (const change of combat.switches) announceSwitch(change);
   // The source's own sentence (`actmove.c:3586`), so a bashed caster's recovery is as visible as the
   // knockdown was — the player timing a re-bash is reading exactly this line.

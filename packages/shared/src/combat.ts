@@ -140,6 +140,37 @@ export interface CombatStats {
   readonly attackBonus: number;
   /** This actor's own round, in milliseconds. */
   readonly roundMs: number;
+  /**
+   * **What the off hand brings to the round**, or absent for a body that has nothing to swing there.
+   *
+   * Folded rather than looked up, and folded by the same seam `damage` and `attackBonus` are —
+   * `refitCombat`, which every kit change and every notch already passes through. That is what lets
+   * `advanceCombat` add a second blow by reading one field instead of taking a third injected
+   * lookup: the off-hand weapon, its dice, the wielder's arm and the skill governing it are all
+   * questions about the *body*, and the body is what a swing loop already has.
+   */
+  readonly offHand?: OffHandSwing;
+}
+
+/**
+ * The off hand's contribution to a round — **Phase 21, dual wield**.
+ *
+ * Present only when there is genuinely a second blade: `refitCombat` writes it when the off-hand slot
+ * holds something with dice that {@link handednessFor} calls `'either'`, and leaves it absent for a
+ * shield, a lantern, an empty hand, and for anybody whose class ceiling refuses the skill outright.
+ */
+export interface OffHandSwing {
+  /**
+   * The off-hand weapon's dice with the **wielder's own arm already folded in** — damroll, damage
+   * bonus and strength, exactly as {@link CombatStats.damage} carries them for the main hand.
+   *
+   * The proc loop learned this the hard way (owner's report, 2026-08-07: proc blows read 6–11 beside
+   * 30-something swings, because the blade rolled its bare dice). A second blade swung by the same
+   * arm is swung by the same arm.
+   */
+  readonly damage: Dice;
+  /** `SKILL_DUAL_WIELD`, 0–100 — what `dualWieldSwings` rolls against, once a round. */
+  readonly skill: number;
 }
 
 /** Reads the two trustworthy stats columns and derives the rest. */

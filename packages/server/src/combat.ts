@@ -42,6 +42,7 @@ import {
   threatOf,
   defenceEase,
   dodgeChance,
+  dualWieldSwings,
   parryChance,
   randomInt,
   resolveAttack,
@@ -88,6 +89,16 @@ export interface AttackOutcome {
    * a skill means a message, a save and an `attackBonus` refit, none of which this file knows about.
    */
   readonly defenceNotch?: SkillId;
+  /**
+   * **This was the off hand's blow** — Phase 21, and the flag is the dual roll's own receipt.
+   *
+   * Set only on the second swing of a round, so its presence means `dualWieldSwings` returned true.
+   * Downstream reads it for three things and each is a real difference rather than decoration: the
+   * verb comes from the *other* weapon, the feed line says which hand threw it, and the dual-wield
+   * notch fires — that last one on the flag rather than on `hit`, because the source notches above
+   * its `hit()` call and not inside it. See `DUAL_WIELD_NOTCH_CHANCE`.
+   */
+  readonly offHand?: true;
 }
 
 /** What a combat tick produced. */
@@ -472,6 +483,13 @@ function swing(
   target: Actor,
   defence: DefenceSkills | undefined,
   attackers: number,
+  /**
+   * What to roll for damage, when it is not the main hand's. **Only the dice change** — the to-hit,
+   * the crit rules, the defences and the target are all the attacker's own, which is exactly what
+   * `hit(ch, opponent, ch->equipment[WIELD2], …)` does in the source: one function, one extra
+   * argument, and the argument is the weapon.
+   */
+  damageOverride?: AttackOutcome['attacker']['combat']['damage'],
 ): AttackOutcome {
   const result = resolveAttack(rng, {
     attackBonus: attacker.combat.attackBonus,
@@ -498,7 +516,7 @@ function swing(
   const defended = rolled?.defended;
 
   const hit = beatArmour && !defended;
-  const damage = hit ? rollDamage(rng, attacker.combat.damage, result.critical) : 0;
+  const damage = hit ? rollDamage(rng, damageOverride ?? attacker.combat.damage, result.critical) : 0;
   // **The damage is not applied here.** It used to be, and moving it into {@link landBlow} is what lets an
   // ability share one path with a swing — see that function. This one decides *what* a blow is worth; what
   // a landed blow does to the world is the same question however it was thrown.
@@ -878,6 +896,46 @@ export function advanceCombat(
     }
 
     attacks.push(outcome);
+
+    // **The off hand's blow, in the same round** — `new_combat.c:2340-2349`, and the whole of dual
+    // wield:
+    //
+    // ```c
+    // if (PhasedAttack(ch, SKILL_DUAL_WIELD) && ch->equipment[WIELD2]) {
+    //     notch_skill(ch, SKILL_DUAL_WIELD, 17);
+    //     if (hit(ch, opponent, ch->equipment[WIELD2], …)) continue;
+    // }
+    // ```
+    //
+    // Note where it sits: **after the main swing resolves and before the round is rescheduled**, so
+    // the second blade is a second blow inside one round rather than a second round. That is the
+    // difference between dual wield and haste, and getting it wrong would make an off-hand dagger a
+    // way to double your *tempo* instead of your output.
+    //
+    // **One seam, not a second combat path.** It reuses this file's own `swing` and `landBlow` —
+    // `landBlow` is the only door damage goes through, so the second blade credits threat, feeds the
+    // ledger, provokes retaliation and can kill, all without a line of it written twice. The source
+    // gets the same property the same way: its off-hand call is `hit()` again, differing in one
+    // argument.
+    //
+    // **Nothing here re-checks the hand.** `combat.offHand` is written by `refitCombat` only when the
+    // slot holds a blade that may swing from it, so its presence *is* the equipment gate — the same
+    // arrangement `ch->equipment[WIELD2]` has in the source, where `wield` did the deciding.
+    const offHand = attacker.combat.offHand;
+    if (offHand && dualWieldSwings(rng, offHand.skill)) {
+      // The crowd is re-read: the main blow may have felled somebody else's opponent, and a defender
+      // who is suddenly less swarmed defends better on the very next blow.
+      const secondCrowd = defence ? attackersOn(sim, target) : 1;
+      const second = swing(rng, attacker, target, defence?.(target), secondCrowd, offHand.damage);
+      const landedSecond = landBlow({ sim, scheduler, book, ledger }, attacker, target, second.damage);
+      for (const actor of landedSecond.changed) changed.push(actor);
+      if (landedSecond.death) deaths.push(landedSecond.death);
+      attacks.push({ ...second, offHand: true, ...(landedSecond.incapacitated ? { incapacitated: true } : {}) });
+      // `if (hit(…)) continue;` — the source's own bail. A round that ended the fight does not go on
+      // to schedule the next one, exactly as the main swing above does not.
+      if (landedSecond.incapacitated) continue;
+    }
+
     // Next round. Rescheduled after resolving rather than before, so a round length changed mid-fight
     // (haste, a weapon swap) takes effect from the following swing rather than retroactively.
     scheduler.schedule('swing', attacker.id, Math.max(MIN_ROUND_MS, attacker.roundMs));

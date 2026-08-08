@@ -1180,3 +1180,140 @@ describe('rescue — one attacker peeled onto the rescuer', () => {
     assert.equal(rescuer.fighting, player.id);
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/* Dual wield — Phase 21                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * **The off hand's blow, and where it sits.**
+ *
+ * The load-bearing assertion in here is *"two blows inside one round"*. `new_combat.c:2340` puts the
+ * second `hit()` after the first and before the round is rescheduled, which is what makes dual wield a
+ * damage increase rather than a tempo one — get it wrong and an off-hand dagger becomes haste with
+ * extra steps, which is a different mechanic wearing this one's name.
+ *
+ * The second is that it goes through `landBlow`. That is the only door damage may use, and a second
+ * combat path that forgot it would produce a mob dying without paying experience, or a kill leaving no
+ * corpse — the specific failures that function's own comment enumerates.
+ */
+describe('the off hand', () => {
+  /** Gives the player a second blade of `skill` percent, folded exactly as `refitCombat` folds it. */
+  function armed(f: Fixture, skill: number): void {
+    f.player.combat = { ...f.player.combat, offHand: { damage: { count: 1, sides: 1, bonus: 0 }, skill } };
+  }
+
+  /** Every blow the player threw over `ms`, in the order the round produced them. */
+  function playerBlows(f: Fixture, ms: number) {
+    return f.run(ms).filter((a) => a.attacker.id === f.player.id);
+  }
+
+  it('never swings when the hand is empty', () => {
+    // `combat.offHand` absent is the equipment gate — the same arrangement `ch->equipment[WIELD2]`
+    // has in the source, where `wield` did the deciding.
+    const f = makeFixture();
+    engage(f.scheduler, f.player, f.mob);
+    assert.equal(playerBlows(f, 30_000).some((a) => a.offHand), false);
+  });
+
+  it('never swings on a skill the roll cannot beat', () => {
+    // Skill 1 loses to every roll of `number(1, 101)`. So the blade is held and never used, which is
+    // exactly a level-1 character's first hours.
+    const f = makeFixture();
+    armed(f, 1);
+    engage(f.scheduler, f.player, f.mob);
+    assert.equal(playerBlows(f, 30_000).some((a) => a.offHand), false);
+  });
+
+  it('swings, and marks the blow as the off hand’s', () => {
+    const f = makeFixture();
+    armed(f, 95);
+    engage(f.scheduler, f.player, f.mob);
+    const off = playerBlows(f, 30_000).filter((a) => a.offHand);
+    assert.ok(off.length > 0, 'a 95% skill must produce off-hand blows');
+    // The flag is the dual roll's receipt: downstream reads it for the verb, the feed line and the
+    // notch, and all three would silently pick the wrong hand without it.
+    assert.ok(off.every((a) => a.offHand === true));
+  });
+
+  it('lands both blows inside one round, not across two', () => {
+    // **The assertion this whole suite exists for.** Ten rounds at a 95% skill: if the second blade
+    // were scheduling its own round instead of riding the first, the count would stay at one a round.
+    const f = makeFixture();
+    armed(f, 95);
+    engage(f.scheduler, f.player, f.mob);
+    const blows = playerBlows(f, 30_000);
+    const rounds = blows.filter((a) => !a.offHand).length;
+    const seconds = blows.filter((a) => a.offHand).length;
+    assert.ok(rounds > 5, `main-hand rounds: ${rounds}`);
+    assert.ok(seconds > rounds * 0.7, `${seconds} off-hand blows against ${rounds} rounds`);
+    assert.ok(seconds <= rounds, 'and never more second blows than rounds — one off hand, one blade');
+  });
+
+  it('rolls its own d20 rather than copying the main hand’s', () => {
+    // Two independent swings, so they must disagree sometimes. A second blow that inherited the
+    // first's verdict would be a damage multiplier rather than an attack.
+    const f = makeFixture();
+    armed(f, 95);
+    engage(f.scheduler, f.player, f.mob);
+    const naturals = new Set(playerBlows(f, 60_000).filter((a) => a.offHand).map((a) => a.natural));
+    assert.ok(naturals.size > 3, `off-hand naturals seen: ${[...naturals].join(',')}`);
+  });
+
+  it('swings the off-hand weapon’s dice, not the main hand’s', () => {
+    // `hit(ch, opponent, ch->equipment[WIELD2], …)` — one argument differs, and it is the weapon.
+    // The fixture's off hand is 1d1+0, so every landed off-hand blow is exactly 1.
+    const f = makeFixture();
+    f.player.combat = { ...f.player.combat, damage: { count: 1, sides: 1, bonus: 40 } };
+    armed(f, 95);
+    engage(f.scheduler, f.player, f.mob);
+    const landed = playerBlows(f, 30_000).filter((a) => a.offHand && a.hit && !a.critical);
+    assert.ok(landed.length > 0);
+    assert.ok(landed.every((a) => a.damage === 1), landed.map((a) => a.damage).join(','));
+  });
+
+  it('goes through landBlow, so a second blade can kill and pay out', () => {
+    // Not a second damage path. A mob felled by the off hand must produce a `Death` with its ledger
+    // intact — otherwise it dies owing experience and leaves no corpse.
+    const f = makeFixture(dummy({ hp: '1d1+1' }));
+    f.player.combat = { ...f.player.combat, damage: { count: 1, sides: 1, bonus: 0 } };
+    armed(f, 95);
+    engage(f.scheduler, f.player, f.mob);
+
+    let killed = false;
+    for (let elapsed = 0; elapsed < 60_000 && !killed; elapsed += 100) {
+      const tick = advanceCombat(f.sim, f.scheduler, f.book, f.ledger, f.rng, f.scheduler.advance(100));
+      if (tick.deaths.length > 0) {
+        killed = true;
+        assert.equal(tick.deaths[0]!.actor.id, f.mob.id);
+        assert.ok(tick.deaths[0]!.contributions.size > 0, 'the ledger survived the kill');
+      }
+    }
+    assert.ok(killed, 'two 1-point blows a round must eventually finish a 2 hp dummy');
+  });
+
+  it('does not swing in a round the main blow already ended', () => {
+    // `if (hit(…)) continue;` — the source's own bail, and ours is `landed.incapacitated`. Swinging
+    // at a body the line above felled is how a corpse gets hit.
+    //
+    // Asserted **per round** rather than over the fight, which the first draft of this test got
+    // wrong: the main hand can miss, and on those rounds the off hand swinging is the mechanic
+    // working rather than the bug. The property is only ever about the round that ended it.
+    const f = makeFixture(dummy({ hp: '1d1+40' }));
+    // Kills from full in one blow, so the round that lands is the round that ends. The off hand
+    // chips for 1 and cannot end anything itself.
+    f.player.combat = { ...f.player.combat, damage: { count: 1, sides: 1, bonus: 99 } };
+    armed(f, 95);
+    engage(f.scheduler, f.player, f.mob);
+
+    let sawTheEnd = false;
+    for (let elapsed = 0; elapsed < 60_000 && !sawTheEnd; elapsed += 100) {
+      const tick = advanceCombat(f.sim, f.scheduler, f.book, f.ledger, f.rng, f.scheduler.advance(100));
+      const mine = tick.attacks.filter((a) => a.attacker.id === f.player.id);
+      if (!mine.some((a) => !a.offHand && a.incapacitated)) continue;
+      sawTheEnd = true;
+      assert.equal(mine.filter((a) => a.offHand).length, 0, 'the off hand must not swing at a felled body');
+    }
+    assert.ok(sawTheEnd, 'the killing round must actually happen');
+  });
+});

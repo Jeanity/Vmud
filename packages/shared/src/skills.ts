@@ -102,6 +102,11 @@ export const SKILL_IDS = [
   // source registers and never reads: its only consumer is a function whose whole body is commented
   // out. Ours prices deep water rather than gating it — see {@link swimSurcharge}.
   'swim',
+  // Phase 21. `SKILL_CREATE("dual wield", SKILL_DUAL_WIELD, TAR_PHYS)` (`skills.c:3818`) — and unlike
+  // the eight weapon classes this one is **read by the live combat**: `new_combat.c:2340` is the
+  // second swing. It is neither a way to hit nor a way to avoid being hit but a way to hit *again*,
+  // which is why it sits apart from the nine and gates on the off hand rather than on a weapon.
+  'dual-wield',
 ] as const;
 
 export type SkillId = (typeof SKILL_IDS)[number];
@@ -136,6 +141,7 @@ export const SKILLS: Readonly<Record<SkillId, Skill>> = {
   'kick': { id: 'kick', name: 'kick', category: 'physical' },
   'rescue': { id: 'rescue', name: 'rescue', category: 'physical' },
   'swim': { id: 'swim', name: 'swim', category: 'physical' },
+  'dual-wield': { id: 'dual-wield', name: 'dual wield', category: 'physical' },
 };
 
 /** Whether a string is a skill this build knows. The load path's gate — see `players.ts`. */
@@ -272,7 +278,9 @@ export const SKILL_CEILING = 95;
 /** The four temperaments' `maxlearn` rows. Sparse: an absent skill sits at {@link SKILL_CEILING}. */
 const GROUP_CEILINGS: Readonly<Record<ClassGroup, Readonly<Partial<Record<SkillId, number>>>>> = {
   // Weapons and the fighting verbs at the full 95; the warrior's one soft spot is pure evasion —
-  // plate is not a dancing costume.
+  // plate is not a dancing costume. **Dual wield is absent here on purpose**, so it takes the full
+  // ceiling: `skills.c:3820-3824` gives `CLASS_WARRIOR`, `CLASS_RANGER` and `CLASS_MERCENARY` **100**
+  // at level 1, the highest row in the table and the group's own default.
   warrior: { dodge: 70 },
   priest: {
     'bludgeon-1h': 85,
@@ -290,6 +298,13 @@ const GROUP_CEILINGS: Readonly<Record<ClassGroup, Readonly<Partial<Record<SkillI
     kick: 50,
     rescue: 60,
     swim: 90,
+    // **Trained, badly** — the row's own word for a weapon a priest was not built for, and the
+    // source agrees by the narrowest possible margin: no priest class carries dual wield as a base
+    // skill, and the one entry in the whole table is `SPEC_SKILL_ADD(CLASS_CLERIC, 51, 80,
+    // SPEC_ZEALOT)` — a specialisation, at level 51, of one class. We have no specialisations, so
+    // that late narrow door becomes this group's flat 40, which is what every other off-temperament
+    // weapon in this row already reads.
+    'dual-wield': 40,
   },
   wizard: {
     'piercing-1h': 45,
@@ -307,6 +322,11 @@ const GROUP_CEILINGS: Readonly<Record<ClassGroup, Readonly<Partial<Record<SkillI
     kick: 40,
     rescue: 30,
     swim: 85,
+    // **Zero, and it means the refusal** — the row's own vocabulary, beside `bash: 0`. Not a harsh
+    // reading: `skills.c:3818-3833` lists every class that may learn dual wield and **no mage,
+    // sorcerer, necromancer or ethermancer appears at all**. A wizard does not dual wield badly; a
+    // wizard does not dual wield, and `wield … offhand` says so in the source's own sentence.
+    'dual-wield': 0,
   },
   rogue: {
     'piercing-1h': 90,
@@ -323,6 +343,11 @@ const GROUP_CEILINGS: Readonly<Record<ClassGroup, Readonly<Partial<Record<SkillI
     bash: 0,
     kick: 75,
     rescue: 50,
+    // **Real, and short of the warrior's** — `SKILL_ADD(CLASS_ASSASSIN, 1, 80)` and
+    // `SKILL_ADD(CLASS_ROGUE, 1, 75)`, both from level 1. Our four temperaments fold those two into
+    // one group and it takes the assassin's 80: a rogue with two blades is the archetype the skill
+    // exists for, and the ceiling that separates them from a warrior is 15 points rather than a door.
+    'dual-wield': 80,
   },
 };
 
@@ -385,6 +410,44 @@ export const OFFENSIVE_NOTCH_CHANCE = 7;
  * something about rescuing is a moment you fumble one; the consolation runs the other way round.
  */
 export const RESCUE_NOTCH_CHANCE = 10;
+
+/**
+ * The base chance for a dual-wield notch — the literal `17` in `notch_skill(ch, SKILL_DUAL_WIELD, 17)`
+ * (`new_combat.c:2342`), the source's own number rather than a `get_property` lookup.
+ *
+ * **Where it fires is the interesting part, and it must not be tidied to match the weapon notch.**
+ * That one lives inside `hit()`'s damage branch, so you learn a weapon by *landing* with it. This one
+ * sits on the line *above* the off-hand `hit()` call, inside the branch the dual roll just won — so
+ * you learn dual wield by **making the second swing**, whether or not it connects. Which is right:
+ * what the skill governs is getting the off hand moving at all, and it did that.
+ */
+export const DUAL_WIELD_NOTCH_CHANCE = 17;
+
+/**
+ * Whether the off hand swings this round — **the dual roll**, and the whole of what the skill buys.
+ *
+ * ```c
+ * ((IS_NPC(ch) ? GET_LEVEL(ch) * 2 : GET_CHAR_SKILL(ch, SKILL_DUAL_WIELD)) > number(1, 101))
+ *     && ch->equipment[WIELD2]
+ * ```
+ *
+ * `new_combat.c:2433` and `:2491`, verbatim. Those two are the haste and blur branches; the ordinary
+ * round at `:2340` reads `PhasedAttack(ch, SKILL_DUAL_WIELD)` instead — **a function this snapshot of
+ * the source declares (`prototypes.h:950`) and never defines**, so the inline form its own commented-out
+ * predecessor at `:2337` and its two live siblings all spell is the only version of the rule the tree
+ * actually contains. Taking it is transcription, not invention.
+ *
+ * **`number(1, 101)` is inclusive at both ends** (`random.c:75`), so the chance is `(skill − 1) / 101`
+ * and a perfect 100 still fails about one round in fifty. Kept rather than tidied to `1..100`, exactly
+ * as `rollDefence` keeps it: a second blade that lands *every* round is a different weapon.
+ *
+ * At the numbers that reach it: a fresh warrior's level floor of 1 swings **never**, a level-27
+ * warrior's free 40 swings **39%** of rounds, and a ground-out 95 swings **93%**. So the second blade
+ * arrives gradually and is earned, which is the shape `DESIGN-skills.md` asks every skill for.
+ */
+export function dualWieldSwings(rng: Rng, skill: number): boolean {
+  return skill > randomInt(rng, 1, 101);
+}
 
 /**
  * What a deep-water stroke costs **on top of** the terrain rate, in movement points — Phase 19

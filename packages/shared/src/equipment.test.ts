@@ -109,4 +109,17 @@ describe('reading a stored kit', () => {
     assert.deepEqual(Object.keys(read), []);
     assert.ok(!(EQUIP_SLOTS as readonly string[]).includes('tail'));
   });
+
+  it('reads handedness back, or a dagger comes home main-hand-only', () => {
+    // **The `stackLimit` lesson, one field over** — a persisted field with no line in this reader is
+    // deleted at the next login, silently, and only for characters who had logged out. A dagger that
+    // quietly lost its off-hand blessing overnight would be a bug nobody could reproduce.
+    const saved = { offHand: { id: 'obj:1', name: 'a dagger', ac: 0, size: 1, handedness: 'either' } };
+    assert.equal(readEquipped(saved).offHand?.handedness, 'either');
+    // Absent stays absent — the main hand is the default and writing it would be noise in every save.
+    assert.equal(readEquipped({ offHand: { id: 'obj:2', name: 'a club', ac: 0, size: 2 } }).offHand?.handedness, undefined);
+    // And a hand-edited value that is not the one legal answer is refused rather than trusted.
+    const bogus = { offHand: { id: 'obj:3', name: 'a club', ac: 0, size: 2, handedness: 'left' } };
+    assert.equal(readEquipped(bogus).offHand?.handedness, undefined);
+  });
 });
