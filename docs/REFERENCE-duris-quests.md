@@ -66,14 +66,24 @@ Two things worth knowing before anyone parses these:
 
 ## 2. What is live in our game today
 
-Three new quests shipped with this harvest, alongside Gwark's. All four load and were checked against
-a running server: `[quests] 4 authored quest(s) loaded`, every giver resolving with `standing: 1`.
+Seven quests are live. Three shipped with the first harvest alongside Gwark's; **three more arrived
+2026-08-08 with zone 64 Faerie Realm**, the first zone loaded *for* its quests rather than for its
+geography. All seven load and were checked against a running server:
+`[quests] 7 authored quest(s) loaded`, every giver resolving with `standing: 1`.
 
 | id | zone | giver | objective | reward | source |
 | --- | --- | --- | --- | --- | --- |
 | `the-viscounts-onion` | 36 IceCrag | 97023 the Viscount (room 5818) | bring **97115** *an onion* — lies on the floor of Masha's kitchen, room 5728 | item **97135** *a root vial filled with bubbling purple liquid* | `icecrag.qst:483` |
 | `the-commanders-lost-book` | 36 IceCrag | 97021 the Commander (room 5804) | bring **97006** *an ancient crumbling book* — carried by the Archivist (97030) and a sentinel private (97059) | item **97144** *a blue earthstone ring* | `icecrag.qst:429` |
 | `the-jewelers-raw-gem` | 24 Ashrumite | 66021 the jeweler (room 4880) | bring **66039** *a raw gem* — on the floor of room 4902 | item **66044** *an amethyst* | `ashrumite.qst:57` |
+| `finns-mammoth-key` | 64 Faerie Realm | 14015 The Legendary Finn (room 7653) | bring **14037** *a mammoth key of crafted iron* — carried by the buttercup faerie of room 7744 (lvl 6, passive) | **500,000 copper** + item **14023** *a gigantic, steel-blue sword of power* | `realm.qst:60` |
+| `finns-signet-ring` | 64 Faerie Realm | 14015 The Legendary Finn (room 7653) | bring **14036** *Finn's signet ring* — worn by a faerie guard of the Seelie Court (14067, lvl 26, three of them in room 7663) | item **14018** *a glowing faerie ring* | `realm.qst:41` |
+| `celriyas-brothers-sword` | 64 Faerie Realm | 14028 Celriya (room 7730) | bring **14001** *an elvish sword of great antiquity* — on the floor of room 45373, 36 rooms from her garden | item **14011** *a pair of goggles of faerie sight* | `realm.qst:94` |
+
+**`finns-mammoth-key` is the first quest in the corpus that ports at full fidelity** — the source pays
+`R I 14023` *and* `R C 500000`, and `reward` already carries an item beside a number, so nothing was
+dropped. It is also the only live quest whose objective a low-level character can take: the bearer is
+a level-6 passive faerie, against IceCrag's level-15-to-60 population and Ashrumite's level-50 guards.
 
 Each was chosen against four tests: the giver **spawns** (a `mob` reset puts a body in a room, not
 merely a template in the file), the objective is a **single item** our `bring` shape can express, that
@@ -87,6 +97,17 @@ item is **actually obtainable** in a populated zone, and the giver's own words c
 `objective.count` landed on a `bring`. The newbie zone now has both Gwark's kill and Szxvu's fetch.
 His three remaining exchanges are chain steps or multi-*vnum*, so they still wait on §4's first row.
 
+**A fifth test was considered and could not be met: none of these quests is walkable to.** Faerie
+Realm's exits leave for zones 423, 226, 367 and 193, none of them loaded, so it is an island. That
+was checked before it was chosen and accepted, because **the loaded world is already four islands**:
+breadth-first search from the spawn room (41260, zone 168) over the loaded set reaches 99 rooms and
+stops, all of them in 168. Ashrumite and IceCrag — which host four of the seven live quests — have
+been reachable only by admin teleport since the day they were added, and the single zone that would
+extend the walk is 321 Evermeet-Ancient Forest-1, which has neither population nor a `.qst`. Of the
+six zones with an exit touching the loaded set, exactly one (117 Ako Village) has harvested spawns,
+and it has no quest file at all. So there was no choice that made a quest zone walkable, and the
+honest framing is that this adds a fifth island to four, not a stranded zone to a connected world.
+
 ### Where the words came from
 
 Duris has no single "here is the job" string: the ask is spread across keyword responses a player
@@ -98,6 +119,17 @@ from the source is listed.
 | the Viscount | `ask` is the `sample` keyword response verbatim (`icecrag.qst:475`). `thanks` is the `Q` message with the source's own misspelling *"Magificent"* corrected and its `Here.....drink` ellipsis normalised. |
 | the Commander | `ask` stitches three keyword responses — `book` (`icecrag.qst:390`), `lost` (`:396`), and the closing line of `man fellow strange` (`:424`), whose *"that bastard stole the book"* is softened to the *"shifty-eyed loon"* the `Q` message itself uses. `thanks` is the `Q` message verbatim but for the same ellipsis normalisation. |
 | the jeweler | `ask` is the `gem gems cutting` response verbatim (`ashrumite.qst:41`). `thanks` is the `Q` message verbatim. The source also charges **2 silver** for the work (`G C 20`); our schema cannot charge for an objective, so the fee is dropped and the price line is left out of the ask rather than quoted as a lie. |
+| Finn (both) | Finn's lines are **narrated speech** — *"Finn scowls in anger and says, …"* — where IceCrag's givers spoke plainly, so the adaptation is the same one every time: the narration is cut and Finn's own quoted words are kept, because `doQuest` already wraps the string in `says, '…'` and a stage direction inside it reads as a bug. `finns-signet-ring`'s `ask` is the `ring home leave realm` response (`realm.qst:10`) minus its closing teleport-scroll question, which belongs to a *different* exchange (`G I 14018`) that we do not ship. `finns-mammoth-key`'s `ask` is the `key castle` response (`realm.qst:21`) and its `thanks` is the `Q` message (`:61`), both verbatim once the narration is removed. |
+| Finn's `thanks` on the ring | The source's `Q` block (`realm.qst:42`) spends five lines on Finn ransacking his luggage before he shouts *"My key!"*. Compressed to *"Now let me just find… no. No! My key!"* — the beat matters, because it is the source's own hand-off from the first quest to the second, and both are on the same giver. |
+| Celriya | `ask` is the `brother tvelor` response (`realm.qst:84`) with the narration cut and the closing *"I have the grounds to keep as well. If Oberon should ever return…"* dropped, being scene-setting rather than the job. `thanks` is the `Q` message (`:95`) with *"please accept these"* corrected to *"this"*: the source pays two objects and we pay one. |
+
+Three departures are worth stating plainly, because they are losses rather than tidying. **Two of the
+three pay a second item we cannot express** — Finn's ring quest also gives 14041 *a map of the Faerie
+Realm*, and Celriya's also gives 14076 *her wand of restoration*; `reward.item` is singular, so the
+wearable was kept and the second object dropped in both. And **`finns-mammoth-key` carries a `D`
+block** — Finn is meant to leave for home once he has his key. §4 recommends not porting departures
+in a persistent world, so he stays, which makes his farewell the one line of his the file does not
+use.
 
 ---
 
@@ -254,27 +286,55 @@ Our schema has no objective for *"pay me"*, and two are pure lore payoffs worth 
 
 ## 6. Where to harvest next
 
-30 of the 49 zones with harvested spawn data have a `.qst` file with quests in them — **114 quest
-givers already sitting behind population we have generated.** Adding a zone id to
-`world.config.json`'s `populate` is most of the work.
+31 of the 49 zones with harvested spawn data have a `.qst` file beside them — **quest givers already
+sitting behind population we have generated.**
 
-| zone | name | `.qst` file | givers | exchanges |
-| --- | --- | --- | --- | --- |
-| 326 | Ashstone Refugee Camp | `bs.qst` | 20 | 65 |
-| 225 | Jotunheim | `jotun.qst` | 10 | 15 |
-| 198 | The Defense of Longhollow | `long.qst` | 5 | 15 |
-| 24 | Ashrumite_Village *(loaded)* | `ashrumite.qst` | 4 | 12 |
-| 296 | The Northern High Road | `goblinht.qst` | 8 | 11 |
-| 36 | IceCrag Castle *(loaded)* | `icecrag.qst` | 11 | 11 |
-| 232 | The Basin Wastes | `basin_wa.qst` | 1 | 10 |
-| 259 | The Curse of Newhaven | `newhaven.qst` | 5 | 9 |
-| 6 | Caves of Mt. Skelenak | `caves_skelenak.qst` | 2 | 9 |
-| 64 | Faerie Realm | `realm.qst` | 4 | 7 |
-| 257 | Myrloch Vale | `myrloch_vale.qst` | 2 | 4 |
-| 168 | Kobold Settlement *(loaded)* | `kobold.qst` | 1 | 4 |
+**Correction, 2026-08-08 — what "adding a zone" actually is.** An earlier draft of this section said
+*"adding a zone id to `world.config.json`'s `populate` is most of the work"*, which reads as though
+the worldgen pipeline consults that file. It does not. `packages/worldgen/src/index.ts` never opens
+`world.config.json` — it takes `--zone` on the command line (`index.ts:89-97`), and with no flag it
+writes **all 327 zones and all 49 population files every run**. The config is read by the *server*,
+`loadWorldConfig` in `packages/server/src/world.ts:67-69`, and it is a runtime filter over output
+that already exists on disk. So loading a zone is genuinely two edits and a restart, with **no
+worldgen run required at all**: the id goes in `zones` to get the rooms and in `populate` to get the
+inhabitants, and a zone listed in `populate` but not in `zones` is refused at boot.
 
-Ashstone Refugee Camp is the standout: twenty givers and sixty-five exchanges behind a zone whose
-population is already harvested.
+**Correction — Ashstone Refugee Camp (326) is not the prize this table implies.** Its `bs.qst` really
+does hold 20 givers and 65 exchanges, and its population really is harvested. But the *geometry* is
+not: the zMUD map contributes **four rooms** for zone 326 and its spawn file resolves **two** mob
+resets out of 202 templates, so **not one of its twenty givers has a body anywhere in the world**.
+Counting givers in the `.qst` measures the MUD; what we can ship is bounded by the rooms our map
+recovered. The column that predicts shippability is not "givers" — it is *givers who spawn, wanting a
+single item that also spawns*, and by that measure 326 scores zero.
+
+So the table below is ranked by the last column, not the first. **Givers** is what the `.qst` holds;
+**spawn** is how many of those have a `mob` reset that puts a body in a room we kept; **ready** is
+single-item objectives on a spawning giver whose objective item *also* enters the world, by an
+`object` reset onto a floor or a `give`/`equip` onto a mob that spawns. Only the last number is a
+quest somebody could ship this afternoon.
+
+| zone | name | `.qst` file | givers | spawn | ready | note |
+| --- | --- | --- | --- | --- | --- | --- |
+| 24 | Ashrumite_Village *(loaded)* | `ashrumite.qst` | 4 | 4 | 6 | 1 live; the other 5 are the jeweler's other gems |
+| 232 | The Basin Wastes | `basin_wa.qst` | 1 | 1 | 5 | **mirage** — the witch carries all five herself, and a giver is untouchable |
+| 64 | Faerie Realm *(loaded 2026-08-08)* | `realm.qst` | 4 | 2 | 4 | **3 live**; the 4th is a joke exchange, Finn hands the walnut straight back |
+| 225 | Jotunheim | `jotun.qst` | 10 | 3 | 4 | best unloaded candidate; 2 of the 4 charge 250,000 copper, and the bearers are level 52-59 |
+| 257 | Myrloch Vale | `myrloch_vale.qst` | 3 | 2 | 3 | **mirage** — no path inside the zone from the giver to any of the three items |
+| 36 | IceCrag Castle *(loaded)* | `icecrag.qst` | 12 | 8 | 2 | both live |
+| 198 | The Defense of Longhollow | `long.qst` | 41 | 30 | 2 | most givers of any harvested zone; nearly all want several items |
+| 256 | New Moonshae Island I | `moonshae.qst` | 2 | 2 | 2 | |
+| 25 / 120 / 168 / 204 / 118 / 259 | Troll Hills, Labyrinth, Kobold *(loaded)*, Mosswood, Elemental Groves, Newhaven | | | | 1 each | 168's is Szxvu, still blocked on `count` |
+| 121 | Desert City of Nizari | `nizari.qst` | 25 | 18 | 0 | 180 mob resets and not one single-item objective |
+| 85 | The Citadel | `citadel.qst` | 20 | 14 | 0 | |
+| 326 | Ashstone Refugee Camp | `bs.qst` | 21 | **0** | **0** | 4 rooms in our map; see the correction above |
+| 296 | The Northern High Road | `goblinht.qst` | 8 | 0 | 0 | 4 templates, zero mob resets |
+
+**Jotunheim (225) is the one to load next** if quests are again the reason. It is the only unloaded
+zone with several ready objectives whose sources all spawn, and it is large and genuinely populated
+(272 rooms, 62 templates, 164 mob resets). The price is honesty about two things: its bearers are
+level 52-59, and two of its four exchanges charge a 250,000-copper fee that today has to be dropped
+rather than collected — a much larger lie than the jeweler's two silver, and an argument for doing
+§4's `cost` before loading it rather than after.
 
 And the biggest quest files in the corpus, for when their zones are matched at all — `alatorin.qst`
 (82 givers / 495 exchanges), `wh.qst` Winterhaven (86 / 221), `dalvik.qst` (2 / 420),
