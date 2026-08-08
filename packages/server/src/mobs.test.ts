@@ -231,6 +231,26 @@ describe('one world, both kinds', () => {
     assert.equal(view.posture, 'standing');
   });
 
+  it('marks a quest giver on the view, and nobody else', () => {
+    // The badge and the menu row are the client's whole knowledge of a giver, so the bit has to ride
+    // the view every body travels on — and it is keyed by *template*, not instance, so a second copy
+    // of the giver is marked too and a bystander of another vnum never is.
+    const { sim } = makeSim();
+    const giver = place(sim, { vnum: 1401, name: 'Gwark' });
+    const bystander = place(sim, { vnum: 1422, name: 'a kobold youth' });
+    assert.ok(giver && bystander);
+
+    assert.equal(sim.viewOf(giver).questGiver, undefined, 'unmarked until the quests are loaded');
+    sim.setQuestGivers([1401]);
+    assert.equal(sim.viewOf(giver).questGiver, true);
+    assert.equal(sim.viewOf(bystander).questGiver, undefined);
+
+    // Absent rather than `false` when the seeding is emptied: `questGiver?: true` is a bit that is
+    // there or is not, and a client testing `=== true` must never see a stale mark.
+    sim.setQuestGivers([]);
+    assert.equal(sim.viewOf(giver).questGiver, undefined);
+  });
+
   it('runs a mob through the affect system, expiry and all', () => {
     // Phase 5b promised one list and one expiry pass for everything temporary. A mob is the first thing
     // to test that promise against something that is not a player.

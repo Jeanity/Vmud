@@ -453,6 +453,22 @@ tests. Lessons paid for: the command table's order *is* abbreviation priority (`
 killed nothing — the opening blow waits a round, and wimpy youths flee weak hitters, which made
 the quest drive honest.
 
+**The giver got his badge and his armour the next morning** (owner's fourth ask of 2026-08-08).
+`EntityView` carries one bit — `questGiver`, protocol 26 — and the client hangs a gold `?` over
+that head and offers **Quest** where every other body offers **Attack**. The armour is a registry
+of untouchable *vnums* in `combat.ts`, seeded at boot from the same `quests.json` rows that set the
+bit, so the badge and the immunity cannot come to disagree: `canBeAttacked` refuses, which is how
+`shouldAreaHit` inherits it for nothing, and `landBlow` refuses again for any path that composed a
+blow without asking. Testing the area case exposed a real gap on the way: `castClassSpell` demanded
+a named target before it would cast anything, so an area spell could never be aimed at a room —
+`spell.kind === 'area'` now casts with no target at all. 1,714 tests. **One trap worth knowing
+before you probe this**: `describeRoom` re-seeds the watch set from the `RoomView` it just sent, so
+a character *arriving* anywhere is never sent `entityEnter` for the bodies already standing there —
+they come in `t:'room'`'s `view.entities`. A probe listening only on `entityEnter`/`entityUpdate`
+sees nothing for a mob that never moves and never fights, and reads as a server bug that is not
+there. All three paths build their views through `sim.viewOf`, which is the only thing in the
+project that constructs an `EntityView`.
+
 **What next, with no numbered phase left**: the parking lot's agreed rows (either-hand weapons →
 dual-wield, opening moves on the mob click menu, weapon procs, whisper's room half), Track A's
 **server-lifecycle supervisor** (the biggest operator row standing), the **mob and worn-gear art

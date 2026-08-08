@@ -45,12 +45,15 @@ import {
   disengage,
   engage,
   incapacitated,
+  isUntouchable,
   forgetThreat,
   joinBySupporting,
+  landBlow,
   ledgerFor,
   openingTarget,
   rescueFrom,
   retaliate,
+  setUntouchableVnums,
   threatTableFor,
   type DefenceLookup,
   type DefenceSkills,
@@ -522,6 +525,46 @@ describe('mercy is a player protection, and a mob has none', () => {
     const past = attacks.filter((a) => a.hit).length;
     assert.ok(past >= 4, `kept swinging past the point a player would have been spared (${past} hits)`);
     assert.ok(attacks.some((a) => a.incapacitated), 'and the blow that finished it is flagged');
+  });
+});
+
+describe('the quest giver, whom nothing may touch', () => {
+  /** The registry is module state; a test that seeds it puts it back or it leaks into the next file. */
+  function withGiver(vnums: number[], body: () => void): void {
+    setUntouchableVnums(vnums);
+    try {
+      body();
+    } finally {
+      setUntouchableVnums([]);
+    }
+  }
+
+  it('refuses the sword, keyed by template rather than by instance', () => {
+    const fixture = makeFixture(dummy({ vnum: 1401, name: 'Gwark' }));
+    assert.equal(canBeAttacked(fixture.mob), true, 'an ordinary mob until the registry says otherwise');
+    withGiver([1401], () => {
+      assert.equal(isUntouchable(fixture.mob), true);
+      assert.equal(canBeAttacked(fixture.mob), false);
+      assert.equal(engage(fixture.scheduler, fixture.player, fixture.mob), false);
+      // Players are never in it. The registry holds mob vnums, and a character has none.
+      assert.equal(isUntouchable(fixture.player), false);
+    });
+  });
+
+  it('takes nothing from a blow that was composed anyway', () => {
+    // The area case, which is the owner's actual worry: `shouldAreaHit` asks `canBeAttacked` and so
+    // skips the giver, but a caller that forgets to ask still cannot hurt one — the damage path
+    // itself refuses.
+    const fixture = makeFixture(dummy({ vnum: 1401, name: 'Gwark' }));
+    withGiver([1401], () => {
+      const before = fixture.mob.hp;
+      const result = landBlow(fixture, fixture.player, fixture.mob, 999);
+      assert.equal(fixture.mob.hp, before, 'not a point off it');
+      assert.equal(result.incapacitated, false);
+      assert.deepEqual(result.changed, [], 'and nothing to broadcast');
+      // Nor does being swung at start a fight: an untouchable body has no reason to retaliate.
+      assert.equal(fixture.mob.fighting, undefined);
+    });
   });
 });
 

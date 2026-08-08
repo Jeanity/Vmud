@@ -243,19 +243,6 @@ export function canEngage(actor: Actor): boolean {
 }
 
 /**
- * Whether a body is still worth swinging at.
- *
- * **Mercy is a player's protection, and a mob has nothing to protect.** A character who goes down enters
- * the dying window — a real interval where they are alive, findable and rescuable, and Phase 13 turns it
- * into death or recovery. A mob has no such window in play: it fights to the death, and stopping at
- * "incapacitated" would leave a creature standing at −4 hit points that nobody may finish, which is not
- * a mechanic but a bug wearing one.
- *
- * So the two kinds diverge here and nowhere else: a **player** stops being a target the moment they are
- * incapacitated, and a **mob** stops only when it is dead — at which point there is nothing left to point
- * at and Phase 13 takes the body away.
- */
-/**
  * Mob templates no violence may touch — quest givers, seeded at boot from `quests.json` (owner's
  * rule, 2026-08-08: *"we need to make quest mobs un-attackable and undamageable in case some
  * caster decides to cast a room effect spell"*). A registry rather than a flag on the instance,
@@ -273,6 +260,19 @@ export function isUntouchable(target: Actor): boolean {
   return isMob(target) && UNTOUCHABLE_VNUMS.has(target.vnum);
 }
 
+/**
+ * Whether a body is still worth swinging at.
+ *
+ * **Mercy is a player's protection, and a mob has nothing to protect.** A character who goes down enters
+ * the dying window — a real interval where they are alive, findable and rescuable, and Phase 13 turns it
+ * into death or recovery. A mob has no such window in play: it fights to the death, and stopping at
+ * "incapacitated" would leave a creature standing at −4 hit points that nobody may finish, which is not
+ * a mechanic but a bug wearing one.
+ *
+ * So the two kinds diverge here and nowhere else: a **player** stops being a target the moment they are
+ * incapacitated, and a **mob** stops only when it is dead — at which point there is nothing left to point
+ * at and Phase 13 takes the body away.
+ */
 export function canBeAttacked(target: Actor): boolean {
   // The giver gate sits here on purpose: `shouldAreaHit` already asks this question for every
   // area victim, so earthquake and ice storm skip the untouchable with no loop knowing why.

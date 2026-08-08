@@ -3250,6 +3250,7 @@ export class WorldScene extends Phaser.Scene {
     // which is the only arrangement of the two that looks like ground rather than paint.
     const parts: Phaser.GameObjects.GameObject[] = footprint ? [footprint, ...layers] : [...layers];
     if (trough && health) parts.push(trough, health);
+    if (questMark) parts.push(questMark);
     if (label) parts.push(label);
     const container = this.add
       .container(view.x, view.y, parts)
@@ -3285,7 +3286,6 @@ export class WorldScene extends Phaser.Scene {
       serverX: view.x,
       serverY: view.y,
     };
-    if (questMark) container.add(questMark);
     this.faceEntity(entity, view.facing);
     this.refreshHealthBar(entity);
     this.entities.set(view.id, entity);
