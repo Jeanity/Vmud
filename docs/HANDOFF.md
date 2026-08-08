@@ -437,8 +437,24 @@ file stays the answer to *where things stand*.
 
 ### Start here — where 2026-08-08 left it
 
-**Accounts and login are built — Phase 20b, pulled out of the parking lot exactly as the owner
-ordered — and the character name law with them.** 1,680 tests (919 server / 618 shared / 143
+**Phase 21 opened the same day accounts closed — designed whole, slice 1 built and driven.** The
+owner took the three decisions ([DESIGN-characters.md](DESIGN-characters.md)): nine races (the
+Toril seven + Drow and Duergar, racewar still excluded), the Toril core nine classes, words to
+roll and numbers to play. Slice 1 landed: the six abilities folded from the live `duris.properties`
+factor table, `PlayerRecord.identity` (race + class + scores, minted together, grandfathered as
+`undefined`), CON/race/class on every level's hp roll, STR on the swing, DEX on AC, CHA on shop
+prices — and **the shrug gate finally rolls for players**: the drive's hand-minted drow entered at
+`chance=5` beside a human control at `chance=0`, after the drive caught `MAGIC_RESISTANT_RACES`
+speaking only the harvest's race-code dialect and not `defines.h`'s player codes (two namespaces;
+the design note's §5 correction tells it). 1,702 tests. **Next in the phase**: slice 2 (circles
+and slots — mana pools land there too, deliberately deferred), slice 3 (protocol 24 creation
+conversation + the picker's race/class/roll cards + legacy adoption), then skills-by-class,
+channels, sun/senses, the one quest. Note for the next drive: fight the *placement-repopped*
+shaman, not an admin-spawned twin (a chip is open on whether the spawn path merges authored
+spells), and remember `PlayerStore`'s cache means save-file surgery needs the server down.
+
+**Earlier the same day: accounts and login — Phase 20b, pulled out of the parking lot exactly as
+the owner ordered — and the character name law with them.** 1,680 tests (919 server / 618 shared / 143
 worldgen), typecheck clean. All five slices of [DESIGN-accounts.md](DESIGN-accounts.md) §9 landed
 in one day:
 

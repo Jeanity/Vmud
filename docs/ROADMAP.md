@@ -1315,9 +1315,21 @@ its digits.
 lists your characters by name, level and day ✅ — driven in the browser 2026-08-08, three client
 bugs found and fixed in the driving.
 
-#### Phase 21 — Classes, races, quests, channels
+#### Phase 21 — Classes, races, quests, channels — **under way 2026-08-08**
 
-The content layer the previous twenty phases exist to support.
+The content layer the previous twenty phases exist to support. Designed in
+[DESIGN-characters.md](DESIGN-characters.md) (owner's three decisions, same day: the Toril seven
+plus Drow and Duergar; the Toril core nine classes; words to roll, numbers to play), and building
+in that note's §9 slices:
+
+- **Slice 1 ✅ 2026-08-08** — six abilities folded from the live ten-stat factor table
+  (`shared/scores.ts`, `races.ts`, `classes.ts`); `PlayerRecord.identity` minted-together storage;
+  CON/race/class onto every level's hit-point roll; STR onto the swing and to-hit, DEX onto AC,
+  CHA onto shop prices; **and the shrug gate live for players** — driven with a hand-minted drow
+  (`chance=5`) against a human control (`chance=0`), which caught the gate's set speaking only the
+  harvest's race-code dialect and not `defines.h`'s player codes.
+- Next: circles and slots (slice 2), the protocol-24 creation conversation and legacy adoption
+  (slice 3), class skill ceilings, channels, sun and senses, the one quest (§9's tail).
 
 ---
 

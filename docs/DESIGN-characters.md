@@ -149,11 +149,17 @@ per-group ceilings in the class table, replacing today's flat level-driven floor
 
 ## 5. Magic resistance goes live
 
-`shrugChance(raceCode, level, targetLevel)` already rolls for `PL` and `PD` *as mob codes*. A
-player character gains `race.code`, the entity view carries it exactly as mob views do, and the
-shrug gate — dormant since Phase 20 because "players are raceless" — fires its first live shrug
-the day a drow player eats a kobold shaman's magic missile. **No new arithmetic**; the tests that
-pinned it stay the authority.
+`shrugChance(raceCode, level, targetLevel)` rolls for whatever `MAGIC_RESISTANT_RACES` names. A
+player character gains `race.code`, and the shrug gate — dormant since Phase 20 because "players
+are raceless" — fires for drow, duergar, grey elves and half-elves. **No new arithmetic**; the
+tests that pinned it stay the authority.
+
+_Corrected in the building (slice 1's drive, 2026-08-08): this section originally claimed the
+player codes enter "the same namespace" the gate already keyed on. **There are two namespaces.**
+The gate's set held the *harvest's* mob codes (`DR`, `DE`, …); `defines.h`'s player codes (`PL`,
+`PD`, `PE`, `P2`) are a different dialect, and the first live drow arrived at the gate as `PL` and
+shrugged nothing — found by a temporary chance-log at the call site, chance=0 where 5 was owed.
+The set now speaks both dialects, additively, with the pinned mob expectations untouched._
 
 **Sun vulnerability** is the one racial *penalty* built now (both underdark races): in a sunlit
 outdoor room, −2 to hit and a system-channel line on entry (*"The cursed sun of the surface world
