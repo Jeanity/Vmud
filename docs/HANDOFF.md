@@ -509,10 +509,15 @@ is that almost none of it had to be invented. The zMUD capture keeps each room's
 `Exits:` line**, which means the mapper recorded the population as it walked: 12 creatures across the
 Seelie court's three inner chambers — **Tiaronn, King of the faeries** and **Sysoria, the faerie
 Princess** among them, by name — and 55 content lines across all 288 Unseelie rooms. So this is
-transcription, not authorship. Names, room descriptions and *which room each creature stood in* come
-straight off the capture; only the stat blocks are ours, and each is copied verbatim from a harvested
-template at the same level, so a created faerie is hit by the same arithmetic as a Duris one. **31
-creatures authored, 15 harvested vnums placed, 113 placements, none homeless.** Two rules kept it
+transcription, not authorship — **where the capture speaks**, and that distinction is worth keeping.
+Every creature's name and description comes off a capture line, and in a room the mapper recorded, the
+population is reproduced line for line: all 23 placements into the Seelie court's three captured rooms
+and all 61 into the Unseelie court match their room's own text exactly. But **55 of 58 Seelie rooms
+were never captured at all** — zMUD holds no `Desc` for them — so the 29 placements filling the
+approach and the halls are ours, arranged in the spirit of the three rooms that do speak. The capture
+is silent there rather than contradicted. Stat blocks are ours throughout, each copied verbatim from a
+harvested template at the same level, so a created faerie is hit by the same arithmetic as a Duris one.
+**31 creatures authored, 15 harvested templates cloned, 113 placements, none homeless.** Two rules kept it
 honest: a creature whose whole point is a non-humanoid silhouette was left out (the stags, ravens and
 displacer beast the capture also holds — LPC has humanoid bodies only), and a **named unique already
 standing in zone 64 was never placed a second time**, since limits are world-wide and Robin

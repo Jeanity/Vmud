@@ -1,5 +1,5 @@
 {
-  "next": 9000039,
+  "next": 9000054,
   "mobs": {
     "9000005": {
       "vnum": 9000005,
@@ -1466,6 +1466,724 @@
       "wimpyAt": 0,
       "at": "2026-08-08T06:47:52.226Z",
       "by": "transcribed from the zMUD room capture; numbers copied from v14028 Celriya"
+    },
+    "9000039": {
+      "vnum": 9000039,
+      "keywords": [
+        "faerie",
+        "pixie"
+      ],
+      "name": "a little pixie",
+      "room": "A little faerie pixie is here flying along the currents of air.",
+      "level": 9,
+      "hp": "9d19+40",
+      "sprite": "human",
+      "race": "H",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 2320,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": false,
+        "opensDoors": true
+      },
+      "wimpyAt": 0,
+      "experience": 1166,
+      "coins": {
+        "copper": 4,
+        "silver": 3
+      },
+      "combat": {
+        "armourClass": 3,
+        "damage": {
+          "count": 2,
+          "sides": 3,
+          "bonus": 1
+        },
+        "attackBonus": 3,
+        "roundMs": 3000
+      },
+      "at": "2026-08-08",
+      "by": "the courts own copy of harvested 14001 \"a little pixie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    },
+    "9000040": {
+      "vnum": 9000040,
+      "keywords": [
+        "weary",
+        "adventurer"
+      ],
+      "name": "a weary adventurer",
+      "room": "A lost and weary adventurer is here, taking advantage of his hosts hospitality.",
+      "level": 18,
+      "hp": "18d35+126",
+      "sprite": "human",
+      "race": "H",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 2140,
+        "remembers": false,
+        "sentinel": true,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": true
+      },
+      "wimpyAt": 108,
+      "experience": 8748,
+      "coins": {
+        "copper": 9,
+        "silver": 7,
+        "gold": 3
+      },
+      "combat": {
+        "armourClass": 6,
+        "damage": {
+          "count": 3,
+          "sides": 4,
+          "bonus": 2
+        },
+        "attackBonus": 6,
+        "roundMs": 3000
+      },
+      "at": "2026-08-08",
+      "by": "the courts own copy of harvested 14006 \"a weary adventurer\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    },
+    "9000041": {
+      "vnum": 9000041,
+      "keywords": [
+        "faerie",
+        "cook"
+      ],
+      "name": "a faerie cook",
+      "room": "A faerie cook is here creating the wonderful delights you smell all around you.",
+      "level": 20,
+      "hp": "20d33+120",
+      "sprite": "human",
+      "race": "H",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 2100,
+        "remembers": false,
+        "sentinel": true,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": true
+      },
+      "wimpyAt": 0,
+      "experience": 9720,
+      "coins": {
+        "silver": 9,
+        "gold": 3
+      },
+      "combat": {
+        "armourClass": 7,
+        "damage": {
+          "count": 3,
+          "sides": 4,
+          "bonus": 2
+        },
+        "attackBonus": 6,
+        "roundMs": 3000
+      },
+      "at": "2026-08-08",
+      "by": "the courts own copy of harvested 14020 \"a faerie cook\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    },
+    "9000042": {
+      "vnum": 9000042,
+      "keywords": [
+        "short",
+        "swarthy",
+        "faerie"
+      ],
+      "name": "a short, swarthy faerie",
+      "room": "A short, swarthy faerie is here wandering with an aimless intent.",
+      "level": 18,
+      "hp": "18d35+126",
+      "sprite": "human",
+      "race": "H",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 2140,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": false,
+        "opensDoors": true
+      },
+      "wimpyAt": 0,
+      "experience": 8748,
+      "coins": {
+        "copper": 9,
+        "silver": 7,
+        "gold": 3
+      },
+      "combat": {
+        "armourClass": 6,
+        "damage": {
+          "count": 3,
+          "sides": 4,
+          "bonus": 2
+        },
+        "attackBonus": 6,
+        "roundMs": 3000
+      },
+      "at": "2026-08-08",
+      "by": "the courts own copy of harvested 14040 \"a short, swarthy faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    },
+    "9000043": {
+      "vnum": 9000043,
+      "keywords": [
+        "faerie",
+        "changling",
+        "toadstool"
+      ],
+      "name": "a faerie changling",
+      "room": "A curious looking toadstool is growing off to the side here.",
+      "level": 8,
+      "hp": "8d14+28",
+      "sprite": "human",
+      "race": "H",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 2340,
+        "remembers": false,
+        "sentinel": true,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": true
+      },
+      "wimpyAt": 0,
+      "experience": 1036,
+      "coins": {
+        "copper": 4,
+        "silver": 2
+      },
+      "combat": {
+        "armourClass": 3,
+        "damage": {
+          "count": 2,
+          "sides": 3,
+          "bonus": 1
+        },
+        "attackBonus": 2,
+        "roundMs": 3000
+      },
+      "at": "2026-08-08",
+      "by": "the courts own copy of harvested 14042 \"a faerie changling\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    },
+    "9000044": {
+      "vnum": 9000044,
+      "keywords": [
+        "rose",
+        "faerie"
+      ],
+      "name": "a rose faerie",
+      "room": "A faerie who tends the roses of the temple grounds is here.",
+      "level": 9,
+      "hp": "9d14+31",
+      "sprite": "human",
+      "race": "H",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 2320,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": false,
+        "opensDoors": true
+      },
+      "wimpyAt": 0,
+      "experience": 1166,
+      "coins": {
+        "copper": 4,
+        "silver": 3
+      },
+      "combat": {
+        "armourClass": 3,
+        "damage": {
+          "count": 2,
+          "sides": 3,
+          "bonus": 1
+        },
+        "attackBonus": 3,
+        "roundMs": 3000
+      },
+      "at": "2026-08-08",
+      "by": "the courts own copy of harvested 14043 \"a rose faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    },
+    "9000045": {
+      "vnum": 9000045,
+      "keywords": [
+        "azalea",
+        "faerie"
+      ],
+      "name": "an azalea faerie",
+      "room": "A freckled skin azalea faerie is here tending to the garden.",
+      "level": 9,
+      "hp": "9d14+31",
+      "sprite": "human",
+      "race": "H",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 2320,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": false,
+        "opensDoors": true
+      },
+      "wimpyAt": 0,
+      "experience": 1166,
+      "coins": {
+        "copper": 4,
+        "silver": 3
+      },
+      "combat": {
+        "armourClass": 3,
+        "damage": {
+          "count": 2,
+          "sides": 3,
+          "bonus": 1
+        },
+        "attackBonus": 3,
+        "roundMs": 3000
+      },
+      "at": "2026-08-08",
+      "by": "the courts own copy of harvested 14044 \"an azalea faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    },
+    "9000046": {
+      "vnum": 9000046,
+      "keywords": [
+        "daisy",
+        "faerie"
+      ],
+      "name": "a daisy faerie",
+      "room": "A daisy faerie is here playing among the flowers of the garden.",
+      "level": 7,
+      "hp": "7d14+24",
+      "sprite": "human",
+      "race": "H",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 2360,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": false,
+        "opensDoors": true
+      },
+      "wimpyAt": 0,
+      "experience": 907,
+      "coins": {
+        "copper": 3,
+        "silver": 2
+      },
+      "combat": {
+        "armourClass": 2,
+        "damage": {
+          "count": 2,
+          "sides": 3,
+          "bonus": 1
+        },
+        "attackBonus": 2,
+        "roundMs": 3000
+      },
+      "at": "2026-08-08",
+      "by": "the courts own copy of harvested 14045 \"a daisy faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    },
+    "9000047": {
+      "vnum": 9000047,
+      "keywords": [
+        "violet",
+        "faerie"
+      ],
+      "name": "a violet faerie",
+      "room": "A demure and regal violet faerie strolls along the garden path here.",
+      "level": 14,
+      "hp": "9d14+31",
+      "sprite": "human",
+      "race": "H",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 2220,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": false,
+        "opensDoors": true
+      },
+      "wimpyAt": 0,
+      "experience": 1166,
+      "coins": {
+        "copper": 4,
+        "silver": 3
+      },
+      "combat": {
+        "armourClass": 3,
+        "damage": {
+          "count": 2,
+          "sides": 3,
+          "bonus": 1
+        },
+        "attackBonus": 4,
+        "roundMs": 3000
+      },
+      "at": "2026-08-08",
+      "by": "the courts own copy of harvested 14046 \"a violet faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    },
+    "9000048": {
+      "vnum": 9000048,
+      "keywords": [
+        "tiny",
+        "buttercup",
+        "faerie"
+      ],
+      "name": "a buttercup faerie",
+      "room": "A tiny faerie is here lying among the buttercups of the garden.",
+      "level": 6,
+      "hp": "6d19+27",
+      "sprite": "human",
+      "race": "H",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 2380,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": false,
+        "opensDoors": true
+      },
+      "wimpyAt": 0,
+      "experience": 777,
+      "coins": {
+        "copper": 3,
+        "silver": 2
+      },
+      "combat": {
+        "armourClass": 2,
+        "damage": {
+          "count": 2,
+          "sides": 3,
+          "bonus": 1
+        },
+        "attackBonus": 2,
+        "roundMs": 3000
+      },
+      "at": "2026-08-08",
+      "by": "the courts own copy of harvested 14047 \"a buttercup faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    },
+    "9000049": {
+      "vnum": 9000049,
+      "keywords": [
+        "traveling",
+        "faerie"
+      ],
+      "name": "a traveling faerie",
+      "room": "A faerie traveling towards the court of Queen Mab is here.",
+      "level": 35,
+      "hp": "35d56+525",
+      "sprite": "human",
+      "race": "H",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 1800,
+        "remembers": true,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": false,
+        "opensDoors": true
+      },
+      "wimpyAt": 210,
+      "experience": 45360,
+      "coins": {
+        "copper": 9,
+        "silver": 9,
+        "gold": 1,
+        "platinum": 2
+      },
+      "combat": {
+        "armourClass": 11,
+        "damage": {
+          "count": 4,
+          "sides": 6,
+          "bonus": 7
+        },
+        "attackBonus": 11,
+        "roundMs": 3000
+      },
+      "at": "2026-08-08",
+      "by": "the courts own copy of harvested 14054 \"a traveling faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    },
+    "9000050": {
+      "vnum": 9000050,
+      "keywords": [
+        "little",
+        "faerie",
+        "hob"
+      ],
+      "name": "a little hob",
+      "room": "A little hob is here skipping about.",
+      "level": 4,
+      "hp": "4d15+14",
+      "sprite": "human",
+      "race": "H",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 2420,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": true
+      },
+      "wimpyAt": 0,
+      "experience": 518,
+      "coins": {
+        "copper": 2,
+        "silver": 1
+      },
+      "combat": {
+        "armourClass": 1,
+        "damage": {
+          "count": 1,
+          "sides": 5,
+          "bonus": 0
+        },
+        "attackBonus": 1,
+        "roundMs": 3000
+      },
+      "at": "2026-08-08",
+      "by": "the courts own copy of harvested 14055 \"a little hob\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    },
+    "9000051": {
+      "vnum": 9000051,
+      "keywords": [
+        "dwarfish",
+        "derrick"
+      ],
+      "name": "a dwarfish derrick",
+      "room": "A dwarfish derrick is here misdirecting travelers of the Faerie Realm.",
+      "level": 5,
+      "hp": "5d15+17",
+      "sprite": "human",
+      "race": "H",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 2400,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": true
+      },
+      "wimpyAt": 0,
+      "experience": 648,
+      "coins": {
+        "copper": 3,
+        "silver": 1
+      },
+      "combat": {
+        "armourClass": 2,
+        "damage": {
+          "count": 1,
+          "sides": 5,
+          "bonus": 0
+        },
+        "attackBonus": 1,
+        "roundMs": 3000
+      },
+      "at": "2026-08-08",
+      "by": "the courts own copy of harvested 14058 \"a dwarfish derrick\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    },
+    "9000052": {
+      "vnum": 9000052,
+      "keywords": [
+        "faerie",
+        "guard",
+        "seelie"
+      ],
+      "name": "a faerie guard of the Seelie Court",
+      "room": "A faerie of the Seelie Court is here, guarding the valley from evil.",
+      "level": 26,
+      "hp": "26d65+338",
+      "sprite": "human",
+      "race": "H",
+      "aggro": {
+        "disposition": "aggressive",
+        "clauses": [
+          "evilAlign"
+        ],
+        "reactionMs": 1980,
+        "remembers": false,
+        "sentinel": true,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": true
+      },
+      "wimpyAt": 0,
+      "experience": 23166,
+      "coins": {
+        "copper": 7,
+        "silver": 2,
+        "gold": 6,
+        "platinum": 1
+      },
+      "combat": {
+        "armourClass": 8,
+        "damage": {
+          "count": 3,
+          "sides": 6,
+          "bonus": 4
+        },
+        "attackBonus": 8,
+        "roundMs": 3000
+      },
+      "at": "2026-08-08",
+      "by": "the courts own copy of harvested 14067 \"a faerie guard of the Seelie Court\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    },
+    "9000053": {
+      "vnum": 9000053,
+      "keywords": [
+        "faerie",
+        "lubberkin"
+      ],
+      "name": "a lubberkin",
+      "room": "A lubberkin is here making a fool of himself.",
+      "level": 8,
+      "hp": "8d18+28",
+      "sprite": "human",
+      "race": "H",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 2340,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": false,
+        "opensDoors": true
+      },
+      "wimpyAt": 0,
+      "experience": 1036,
+      "coins": {
+        "copper": 4,
+        "silver": 2
+      },
+      "combat": {
+        "armourClass": 3,
+        "damage": {
+          "count": 2,
+          "sides": 3,
+          "bonus": 1
+        },
+        "attackBonus": 2,
+        "roundMs": 3000
+      },
+      "at": "2026-08-08",
+      "by": "the courts own copy of harvested 14068 \"a lubberkin\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
     }
   }
 }

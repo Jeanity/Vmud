@@ -70,8 +70,9 @@ export const AUTHORED_LIFESPAN_MAX = 25;
  * Duris file matched that is still true. But it also silently meant *this zone can never be populated*,
  * because a zone only reaches `zoneClocks` by way of a `ZoneSpawns`, and authored placements are merged
  * into a zone's reset table rather than being a table of their own. A zone with no harvested file got no
- * entry, so a placement into it was counted homeless and never spawned — the failure looked like the
- * placement being wrong rather than the zone being absent.
+ * entry, so a placement into it never spawned — and it failed more quietly than "homeless" suggests.
+ * The boot's homeless count asks whether a placement's *room* resolves to a zone, which it does, so
+ * such a placement was counted as homed and then had no table to be merged into. Nothing said anything.
  *
  * The shell separates the two questions. **Whether a zone has a harvest** and **whether a zone is
  * populated** are different facts: the first is about `data/world/spawns/`, the second is `world.config.json`'s
