@@ -782,3 +782,39 @@ it('writes the cleared map to disk at once, rather than on the save debounce', (
     assert.equal(bitsetHas(store.seenBits(record, GROUND, 288), 1), true);
   });
 });
+
+describe('the identity on disk — Phase 21', () => {
+  it('round-trips the minted trio and reads pre-phase saves as none', () => {
+    const { store, dir } = makeStore();
+    const record = store.load('Veteran');
+    assert.equal(record.identity, undefined); // every save before the phase, and every fresh roll
+    record.identity = {
+      race: 'drow',
+      class: 'sorcerer',
+      scores: { str: 9, dex: 14, con: 9, int: 16, wis: 12, cha: 12 },
+    };
+    store.flush(record);
+    const reborn = new PlayerStore({ dir }).load('Veteran');
+    assert.deepEqual(reborn.identity, record.identity);
+    const written = readSaved(dir, 'Veteran');
+    assert.equal(written['race'], 'drow');
+    assert.equal(written['class'], 'sorcerer');
+  });
+
+  it('reads a torn identity as none, so adoption simply runs again', () => {
+    const { store, dir } = makeStore();
+    const record = store.load('Torn');
+    record.identity = {
+      race: 'human',
+      class: 'warrior',
+      scores: { str: 14, dex: 10, con: 13, int: 10, wis: 10, cha: 10 },
+    };
+    store.flush(record);
+    const path = join(dir, `${slugify('Torn')}.json`);
+    const raw = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    raw['race'] = 'tarrasque'; // no such race; the class and scores are still fine
+    writeFileSync(path, JSON.stringify(raw));
+    const reborn = new PlayerStore({ dir }).load('Torn');
+    assert.equal(reborn.identity, undefined);
+  });
+});

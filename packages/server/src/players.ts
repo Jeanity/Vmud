@@ -30,7 +30,13 @@ import {
   AffectFlag,
   APPLY_LOCATIONS,
   ceilingFor,
+  isClassId,
+  isRaceId,
   isSkillId,
+  readScores,
+  type AbilityScores,
+  type ClassId,
+  type RaceId,
   type SkillId,
   STARTING_CAPACITY,
   CURRENCIES,
@@ -84,6 +90,13 @@ const DEFAULT_PLAYER_DIR = join(REPO_ROOT, 'data', 'players');
 
 /** Milliseconds of quiet before a dirty record is flushed to disk. */
 const SAVE_DEBOUNCE_MS = 2000;
+
+/** The creation-minted trio — one value because it is one fact. See {@link PlayerRecord.identity}. */
+export interface PlayerIdentity {
+  readonly race: RaceId;
+  readonly class: ClassId;
+  readonly scores: AbilityScores;
+}
 
 export interface PlayerRecord {
   name: string;
@@ -154,6 +167,13 @@ export interface PlayerRecord {
    * character is, and recording it would have every file assert a fact nothing established.
    */
   progress: { level: number; experience: number; maxHp?: number; damageBonus?: number } | undefined;
+  /**
+   * Race, class and the six rolled scores — Phase 21, minted together by one `charConfirm` and
+   * stored for 14b's own reason: the roll happened once, at creation, and no formula may
+   * reproduce it. `undefined` is every save from before the phase; those adopt on next entry
+   * (DESIGN-characters.md §6) rather than being guessed at.
+   */
+  identity: PlayerIdentity | undefined;
   /**
    * What this character is wearing. Phase 14b's starting kit, and later whatever they have found.
    *
@@ -234,6 +254,12 @@ interface StoredRecord {
   purse?: unknown;
   /** Skills ground above their floor, by id. Absent before Phase 19 and for anyone who has ground none. */
   skills?: Record<string, number>;
+  /** Race id. Absent before Phase 21; all three identity keys travel together. */
+  race?: string;
+  /** Class id. Absent before Phase 21. */
+  class?: string;
+  /** The six rolled scores. Absent before Phase 21. */
+  scores?: unknown;
   /** Base64 bitset per {@link placeKey}. */
   seen?: Record<string, string>;
   /** Ground pickup keys this character has collected. Absent in any save written before v5. */
@@ -389,6 +415,7 @@ export class PlayerStore {
       lastRoom: undefined,
       missing: undefined,
       progress: undefined,
+      identity: undefined,
       equipped: undefined,
       inventory: undefined,
       purse: undefined,
@@ -405,6 +432,7 @@ export class PlayerStore {
           lastRoom: stored.lastRoom,
           missing: decodeMissing(stored.missing),
           progress: decodeProgress(stored.level, stored.experience, stored.maxHp, stored.damageBonus),
+          identity: decodeIdentity(stored.race, stored.class, stored.scores),
         equipped: readEquipped(stored.equipped),
         inventory: stored.inventory === undefined ? undefined : readInventory(stored.inventory, readItem),
         purse: readPurse(stored.purse),
@@ -732,6 +760,10 @@ export class PlayerStore {
             ...(record.progress.maxHp === undefined ? {} : { maxHp: record.progress.maxHp }),
             ...(record.progress.damageBonus === undefined ? {} : { damageBonus: record.progress.damageBonus }),
           }),
+      // The identity trio travels together or not at all — see {@link PlayerRecord.identity}.
+      ...(record.identity === undefined
+        ? {}
+        : { race: record.identity.race, class: record.identity.class, scores: record.identity.scores }),
       // Absent on a character wearing nothing, which no live character is — but a hand-edited save
       // might be, and an empty object on disk says less than no key at all.
       ...(record.equipped && Object.keys(record.equipped).length > 0 ? { equipped: record.equipped } : {}),
@@ -828,6 +860,7 @@ export class PlayerStore {
         lastRoom: stored.lastRoom,
         missing: decodeMissing(stored.missing),
         progress: decodeProgress(stored.level, stored.experience, stored.maxHp, stored.damageBonus),
+        identity: decodeIdentity(stored.race, stored.class, stored.scores),
         equipped: readEquipped(stored.equipped),
         inventory: stored.inventory === undefined ? undefined : readInventory(stored.inventory, readItem),
         purse: readPurse(stored.purse),
@@ -1152,6 +1185,23 @@ function sameAffects(a: readonly Affect[], b: readonly Affect[]): boolean {
  * somebody who hand-wrote 99 meant "high", not "forget my level". The brand-new pair reads as
  * nothing recorded, mirroring what {@link PlayerStore.setProgress} writes.
  */
+/**
+ * Who a stored character *is* — Phase 21. All three or nothing: scores without a race cannot
+ * re-derive their bonuses and a class without scores cannot gate anything, so a partially-readable
+ * identity reads as none and the adoption flow (DESIGN-characters.md §6) simply runs again. A save
+ * from before the phase has no identity at all, which is the same case on purpose.
+ */
+function decodeIdentity(
+  race: unknown,
+  charClass: unknown,
+  scores: unknown,
+): PlayerIdentity | undefined {
+  if (!isRaceId(race) || !isClassId(charClass)) return undefined;
+  const cleanScores = readScores(scores);
+  if (!cleanScores) return undefined;
+  return { race, class: charClass, scores: cleanScores };
+}
+
 function decodeProgress(
   level: unknown,
   experience: unknown,
