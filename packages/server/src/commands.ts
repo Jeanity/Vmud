@@ -50,6 +50,12 @@ export const COMMANDS = [
   'kill',
   'look',
   'say',
+  // Phase 21's channels. After `say`, `sit` and friends, so no existing abbreviation moves: `g`
+  // stays `get`, `t` was nobody's, and `gs`/`go`/`re`/`te` are the shortest paths to the four.
+  'gossip',
+  'gsay',
+  'tell',
+  'reply',
   'help',
   'who',
   'stand',
@@ -251,6 +257,10 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   kill: { status: 'normal', posture: 'standing' },
   look: { status: 'resting', posture: 'prone' },
   say: { status: 'resting', posture: 'prone' },
+  // Phase 21's channels share say's own gate: a resting body can talk, a sleeping one cannot.
+  gossip: { status: 'resting', posture: 'prone' },
+  tell: { status: 'resting', posture: 'prone' },
+  reply: { status: 'resting', posture: 'prone' },
   help: { status: 'dead', posture: 'prone' },
   // Refused mid-fight though it is pure interface and works while *dead*. The source's judgement is that a
   // global out-of-world scan is not a thing you do mid-swing; followed rather than argued with.

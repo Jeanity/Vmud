@@ -422,6 +422,8 @@ export interface Player extends Actor {
   spentSlots: Map<number, number>;
   /** Continuous rest toward the next slot back. Transient on purpose — standing resets the trance. */
   memorizeMs: number;
+  /** Who last told you something — `reply`'s target, by name. Transient; a session fact. */
+  replyTo?: string;
   /** Latest steering intent, normalised, replaced each time the client sends one. */
   intentX: number;
   intentY: number;

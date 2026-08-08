@@ -278,7 +278,7 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * a protocol violation), then `enter` picks or creates a character and everything from `welcome` on
  * is exactly what protocol 22 sent.
  *
- * Is 24: a body is made, not assumed — DESIGN-characters.md §6, and the owner's own ask. Between
+ * Was 24: a body is made, not assumed — DESIGN-characters.md §6, and the owner's own ask. Between
  * `account` and `enter` sits a conversation: `charCreate` names a race and a class (or neither,
  * when adopting), `charRolled` answers in the source's *words* — never numbers, that is the rule —
  * `charCreate` again rerolls, and `charConfirm` (carrying any bonus spend) mints the identity and
@@ -286,8 +286,13 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * `charAdopt` instead of `welcome`: same cards, no name step, level and map kept. `SelfView` gains
  * `identity` (race, class, the six scores — the sheet shows numbers; the roll showed words) and
  * {@link CharacterSummary} gains `race`/`class`, so the picker can say what a body is.
+ *
+ * Is 25: other people, at last — Phase 21's channels. `LogChannel` gains `gossip` (world-wide),
+ * `tell` (person to person, anywhere) and `gsay` (the group the roster already draws). No new
+ * message shape: they are lines in the log, which is what a MUD channel is, and the client styles
+ * them by class exactly as it styles the six that came before.
  */
-export const PROTOCOL_VERSION = 24;
+export const PROTOCOL_VERSION = 25;
 
 /**
  * One member of your group, as the roster draws them — protocol 19.
@@ -736,7 +741,17 @@ export type ClientMessage =
  * operator, through the admin panel, to the world, a Place, a room or you alone. Keeping them apart is
  * what lets a client style one and alert on the other, and it is the whole of protocol 10.
  */
-export type LogChannel = 'room' | 'combat' | 'say' | 'system' | 'error' | 'announce';
+export type LogChannel =
+  | 'room'
+  | 'combat'
+  | 'say'
+  | 'system'
+  | 'error'
+  | 'announce'
+  // Protocol 25 — Phase 21's channels: the world-wide hum, the private word, the party's own line.
+  | 'gossip'
+  | 'tell'
+  | 'gsay';
 
 /**
  * How one swing resolved, beyond whether it landed.

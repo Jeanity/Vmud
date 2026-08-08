@@ -5375,8 +5375,107 @@ function listExits(player: Player): void {
   });
 }
 
+/**
+ * `gossip <text>` — the world-wide hum, Phase 21's first channel. Every player hears it, named,
+ * ungated by rooms or sight: a channel is a voice over the world, not a sound in it, which is why
+ * none of these three set `from`/`speech` — nothing should draw a bubble over a body for words
+ * that did not pass through the room's air.
+ */
+function doGossip(player: Player, rest: string): void {
+  const text = rest.trim();
+  if (!text) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Gossip what?' });
+    return;
+  }
+  for (const listener of sim.allPlayers()) {
+    send(listener.id, {
+      t: 'log',
+      channel: 'gossip',
+      text:
+        listener.id === player.id
+          ? `&+mYou gossip, '${text}'&N`
+          : `&+m${player.name} gossips, '${text}'&N`,
+    });
+  }
+}
+
+/** The delivery both `tell` and `reply` share; the recipient's `replyTo` is the whole state. */
+function deliverTell(from: Player, to: Player, text: string): void {
+  send(to.id, { t: 'log', channel: 'tell', text: `&+c${from.name} tells you, '${text}'&N` });
+  send(from.id, { t: 'log', channel: 'tell', text: `&+cYou tell ${to.name}, '${text}'&N` });
+  to.replyTo = from.name;
+}
+
+/** `tell <name> <text>` — person to person, anywhere in the world. The whisper row's other half. */
+function doTell(player: Player, rest: string): void {
+  const { word, rest: text } = splitCommand(rest);
+  const said = text.trim();
+  if (!word || !said) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Tell whom what?' });
+    return;
+  }
+  const target = [...sim.allPlayers()].find(
+    (p) => p.id !== player.id && p.name.toLowerCase().startsWith(word.toLowerCase()),
+  );
+  if (!target) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Nobody by that name is listening.' });
+    return;
+  }
+  deliverTell(player, target, said);
+}
+
+/** `reply <text>` — answers the last person who told you anything, by name, wherever they went. */
+function doReply(player: Player, rest: string): void {
+  const said = rest.trim();
+  if (!said) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Reply what?' });
+    return;
+  }
+  if (!player.replyTo) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Nobody has told you anything to reply to.' });
+    return;
+  }
+  const target = [...sim.allPlayers()].find((p) => p.name === player.replyTo);
+  if (!target) {
+    send(player.id, { t: 'log', channel: 'error', text: `${player.replyTo} is no longer here.` });
+    return;
+  }
+  deliverTell(player, target, said);
+}
+
+/** `gsay <text>` — the group the roster already draws, given its own line. Room-unbounded, like Duris's. */
+function doGsay(player: Player, rest: string): void {
+  const said = rest.trim();
+  if (!said) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Tell the group what?' });
+    return;
+  }
+  const members = membersWith(grouping, player.id);
+  if (members.length <= 1) {
+    send(player.id, { t: 'log', channel: 'error', text: 'You are in no group.' });
+    return;
+  }
+  for (const id of members) {
+    send(id, {
+      t: 'log',
+      channel: 'gsay',
+      text:
+        id === player.id
+          ? `&+GYou tell the group, '${said}'&N`
+          : `&+G${player.name} tells the group, '${said}'&N`,
+    });
+  }
+}
+
 function listWho(player: Player): void {
-  const names = [...sim.allPlayers()].map((p) => `  ${p.name} (level ${p.level})`).sort();
+  // Slice 5: worth reading now that a body is somebody — "Weststar — level 1 Mountain Dwarf Cleric".
+  const names = [...sim.allPlayers()]
+    .map(
+      (p) =>
+        `  ${p.name} — level ${p.level}` +
+        (p.identity ? ` ${RACES[p.identity.race].name} ${CLASSES[p.identity.class].name}` : ''),
+    )
+    .sort();
   send(player.id, {
     t: 'log',
     channel: 'system',
@@ -5787,6 +5886,10 @@ function runCommand(player: Player, line: string): void {
     case 'look': return lookAt(player, rest);
     case 'exits': return listExits(player);
     case 'say': return saySomething(player, rest);
+    case 'gossip': return doGossip(player, rest);
+    case 'tell': return doTell(player, rest);
+    case 'reply': return doReply(player, rest);
+    case 'gsay': return doGsay(player, rest);
     case 'open': return workDoorCommand(player, 'open', rest);
     case 'close': return workDoorCommand(player, 'close', rest);
     case 'who': return listWho(player);
