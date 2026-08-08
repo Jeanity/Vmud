@@ -3619,18 +3619,6 @@ export class WorldScene extends Phaser.Scene {
   }
 
   /**
-   * The texture key for what the wire says is worn in a slot, or nothing if it is not drawn.
-   *
-   * **The index first, the starter kit second.** `artgen` stages every sheet under its own art id, so
-   * for indexed art the id the server sent *is* the texture key and there is no mapping at all — which
-   * is the point: the table that used to sit here could not have held 319 entries, let alone 16,421
-   * items' worth of choices, and every table like it in this project has eventually drifted.
-   *
-   * Anything unrecognised returns nothing and simply is not drawn. That is the correct answer for a
-   * ring, for an item nobody has chosen art for, and for a sheet that failed to load — a body missing
-   * a layer reads as unremarkable, where a magenta box reads as a crash.
-   */
-  /**
    * The layers one art id draws as, in draw order — **usually one, and for a quarter of the pack more.**
    *
    * This returned a single sheet until 2026-08-05, and that was the whole of three owner-reported
@@ -3642,6 +3630,15 @@ export class WorldScene extends Phaser.Scene {
    *
    * The z on each layer is ULPC's own, so the caller sorts the whole body's stack by z and the behind
    * halves land under the body without a rule naming them.
+   *
+   * **The index first, the starter kit second.** `artgen` stages every sheet under its own art id, so
+   * for indexed art the id the server sent *is* the texture key and there is no mapping at all — which
+   * is the point: the table that used to sit here could not have held 319 entries, let alone 16,421
+   * items' worth of choices, and every table like it in this project has eventually drifted.
+   *
+   * Anything unrecognised returns nothing and simply is not drawn. That is the correct answer for a
+   * ring, for an item nobody has chosen art for, and for a sheet that failed to load — a body missing
+   * a layer reads as unremarkable, where a magenta box reads as a crash.
    */
   private sheetsFor(id: string, fallbackZ: number): { sheet: string; z: number }[] {
     // **Parsed first, because a recoloured id must reach the index by its base half.** This lookup
@@ -3825,7 +3822,7 @@ export class WorldScene extends Phaser.Scene {
   }
 
   /**
-   * The stack of sheets one body is drawn from.
+   * The stack of sheets one body is drawn from, bottom-first and lifted onto its feet.
    *
    * **A dressed character is drawn from what they are wearing**, which is Phase 15a and the roadmap's
    * completion test for this phase — the hardcoded outfit that used to live in `SPRITE_LAYERS` was a
@@ -3834,13 +3831,10 @@ export class WorldScene extends Phaser.Scene {
    * `SPRITE_LAYERS` survives for everything with no equipment list: mobs, whose look is their
    * template's own, and any character the server has not dressed. So the fallback is not dead code,
    * it is the answer for bodies that wear nothing.
-   */
-  /**
-   * The images one art key is drawn from, stacked bottom-first and lifted onto its feet.
    *
-   * An unknown key falls back to the plain human rather than drawing nothing: a mob the client has no
-   * layer list for should look like *somebody* while the log says what it is, and an invisible entity is
-   * the one failure that looks identical to the visibility gate working correctly.
+   * An unknown sprite falls back to the plain human rather than drawing nothing: a mob the client has
+   * no layer list for should look like *somebody* while the log says what it is, and an invisible
+   * entity is the one failure that looks identical to the visibility gate working correctly.
    */
   private characterLayers(sprite: string, facing: Direction, wearing?: Readonly<Record<string, string>>): Phaser.GameObjects.Image[] {
     const dressed = wearing && Object.keys(wearing).length > 0;
