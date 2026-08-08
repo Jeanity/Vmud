@@ -108,8 +108,8 @@ Live factors from `duris.properties`; folded bonus per §1's formula; senses/qui
 | Barbarian | PB | +4 STR, +4 CON, −2 INT, −1 DEX, −2 CHA | M | none; mana 45%, the non-caster's race |
 | Grey Elf | PE | +1 DEX, +1 INT, +1 WIS, +1 CHA, −1 STR, −1 CON | M | infravision, **MR** |
 | Wood Elf¹ | WE | — | M | — |
-| Mountain Dwarf | PM | +2 STR, +1 CON, +2 WIS, −1 DEX, −1 INT, −1 CHA | M | infravision |
-| Duergar | PD | +2 STR, +2 CON, +2 WIS, −2 INT, −2 CHA, −1 DEX | M | ultravision, **no MR** (magical reduction — a different mechanism, see below), underdark sneak, **sun-vulnerable** |
+| Mountain Dwarf | PM | +2 STR, +1 CON, +2 WIS, −1 DEX, −1 INT, −1 CHA | M | infravision, **magical reduction** — 20% off *generic* spell damage |
+| Duergar | PD | +2 STR, +2 CON, +2 WIS, −2 INT, −2 CHA, −1 DEX | M | ultravision, **no MR**; **magical reduction** instead — 20% off *generic* spell damage; underdark sneak, **sun-vulnerable** |
 | Halfling | PF | +2 DEX, +1 WIS, +1 CHA, −1 POW→— , −0 STR | S | infravision-less; the sneak race |
 | Gnome | PG | +2 INT, +1 DEX, +1 AGI→DEX, −1 STR, −1 CON | S | infravision |
 | Half-elf | P2 | +1 everywhere but STR/CON (the generalist) | M | infravision, **MR** |
@@ -127,6 +127,19 @@ _Corrected 2026-08-08, `DESIGN-spell-memory.md` §6's true-up: **the duergar row
 nothing else (`innates.c:3757`). So a duergar never rolls the shrug, and `races.ts` now says
 `magicResistant: false`. Damage reduction is real and unbuilt — parked in §6 of that note. Of our
 nine, three carry MR: Grey Elf, Half-elf, Drow._
+
+_Completed the same day: **the dwarves have their armour.** `Race.magicalReduction` is built and
+wired, so the two rows above no longer point at an unbuilt mechanism — a duergar or mountain dwarf
+takes **20% less generic spell damage**, multiplicatively, silently, after the gates have already
+decided the spell lands. **Generic and nothing else**: the reader is a `switch` with one `case` and
+no `default` (`fight.c:3817`), so fire, cold, lightning and the other eight `SPLDAM_` types
+(`damage.h:91-103`) land on a dwarf in full. Of our own six damaging spells only magic missile and
+earthquake qualify — a duergar takes burning hands whole, which is the half nobody guesses. Both
+grants are level 1 (`innates.c:473`, `552`) so there is no level column to add. **It keys on the race
+code, not on being a player**, exactly as the shrug gate does, which arms the 25 dwarves and duergar
+already standing in the harvested world. So of our nine, three shrug and two are armoured, and no
+race does both — the source gives each of these two families one and only one answer to magic.
+`DESIGN-spell-memory.md` §6 carries the citations and the drive numbers._
 
 Exact folded numbers are computed from the factor table *in code* at boot, not hand-copied into a
 second table that can drift — the rows above are what the formula yields today, recorded for

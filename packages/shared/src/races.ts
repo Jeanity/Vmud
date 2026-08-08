@@ -29,6 +29,12 @@
  * (`innate.shrug.<race>`) and now ride the same table as the codes, which takes a level-30 drow from
  * 5% to **17%**. The same pass found the duergar's {@link Race.magicResistant} to be a different
  * mechanism wearing this one's name. `DESIGN-spell-memory.md` §6 is the record.
+ *
+ * That different mechanism is now here too: {@link Race.magicalReduction}, the dwarves' own armour.
+ * The two never meet — the shrug is a gate that either eats a spell whole or does nothing, the
+ * reduction is a percentage taken off damage that already landed — and one race carries each. The
+ * code is the key both times, which is what lets a duergar *mob* be armoured on exactly the terms a
+ * duergar player is.
  */
 
 import { ABILITIES, type Ability } from './rules.ts';
@@ -76,6 +82,19 @@ export interface Race {
    * now says so. See `DESIGN-spell-memory.md` §6.
    */
   readonly magicResistant: boolean;
+  /**
+   * Carries `MAGICAL_REDUCTION` — **the different armour the dwarves got instead**, and the other
+   * half of the correction above. Present on exactly two races because the source grants it to
+   * exactly two: `ADD_RACIAL_INNATE(MAGICAL_REDUCTION, RACE_MOUNTAIN, 1)` and the same for
+   * `RACE_DUERGAR` (`innates.c:473`, `552`), both from level 1. Its single reader takes 20% off
+   * **generic** spell damage and nothing else (`fight.c:3817`); `reduceSpellDamage` in `spells.ts`
+   * is the transcription, and carries what that means and what it deliberately does not touch.
+   *
+   * Optional rather than a boolean because absence is the overwhelming default and a `false` on
+   * seven rows carries no information — the same reason the source keeps a sparse innate table
+   * rather than a column per race.
+   */
+  readonly magicalReduction?: true;
   /** Burns under the open sun — drow and duergar. A reader in the light system, Phase 21 §5. */
   readonly sunVulnerable: boolean;
   /** Percent of the class mana pool — `racial_data`'s max-mana column, human 100. */
@@ -157,6 +176,8 @@ export const RACES: Readonly<Record<RaceId, Race>> = {
     size: 'medium',
     vision: 'infravision',
     magicResistant: false,
+    // `innates.c:473` — the dwarves' own armour against magic, and not the elves'.
+    magicalReduction: true,
     sunVulnerable: false,
     manaFactor: 90,
     hpBonus: 1,
@@ -171,6 +192,8 @@ export const RACES: Readonly<Record<RaceId, Race>> = {
     vision: 'ultravision',
     // Not magic resistant: `MAGICAL_REDUCTION`, not `INNATE_MAGIC_RESISTANCE` — see the field's note.
     magicResistant: false,
+    // `innates.c:552` — the same grant, and what the phase's true-up promised would arrive.
+    magicalReduction: true,
     sunVulnerable: true,
     manaFactor: 95,
     hpBonus: 1,

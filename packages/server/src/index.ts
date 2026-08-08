@@ -65,6 +65,7 @@ import {
   rollSave,
   rollShrug,
   rollSpellBlows,
+  reduceSpellDamage,
   scaleSpellDamage,
   rollSpellBuff,
   rollSpellHeal,
@@ -4282,11 +4283,27 @@ function completeCast(caster: Actor): void {
 }
 
 /**
+ * An actor's race code, in the one namespace both halves of the world speak — a mob's harvested
+ * `race` off its template, a player's from their identity, and `undefined` for a raceless legacy
+ * character. Two mechanisms key on this and both must read it identically: the shrug gate
+ * (`shrugChance`) and the dwarves' damage reduction (`reduceSpellDamage`). Extracted the day the
+ * second arrived, because two copies of this expression is how they come to disagree.
+ */
+function raceCodeOf(actor: Actor): string | undefined {
+  if (isMob(actor)) return mobTemplates.get(actor.vnum)?.race;
+  return isPlayer(actor) && actor.identity ? RACES[actor.identity.race].code : undefined;
+}
+
+/**
  * A registry spell lands — **the two gates, in the damage order** (`DESIGN-spells.md` §1): the save
  * first, adjusting the amount by the spell's own convention, then the shrug per blow — which is why
  * magic missile's bolts arrive as a list, each facing the shrug alone (`magic.c:495-512`). A raceless
  * victim — every player until Phase 21 — never shrugs; that is the source's own shape, MR being an
  * innate and innates riding races.
+ *
+ * Then, after the gate has said yes, the **damage modifier**: a duergar or mountain dwarf takes 20%
+ * less generic spell damage (`fight.c:3817`), silently. It is not a gate and cannot refuse a blow —
+ * it only makes one smaller, which is why it sits here and not up beside the shrug.
  */
 function completeSpellStrike(caster: Actor, spell: Spell, target: Actor, atLevel = caster.level): void {
   // Gate 1, once per cast: the save. Only conventions the shipped spells use are modelled.
@@ -4304,11 +4321,7 @@ function completeSpellStrike(caster: Actor, spell: Spell, target: Actor, atLevel
   // code from the character's identity enters exactly the gate mob codes always did — the arithmetic
   // and its pinned tests unchanged, which was the whole design. A raceless legacy character still
   // never shrugs, as before the phase.
-  const race = isMob(target)
-    ? mobTemplates.get(target.vnum)?.race
-    : isPlayer(target) && target.identity
-      ? RACES[target.identity.race].code
-      : undefined;
+  const race = raceCodeOf(target);
   const shrug = shrugChance(race, target.level);
 
   const changed: Actor[] = [];
@@ -4320,9 +4333,11 @@ function completeSpellStrike(caster: Actor, spell: Spell, target: Actor, atLevel
       shrugged++;
       continue;
     }
-    // The economy translation, after the save doubling so the two compose the way the pools do:
-    // transcribed dice against a mob's Duris-scale pool, a quarter of them against a player's.
-    const damage = scaleSpellDamage(doubled ? blow.damage * 2 : blow.damage, isPlayer(target));
+    // The dwarves' 20%, then the economy translation — the source's modifier first, on source-scale
+    // damage where the source applies it, and our pool divisor last. Both after the save doubling,
+    // so all three compose the way the pools do.
+    const reduced = reduceSpellDamage(doubled ? blow.damage * 2 : blow.damage, spell.damageType, race);
+    const damage = scaleSpellDamage(reduced, isPlayer(target));
     struck += damage;
     const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, target, damage);
     changed.push(...result.changed);
@@ -4424,6 +4439,12 @@ function quakeGround(sector: string): number {
  * `dice(1,30)+level` felled or the sector-scaled graze if they keep their feet. The agility save is
  * rolled through our save machinery at the source's own +4 mod, named as the stand-in until ability
  * scores exist (Phase 21) — greater-race exemptions ride the same wait.
+ *
+ * Both shapes now pass each victim's damage through {@link reduceSpellDamage} before the pool
+ * divisor, and the two areas land on opposite sides of it: an earthquake is `SPLDAM_GENERIC`
+ * (`magic.c:3485`) and a dwarf takes a fifth less rock, an ice storm is `SPLDAM_COLD`
+ * (`magic.c:12868`) and he takes it whole. The source applies the modifier table inside
+ * `spell_damage`, which every area victim reaches one at a time — so per body, never per cast.
  */
 function completeSpellArea(caster: Actor, spell: Spell, atLevel: number, named?: Actor): void {
   const bodies = [...sim.actorsIn(caster.roomId)];
@@ -4461,10 +4482,14 @@ function completeSpellArea(caster: Actor, spell: Spell, atLevel: number, named?:
         continue;
       }
       const rolls = rollEarthquake(combatRng, atLevel, ground);
+      // Per victim, because the innate is the victim's: one dwarf in a room of six takes less
+      // falling rock than the five beside him, and hears nothing about it.
+      const armour = raceCodeOf(body);
       if (!kept) {
         if (isPlayer(body)) send(body.id, { t: 'log', channel: 'combat', text: '&+WYou fall and injure yourself!&N' });
         actAround(body, 'combat', (who) => `${who} crashes to the ground!`, body.id);
-        const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, body, scaleSpellDamage(rolls.felled, isPlayer(body)));
+        const felled = scaleSpellDamage(reduceSpellDamage(rolls.felled, spell.damageType, armour), isPlayer(body));
+        const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, body, felled);
         changed.push(...result.changed);
         if (result.death) { death = result.death; resolveDeath(result.death); continue; }
         if (!result.incapacitated) {
@@ -4476,7 +4501,8 @@ function completeSpellArea(caster: Actor, spell: Spell, atLevel: number, named?:
       } else {
         if (isPlayer(body)) send(body.id, { t: 'log', channel: 'combat', text: '&+LYou stagger and almost break your leg!&N' });
         actAround(body, 'combat', (who) => `${who} staggers and almost falls!`, body.id);
-        const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, body, scaleSpellDamage(rolls.grazed, isPlayer(body)));
+        const grazed = scaleSpellDamage(reduceSpellDamage(rolls.grazed, spell.damageType, armour), isPlayer(body));
+        const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, body, grazed);
         changed.push(...result.changed);
         if (result.death) { death = result.death; resolveDeath(result.death); continue; }
         syncEntityState(body);
@@ -4511,8 +4537,11 @@ function completeSpellArea(caster: Actor, spell: Spell, atLevel: number, named?:
   for (const body of reached) {
     if (skipped.has(body.id)) continue;
     if (!canBeAttacked(body) || body.roomId !== caster.roomId) continue;
+    const armour = raceCodeOf(body);
     for (const blow of rollSpellBlows(combatRng, spell.id, atLevel)) {
-      const dealt = scaleSpellDamage(blow.damage, isPlayer(body));
+      // Routed through the same pair as every other delivery, and an ice storm is `SPLDAM_COLD`, so
+      // it returns the number untouched — the call is here so the *next* area spell cannot forget it.
+      const dealt = scaleSpellDamage(reduceSpellDamage(blow.damage, spell.damageType, armour), isPlayer(body));
       const result = landBlow({ sim, scheduler, book: threat, ledger }, caster, body, dealt);
       if (isPlayer(body)) send(body.id, { t: 'log', channel: 'combat', text: `&+R-=[ ${capitalise(caster.name)}&N&+R's storm of ice crushes you for ${dealt}! ]=-&N` });
       if (isPlayer(caster)) send(caster.id, { t: 'log', channel: 'combat', text: `&+C-=[ Your storm of ice crushes ${body.name}&N&+C for ${dealt}! ]=-&N` });

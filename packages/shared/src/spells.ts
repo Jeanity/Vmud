@@ -7,10 +7,15 @@
  * independent rolls the note's §1 maps, with the traps kept on purpose: the **×5** every save
  * modifier silently gets (`sparser.c:1142` — transcribe it or ship saves five times too weak), the
  * *petri*-named fear save, and the rule that a save-proof cast is still shruggable.
+ *
+ * **Phase 21** adds the third thing that stands between a spell and a hit point, and it is not a
+ * gate: {@link reduceSpellDamage}, the dwarves' 20% off generic damage. The gates decide *whether*;
+ * this decides *how much*, after they have decided yes.
  */
 
 import { randomInt, type Dice, type Rng } from './rules.ts';
 import { MS_PER_DURIS_HOUR, armourBonusFrom } from './items.ts';
+import { RACES, RACE_IDS } from './races.ts';
 import type { ApplyLocation } from './affects.ts';
 
 /* -------------------------------------------------------------------------- */
@@ -37,6 +42,32 @@ export type SpellKind = 'nuke' | 'heal' | 'buff' | 'area';
  */
 export type SaveConvention = 'none' | 'double-on-fail';
 
+/**
+ * What *kind* of damage a spell deals — the source's `SPLDAM_` taxonomy, all twelve of it
+ * (`damage.h:91-103`), transcribed whole rather than as the four our registry happens to use. It is
+ * a closed, numbered list in the C and it decides real things: which shield absorbs, which aura
+ * vamps, which vulnerability doubles — and, the reason it arrives now, **which victims get the
+ * dwarves' 20% off** (`fight.c:3817` takes `case SPLDAM_GENERIC` and no other).
+ *
+ * `generic` is not a fallback or an "untyped" bucket: it is type **1**, the source's own name for
+ * force — magic missile's push, an earthquake's falling rock — and the one type no elemental ward
+ * in the game answers. `ELEMENTAL_DAM` (`damage.h:105`) is `FIRE…ACID` plus `EARTH`, and it
+ * pointedly excludes `generic`, which is the same distinction from the other side.
+ */
+export type SpellDamageType =
+  | 'generic'
+  | 'fire'
+  | 'cold'
+  | 'lightning'
+  | 'gas'
+  | 'acid'
+  | 'negative'
+  | 'holy'
+  | 'psi'
+  | 'spirit'
+  | 'sound'
+  | 'earth';
+
 export interface Spell {
   readonly id: SpellId;
   readonly name: string;
@@ -46,6 +77,11 @@ export interface Spell {
   /** The circle `SPELL_ADD` writes — unread until Phase 21's classes, carried because it is identity. */
   readonly circle: number;
   readonly save: SaveConvention;
+  /**
+   * The `SPLDAM_` argument this spell's handler passes to `spell_damage` — absent on the spells
+   * that deal no damage, which is the honest shape: a cure has no damage type in the source either.
+   */
+  readonly damageType?: SpellDamageType;
   /** Second-person flavour of the strike, for the caster's own line. */
   readonly noun: string;
   /** The recipient's own sentence when a heal or a buff takes — the source's `send_to_char` line. */
@@ -56,20 +92,31 @@ export interface Spell {
  * The registry — the four first nukes (slice 3) and the first heals and buffs (slice 5), each
  * verified live in `magic.c` with its dice and its convention (`skills.c` registrations; handlers
  * cited per formula below). The `felt` lines are the source's own sentences, colour and all.
+ *
+ * The `damageType` column is read straight off each handler's own `spell_damage` call and is the
+ * whole reason {@link reduceSpellDamage} discriminates: **two of our six damaging spells are
+ * `generic` and four are typed**, which is not a rounding of the source but its actual split.
  */
 export const SPELLS: Readonly<Record<SpellId, Spell>> = {
-  magic_missile: { id: 'magic_missile', name: 'magic missile', kind: 'nuke', castMs: 2000, circle: 1, save: 'none', noun: 'missiles' },
-  burning_hands: { id: 'burning_hands', name: 'burning hands', kind: 'nuke', castMs: 2000, circle: 2, save: 'none', noun: 'flames' },
-  chill_touch: { id: 'chill_touch', name: 'chill touch', kind: 'nuke', castMs: 2000, circle: 2, save: 'double-on-fail', noun: 'chill' },
-  shocking_grasp: { id: 'shocking_grasp', name: 'shocking grasp', kind: 'nuke', castMs: 2500, circle: 3, save: 'double-on-fail', noun: 'shock' },
+  // `magic.c:510` — `SPLDAM_GENERIC`. Force, and the archetypal reducible spell.
+  magic_missile: { id: 'magic_missile', name: 'magic missile', kind: 'nuke', castMs: 2000, circle: 1, save: 'none', damageType: 'generic', noun: 'missiles' },
+  // `magic.c:623` — `SPLDAM_FIRE`.
+  burning_hands: { id: 'burning_hands', name: 'burning hands', kind: 'nuke', castMs: 2000, circle: 2, save: 'none', damageType: 'fire', noun: 'flames' },
+  // `magic.c:539` — `SPLDAM_COLD`. Named "chill", and typed as cold: no reduction.
+  chill_touch: { id: 'chill_touch', name: 'chill touch', kind: 'nuke', castMs: 2000, circle: 2, save: 'double-on-fail', damageType: 'cold', noun: 'chill' },
+  // `magic.c:644` — `SPLDAM_LIGHTNING`.
+  shocking_grasp: { id: 'shocking_grasp', name: 'shocking grasp', kind: 'nuke', castMs: 2500, circle: 3, save: 'double-on-fail', damageType: 'lightning', noun: 'shock' },
   cure_light: { id: 'cure_light', name: 'cure light', kind: 'heal', castMs: 1500, circle: 1, save: 'none', noun: 'healing touch', felt: '&+WYou feel a little better!&N' },
   cure_serious: { id: 'cure_serious', name: 'cure serious', kind: 'heal', castMs: 2000, circle: 2, save: 'none', noun: 'healing touch', felt: '&+WYou feel a lot better!&N' },
   armor: { id: 'armor', name: 'armor', kind: 'buff', castMs: 2000, circle: 1, save: 'none', noun: 'warding', felt: '&+WBands of magic armor wrap around you!&N' },
   bless: { id: 'bless', name: 'bless', kind: 'buff', castMs: 2000, circle: 1, save: 'none', noun: 'blessing', felt: '&+WYou suddenly feel blessed!&N' },
   // Slice 6. Earthquake's save is bespoke (an agility save inside its own loop), so `save` stays
   // 'none' — the convention field describes gate 1, and neither area runs it.
-  earthquake: { id: 'earthquake', name: 'earthquake', kind: 'area', castMs: 2500, circle: 3, save: 'none', noun: 'quake' },
-  ice_storm: { id: 'ice_storm', name: 'ice storm', kind: 'area', castMs: 2500, circle: 6, save: 'none', noun: 'storm of ice' },
+  // `magic.c:3485` — `SPLDAM_GENERIC`, which is the falling rock and not the ground: an earthquake
+  // is reducible and an ice storm is not, from the same pair of area spells.
+  earthquake: { id: 'earthquake', name: 'earthquake', kind: 'area', castMs: 2500, circle: 3, save: 'none', damageType: 'generic', noun: 'quake' },
+  // `magic.c:12868`, inside `spell_single_icestorm` — `SPLDAM_COLD`.
+  ice_storm: { id: 'ice_storm', name: 'ice storm', kind: 'area', castMs: 2500, circle: 6, save: 'none', damageType: 'cold', noun: 'storm of ice' },
 };
 
 export function isSpellId(value: string): value is SpellId {
@@ -424,6 +471,80 @@ export const PLAYER_POOL_DIVISOR = 4;
 /** {@link PLAYER_POOL_DIVISOR}, applied. Every spell-damage delivery path routes through this. */
 export function scaleSpellDamage(damage: number, victimIsPlayer: boolean): number {
   return victimIsPlayer ? Math.max(1, Math.floor(damage / PLAYER_POOL_DIVISOR)) : damage;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Magical reduction — the dwarves' armour, and the gates' opposite            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Race codes carrying `MAGICAL_REDUCTION` — **derived from {@link RACES}, not listed**, because for
+ * once the source's whole roster fits inside our nine and a hand-copied set could only drift. The
+ * grep is the proof: `MAGICAL_REDUCTION` occurs **four times in the entire source** — the `#define`
+ * (`structs.h:417`), two grants (`ADD_RACIAL_INNATE(MAGICAL_REDUCTION, RACE_MOUNTAIN, 1)` and the
+ * same for `RACE_DUERGAR`, `innates.c:473` and `552`), and one reader (`fight.c:3817`). There is no
+ * third race and no mob-only holder to add later, which is exactly what {@link MAGIC_RESISTANT_RACES}
+ * could not say and why *that* one is a hand-written map.
+ *
+ * **This is a race fact, not a player fact**, and the difference is load-bearing: `has_innate` reads
+ * `ch->player.race` for anything with a race, PC or NPC alike (`innate_char_race`, `innates.c:362`,
+ * consulted by `innate_unlock_level` at `innates.c:420-428`), and racial innates unlock at level 1.
+ * The loaded world settles it — **25 mobs already carry these codes**: 16 `PM` (dwarven soldiers,
+ * Olaf Forkbeard, Surak) and 9 `PD` (duergar slaves, Bregnar the duergar King) — spread over eight
+ * zones, none of them loaded today, all of them one line of `world.config.json` away. Keying on the
+ * code arms every one of them the day their zone loads, which is the transcription; keying on player
+ * identity would have quietly exempted them from the mechanism their own kin gave the name to.
+ */
+export const MAGICAL_REDUCTION_RACES: ReadonlySet<string> = new Set(
+  RACE_IDS.filter((id) => RACES[id].magicalReduction === true).map((id) => RACES[id].code),
+);
+
+/**
+ * How much comes off: `dam_mod->mod += -0.2` (`fight.c:3817`). Kept as the source's own signed
+ * addend rather than a tidied `0.8`, because the number in the C is the one that has to be checked
+ * against the C.
+ */
+export const MAGICAL_REDUCTION_MOD = -0.2;
+
+/**
+ * The dwarves' 20% — `spell_damage_modifiers[]`'s sixth predicate (`fight.c:3817`), transcribed
+ * with its discrimination intact:
+ *
+ * ```c
+ * switch (damageType) { case SPLDAM_GENERIC:
+ *     if (has_innate(victim, MAGICAL_REDUCTION)) { dam_mod->mod += -0.2; dam_mod->type = More; }
+ *     break; }
+ * ```
+ *
+ * **A `switch` with one `case` and no `default` is the whole specification.** Generic damage is
+ * reduced; fire, cold, lightning, gas, acid, negative, holy, psi, spirit, sound and earth are not.
+ * So a duergar shrugs off part of a magic missile and takes an ice storm whole — and takes *burning
+ * hands* whole, which is the counter-intuitive half and the reason this is a per-spell fact rather
+ * than a flat racial band. The predicate is the *only* reader of the innate in the source.
+ *
+ * **Where it sits in the order.** `spell_damage`'s gates all come first and all return early —
+ * damage ward, elemental vamp, globes, deflect, procs, the shrug, spell absorb, type shields
+ * (`fight.c:4349-4646`) — and only then does the modifier table run (`fight.c:4648-4682`). So this
+ * is not a gate and cannot stop a spell: it applies to damage that has already been decided to
+ * land. `DESIGN-spell-memory.md` §6's layer 9, arriving.
+ *
+ * **It multiplies, and it is alone.** `dam_mod_type::More` folds in as `moreMod *= (1 + mod)`
+ * (`fight.c:4676`), so this is ×0.8 and not −20 flat; a fresh `damage_mod` is zeroed per predicate
+ * (`fight.c:4661`), so the `+=` starts from 0 and cannot self-stack; and a racial innate is granted
+ * once, so no victim holds it twice. Nothing else in the table reads generic damage, so today the
+ * source's `BOUNDEDF(0.1, moreMod, 2.0)` clamp is unreachable through this row and is not modelled.
+ *
+ * **Silent, on purpose.** The predicate calls no `act()` — compare its neighbour at `fight.c:3810`,
+ * arcane block, which prints three lines for the same job. Mitigation the victim is not told about
+ * is the source's choice and ours: nothing in the combat feed announces this.
+ *
+ * Composes *before* {@link scaleSpellDamage}: the reduction is the source's own, applied to
+ * source-scale damage where the source applies it; the pool divisor is ours, and stays last.
+ */
+export function reduceSpellDamage(damage: number, damageType: SpellDamageType | undefined, raceCode: string | undefined): number {
+  if (damageType !== 'generic') return damage;
+  if (raceCode === undefined || !MAGICAL_REDUCTION_RACES.has(raceCode.toUpperCase())) return damage;
+  return Math.max(1, Math.floor(damage * (1 + MAGICAL_REDUCTION_MOD)));
 }
 
 /**

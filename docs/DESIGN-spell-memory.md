@@ -466,6 +466,103 @@ is the ward stack §6 already parks — `check_damage_ward`'s absorb pool and th
 that is the pass where a −20% racial band is one row rather than a special case. Until then both
 dwarves take spells whole, which is the honest under-implementation rather than a wrong gate.
 
+#### Built — 2026-08-08, and the parking reason did not survive the reading
+
+_`reduceSpellDamage` (`shared/src/spells.ts`), `Race.magicalReduction` (`shared/src/races.ts`),
+wired at all three spell-damage deliveries in `server/src/index.ts`._
+
+The park above said *build it with the ward stack, or you will have two mechanisms where the source
+has one*. Going back to the C to do that found the opposite: **the source already has two, and it
+keeps them apart on purpose.** `check_damage_ward` is subtracted at the very top of `spell_damage`,
+before any gate (`fight.c:4349`); the modifier table runs at the very bottom, after every gate has
+had its early return (`fight.c:4648-4682`). A ward is an absorb pool measured in hit points; this is
+a percentage. Waiting for the first would have delayed the second for nothing, so it shipped alone.
+
+**The finding that changed the shape: it is not a flat racial band.** The predicate is a `switch`
+with one `case` and no `default` (`fight.c:3817`), so only `SPLDAM_GENERIC` — type **1**, the
+source's name for force — is reduced. All eleven other `SPLDAM_` types (`damage.h:91-103`) pass
+through untouched, and `ELEMENTAL_DAM` (`damage.h:105`) excludes generic from the other side. Our own
+registry splits **two to four** on exactly that line, which is why `Spell` now carries a
+`damageType` read off each handler's own call:
+
+| Spell | Source call | Type | Reduced |
+| --- | --- | --- | --- |
+| magic missile | `magic.c:510` | `SPLDAM_GENERIC` | **yes** |
+| earthquake | `magic.c:3485` | `SPLDAM_GENERIC` | **yes** |
+| burning hands | `magic.c:623` | `SPLDAM_FIRE` | no |
+| chill touch | `magic.c:539` | `SPLDAM_COLD` | no |
+| shocking grasp | `magic.c:644` | `SPLDAM_LIGHTNING` | no |
+| ice storm | `magic.c:12868` | `SPLDAM_COLD` | no |
+
+A duergar shrugs off part of a magic missile and takes *burning hands* whole. That is the
+counter-intuitive half, it is what the source says, and it is the test that would have been written
+wrong from memory.
+
+**Arithmetic, transcribed.** `dam_mod->mod += -0.2` with `dam_mod_type::More`, folded as
+`moreMod *= (1 + mod)` (`fight.c:4676`) — multiplicative ×0.8, not a flat −20. It cannot stack:
+a fresh `damage_mod` is zeroed per predicate (`fight.c:4661`) so the `+=` starts from 0, a racial
+innate is granted once, and no other row in the table reads generic damage — which also puts the
+source's `BOUNDEDF(0.1, moreMod, 2.0)` clamp out of reach through this path, so it is not modelled.
+
+**Order, and it is the point.** This is *not* a gate. Every gate in `spell_damage` returns early —
+ward, elemental vamp, globes, deflect, procs, the shrug, spell absorb, type shields
+(`fight.c:4349-4646`) — and the modifier table only runs on damage that has already been decided to
+land. So the reduction sits after the shrug, in our code as in the C: the gates say *whether*, this
+says *how much*. It is layer 9 of the stack this section maps, arriving.
+
+**Silent, verified.** The predicate calls no `act()`. Its neighbour at `fight.c:3810` — arcane block,
+doing the same job — prints three lines, which is how we know the absence is a choice and not an
+oversight. Nothing in our combat feed announces it either: a duergar simply sees a smaller number.
+
+**It is a race fact, not a player fact, and the world made that decision.** `has_innate` reads
+`ch->player.race` for anything with a race — `innate_char_race` (`innates.c:362`) is consulted by
+`innate_unlock_level` (`innates.c:420-428`) with no PC/NPC branch — and racial innates unlock at
+level 1. The harvest settles the question: **25 mobs already carry these codes**, 16 `PM` (dwarven
+soldiers, Olaf Forkbeard, Surak) and 9 `PD` (duergar slaves, Bregnar the duergar King), across eight
+zones — none of them in `world.config.json` today, every one of them a line away. Keying on the code
+arms all of them the day their zone loads; keying on player identity would have quietly exempted them
+from the mechanism their own kin gave the name to. So it reads the same `raceCodeOf` the shrug gate
+does — extracted into one function the day the second reader arrived, because two copies of that
+expression is how they come to disagree.
+
+**The roster is derived, not listed.** `MAGICAL_REDUCTION_RACES` is built from `RACES` by the
+`magicalReduction` flag, unlike `MAGIC_RESISTANT_RACES` which is hand-written. The difference is
+warranted: MR has a roster of thirty-odd races most of which we cannot draw, while `MAGICAL_REDUCTION`
+occurs four times in the whole source and grants to exactly two races, both of them ours. There is no
+third to add later, so a set that can drift from the flag would be pure liability.
+
+**Drive, 2026-08-08** (`GAME_PORT=8796`, PvP on). Six level-30 necromancers spending their memorised
+castings on two level-30 victims identical in level, scores and hit points and differing in exactly
+one fact — **Softskin is human, Stonehide is duergar**. Six casters and not one because *a caster who
+lands a spell is in combat and cannot rest*, so there is no refilling mid-drive; that cost the first
+attempt an hour of nothing and is worth writing down.
+
+| Spell | Type | Casts each | Softskin (human) | Stonehide (duergar) | Ratio |
+| --- | --- | --- | --- | --- | --- |
+| magic missile | `SPLDAM_GENERIC` | 24 | **696** | **548** | **0.787** |
+| burning hands | `SPLDAM_FIRE` | 12 | **340** | **333** | **0.979** |
+
+The generic spell lands 21% lighter on the duergar against the 20% the C asks for — 120 bolts a side,
+each one twice floored (the ×0.8, then the player-pool divide), so the last percent is sampling and
+rounding rather than mechanism. **The fire spell shows no gap**, which is the half that matters: it is
+the control that proves the `switch` was transcribed and not flattened into "dwarves take less magic".
+
+And the silence was checked rather than assumed — one cast at each victim with **every** line both
+of them received printed in full. The two feeds are the same shape and differ only in the number:
+
+```
+Softskin  (human)   -=[ Boltalpha's magic missile strikes you for 28! ]=-
+Stonehide (duergar) -=[ Boltalpha's magic missile strikes you for 21! ]=-
+```
+
+No extra line, no colour, no hint. A duergar player is never told they are armoured; they only ever
+see a smaller number, exactly as `fight.c:3817` leaves it.
+
+_Still parked from here: the ward stack itself (`check_damage_ward`, the `'absorbed'` outcome and the
+four globes) is untouched — it was never this mechanism's blocker and it still waits on its first
+globe spell. And spell penetration's damage half (`fight.c:4215-4222`), a second `More` row on the
+same table, still waits on an epic economy._
+
 **3. `ICE_STORM_MIN_CHANCE` is 0.** `get_property` `bsearch`es the loaded property table and returns
 its default **only when the key is missing** (`properties.c:59-72`) — a present key worth `0.000` is
 returned as 0, not treated as unset. The key is present (`duris.properties:821`), so the running

@@ -4,17 +4,25 @@
  * The traps are the tests: the ×5 on every save modifier, the inverted lower-is-better save scale,
  * chill touch's shipped precedence quirk, magic missile's per-bolt independence, and the shrug that
  * rolls for nobody without the innate.
+ *
+ * Phase 21 adds one more, and it is the sharpest: **magical reduction reads only `SPLDAM_GENERIC`**,
+ * so the obvious test — "a dwarf takes less from every spell" — would be wrong. Burning hands is
+ * fire and lands on him in full.
  */
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import { makeRng } from './rules.ts';
+import { RACES, RACE_IDS } from './races.ts';
 import {
   ICE_STORM_MIN_CHANCE,
+  MAGICAL_REDUCTION_MOD,
+  MAGICAL_REDUCTION_RACES,
   MAGIC_RESISTANT_RACES,
   SPELLS,
   areaHitCount,
+  reduceSpellDamage,
   scaleSpellDamage,
   defaultSaveMod,
   mobCastMs,
@@ -248,6 +256,84 @@ describe('the economy translation', () => {
   it('composes after the save doubling, which is the delivery order', () => {
     // A doubled 50 against a player is 100 ÷ 4 = 25 — not (50 ÷ 4) × 2 = 24 off a floored half.
     assert.equal(scaleSpellDamage(50 * 2, true), 25);
+  });
+});
+
+describe('magical reduction — the dwarves’ 20%', () => {
+  it('takes a fifth off a generic spell for both races that carry the innate', () => {
+    // `innates.c:473` and `:552` — mountain dwarf and duergar, both from level 1, and nobody else.
+    assert.equal(reduceSpellDamage(100, 'generic', 'PD'), 80);
+    assert.equal(reduceSpellDamage(100, 'generic', 'PM'), 80);
+  });
+
+  it('leaves every other race’s generic damage exactly alone', () => {
+    for (const code of ['PH', 'PB', 'PE', 'PL', 'P2', 'PF', 'PG']) {
+      assert.equal(reduceSpellDamage(100, 'generic', code), 100, code);
+    }
+    // Including the races that shrug: the two mechanisms share no race and never compose.
+    assert.equal(MAGIC_RESISTANT_RACES.has('PD'), false);
+    assert.equal(MAGIC_RESISTANT_RACES.has('PM'), false);
+  });
+
+  it('does nothing to typed damage, which is the whole of the predicate', () => {
+    // `switch (damageType) { case SPLDAM_GENERIC: … break; }` with no `default` — one case, and the
+    // other eleven `SPLDAM_` types fall straight through (`fight.c:3817`, `damage.h:91-103`).
+    for (const type of ['fire', 'cold', 'lightning', 'gas', 'acid', 'negative', 'holy', 'psi', 'spirit', 'sound', 'earth'] as const) {
+      assert.equal(reduceSpellDamage(100, type, 'PD'), 100, type);
+    }
+  });
+
+  it('is not a fallback: a spell with no damage type is not reduced either', () => {
+    assert.equal(reduceSpellDamage(100, undefined, 'PD'), 100);
+  });
+
+  it('never reduces a raceless victim — the innate rides the race, as MR does', () => {
+    assert.equal(reduceSpellDamage(100, 'generic', undefined), 100);
+  });
+
+  it('reads the code case-insensitively, exactly as the shrug gate does', () => {
+    assert.equal(reduceSpellDamage(100, 'generic', 'pd'), 80);
+  });
+
+  it('floors, and never takes a blow below one', () => {
+    assert.equal(reduceSpellDamage(9, 'generic', 'PD'), 7, '7.2 floors to 7');
+    assert.equal(reduceSpellDamage(1, 'generic', 'PD'), 1, '0.8 would round to nothing');
+    assert.equal(reduceSpellDamage(0, 'generic', 'PD'), 1);
+  });
+
+  it('carries the source’s own signed addend, not a tidied factor', () => {
+    // `dam_mod->mod += -0.2` folded as `moreMod *= (1 + mod)` (`fight.c:3817`, `:4676`).
+    assert.equal(MAGICAL_REDUCTION_MOD, -0.2);
+    assert.equal(reduceSpellDamage(50, 'generic', 'PD'), 40, 'multiplicative, not a flat −20');
+  });
+
+  it('derives its roster from the race table, so a set and a flag cannot drift', () => {
+    assert.deepEqual([...MAGICAL_REDUCTION_RACES].sort(), ['PD', 'PM']);
+    for (const id of RACE_IDS) {
+      const race = RACES[id];
+      assert.equal(MAGICAL_REDUCTION_RACES.has(race.code), race.magicalReduction === true, id);
+    }
+  });
+
+  it('splits our own registry two-to-four, which is the source’s split and not a tidy one', () => {
+    // The counter-intuitive half: burning hands is fire, so a duergar takes it whole.
+    assert.equal(SPELLS.magic_missile.damageType, 'generic');
+    assert.equal(SPELLS.earthquake.damageType, 'generic');
+    assert.equal(SPELLS.burning_hands.damageType, 'fire');
+    assert.equal(SPELLS.chill_touch.damageType, 'cold');
+    assert.equal(SPELLS.shocking_grasp.damageType, 'lightning');
+    assert.equal(SPELLS.ice_storm.damageType, 'cold');
+    // A heal has no damage type in the source either.
+    assert.equal(SPELLS.cure_light.damageType, undefined);
+    assert.equal(SPELLS.bless.damageType, undefined);
+  });
+
+  it('composes before the pool divisor, on the same 100 the drive measured', () => {
+    // A human player takes 100 ÷ 4 = 25; a duergar takes 80 ÷ 4 = 20. Same cast, same roll.
+    const human = scaleSpellDamage(reduceSpellDamage(100, 'generic', 'PH'), true);
+    const duergar = scaleSpellDamage(reduceSpellDamage(100, 'generic', 'PD'), true);
+    assert.equal(human, 25);
+    assert.equal(duergar, 20);
   });
 });
 
