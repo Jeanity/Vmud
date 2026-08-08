@@ -42,7 +42,7 @@
  * error; both get no skill rather than a wrong one.
  */
 
-import { type ClassGroup } from './classes.ts';
+import { type ClassId } from './classes.ts';
 import type { ItemTemplate } from './items.ts';
 import { randomInt, type Rng } from './rules.ts';
 
@@ -260,100 +260,171 @@ export function skillFloor(level: number): number {
 }
 
 /**
- * The ceiling — **Phase 21 slice 4 gave the seam its body**: `taught` is `maxlearn[spec]` per class
- * per skill in the source, and the class table has arrived. The ceiling is keyed on the class
- * *group* rather than the class, which is `guild.c`'s own grain — nine classes, four temperaments.
+ * The ceiling — **re-keyed to the nine classes** (owner, 2026-08-08): `taught` is `maxlearn` per
+ * class per skill in the source, and this is now that table rather than a fold of it.
  *
- * **95 rather than 100**, because Duris' teachers stop short of the ceiling: the top of a skill should
- * be somewhere the game can later put a teacher, a quest or a specialisation. A ceiling reached by
- * grinding alone leaves nothing for any of them.
+ * Slice 4 keyed ceilings on the class *group* — four temperaments — and argued it from `guild.c`'s
+ * grain. The fold was lossy in the one direction that matters: a group row grants a skill to every
+ * class in the group, so `priest: { bash: 60 }` gave bash to a cleric, a druid and a shaman when
+ * `skills.c:3727` grants it to **paladin, antipaladin and warrior only**, and the warrior group's
+ * default did the same for a ranger. Four of nine classes could bash and none of them should. Nine
+ * rows cost nine rows; they cannot fold a grant onto a class the source never gave it to.
  *
- * A group without a row keeps the default; a row of **0 means the training never happened at all** —
- * a wizard does not bash badly, a wizard does not bash. The verbs read that as a refusal. The
- * identity-less (pre-phase characters, and every mob path that asks) get the flat ceiling, exactly
- * as before the slice.
+ * **95 rather than 100** survives the re-key, as a cap rather than a default: the source's own
+ * `maxlearn` is what the table stores, and {@link ceilingFor} clamps it. Duris' teachers stop short
+ * of the ceiling, and the top of a skill should be somewhere the game can later put a teacher, a
+ * quest or a specialisation. Storing the source's number keeps the table auditable against
+ * `skills.c` line by line; applying the house rule in one place keeps it a house rule.
+ *
+ * **Absent means never trained, and reads as 0** — the vocabulary slice 4 established, now carrying
+ * the whole table: a wizard does not bash badly, a wizard does not bash, and the verbs read that as
+ * a refusal. This is the sharp end of the re-key. Under groups every class had a ceiling for every
+ * skill; under the source most classes have most skills at nothing, which is what "class-specific"
+ * means. The identity-less — pre-phase characters, and every mob path that asks — still get the
+ * flat ceiling, exactly as before.
+ *
+ * **Specialisations are excluded.** `SPEC_SKILL_ADD` grants a skill to a *specialisation* of a class
+ * and we have none, so a class whose only entry is a spec row has no grant here: a necromancer's
+ * `SPEC_REAPER` 1h slashing and a cleric's `SPEC_ZEALOT` dual wield are doors that do not exist yet.
+ * Slice 4 folded the zealot's dual wield into a flat 40 for the whole priest group; that was the
+ * fold inventing a grant, and it is gone.
  */
 export const SKILL_CEILING = 95;
 
-/** The four temperaments' `maxlearn` rows. Sparse: an absent skill sits at {@link SKILL_CEILING}. */
-const GROUP_CEILINGS: Readonly<Record<ClassGroup, Readonly<Partial<Record<SkillId, number>>>>> = {
-  // Weapons and the fighting verbs at the full 95; the warrior's one soft spot is pure evasion —
-  // plate is not a dancing costume. **Dual wield is absent here on purpose**, so it takes the full
-  // ceiling: `skills.c:3820-3824` gives `CLASS_WARRIOR`, `CLASS_RANGER` and `CLASS_MERCENARY` **100**
-  // at level 1, the highest row in the table and the group's own default.
-  warrior: { dodge: 70 },
-  priest: {
-    'bludgeon-1h': 85,
-    'bludgeon-2h': 85,
-    'slashing-1h': 40,
-    'piercing-1h': 40,
-    'flaying-1h': 40,
-    'slashing-2h': 40,
-    'flaying-2h': 40,
-    reach: 40,
-    unarmed: 60,
-    dodge: 60,
-    parry: 55,
-    bash: 60,
-    kick: 50,
-    rescue: 60,
-    swim: 90,
-    // **Trained, badly** — the row's own word for a weapon a priest was not built for, and the
-    // source agrees by the narrowest possible margin: no priest class carries dual wield as a base
-    // skill, and the one entry in the whole table is `SPEC_SKILL_ADD(CLASS_CLERIC, 51, 80,
-    // SPEC_ZEALOT)` — a specialisation, at level 51, of one class. We have no specialisations, so
-    // that late narrow door becomes this group's flat 40, which is what every other off-temperament
-    // weapon in this row already reads.
-    'dual-wield': 40,
+/** One class's claim on one skill — `SKILL_ADD(CLASS_X, level, maxlearn)`, both columns. */
+export interface SkillGrant {
+  /** The level the class gains it. Below this the ceiling is 0 and the skill does not exist yet. */
+  readonly level: number;
+  /** The source's own `maxlearn`, before {@link SKILL_CEILING} caps it. */
+  readonly max: number;
+}
+
+/**
+ * `skills.c`'s grants, per class, for the sixteen skills we have. Sparse and literal: a skill absent
+ * from a class's row is one the source never gave it.
+ *
+ * **Dodge is the one adopted table.** `skills.c:3968` registers dodge and then comments its entire
+ * class list out — every `SKILL_ADD` for it sits inside one `/* … *\/` block, so as shipped no class
+ * has dodge at all. Read literally that would delete the skill, which is the reverse of what the
+ * block says. So its values are taken from inside the comment, the same adoption `notchChance` makes
+ * of `#if wipe2011` and `swimSurcharge` makes of a function whose body is commented out — the third
+ * time this file has found the source's intent parked behind a preprocessor.
+ */
+const CLASS_SKILLS: Readonly<Record<ClassId, Readonly<Partial<Record<SkillId, SkillGrant>>>>> = {
+  // The only class the source gives everything to, and the only one with a reach weapon — at 25,
+  // which is the one level gate in our nine that bites before the end of the level range.
+  warrior: {
+    'slashing-1h': { level: 1, max: 100 },
+    'piercing-1h': { level: 1, max: 100 },
+    'bludgeon-1h': { level: 1, max: 100 },
+    'flaying-1h': { level: 1, max: 100 },
+    'slashing-2h': { level: 1, max: 100 },
+    'bludgeon-2h': { level: 1, max: 100 },
+    'flaying-2h': { level: 1, max: 100 },
+    reach: { level: 25, max: 80 },
+    unarmed: { level: 1, max: 100 },
+    dodge: { level: 1, max: 75 },
+    parry: { level: 1, max: 100 },
+    bash: { level: 1, max: 100 },
+    kick: { level: 1, max: 100 },
+    rescue: { level: 1, max: 100 },
+    swim: { level: 1, max: 90 },
+    'dual-wield': { level: 1, max: 100 },
   },
-  wizard: {
-    'piercing-1h': 45,
-    'bludgeon-1h': 40,
-    'bludgeon-2h': 55,
-    'slashing-1h': 25,
-    'flaying-1h': 25,
-    'slashing-2h': 25,
-    'flaying-2h': 25,
-    reach: 30,
-    unarmed: 40,
-    dodge: 50,
-    parry: 30,
-    bash: 0,
-    kick: 40,
-    rescue: 30,
-    swim: 85,
-    // **Zero, and it means the refusal** — the row's own vocabulary, beside `bash: 0`. Not a harsh
-    // reading: `skills.c:3818-3833` lists every class that may learn dual wield and **no mage,
-    // sorcerer, necromancer or ethermancer appears at all**. A wizard does not dual wield badly; a
-    // wizard does not dual wield, and `wield … offhand` says so in the source's own sentence.
-    'dual-wield': 0,
+  ranger: {
+    'slashing-1h': { level: 1, max: 100 },
+    'piercing-1h': { level: 1, max: 95 },
+    unarmed: { level: 1, max: 80 },
+    dodge: { level: 1, max: 85 },
+    parry: { level: 1, max: 100 },
+    kick: { level: 1, max: 80 },
+    // At ten, not at one — the source's own gate, and the second of the three that bite.
+    rescue: { level: 10, max: 80 },
+    swim: { level: 1, max: 90 },
+    'dual-wield': { level: 1, max: 100 },
   },
+  // **No one-handed weapon skill at all**, which is the source's table and not a transcription slip:
+  // `CLASS_PALADIN` appears in `2h bludgeon` and `2h slashing` and in none of the four 1h rows. A
+  // paladin here is a two-handed class who bashes; the sword-and-board reading of the archetype is
+  // not the one `skills.c` holds. Flagged rather than quietly corrected — see the roadmap row.
+  paladin: {
+    'slashing-2h': { level: 1, max: 95 },
+    'bludgeon-2h': { level: 1, max: 95 },
+    unarmed: { level: 1, max: 80 },
+    dodge: { level: 1, max: 80 },
+    parry: { level: 1, max: 100 },
+    bash: { level: 1, max: 100 },
+    kick: { level: 1, max: 90 },
+    rescue: { level: 1, max: 100 },
+    swim: { level: 1, max: 90 },
+  },
+  // Blunt only, which is the oldest rule in the genre arriving from the data rather than from
+  // memory — and the best swimmer in the game at 100, alone in the whole table.
+  cleric: {
+    'bludgeon-1h': { level: 1, max: 70 },
+    dodge: { level: 1, max: 60 },
+    kick: { level: 1, max: 40 },
+    swim: { level: 1, max: 100 },
+  },
+  druid: {
+    'bludgeon-1h': { level: 1, max: 70 },
+    'slashing-1h': { level: 1, max: 80 },
+    dodge: { level: 1, max: 85 },
+    kick: { level: 1, max: 40 },
+    swim: { level: 1, max: 90 },
+  },
+  shaman: {
+    'bludgeon-1h': { level: 1, max: 85 },
+    'bludgeon-2h': { level: 1, max: 80 },
+    dodge: { level: 1, max: 50 },
+    kick: { level: 1, max: 40 },
+    swim: { level: 1, max: 90 },
+  },
+  sorcerer: {
+    'bludgeon-1h': { level: 1, max: 60 },
+    'piercing-1h': { level: 1, max: 80 },
+    'bludgeon-2h': { level: 1, max: 60 },
+    dodge: { level: 1, max: 50 },
+    kick: { level: 1, max: 40 },
+    swim: { level: 1, max: 90 },
+  },
+  necromancer: {
+    'piercing-1h': { level: 1, max: 80 },
+    dodge: { level: 1, max: 50 },
+    kick: { level: 1, max: 40 },
+    swim: { level: 1, max: 90 },
+  },
+  // **75, not 80.** Slice 4's group row took the assassin's 80 because rogue and assassin folded
+  // together; `SKILL_ADD(CLASS_ROGUE, 1, 75)` is the rogue's own number and the fold is gone. Note
+  // also no 1h slashing: the source's rogue row for it is commented out above the line *"Thieves get
+  // 1h slash skill for shortswords only. Hardcoded in fight.c"* — a hardcoded exception we have not
+  // built, so the skill is absent rather than invented.
   rogue: {
-    'piercing-1h': 90,
-    'slashing-1h': 85,
-    'bludgeon-1h': 60,
-    'flaying-1h': 60,
-    'slashing-2h': 45,
-    'bludgeon-2h': 45,
-    'flaying-2h': 45,
-    reach: 45,
-    unarmed: 70,
-    dodge: 90,
-    parry: 70,
-    bash: 0,
-    kick: 75,
-    rescue: 50,
-    // **Real, and short of the warrior's** — `SKILL_ADD(CLASS_ASSASSIN, 1, 80)` and
-    // `SKILL_ADD(CLASS_ROGUE, 1, 75)`, both from level 1. Our four temperaments fold those two into
-    // one group and it takes the assassin's 80: a rogue with two blades is the archetype the skill
-    // exists for, and the ceiling that separates them from a warrior is 15 points rather than a door.
-    'dual-wield': 80,
+    'piercing-1h': { level: 1, max: 90 },
+    unarmed: { level: 1, max: 80 },
+    dodge: { level: 1, max: 80 },
+    // At twenty — the third and last level gate among our nine.
+    parry: { level: 20, max: 80 },
+    kick: { level: 1, max: 40 },
+    swim: { level: 1, max: 90 },
+    'dual-wield': { level: 1, max: 75 },
   },
 };
 
-export function ceilingFor(skill: SkillId, group?: ClassGroup): number {
-  if (!group) return SKILL_CEILING;
-  return GROUP_CEILINGS[group][skill] ?? SKILL_CEILING;
+/**
+ * What this class can ever reach in this skill, at this level.
+ *
+ * `level` is optional and its absence means *"ignore the gate"* — the question "can this class ever
+ * do this?" is a different question from "can it now", and the menu-building callers ask the first.
+ * Every caller that has a level should pass it: a ceiling that ignored the gate would let a warrior
+ * notch reach weapons at level 3 toward a skill they do not have until 25.
+ */
+export function ceilingFor(skill: SkillId, classId?: ClassId, level?: number): number {
+  if (!classId) return SKILL_CEILING;
+  const grant = CLASS_SKILLS[classId][skill];
+  if (!grant) return 0;
+  if (level !== undefined && level < grant.level) return 0;
+  return Math.min(SKILL_CEILING, grant.max);
 }
 
 /**
@@ -364,6 +435,12 @@ export function ceilingFor(skill: SkillId, group?: ClassGroup): number {
  * row saying so would be a row nobody needs. A level gain therefore drags every skill up with no write
  * at all, which is `update_skills` for free.
  *
+ * **The floor stops at the class ceiling, and after the nine-class re-key that is usually zero.** The
+ * `Math.min` was a formality while every group had a number for every skill; now it is the load-bearing
+ * half. A cleric's level does not drag their 2h flaying anywhere, because a cleric has no 2h flaying —
+ * `ceilingFor` returns 0 and the floor is clamped away. Only the skills the class was actually granted
+ * rise for free.
+ *
  * **One divergence, and it only shows below level 27.** Duris *writes* the floor into `learned`, so a
  * character who loses a level keeps the higher number; ours recomputes, so they drop to the new level's
  * floor. Above level 27 both are 40 and the question does not arise; below it, a death costing a level
@@ -371,8 +448,8 @@ export function ceilingFor(skill: SkillId, group?: ClassGroup): number {
  * level is worth — and it is the price of not writing 9 rows into every character's file at every
  * level-up.
  */
-export function learnedAt(stored: number | undefined, level: number, skill: SkillId, group?: ClassGroup): number {
-  return Math.min(ceilingFor(skill, group), Math.max(skillFloor(level), stored ?? 0));
+export function learnedAt(stored: number | undefined, level: number, skill: SkillId, classId?: ClassId): number {
+  return Math.min(ceilingFor(skill, classId, level), Math.max(skillFloor(level), stored ?? 0));
 }
 
 /* -------------------------------------------------------------------------- */

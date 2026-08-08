@@ -38,13 +38,9 @@ export const CLASS_IDS = [
 
 export type ClassId = (typeof CLASS_IDS)[number];
 
-/** Which corner of play a class lives in — the skills table keys ceilings on this. */
-export type ClassGroup = 'warrior' | 'priest' | 'wizard' | 'rogue';
-
 export interface CharClass {
   readonly id: ClassId;
   readonly name: string;
-  readonly group: ClassGroup;
   /** Faces of the per-level hit die. SRD magnitudes: d10 warriors, d8 priests/rogues, d6 wizards. */
   readonly hitDie: number;
   /**
@@ -78,7 +74,6 @@ export const CLASSES: Readonly<Record<ClassId, CharClass>> = {
   warrior: {
     id: 'warrior',
     name: 'Warrior',
-    group: 'warrior',
     hitDie: 10,
     mins: { str: 11, con: 11 },
     spells: [],
@@ -87,7 +82,6 @@ export const CLASSES: Readonly<Record<ClassId, CharClass>> = {
   ranger: {
     id: 'ranger',
     name: 'Ranger',
-    group: 'warrior',
     hitDie: 10,
     mins: { str: 8, dex: 7, con: 8, int: 8 },
     casting: { kind: 'divine', opensAt: 11 },
@@ -97,7 +91,6 @@ export const CLASSES: Readonly<Record<ClassId, CharClass>> = {
   paladin: {
     id: 'paladin',
     name: 'Paladin',
-    group: 'warrior',
     hitDie: 10,
     mins: { str: 11, dex: 5, con: 10, wis: 13, cha: 10 },
     casting: { kind: 'divine', opensAt: 11 },
@@ -107,7 +100,6 @@ export const CLASSES: Readonly<Record<ClassId, CharClass>> = {
   cleric: {
     id: 'cleric',
     name: 'Cleric',
-    group: 'priest',
     hitDie: 8,
     mins: { str: 8, con: 4, wis: 11, cha: 10 },
     casting: { kind: 'divine', opensAt: 1 },
@@ -117,7 +109,6 @@ export const CLASSES: Readonly<Record<ClassId, CharClass>> = {
   druid: {
     id: 'druid',
     name: 'Druid',
-    group: 'priest',
     hitDie: 8,
     mins: { con: 4, int: 10, wis: 13, cha: 8 },
     casting: { kind: 'divine', opensAt: 1 },
@@ -127,7 +118,6 @@ export const CLASSES: Readonly<Record<ClassId, CharClass>> = {
   shaman: {
     id: 'shaman',
     name: 'Shaman',
-    group: 'priest',
     hitDie: 8,
     mins: { int: 10, wis: 10, cha: 8 },
     casting: { kind: 'divine', opensAt: 1 },
@@ -137,7 +127,6 @@ export const CLASSES: Readonly<Record<ClassId, CharClass>> = {
   sorcerer: {
     id: 'sorcerer',
     name: 'Sorcerer',
-    group: 'wizard',
     hitDie: 6,
     mins: { dex: 3, int: 15 },
     casting: { kind: 'arcane', opensAt: 1 },
@@ -147,7 +136,6 @@ export const CLASSES: Readonly<Record<ClassId, CharClass>> = {
   necromancer: {
     id: 'necromancer',
     name: 'Necromancer',
-    group: 'wizard',
     hitDie: 6,
     mins: { dex: 3, int: 15 },
     casting: { kind: 'arcane', opensAt: 1 },
@@ -157,7 +145,6 @@ export const CLASSES: Readonly<Record<ClassId, CharClass>> = {
   rogue: {
     id: 'rogue',
     name: 'Rogue',
-    group: 'rogue',
     hitDie: 8,
     mins: { dex: 14, int: 6, cha: 6 },
     spells: [],

@@ -446,6 +446,34 @@ file stays the answer to *where things stand*.
 
 ### Start here — where 2026-08-08 ended: the numbered schedule is complete
 
+**Last in: skill ceilings re-keyed from four class groups to the nine classes** (owner's ask, after
+asking why a mage could bash). Slice 4 keyed `ceilingFor` on a temperament and the fold was lossy in
+the one direction that matters — a group row grants a skill to *every* class in the group, so
+`priest: { bash: 60 }` armed cleric, druid and shaman, and the warrior group's default armed the
+ranger, when `skills.c:3727` grants bash to **paladin, antipaladin and warrior and nobody else**.
+Four of nine classes could bash and none should. `CLASS_SKILLS` now holds `skills.c`'s own two
+columns per class — `{ level, max }` from `SKILL_ADD(CLASS_X, level, maxlearn)` — and **absent means
+0, which the verbs already read as a refusal**. That is the sharp end: under groups every class had a
+number for every skill; under the source most classes have most skills at nothing, which is what
+class-specific means. Three level gates now bite — **warrior reach at 25, ranger rescue at 10, rogue
+parry at 20** — so `ceilingFor` takes an optional level and returns 0 below it (omit it to ask "may
+this class *ever*", which is what the click-menu needs). Four decisions worth knowing: **95 is now a
+cap applied in `ceilingFor`, not a default**, so the table stores the source's number and stays
+auditable line by line; **specialisations are excluded** (`SPEC_SKILL_ADD` grants to a spec, we have
+none — so the zealot's dual wield that slice 4 folded into a flat priest 40 is gone); **dodge is
+adopted from inside its own comment**, because `skills.c:3968` comments its entire class list out and
+reading that literally would delete the skill — the third time this file has found the source's
+intent parked behind a preprocessor, after `notchChance` and `swimSurcharge`; and **rogue dual wield
+is 75, the rogue's own row**, not the assassin's 80 the fold had handed them. Two transcriptions that
+look wrong and are not: **a paladin has no one-handed weapon skill at all** (`CLASS_PALADIN` appears
+in both 2h rows and in none of the four 1h rows — a paladin here is a two-handed class who bashes),
+and **a rogue has no 1h slashing** (the source's row is commented out above the note *"Thieves get 1h
+slash skill for shortswords only. Hardcoded in fight.c"* — an exception we have not built). Both are
+flagged in the code rather than quietly corrected. `ClassGroup` and `CharClass.group` are deleted;
+`groupOf` is `classOf`. Verified beyond the suite (1,835 green) by re-deriving the whole table from
+`skills.c` and diffing it against `ceilingFor`: **144 class/skill pairs, 65 source grants, no
+discrepancies.**
+
 **And then the fleet finished the week's backlog in one delegated evening** — eleven agent
 branches reviewed and landed serially, ~65 new tests, the suite at 1,814. Beyond the paragraphs
 below that individual agents left: the **shrug bases went live** (drow and grey elves 35, half-elf
@@ -469,7 +497,7 @@ the corpus's own argument (2,517 of 3,275 exchanges pay an object) — which als
 **Phase 21 closed the same day it opened, and with it every numbered phase but Phase 15's art
 tail.** The evening's slices 4-7: **skills by temperament** (the `ceilingFor` seam got its four
 `maxlearn` rows; zero means the training never happened and the verbs refuse it — the wizard's
-sheet lists no bash at all), **channels** (gossip/tell/reply/gsay + a `who` with race and class —
+sheet lists no bash at all) — **since re-keyed to the nine classes, see below**, **channels** (gossip/tell/reply/gsay + a `who` with race and class —
 protocol 25), **sun and senses** (the underdark races wear a visible `sun_scorched` −2 under the
 open sky, off in shade, via an idempotent tick pass; ultravision/infravision floor the bare eye
 at 4/3), and **the quest** (*Gwark thins the warren* — `quests.json` overrides, one `quest` verb
@@ -551,10 +579,11 @@ perfect 100 still fails one round in fifty), and a wield-time gate that only let
 there, so the second die is a dagger's. A related trap: **`PhasedAttack`, which the live round
 actually calls, is declared at `prototypes.h:950` and defined nowhere in the tree** — the inline form
 its own commented-out predecessor and the two live haste/blur branches all spell is the only version
-of the rule the source contains, so that is what we took. `dual-wield` is a `SkillId` with the class
-table folded onto our four temperaments, and **the wizard's row is 0 rather than small**: no mage
-class appears in `skills.c`'s list at all, so `wield … offhand` refuses them in the source's own
-sentence. Handedness is derived at `instantiate` from Duris' own `IS_DIRK` — dagger and short sword,
+of the rule the source contains, so that is what we took. `dual-wield` is a `SkillId` whose class table
+is now **per class** (see the re-key below; it was folded onto four temperaments when this shipped,
+which cost the rogue 5 points and handed priests a grant they never had), and **the arcane row is 0
+rather than small**: no mage class appears in `skills.c`'s list at all, so `wield … offhand` refuses
+them in the source's own sentence. Handedness is derived at `instantiate` from Duris' own `IS_DIRK` — dagger and short sword,
 one-handed, under three slots of bulk (the bulk ceiling is `actobj.c:4918`'s strength gate carried
 across as far as it honestly goes) — and it is **authorable** in both the authored-item and override
 paths, which is how Windsong rides the off hand at all: she is a `weaponClass` 5 scimitar and the

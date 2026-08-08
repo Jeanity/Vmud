@@ -7,7 +7,6 @@
 
 import {
   bareRadiusFor,
-  CLASSES,
   RACES,
   AffectFlag,
   HP_FLOOR,
@@ -1790,7 +1789,7 @@ export class Simulation {
           actor.skills.get('swim'),
           actor.level,
           'swim',
-          isPlayer(actor) && actor.identity ? CLASSES[actor.identity.class].group : undefined,
+          isPlayer(actor) ? actor.identity?.class : undefined,
         ),
       );
     }

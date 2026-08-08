@@ -185,28 +185,50 @@ describe('circles, slots and mana — slice 2', () => {
   });
 });
 
-describe('skill ceilings by temperament — slice 4', () => {
-  it('keys the ceiling on the group, defaulting flat for the identity-less', () => {
+describe('skill ceilings by class — the nine-class re-key', () => {
+  it('keys the ceiling on the class, defaulting flat for the identity-less', () => {
     assert.equal(ceilingFor('slashing-1h'), 95);
-    assert.equal(ceilingFor('slashing-1h', 'warrior'), 95);
-    assert.equal(ceilingFor('slashing-1h', 'wizard'), 25);
-    assert.equal(ceilingFor('bludgeon-1h', 'priest'), 85);
+    assert.equal(ceilingFor('slashing-1h', 'warrior'), 95); // source 100, under the house cap
+    assert.equal(ceilingFor('slashing-1h', 'ranger'), 95); // source 100, likewise
+    assert.equal(ceilingFor('slashing-1h', 'druid'), 80); // source 80, untouched by the cap
+    assert.equal(ceilingFor('bludgeon-1h', 'shaman'), 85);
     assert.equal(ceilingFor('piercing-1h', 'rogue'), 90);
-    assert.equal(ceilingFor('dodge', 'warrior'), 70); // plate is not a dancing costume
-    assert.equal(ceilingFor('dodge', 'rogue'), 90);
+    assert.equal(ceilingFor('dodge', 'warrior'), 75); // plate is not a dancing costume
+    assert.equal(ceilingFor('dodge', 'rogue'), 80);
+    assert.equal(ceilingFor('swim', 'cleric'), 95); // the only 100 in the swim table
   });
 
-  it('reads zero as training that never happened', () => {
-    assert.equal(ceilingFor('bash', 'wizard'), 0);
-    assert.equal(ceilingFor('bash', 'rogue'), 0);
+  it('reads an ungranted skill as training that never happened', () => {
     assert.equal(ceilingFor('bash', 'warrior'), 95);
-    assert.equal(ceilingFor('bash', 'priest'), 60);
+    assert.equal(ceilingFor('bash', 'paladin'), 95);
+    assert.equal(ceilingFor('bash', 'sorcerer'), 0);
+    assert.equal(ceilingFor('bash', 'rogue'), 0);
+    // The four the group fold wrongly granted bash to, and the whole reason for the re-key:
+    // `skills.c:3727` names paladin, antipaladin and warrior, and nobody else.
+    for (const klass of ['ranger', 'cleric', 'druid', 'shaman'] as const) {
+      assert.equal(ceilingFor('bash', klass), 0, `${klass} has no bash in skills.c`);
+    }
+  });
+
+  it("honours the level the class gains the skill at, and ignores it when not asked", () => {
+    assert.equal(ceilingFor('reach', 'warrior', 24), 0);
+    assert.equal(ceilingFor('reach', 'warrior', 25), 80);
+    assert.equal(ceilingFor('rescue', 'ranger', 9), 0);
+    assert.equal(ceilingFor('rescue', 'ranger', 10), 80);
+    assert.equal(ceilingFor('parry', 'rogue', 19), 0);
+    assert.equal(ceilingFor('parry', 'rogue', 20), 80);
+    // No level is the menu's question — "may this class ever?" — and must not read as level 0.
+    assert.equal(ceilingFor('reach', 'warrior'), 80);
   });
 
   it('clamps the level floor under a low ceiling', () => {
-    // At level 27+ the floor is 40; a wizard's slashing ceiling is 25 and must win.
-    assert.equal(learnedAt(undefined, 50, 'slashing-1h', 'wizard'), 25);
+    // At level 27+ the floor is 40; a sorcerer's kick ceiling is exactly 40 and must hold it there.
+    assert.equal(learnedAt(undefined, 50, 'kick', 'sorcerer'), 40);
     assert.equal(learnedAt(undefined, 50, 'slashing-1h', 'warrior'), 40);
+    // An ungranted skill never leaves zero, however high the level — the sharp end of the re-key.
+    assert.equal(learnedAt(undefined, 50, 'slashing-1h', 'cleric'), 0);
     assert.equal(learnedAt(80, 50, 'dodge', 'rogue'), 80); // ground skill kept under its own roof
+    // The level gate clamps the floor too: a warrior at 20 has no reach weapon training yet.
+    assert.equal(learnedAt(undefined, 20, 'reach', 'warrior'), 0);
   });
 });

@@ -2202,10 +2202,11 @@ export class WorldScene extends Phaser.Scene {
    * `useAbility` fed by entity id, exactly as the `attack` intent already routes `kill`."*
    */
   private openersFor(view: EntityView): TargetVerb[] {
-    // Exactly what `groupOf` computes server-side, including its `undefined` for a character with no
+    // Exactly what `classOf` computes server-side, including its `undefined` for a character with no
     // identity — and `ceilingFor` reads that as the unrestricted 95, so a pre-24 character keeps the
-    // rows the server would let it use.
-    const group = this.selfClass ? CLASSES[this.selfClass].group : undefined;
+    // rows the server would let it use. **No level passed**: the menu asks "may this class ever?",
+    // and both openers are level-1 grants for every class that has them, so the gate cannot differ.
+    const klass = this.selfClass;
     const keyword = wordsFromName(view.name)[0];
     // Nothing to type at. A name that is all articles has no word a player could use either, so the
     // openers drop out and `Attack` — which travels by id — still works.
@@ -2213,7 +2214,7 @@ export class WorldScene extends Phaser.Scene {
 
     const openers: TargetVerb[] = [];
     for (const id of COMBAT_ABILITY_IDS) {
-      if (ceilingFor(COMBAT_ABILITIES[id].skill, group) === 0) continue;
+      if (ceilingFor(COMBAT_ABILITIES[id].skill, klass) === 0) continue;
       openers.push({
         label: `${id[0]?.toUpperCase()}${id.slice(1)}`,
         run: () => this.net.send({ t: 'command', text: `${id} ${keyword}` }),

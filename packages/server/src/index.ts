@@ -198,7 +198,6 @@ import {
   characterNameProblem,
   type Ability,
   type AbilityScores,
-  type ClassGroup,
   type AdjacentRoomView,
   type CharacterSummary,
   type ClassId,
@@ -3473,12 +3472,12 @@ function useAbility(player: Player, id: CombatAbilityId, rest: string): void {
   // Slice 4: a ceiling of zero is not "bad at it", it is "the training never happened" — a wizard
   // does not bash badly, a wizard does not bash. Free, unlike a failed attempt: you cannot be
   // charged a round for a move your class has never heard of.
-  if (ceilingFor(ability.skill, groupOf(player)) === 0) {
+  if (ceilingFor(ability.skill, classOf(player), player.level) === 0) {
     send(player.id, { t: 'log', channel: 'error', text: `Your training never covered ${ability.skill}.` });
     return;
   }
 
-  const learned = learnedAt(player.skills.get(ability.skill), player.level, ability.skill, groupOf(player));
+  const learned = learnedAt(player.skills.get(ability.skill), player.level, ability.skill, classOf(player));
   const landed = randomInt(combatRng, 1, 100) <= abilityChance(learned);
 
   // Charged whether it lands or not — the cost is the attempt. Both clocks are set before anything else can
@@ -3621,7 +3620,7 @@ function doRescue(player: Player, rest: string): void {
   const lagMs = Math.round(ROUND_MS);
   sim.addAffect(player, newAffect({ type: 'off_balance', durationMs: lagMs, flags: AffectFlag.NoSave }));
 
-  const learned = learnedAt(player.skills.get('rescue'), player.level, 'rescue', groupOf(player));
+  const learned = learnedAt(player.skills.get('rescue'), player.level, 'rescue', classOf(player));
   // The source's shape, `||` and all — a notch forces the fumble and skips the success roll entirely.
   const fumbled = notchSkill(player, 'rescue', RESCUE_NOTCH_CHANCE) || randomInt(combatRng, 1, 100) > learned;
 
@@ -6771,7 +6770,7 @@ function refitCombat(player: Player): void {
       ? { weaponClass: templateOf(mainHand)!.weaponClass!, ...(mainHand.twoHanded ? { twoHanded: true as const } : {}) }
       : mainHand,
   );
-  const skillBonus = skill === undefined ? 0 : toHitFrom(learnedAt(player.skills.get(skill), player.level, skill, groupOf(player)));
+  const skillBonus = skill === undefined ? 0 : toHitFrom(learnedAt(player.skills.get(skill), player.level, skill, classOf(player)));
   // **Phase 20 slice 5: what magic is doing for you, beside what the kit does.** `sumApply` over the
   // affect list — armor's node arrives already compressed through `armourBonusFrom`, so it adds in
   // our AC points exactly as a worn breastplate does, and bless's `hit` is Duris hitroll, which is
@@ -6831,14 +6830,14 @@ function offHandFrom(player: Player, strMod: number): OffHandSwing | undefined {
   // Instance first, template as the heal — `attackTypeOf`'s own rule, for the same saves: a dagger
   // minted before this phase carries no `handedness`, and its catalogue entry still knows.
   if (handednessFor(held) !== 'either' && handednessFor(templateOf(held)) !== 'either') return undefined;
-  const group = groupOf(player);
-  if (ceilingFor('dual-wield', group) <= 0) return undefined;
+  const klass = classOf(player);
+  if (ceilingFor('dual-wield', klass, player.level) <= 0) return undefined;
   return {
     damage: {
       ...held.damage,
       bonus: held.damage.bonus + player.damageBonus + damrollFrom(player.equipped) + strMod,
     },
-    skill: learnedAt(player.skills.get('dual-wield'), player.level, 'dual-wield', group),
+    skill: learnedAt(player.skills.get('dual-wield'), player.level, 'dual-wield', klass),
   };
 }
 
@@ -6899,9 +6898,9 @@ function defenceOf(defender: Actor): DefenceSkills {
   }
   const weaponSkill = weaponSkillFor(defender.equipped.mainHand);
   return {
-    dodge: learnedAt(defender.skills.get('dodge'), defender.level, 'dodge', groupOf(defender)),
-    parry: learnedAt(defender.skills.get('parry'), defender.level, 'parry', groupOf(defender)),
-    weapon: weaponSkill === undefined ? 0 : learnedAt(defender.skills.get(weaponSkill), defender.level, weaponSkill, groupOf(defender)),
+    dodge: learnedAt(defender.skills.get('dodge'), defender.level, 'dodge', classOf(defender)),
+    parry: learnedAt(defender.skills.get('parry'), defender.level, 'parry', classOf(defender)),
+    weapon: weaponSkill === undefined ? 0 : learnedAt(defender.skills.get(weaponSkill), defender.level, weaponSkill, classOf(defender)),
     // **`unarmed` is a weapon skill but not a weapon.** `weaponSkillFor` answers `unarmed` for an empty
     // hand by design — that is the skill you swing *with* — but `getCharParryVal` refuses outright
     // without an object: *you do not parry a sword with your arm*. So this reads the hand, not the skill.
@@ -6980,8 +6979,8 @@ function notchFromDualWield(outcome: AttackOutcome): void {
 function notchSkill(player: Player, skill: SkillId, base: number): boolean {
   const category = SKILLS[skill].category;
   const cooldown = category === 'physical' ? 'notch_physical' : 'notch_mental';
-  const learned = learnedAt(player.skills.get(skill), player.level, skill, groupOf(player));
-  const chance = notchChance(base, learned, ceilingFor(skill, groupOf(player)), {
+  const learned = learnedAt(player.skills.get(skill), player.level, skill, classOf(player));
+  const chance = notchChance(base, learned, ceilingFor(skill, classOf(player), player.level), {
     onCooldown: sim.affectsOf(player, cooldown).length > 0,
   });
   if (!rollNotch(combatRng, chance)) return false;
@@ -7015,11 +7014,11 @@ function notchSkill(player: Player, skill: SkillId, base: number): boolean {
  */
 function listSkills(player: Player): void {
   const floor = skillFloor(player.level);
-  const rows = SKILL_IDS.filter((id) => ceilingFor(id, groupOf(player)) > 0).map((id) => {
+  const rows = SKILL_IDS.filter((id) => ceilingFor(id, classOf(player), player.level) > 0).map((id) => {
     // Slice 4's one change to the list: a zero-ceiling skill does not appear at all — a wizard's
     // sheet showing "bash 0/0 (mastered)" would be the interface lying twice in one line.
-    const learned = learnedAt(player.skills.get(id), player.level, id, groupOf(player));
-    const ceiling = ceilingFor(id, groupOf(player));
+    const learned = learnedAt(player.skills.get(id), player.level, id, classOf(player));
+    const ceiling = ceilingFor(id, classOf(player), player.level);
     // The owner's own format (2026-08-07): "dodge 12/50" — where you are over where this skill tops
     // out, in one glance. The notes keep saying *why* a number is what it is.
     const note = learned >= ceiling ? ' &+Y(mastered)&N' : learned <= floor ? " &+L(at your level's floor)&N" : '';
@@ -7932,7 +7931,7 @@ function equipFromBag(player: Player, rest: string, mode: 'wear' | 'wield', hand
     // The training gate. Duris asks `!GET_CHAR_SKILL(ch, SKILL_DUAL_WIELD)`, a per-class table; ours
     // asks the ceiling, which is the same table in our shape — a group whose ceiling is 0 never
     // learned this at all, and `learnedAt` can never lift them off the floor of it.
-    if (ceilingFor('dual-wield', groupOf(player)) <= 0) {
+    if (ceilingFor('dual-wield', classOf(player), player.level) <= 0) {
       send(player.id, { t: 'log', channel: 'error', text: 'You lack the training to use two weapons.' });
       return;
     }
@@ -8151,9 +8150,12 @@ function shopCha(player: Player): number {
   return player.identity ? abilityMod(player.identity.scores.cha) : 0;
 }
 
-/** Which temperament's ceilings apply — slice 4. Undefined (the flat 95) for the identity-less. */
-function groupOf(player: Player): ClassGroup | undefined {
-  return player.identity ? CLASSES[player.identity.class].group : undefined;
+/**
+ * Whose ceilings apply — the **class**, since the nine-class re-key. Undefined (the flat 95) for the
+ * identity-less, which is still every pre-Phase-21 character and every mob path that asks.
+ */
+function classOf(player: Player): ClassId | undefined {
+  return player.identity?.class;
 }
 
 /** `buy <keyword|number>` — the coin leaves, the item arrives, and the bag has to have room. */

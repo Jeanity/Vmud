@@ -251,27 +251,31 @@ describe('the dual roll', () => {
 });
 
 /**
- * The class table, folded onto our four temperaments — `skills.c:3818-3833`.
+ * The class table, per class since the nine-class re-key — `skills.c:3818-3833`.
  *
  * Worth pinning because the *shape* is the mechanic: a 0 is a refusal that `wield … offhand` reads, and
- * if a later edit turned it into a small number the wizard would quietly start dual wielding.
+ * if a later edit turned it into a small number the sorcerer would quietly start dual wielding.
  */
 describe('who may dual wield', () => {
-  it("gives warriors the full ceiling, which is the table's own 100", () => {
+  it("gives warriors the full ceiling, which is the table's own 100 capped", () => {
     assert.equal(ceilingFor('dual-wield', 'warrior'), SKILL_CEILING);
+    assert.equal(ceilingFor('dual-wield', 'ranger'), SKILL_CEILING);
   });
 
-  it('refuses wizards outright rather than making them bad at it', () => {
-    assert.equal(ceilingFor('dual-wield', 'wizard'), 0);
+  it('refuses the arcane outright rather than making them bad at it', () => {
+    assert.equal(ceilingFor('dual-wield', 'sorcerer'), 0);
+    assert.equal(ceilingFor('dual-wield', 'necromancer'), 0);
     // And the refusal survives the level floor, which is the half that actually matters: without this,
-    // a level-27 wizard would be handed 40% for free by `skillFloor` and start swinging twice.
-    assert.equal(learnedAt(undefined, 27, 'dual-wield', 'wizard'), 0);
-    assert.equal(learnedAt(99, 60, 'dual-wield', 'wizard'), 0, 'and a hand-edited save cannot buy in');
+    // a level-27 sorcerer would be handed 40% for free by `skillFloor` and start swinging twice.
+    assert.equal(learnedAt(undefined, 27, 'dual-wield', 'sorcerer'), 0);
+    assert.equal(learnedAt(99, 60, 'dual-wield', 'sorcerer'), 0, 'and a hand-edited save cannot buy in');
   });
 
-  it('leaves rogues real but short of a warrior, and priests merely trained', () => {
-    assert.equal(ceilingFor('dual-wield', 'rogue'), 80);
-    assert.equal(ceilingFor('dual-wield', 'priest'), 40);
+  it('leaves rogues real but short of a warrior, and priests without it at all', () => {
+    // 75, the rogue's own `SKILL_ADD` — not the assassin's 80 the group fold used to hand them.
+    assert.equal(ceilingFor('dual-wield', 'rogue'), 75);
+    // `SPEC_SKILL_ADD(CLASS_CLERIC, 51, 80, SPEC_ZEALOT)` is a specialisation, and we have none.
+    assert.equal(ceilingFor('dual-wield', 'cleric'), 0);
     assert.ok(ceilingFor('dual-wield', 'rogue') < ceilingFor('dual-wield', 'warrior'));
   });
 
