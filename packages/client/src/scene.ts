@@ -12,6 +12,13 @@ import {
   ABILITIES,
   abilityMod,
   CLASSES,
+  COMBAT_ABILITIES,
+  COMBAT_ABILITY_IDS,
+  SPELLS,
+  ceilingFor,
+  knownSpells,
+  wordsFromName,
+  type ClassId,
   LPC_ART_BY_ID,
   LPC_SHEET_GEOMETRY,
   PLAYER_SPEED,
@@ -1475,6 +1482,17 @@ export class WorldScene extends Phaser.Scene {
   /** The last bag the server sent, so opening the drawer redraws rather than waiting for a heartbeat. */
   private lastBag: BagView | undefined;
 
+  /**
+   * Class and level off the last `self` — everything {@link openersFor} needs and nothing more.
+   *
+   * Kept for the same reason {@link lastBag} is: the menu opens on a click, not on a heartbeat, and a
+   * character sheet reconstructed from whichever fields happened to arrive most recently would offer a
+   * warrior's rows to a sorcerer for one message. Undefined before the first `self`, and for a
+   * character created before protocol 24 gave anyone an identity at all.
+   */
+  private selfClass: ClassId | undefined;
+  private selfLevel = 1;
+
   /** Indexed sheets wanted but not yet asked for — drained by `pumpSheetQueue` from `update`. */
   private readonly wantedSheets = new Set<string>();
   /** Indexed sheets currently in flight, so a room of six wearing one hat asks the loader once. */
@@ -1883,6 +1901,10 @@ export class WorldScene extends Phaser.Scene {
       this.seenSnapshot = undefined;
       this.clearVisible();
       this.lightRadius = DEFAULT_LIGHT_RADIUS;
+      // Who the character was belonged to the old socket too, and the click menu reads it. Cleared
+      // rather than kept: a stale class would offer a rogue the warrior rows of whoever logged out.
+      this.selfClass = undefined;
+      this.selfLevel = 1;
       // Whatever was being carried belonged to the character on the old socket. The server states
       // it again in the `self` that follows; until then, the bare eye.
       this.carriedLight = undefined;
@@ -1951,6 +1973,10 @@ export class WorldScene extends Phaser.Scene {
       // Protocol 24: who you are, under the name — and the sheet's numbers, words' opposite.
       // A pre-identity character shows nothing here, exactly as before the phase.
       const who = document.getElementById('hud-who');
+      // Held for the click menu, which opens between heartbeats — see `selfClass`. Level as well as
+      // class: a spell list is what the *level* has opened, and both change without a reconnect.
+      this.selfClass = message.view.identity?.class;
+      this.selfLevel = message.view.level;
       if (who) {
         const identity = message.view.identity;
         who.textContent = identity ? `${RACES[identity.race].name} ${CLASSES[identity.class].name}` : '';
@@ -2075,8 +2101,13 @@ export class WorldScene extends Phaser.Scene {
    * - anything with a body offers `Attack`.
    *
    * The split matters because the two verbs send different messages — `loot` resolves against the
-   * graveyard and `get` against the ground store — and an id belongs to exactly one of them. Later
-   * mechanics add rows here: `bash` with Phase 19's skills is already recorded against that phase.
+   * graveyard and `get` against the ground store — and an id belongs to exactly one of them.
+   *
+   * **Order: look, then the openers, then attack.** The owner's ask names the openers as the point
+   * (*"if a player has opening moves when you click on a mob it should be part of the menu"*), and a
+   * list that put `Attack` above them would be a list where the interesting rows are the ones you
+   * scroll past. `Attack` stays as the plain fallback it has always been, at the bottom, in danger
+   * colour — see {@link openersFor} for what decides the rows above it.
    */
   private openTargetMenu(pointer: Phaser.Input.Pointer, entity: Entity): void {
     const view = entity.view;
@@ -2101,6 +2132,7 @@ export class WorldScene extends Phaser.Scene {
       // simply does not pretend otherwise. `quest` resolves the giver standing in the room.
       verbs.push({ label: 'Quest', run: () => this.net.send({ t: 'command', text: 'quest' }) });
     } else {
+      verbs.push(...this.openersFor(view));
       verbs.push({
         label: 'Attack',
         danger: true,
@@ -2108,6 +2140,94 @@ export class WorldScene extends Phaser.Scene {
       });
     }
     this.targetMenu.show(pointer.x, pointer.y, stripColour(view.name), verbs);
+  }
+
+  /**
+   * The moves this character can open a fight with, on this body — bash, kick, and a caster's nukes.
+   *
+   * ## The gate is the server's own expression, not a copy of it
+   *
+   * `ceilingFor(skill, group) === 0` is the exact test `useAbility` runs before it refuses with *"your
+   * training never covered bash"*, and `knownSpells(class, level)` is the exact list `doCast` matches
+   * a typed line against. Both come from `@mygame/shared`, so this is the same table rather than a
+   * second reading of it — the drift the roadmap warned about is only possible where the client keeps
+   * its own copy, and there is none here. That is what makes a client-side answer legitimate: it is
+   * not the client deciding, it is the client evaluating the server's rule against `SelfView`.
+   *
+   * **A ceiling of zero is a structural refusal, and those are the only ones the menu honours.** The
+   * wizard and the rogue have `bash: 0` — not bad at it, never taught it — so the row is absent. Every
+   * group has a non-zero kick, so that row is always there. Refusals for balance or timing are a
+   * different thing and are deliberately let through: no castings left, off balance, already prone. The
+   * server says those, in words, at the moment they apply, and a menu that pre-empted them would need
+   * state the wire does not carry and would go stale between heartbeats.
+   *
+   * **And a shield is not one of them.** The owner's ask assumed bash needs one (*"and are wearing a
+   * shield as you can't bash without one"*), and the engine does not: `useAbility` checks the ceiling,
+   * the balance affect and nothing about the off-hand. Gating the row on a shield would hide a move
+   * the server would happily perform, which is the same sin as offering one it would refuse. If bash
+   * ever grows the requirement, it grows here in the same breath.
+   *
+   * **Spent slots are not consulted, because the wire does not carry them** and this task will not
+   * widen the protocol to find out. `SelfView` has mana and level, never `spentSlots` — so an exhausted
+   * circle-1 sorcerer still sees `Magic missile`, clicks it, and reads *"you have no circle-1 castings
+   * left. Rest, and they return."* That is a worse menu and a better rule: one authority on what is
+   * left, and it is the one holding the number.
+   *
+   * ## Which body the keyword names
+   *
+   * **Typed commands have no entity-id form** — `resolveTarget` runs `parseTargetRef`, which parses
+   * `2.orc` into a keyword and an ordinal and nothing else — so unlike `Attack` (a real `attack` intent
+   * carrying `view.id`) these rows must name their target in words, and the menu's whole promise of
+   * *that one* is weaker for it. The word is the first of `wordsFromName(view.name)`, which is sound
+   * as far as it goes: `namelistFor` resolves a mob through `wordsForMob`, and that unions the
+   * authored keywords **with** `wordsFromName` of the same name, so a word taken from the display name
+   * is always a word the server will match.
+   *
+   * What it cannot promise is *which* match. `bash kobold` in a room of three kobolds takes the first
+   * in the server's visible-set order, and the one you clicked is a third of the time. The ordinal is
+   * not computable here — it would have to be this client's iteration order agreeing with the server's
+   * `visibleEntities`, and a guess that is confidently wrong is worse than a bare keyword, which is at
+   * least the same body a player typing the word themselves would hit. It closes properly when abilities
+   * get an intent of their own, which is the roadmap's own reading of this row: *"a Bash row is
+   * `useAbility` fed by entity id, exactly as the `attack` intent already routes `kill`."*
+   */
+  private openersFor(view: EntityView): TargetVerb[] {
+    // Exactly what `groupOf` computes server-side, including its `undefined` for a character with no
+    // identity — and `ceilingFor` reads that as the unrestricted 95, so a pre-24 character keeps the
+    // rows the server would let it use.
+    const group = this.selfClass ? CLASSES[this.selfClass].group : undefined;
+    const keyword = wordsFromName(view.name)[0];
+    // Nothing to type at. A name that is all articles has no word a player could use either, so the
+    // openers drop out and `Attack` — which travels by id — still works.
+    if (!keyword) return [];
+
+    const openers: TargetVerb[] = [];
+    for (const id of COMBAT_ABILITY_IDS) {
+      if (ceilingFor(COMBAT_ABILITIES[id].skill, group) === 0) continue;
+      openers.push({
+        label: `${id[0]?.toUpperCase()}${id.slice(1)}`,
+        run: () => this.net.send({ t: 'command', text: `${id} ${keyword}` }),
+      });
+    }
+
+    // Offensive only. A heal or a buff aimed at a mob is not an opening move, and an area needs no
+    // target at all — clicking a body to cast one would be a row whose target is ignored, which reads
+    // as the click having done something it did not.
+    const nukes = this.selfClass
+      ? knownSpells(this.selfClass, this.selfLevel).filter((id) => SPELLS[id].kind === 'nuke')
+      : [];
+    if (nukes.length > 0) {
+      openers.push({
+        label: 'Cast',
+        submenu: nukes.map((id) => ({
+          // The registry's own name goes on the wire unaltered: `doCast` strips the longest known
+          // spell name off the front of the line, so the string has to be the one in the table.
+          label: `${SPELLS[id].name[0]?.toUpperCase()}${SPELLS[id].name.slice(1)}`,
+          run: () => this.net.send({ t: 'command', text: `cast ${SPELLS[id].name} ${keyword}` }),
+        })),
+      });
+    }
+    return openers;
   }
 
   private onPointerDown(pointer: Phaser.Input.Pointer): void {
@@ -3459,13 +3579,6 @@ export class WorldScene extends Phaser.Scene {
   }
 
   /**
-   * The images one art key is drawn from, stacked bottom-first and lifted onto its feet.
-   *
-   * An unknown key falls back to the plain human rather than drawing nothing: a mob the client has no
-   * layer list for should look like *somebody* while the log says what it is, and an invisible entity is
-   * the one failure that looks identical to the visibility gate working correctly.
-   */
-  /**
    * Puts one entity's health bar where its `healthFraction` says.
    *
    * Called from both halves of `upsertEntity` — creation and update — because the server sends a full
@@ -3712,6 +3825,13 @@ export class WorldScene extends Phaser.Scene {
     this.faceEntity(entity, entity.view.facing);
   }
 
+  /**
+   * The images one art key is drawn from, stacked bottom-first and lifted onto its feet.
+   *
+   * An unknown key falls back to the plain human rather than drawing nothing: a mob the client has no
+   * layer list for should look like *somebody* while the log says what it is, and an invisible entity is
+   * the one failure that looks identical to the visibility gate working correctly.
+   */
   private characterLayers(sprite: string, facing: Direction, wearing?: Readonly<Record<string, string>>): Phaser.GameObjects.Image[] {
     const dressed = wearing && Object.keys(wearing).length > 0;
     const base = SPRITE_LAYERS[sprite] ?? SPRITE_LAYERS['human'] ?? [];

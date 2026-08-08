@@ -349,6 +349,17 @@
       }
       #target-menu button:hover { background: rgba(157, 176, 138, 0.14); }
       #target-menu button.danger { color: #e0a86a; }
+      /* A submenu's rows — the caster's spell list under `Cast`. Indented behind a rule rather than
+         floated out as a second panel: the rule is what says these belong to the row above, and the
+         menu stays one rectangle with one clamp against the stage edge. The `[hidden]` rule is
+         written out rather than left to the UA default, which any later `display` on `.group` would
+         silently outrank — the same trap `#target-menu[hidden]` above is already written out for. */
+      #target-menu .group {
+        margin: 1px 0 2px;
+        padding-left: 7px;
+        border-left: 1px solid var(--edge);
+      }
+      #target-menu .group[hidden] { display: none; }
 
       /* The combat feed: the fight's own lines, where the owner put them — the character pane,
          below the display controls (Track V, V1). A capped mirror of the log's combat channel, in
