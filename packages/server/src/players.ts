@@ -175,6 +175,12 @@ export interface PlayerRecord {
    */
   identity: PlayerIdentity | undefined;
   /**
+   * Castings spent, by circle — Phase 21 slice 2. The deficit, like `missing`: what has been used,
+   * not what remains, so a level-up that raises the slot ceiling owes no migration. Empty for the
+   * rested, the mundane, and every save from before the phase.
+   */
+  spentSlots: Map<number, number>;
+  /**
    * What this character is wearing. Phase 14b's starting kit, and later whatever they have found.
    *
    * Stored for the same reason `maxHp` is: it is **rolled**, at creation, and a character who
@@ -260,6 +266,8 @@ interface StoredRecord {
   class?: string;
   /** The six rolled scores. Absent before Phase 21. */
   scores?: unknown;
+  /** Castings spent by circle. Absent for the rested and everything before slice 2. */
+  spentSlots?: Record<string, number>;
   /** Base64 bitset per {@link placeKey}. */
   seen?: Record<string, string>;
   /** Ground pickup keys this character has collected. Absent in any save written before v5. */
@@ -416,6 +424,7 @@ export class PlayerStore {
       missing: undefined,
       progress: undefined,
       identity: undefined,
+      spentSlots: new Map(),
       equipped: undefined,
       inventory: undefined,
       purse: undefined,
@@ -433,6 +442,7 @@ export class PlayerStore {
           missing: decodeMissing(stored.missing),
           progress: decodeProgress(stored.level, stored.experience, stored.maxHp, stored.damageBonus),
           identity: decodeIdentity(stored.race, stored.class, stored.scores),
+          spentSlots: decodeSpentSlots(stored.spentSlots),
         equipped: readEquipped(stored.equipped),
         inventory: stored.inventory === undefined ? undefined : readInventory(stored.inventory, readItem),
         purse: readPurse(stored.purse),
@@ -570,6 +580,16 @@ export class PlayerStore {
       return;
     }
     record.progress = value;
+    this.touch(record);
+  }
+
+  /** The spent castings, replaced wholesale — the same posture as every other setter here. */
+  setSpentSlots(record: PlayerRecord, slots: ReadonlyMap<number, number>): void {
+    const same =
+      record.spentSlots.size === slots.size &&
+      [...slots].every(([circle, n]) => record.spentSlots.get(circle) === n);
+    if (same) return;
+    record.spentSlots = new Map(slots);
     this.touch(record);
   }
 
@@ -764,6 +784,9 @@ export class PlayerStore {
       ...(record.identity === undefined
         ? {}
         : { race: record.identity.race, class: record.identity.class, scores: record.identity.scores }),
+      ...(record.spentSlots.size === 0
+        ? {}
+        : { spentSlots: Object.fromEntries([...record.spentSlots].map(([c, n]) => [String(c), n])) }),
       // Absent on a character wearing nothing, which no live character is — but a hand-edited save
       // might be, and an empty object on disk says less than no key at all.
       ...(record.equipped && Object.keys(record.equipped).length > 0 ? { equipped: record.equipped } : {}),
@@ -861,6 +884,7 @@ export class PlayerStore {
         missing: decodeMissing(stored.missing),
         progress: decodeProgress(stored.level, stored.experience, stored.maxHp, stored.damageBonus),
         identity: decodeIdentity(stored.race, stored.class, stored.scores),
+        spentSlots: decodeSpentSlots(stored.spentSlots),
         equipped: readEquipped(stored.equipped),
         inventory: stored.inventory === undefined ? undefined : readInventory(stored.inventory, readItem),
         purse: readPurse(stored.purse),
@@ -1200,6 +1224,19 @@ function decodeIdentity(
   const cleanScores = readScores(scores);
   if (!cleanScores) return undefined;
   return { race, class: charClass, scores: cleanScores };
+}
+
+/** Circle → spent, cleaned: a circle is a small positive integer and a count is one or more. */
+function decodeSpentSlots(stored: unknown): Map<number, number> {
+  const out = new Map<number, number>();
+  if (typeof stored !== 'object' || stored === null) return out;
+  for (const [key, value] of Object.entries(stored as Record<string, unknown>)) {
+    const circle = Number(key);
+    if (!Number.isInteger(circle) || circle < 1 || circle > 12) continue;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) continue;
+    out.set(circle, Math.min(9, value));
+  }
+  return out;
 }
 
 function decodeProgress(

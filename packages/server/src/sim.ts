@@ -413,6 +413,14 @@ export interface Player extends Actor {
    * mid-fight, for 1.5's recompute-from-base rule.
    */
   identity: PlayerIdentity | undefined;
+  /**
+   * Castings spent, by circle — Phase 21 slice 2. Debited when a cast *completes* (the source's
+   * pay-then-fizzle order), refilled by memorization while resting, persisted so a relog is not a
+   * free refill.
+   */
+  spentSlots: Map<number, number>;
+  /** Continuous rest toward the next slot back. Transient on purpose — standing resets the trance. */
+  memorizeMs: number;
   /** Latest steering intent, normalised, replaced each time the client sends one. */
   intentX: number;
   intentY: number;
@@ -866,6 +874,8 @@ export class Simulation {
       experience: 0,
       // Nobody until the record says so — set by `restoreProgress`, minted by creation. Phase 21.
       identity: undefined,
+      spentSlots: new Map(),
+      memorizeMs: 0,
       // §8 gives nothing below level 6, so a fresh character genuinely starts at zero rather than
       // starting at a number nobody rolled.
       damageBonus: 0,

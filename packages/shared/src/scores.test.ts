@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { CLASSES, CLASS_IDS, circleAt } from './classes.ts';
+import { CLASSES, CLASS_IDS, circleAt, knownSpells, knowsSpell, maxManaFor, slotsForCircle } from './classes.ts';
 import { RACES, RACE_IDS, racialBonus, racialBonuses } from './races.ts';
 import { ABILITIES, abilityMod, type Rng } from './rules.ts';
 import { BONUS_POINTS, readScores, rollScores, scoreWord, spendBonus } from './scores.ts';
@@ -145,5 +145,41 @@ describe('classes', () => {
       if (spec.casting) assert.ok(spec.spells.length > 0, `${id} casts but knows nothing`);
       else assert.equal(spec.spells.length, 0, `${id} knows spells it cannot cast`);
     }
+  });
+});
+
+describe('circles, slots and mana — slice 2', () => {
+  it('opens with two castings and grows one per ten levels, five at most', () => {
+    assert.equal(slotsForCircle(1, 1, 1), 2);
+    assert.equal(slotsForCircle(10, 1, 1), 2);
+    assert.equal(slotsForCircle(11, 1, 1), 3);
+    assert.equal(slotsForCircle(41, 1, 1), 5);
+    assert.equal(slotsForCircle(60, 1, 1), 5); // the cap holds
+    assert.equal(slotsForCircle(5, 1, 2), 0); // circle 2 is still shut
+    assert.equal(slotsForCircle(6, 1, 2), 2);
+    assert.equal(slotsForCircle(10, 11, 1), 0); // the paladin at ten holds nothing
+    assert.equal(slotsForCircle(11, 11, 1), 2);
+  });
+
+  it('knows only what the class list and the circle allow', () => {
+    assert.deepEqual(knownSpells('warrior', 60), []);
+    assert.equal(knowsSpell('cleric', 'cure_light', 1), true);
+    assert.equal(knowsSpell('cleric', 'earthquake', 1), false); // circle 3, shut at level 1
+    assert.equal(knowsSpell('cleric', 'earthquake', 11), true);
+    assert.equal(knowsSpell('cleric', 'magic_missile', 60), false); // never on the list
+    assert.equal(knowsSpell('paladin', 'cure_light', 10), false); // the decade of silence
+    assert.equal(knowsSpell('paladin', 'cure_light', 11), true);
+  });
+
+  it('pools mana by calling, modifier and blood', () => {
+    const gnomeSorcerer = maxManaFor('sorcerer', 3, 20, RACES.gnome.manaFactor);
+    const humanSorcerer = maxManaFor('sorcerer', 3, 20, RACES.human.manaFactor);
+    const barbarianWarrior = maxManaFor('warrior', 0, 20, RACES.barbarian.manaFactor);
+    assert.ok(gnomeSorcerer > humanSorcerer, 'the gnome swims in it');
+    assert.equal(barbarianWarrior, 24); // 30 × 80%
+    const paladin = maxManaFor('paladin', 1, 20, 100);
+    const cleric = maxManaFor('cleric', 1, 20, 100);
+    assert.ok(paladin < cleric, 'half-casters pool at half');
+    assert.ok(maxManaFor('sorcerer', -4, 1, 80) >= 10, 'the floor holds');
   });
 });

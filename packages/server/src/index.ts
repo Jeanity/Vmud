@@ -102,8 +102,13 @@ import {
   abilityMod,
   armourToAc,
   attackBonusFor,
+  circleAt,
   CLASSES,
+  knownSpells,
+  knowsSpell,
+  maxManaFor,
   RACES,
+  slotsForCircle,
   parseDice,
   roundLengthFor,
   type CombatStats,
@@ -993,6 +998,9 @@ if (DEV_ACCOUNT) {
   }
 }
 
+/** Unbroken rest that buys one spent casting back — slice 2's memorization cadence. */
+const MEMORIZE_SLOT_MS = 20_000;
+
 /** Auth failures one socket may accrue before it is closed. A budget for typos, not dictionaries. */
 const AUTH_ATTEMPT_BUDGET = 5;
 
@@ -1518,6 +1526,8 @@ function rememberProgress(player: Player): void {
   const record = records.get(player.id);
   if (!record) return;
   store.setProgress(record, player.level, player.experience, player.maxHp, player.damageBonus);
+  // Slice 2: the spent castings ride the same save — a relog must not be a free memorization.
+  store.setSpentSlots(record, player.spentSlots);
   store.setEquipped(record, player.equipped);
   // The bag too, since 15b. Same fact of the same kind: what a character has is theirs, and losing it
   // to a disconnect would teach players not to carry anything.
@@ -1584,6 +1594,19 @@ function restoreProgress(player: Player, record: PlayerRecord): void {
     // novice. The band midpoints are what they would have rolled on average. Anybody levelling from
     // here rolls for real — see `levelUpIfEarned`.
     player.damageBonus = progress.damageBonus ?? expectedDamageBonus(progress.level);
+  }
+
+  // Slice 2: the pool and the spent castings follow the identity — after the level above (the
+  // pool scales with it) and before `restoreVitals` runs outside, whose mana wound is subtracted
+  // from the maximum this derives.
+  player.spentSlots = new Map(record.spentSlots);
+  if (record.identity) {
+    const spec = CLASSES[record.identity.class];
+    const mod = spec.casting
+      ? abilityMod(spec.casting.kind === 'arcane' ? record.identity.scores.int : record.identity.scores.wis)
+      : 0;
+    player.maxMana = maxManaFor(record.identity.class, mod, player.level, RACES[record.identity.race].manaFactor);
+    player.mana = Math.min(player.mana, player.maxMana);
   }
 
   refitCombat(player);
@@ -3586,6 +3609,68 @@ function doRescue(player: Player, rest: string): void {
  * with no argument via the client's own refresh) stays available mid-cast; everything a player *does*
  * is locked.
  */
+/**
+ * A class spell leaves the book — Phase 21 slice 2, and the moment `DESIGN-spells.md`'s "until
+ * classes change who knows what" arrives. The knowledge gate is `knownSpells` (class list x open
+ * circles); the economy is castings per circle, checked here and **paid at completion** — the
+ * source's pay-then-fizzle order, `completeCast`'s debit. A heal or a buff with no named target
+ * aims at its caster; a strike wants the fight's target or a name.
+ */
+function castClassSpell(player: Player, spell: Spell, term: string): void {
+  const identity = player.identity!;
+  const opensAt = CLASSES[identity.class].casting?.opensAt ?? 1;
+  const cap = slotsForCircle(player.level, opensAt, spell.circle);
+  const spent = player.spentSlots.get(spell.circle) ?? 0;
+  if (spent >= cap) {
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text: `You have no circle-${spell.circle} castings left. Rest, and they return.`,
+    });
+    return;
+  }
+
+  const view = term ? resolveTarget(player, term) : undefined;
+  if (term && !view) return; // `resolveTarget` has already said why.
+  const supportive = spell.kind === 'heal' || spell.kind === 'buff';
+  const aimed = view ? sim.get(view.id) : undefined;
+  const target =
+    aimed ?? (supportive ? player : player.fighting === undefined ? undefined : sim.get(player.fighting));
+  if (!target) {
+    send(player.id, { t: 'log', channel: 'error', text: `Cast ${spell.name} at whom?` });
+    return;
+  }
+  if (!supportive && target.id === player.id) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Aiming that at yourself seems unwise.' });
+    return;
+  }
+
+  const castMs = mobCastMs(combatRng, spell, player.level);
+  faceToward(player, target.x, target.y);
+  player.casting = {
+    spell: spell.id,
+    name: spell.name,
+    remainingMs: castMs,
+    totalMs: castMs,
+    room: player.roomId,
+    target: target.id,
+  };
+  sim.setIntent(player.id, 0, 0);
+  if (sim.clearPath(player)) send(player.id, { t: 'path', points: [] });
+  scheduler.cancel(player.id, 'swing');
+  if (castMs <= 0) {
+    // The quick chant outruns the meter entirely — the same branch mob casting keeps for level 60.
+    completeCast(player);
+    return;
+  }
+  sim.addAffect(player, newAffect({ type: 'casting', durationMs: castMs + 1500, flags: AffectFlag.NoSave }));
+  send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+  send(player.id, { t: 'log', channel: 'combat', text: `&+CYou begin casting ${spell.name}...&N` });
+  actToRoom(player, 'combat', (who) => `${who} begins casting...`);
+  syncEntityState(player);
+  scheduler.schedule('cast', player.id, 1000);
+}
+
 function doCast(player: Player, rest: string): void {
   const line = rest.trim();
   if (!line) {
@@ -3596,11 +3681,26 @@ function doCast(player: Player, rest: string): void {
     send(player.id, { t: 'log', channel: 'error', text: 'You have not recovered your balance yet.' });
     return;
   }
-  // The one spell anybody can know is the rig's. Everyone else gets the shipped truth — and it stays
-  // the truth until scrolls (slice 4) and classes (Phase 21) change who knows what.
+  // Phase 21 slice 2: what your class knows, gated by the circle your level has opened. Longest
+  // name first, so `cast cure serious` is never eaten by a shorter sibling. The rig keeps
+  // precedence over a real spell only when its switch is on and its own name was typed — a
+  // control stays a control.
+  const known = player.identity ? knownSpells(player.identity.class, player.level) : [];
+  const classSpell = known
+    .map((id) => SPELLS[id])
+    .sort((a, b) => b.name.length - a.name.length)
+    .find((spell) => line.toLowerCase().startsWith(spell.name));
   const named = line.toLowerCase().startsWith(DEV_SPELL.name);
+  if (classSpell && !(DEV_CAST && named)) {
+    castClassSpell(player, classSpell, line.slice(classSpell.name.length).trim());
+    return;
+  }
   if (!DEV_CAST || !named) {
-    send(player.id, { t: 'log', channel: 'error', text: named || !DEV_CAST ? 'You know no spells.' : "You don't know that spell." });
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text: known.length > 0 ? "You don't know that spell." : 'You know no spells.',
+    });
     return;
   }
 
@@ -4046,6 +4146,14 @@ function completeCast(caster: Actor): void {
   if (!cast) return;
   delete caster.casting;
   sim.removeAffects(caster, 'casting');
+  // Slice 2: the casting is spent the moment the wind-up completes — before the fizzle check
+  // below, which is the pay-then-fizzle order the source keeps (`DESIGN-spells.md` §0.4). Scrolls
+  // never pass here (recite delivers without a wind-up), so a burnt page cannot also cost a
+  // memorised casting; the rig's bolt is not a registry spell and stays costless.
+  if (isPlayer(caster) && caster.identity && isSpellId(cast.spell) && knowsSpell(caster.identity.class, cast.spell, caster.level)) {
+    const circle = SPELLS[cast.spell].circle;
+    caster.spentSlots.set(circle, (caster.spentSlots.get(circle) ?? 0) + 1);
+  }
   // Before the strike's own syncs, so observers see the pose end and the blow land in that order.
   syncEntityState(caster);
 
@@ -6445,17 +6553,42 @@ function listSpells(player: Player): void {
     scrolls.push(`  ${stack.item.name}&N — ${names} &+L(casts at level ${template.scroll.level})&N`);
   }
 
+  // Slice 2: a classed caster reads their own book — circles, castings left, the spells in each —
+  // and the world catalogue steps aside for it. The classless keep the catalogue and the line that
+  // used to promise them classes now names what they hold instead.
+  const identity = player.identity;
+  const casting = identity ? CLASSES[identity.class].casting : undefined;
+  const mine: string[] = [];
+  if (identity && casting) {
+    const known = knownSpells(identity.class, player.level);
+    const top = circleAt(player.level, casting.opensAt);
+    for (let circle = 1; circle <= top; circle++) {
+      const names = known.filter((id) => SPELLS[id].circle === circle).map((id) => SPELLS[id].name);
+      if (names.length === 0) continue;
+      const cap = slotsForCircle(player.level, casting.opensAt, circle);
+      const left = cap - (player.spentSlots.get(circle) ?? 0);
+      mine.push(`  circle ${circle} — ${left} of ${cap} castings: ${names.join(', ')}`);
+    }
+  }
+
   send(player.id, {
     t: 'log',
     channel: 'system',
-    text: [
-      'Spells this world knows:',
-      ...rows,
-      '',
-      '&+LYou know none of them yourself — spellcasting classes arrive with classes. Until then,',
-      'a scroll casts for anyone: recite <scroll> [target].&N',
-      ...(scrolls.length > 0 ? ['Your scrolls:', ...scrolls] : ['&+LYou are carrying no scrolls.&N']),
-    ].join('\n'),
+    text: (identity && casting
+      ? [
+          mine.length > 0 ? 'You have committed to memory:' : 'Nothing answers you yet — your first circle is still to open.',
+          ...mine,
+          ...(mine.length > 0 ? ['&+LRest returns spent castings, one at a time.&N'] : []),
+          ...(scrolls.length > 0 ? ['Your scrolls:', ...scrolls] : []),
+        ]
+      : [
+          'Spells this world knows:',
+          ...rows,
+          '',
+          '&+LYou know none of them yourself. A scroll casts for anyone: recite <scroll> [target].&N',
+          ...(scrolls.length > 0 ? ['Your scrolls:', ...scrolls] : ['&+LYou are carrying no scrolls.&N']),
+        ]
+    ).join('\n'),
   });
 }
 
@@ -8713,6 +8846,27 @@ setInterval(() => {
     for (const id of membersWith(grouping, actor.id)) rosters.add(id);
   }
   for (const id of rosters) pushGroup(id);
+
+  // Slice 2: memorization. A resting caster commits spent castings back to memory, lowest circle
+  // first, one per unbroken twenty seconds off their feet — rising resets the trance. The refill
+  // is time and posture only, deliberately: Duris's per-spell mem times are the parked follow-on.
+  for (const player of sim.allPlayers()) {
+    if (player.spentSlots.size === 0) continue;
+    // `resting` is a *status*, not a posture — the two-axis state machine (§1.3) that has bitten
+    // before. The stance command owns getting there; this pass only asks whether you are.
+    if (player.status !== 'resting') {
+      player.memorizeMs = 0;
+      continue;
+    }
+    player.memorizeMs += TICK_MS;
+    if (player.memorizeMs < MEMORIZE_SLOT_MS) continue;
+    player.memorizeMs = 0;
+    const circle = [...player.spentSlots.keys()].sort((a, b) => a - b)[0]!;
+    const left = (player.spentSlots.get(circle) ?? 1) - 1;
+    if (left <= 0) player.spentSlots.delete(circle);
+    else player.spentSlots.set(circle, left);
+    send(player.id, { t: 'log', channel: 'system', text: `&+WYou commit a circle-${circle} spell back to memory.&N` });
+  }
 
   // Who has noticed whom. Runs over aggressive mobs only — 52 of IceCrag's 66 are passive and cost one field
   // read — and the delay inside it is the mechanic: see `perception.ts` and §4.5.
