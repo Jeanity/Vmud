@@ -494,11 +494,20 @@ One caution recorded for that day: `RACE_BEHOLDERKIN` is granted MR at **level 5
 (`innates.c:772`), the only level-gated grant in the list, and our function has no notion of when an
 innate arrives.
 
-_Not fixed here, and not in scope: `attacks.ts`'s `RACE_ATTACK` (`attacks.ts:210`) claims the same
-fourth-column vocabulary and does not use it either — `QU` for quadruped where the table says `AE`,
-`BE` for beholder where it says `BH`, `DR`/`DL` for dragon and dracolich. It is the same class of
-error in a table that only chooses an attack verb, so it costs flavour rather than damage. Worth a
-pass of its own._
+_Resolved 2026-08-08, in its own pass: `attacks.ts`'s `RACE_ATTACK` (`attacks.ts:210`) is now measured
+against the fourth-column vocabulary it always claimed to use. 24 of its 39 codes named the wrong race
+or none at all — the same class of error this section's own fourth point found in
+`MAGIC_RESISTANT_RACES`, and some of the very same mistakes: `QU` for quadruped, which is `AE`; `BE`
+for beholder, which is `BH`; `DR`/`DL` for dragon and dracolich, where `DR` is the **drider**'s own
+code and dracolich is `UD`. Beyond the three this note named: `PI` for "the illithid's tentacles" is
+the **planetbound** illithid, not the plain one `GetFormType` actually cases on (`MF`); `TR` and `GO`
+duplicated troll and golem where the table already had them right; primate and firbolg had no code at
+all (`AA`, `FB`); and `AE` itself — wrongly `crush`, standing in for air elemental — moves to its
+rightful `thrash`, since the code is the quadruped's own. Fourteen of the thirty-nine were already
+correct and are untouched. Cosmetic either way, exactly as this note said: `spriteFor` draws a body for
+only thirteen humanoid race codes, and none of the codes gone or added are among them — the fix changes
+no swing a player has ever seen. `attacks.test.ts` pins the four codes this note itself named, and the
+table's own header comment carries the full accounting._
 
 ## 7. Ground casting is dead code; concentration is live, and it is the one to adopt
 

@@ -206,55 +206,69 @@ export function attackTypeForWeapon(weaponClass: number | undefined): AttackType
  * Every group here is one `case` block in the source. Kept whole rather than reduced to the codes we can
  * currently draw, because the reduction is `spriteFor`'s job and it changes the day there is creature art —
  * at which point this needs no edit.
+ *
+ * _Corrected 2026-08-08 — `DESIGN-spell-memory.md` §6's flagged note, the same class of error §6 itself
+ * found and fixed in `MAGIC_RESISTANT_RACES`. Measured against `common.c:67` directly, the sole authority
+ * (`defines.h`'s per-race comments echo it and are not always right: `RACE_REVENANT`'s own comment claims
+ * `AE`, `defines.h:909`, which `common.c`'s array actually gives to the quadruped, `common.c:131` — the
+ * revenant's real code is `RE`, `common.c:87`) — 24 of the table's 39 codes named the wrong race or none at
+ * all. A sample of each kind: `QU` for quadruped, which is `AE`; `BE` for beholder, which is `BH`; `DR` for
+ * dragon, which is `D` (`DR` is the **drider**'s own code); `DL` for dracolich, which is `UD`; `PI` for the
+ * illithid's tentacles below, which is the **planetbound** illithid — the plain one `GetFormType` actually
+ * cases on is `MF`. `TR` and `GO` duplicated troll and golem where the table already had them right (`PT`,
+ * `OG`); primate's and firbolg's real codes (`AA`, `FB`) were simply never in the table at all. Fourteen
+ * codes were already correct and are untouched; `AE` moves from a wrong `crush` — standing in for air
+ * elemental, whose real code is `EA` — to its right `thrash`; the other twenty-one missing codes are added.
+ * Cosmetic either way, this table only ever picks a verb: every correction is inert against the loaded
+ * world, because `spriteFor` draws a body for just thirteen race codes (`HUMANOID_RACES`,
+ * `worldgen/src/mobs.ts`), and none of the twenty-four gone or twenty-one added codes are among them. See
+ * the design note for the full accounting.
  */
 const RACE_ATTACK: Readonly<Record<string, AttackType>> = {
   // MSG_WHIP — the illithid's tentacles.
-  PI: 'whip',
+  MF: 'whip',
   // MSG_MAUL — ogres, trolls, golems, primates, storm giants, firbolgs, snow ogres.
   PO: 'maul',
   PT: 'maul',
   OG: 'maul',
-  TR: 'maul',
-  GO: 'maul',
-  PR: 'maul',
+  AA: 'maul',
   SG: 'maul',
-  FI: 'maul',
+  FB: 'maul',
   SO: 'maul',
   // MSG_CRUSH — elementals, efreet, demons, giants, devils, plants, constructs.
-  G: 'crush',
-  GI: 'crush',
-  FE: 'crush',
-  AE: 'crush',
-  WE: 'crush',
-  EE: 'crush',
   EF: 'crush',
-  DE: 'crush',
-  DV: 'crush',
-  PT2: 'crush',
-  CO: 'crush',
+  EA: 'crush',
+  EW: 'crush',
+  EE: 'crush',
+  E: 'crush',
+  X: 'crush',
+  G: 'crush',
+  Y: 'crush',
+  VT: 'crush',
+  CN: 'crush',
   // MSG_CLAW — lycanthropes, dragons, dracoliches, dragonkin, reptiles, skeletons, zombies, revenants,
   // spectres.
-  LY: 'claw',
-  DR: 'claw',
-  DL: 'claw',
+  L: 'claw',
+  D: 'claw',
+  UD: 'claw',
   DK: 'claw',
-  RE: 'claw',
+  R: 'claw',
   SK: 'claw',
   ZO: 'claw',
-  RV: 'claw',
+  RE: 'claw',
   SP: 'claw',
   // MSG_THRASH — quadrupeds, which is where the hooves come in.
-  QU: 'thrash',
+  AE: 'thrash',
   // MSG_BITE — snakes, carnivores, parasites, animals, beholders, worms.
-  SN: 'bite',
-  CA: 'bite',
-  PA: 'bite',
-  AN: 'bite',
-  BE: 'bite',
+  RS: 'bite',
+  AC: 'bite',
+  AP: 'bite',
+  A: 'bite',
+  BH: 'bite',
   PW: 'bite',
   // MSG_STING — insects and arachnids.
-  IN: 'sting',
-  AR: 'sting',
+  I: 'sting',
+  AS: 'sting',
 };
 
 export function attackTypeForRace(raceCode: string | undefined): AttackType {

@@ -84,12 +84,12 @@ describe('a weapon\'s verb', () => {
 
 describe('an unarmed creature\'s verb', () => {
   it('comes from the race, which is how a spider stings and a troll mauls', () => {
-    assert.equal(attackTypeForRace('AR'), 'sting', 'arachnid');
+    assert.equal(attackTypeForRace('AS'), 'sting', 'arachnid');
     assert.equal(attackTypeForRace('PT'), 'maul', 'troll');
     assert.equal(attackTypeForRace('G'), 'crush', 'giant');
-    assert.equal(attackTypeForRace('AN'), 'bite', 'animal');
-    assert.equal(attackTypeForRace('QU'), 'thrash', 'quadruped, and those are hooves');
-    assert.equal(attackTypeForRace('DR'), 'claw', 'dragon');
+    assert.equal(attackTypeForRace('A'), 'bite', 'animal');
+    assert.equal(attackTypeForRace('AE'), 'thrash', 'quadruped, and those are hooves');
+    assert.equal(attackTypeForRace('D'), 'claw', 'dragon');
   });
 
   it('punches for a humanoid, for an unknown code and for nothing at all', () => {
@@ -102,7 +102,19 @@ describe('an unarmed creature\'s verb', () => {
   });
 
   it('is case-insensitive, because a race code is read out of a text file', () => {
-    assert.equal(attackTypeForRace('ar'), 'sting');
+    assert.equal(attackTypeForRace('as'), 'sting');
     assert.equal(attackTypeForRace('pt'), 'maul');
+  });
+
+  it('does not answer to the codes it used to — the 2026-08-08 correction, pinned', () => {
+    // `DESIGN-spell-memory.md` §6's flagged note: `RACE_ATTACK` claimed the fourth-column vocabulary
+    // and did not consistently use it. These four are `attacks.ts`'s own worked examples, checked here
+    // so the fix cannot silently drift back. None of the old codes ever reached a spawned mob —
+    // `spriteFor` draws a body for only thirteen humanoid race codes — so this is a regression guard on
+    // flavour text, not a gameplay one.
+    assert.equal(attackTypeForRace('DR'), 'hit', 'DR is the drider, and punches; dragon is D');
+    assert.equal(attackTypeForRace('QU'), 'hit', 'QU was never a race at all; quadruped is AE');
+    assert.equal(attackTypeForRace('AR'), 'hit', 'AR is the archon, and punches; arachnid is AS');
+    assert.equal(attackTypeForRace('BE'), 'hit', 'BE was never a race at all; beholder is BH');
   });
 });
