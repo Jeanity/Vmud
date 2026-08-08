@@ -501,7 +501,10 @@ actually has, pinned by a test.
 Balance is argued in the only currency level 1 has. Weapon skill is **+0 for every class** at level 1
 (it first bites at 7) and dual wield swings **0% of rounds**, so a kit can only be worth armour class
 and weapon damage. Fitness `F = 20·D/(11−AC)`, measured over the real roll: martials
-**18.52–19.00** (spread 2.6%), casters **17.42–17.85** (2.5%), common table 19.11. The ~6% martial
+**18.52–19.00** (spread 2.6%), casters **17.52–17.85** (1.9%), common table 19.11. Equal fitness is not
+an equal kit: the druid and shaman land within 0.04 of each other out of opposite materials — AC 4.25
+with a keen sickle against AC 4.99 with a stone maul — after a first pass put them on the *same point*
+in both currencies and the owner spotted it on the comparison. The ~6% martial
 lead is the one deliberate inequality — the five casters hold circle-1 spells at level 1 and the four
 martials hold none until 11 or never. **No class is best on both axes**: the paladin tops armour, the
 warrior tops damage, and a test fails if that ever stops being true. The paladin's damage came *down*

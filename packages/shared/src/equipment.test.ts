@@ -133,6 +133,34 @@ describe('the class kits, as a table — the two invariants worth guarding', () 
     }
   });
 
+  it('gives no two classes the same kit in both currencies', () => {
+    // Equal fitness is fine and intended — it means two classes are equally strong. Equal *armour and
+    // damage* is not: it means they are one kit wearing two sets of nouns, which the druid and the
+    // shaman literally were (both AC 4.50 / damage 5.67) until the owner spotted it on the comparison.
+    // They now sit at opposite ends of the caster frontier, so this pins the shape rather than the size.
+    const N = 800;
+    const point = (classId: (typeof CLASS_IDS)[number]) => {
+      let ac = 0;
+      let dmg = 0;
+      for (let seed = 0; seed < N; seed++) {
+        const kit = rollStarterKit(makeRng(seed), classId);
+        ac += armourClassFrom(kit);
+        const d = kit.mainHand!.damage!;
+        dmg += (d.count * (d.sides + 1)) / 2 + d.bonus;
+      }
+      return { ac: ac / N, dmg: dmg / N };
+    };
+    const pts = new Map(CLASS_IDS.map((c) => [c, point(c)]));
+
+    // The pair the owner asked to separate, checked by name so the intent survives a retune.
+    const druid = pts.get('druid')!;
+    const shaman = pts.get('shaman')!;
+    assert.ok(
+      Math.abs(druid.ac - shaman.ac) > 0.4 && Math.abs(druid.dmg - shaman.dmg) > 0.4,
+      `druid ${druid.ac.toFixed(2)}/${druid.dmg.toFixed(2)} and shaman ${shaman.ac.toFixed(2)}/${shaman.dmg.toFixed(2)} are too alike`,
+    );
+  });
+
   it('keeps every class within reach of every other at level 1', () => {
     // At level 1 the only currencies are armour class and weapon damage: weapon skill is +0 for
     // everyone (`toHitFrom(1)` is 0) and dual wield swings 0% of rounds. Fitness is therefore

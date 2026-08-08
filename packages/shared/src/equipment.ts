@@ -312,10 +312,15 @@ const STARTER_KIT: Readonly<Partial<Record<EquipSlot, readonly StarterEntry[]>>>
  * Measured over the real roll:
  *
  * ```
- *   paladin 19.05   rogue 18.62   warrior 18.59   ranger 18.52      martial, spread 2.9%
- *   sorcerer 17.86  necromancer 17.86  cleric 17.60  shaman 17.44   caster,  spread 2.4%
- *   druid 17.44                                     (common table 19.11)
+ *   paladin 19.00  rogue 18.60  warrior 18.58  ranger 18.52                martial, spread 2.6%
+ *   necromancer 17.85  sorcerer 17.84  druid 17.78  shaman 17.74  cleric 17.52   caster, 1.9%
+ *                                                   (common table 19.11)
  * ```
+ *
+ * Equal fitness is not the same as an equal kit, and the druid and the shaman are the case that
+ * proves it: they land within 0.04 of each other and are built from opposite materials — AC 4.25 with
+ * a keen sickle against AC 4.99 with a stone maul. They used to sit on the *same point* in both
+ * currencies, which made them one kit wearing two sets of nouns.
  *
  * The martials sit ~6% above the casters, and that gap is the one deliberate inequality in the
  * table: the five casters hold circle-1 spells at level 1 and the four martials hold none until 11
@@ -422,31 +427,41 @@ const CLASS_KIT: Readonly<Partial<Record<ClassId, Readonly<Partial<Record<EquipS
     ],
   },
 
-  // Bludgeon on both axes and nothing else. The shaman is the only level-1 caster with neither an AC
-  // buff nor a nuke, which is the argument for sitting mid-table on gear rather than at the bottom.
+  // **The heaviest caster, and the slowest.** Bludgeon on both axes and nothing else — 85 in one hand
+  // is the best blunt ceiling of any class outside the martials — so all three weapons are blunt and
+  // none of them is quick. Bone plate over hide puts the shaman at the top of the caster armour range.
+  //
+  // Deliberately the mirror of the druid below rather than its twin: the two used to sit on the exact
+  // same point (AC 4.50, damage 5.67), which made them the same kit wearing different nouns. They now
+  // sit at opposite ends of the caster frontier and meet again only in fitness.
+  //
+  // The two chest entries share a mean and differ in spread — one reliable, one a gamble — which is a
+  // difference the roll can express and a single band cannot.
   shaman: {
     mainHand: [
-      { id: 'totem_club', name: 'a totem club, ancestor-carved', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 1 }, weaponClass: 10 },
       { id: 'stone_maul', name: 'a stone-headed maul', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 0 }, weaponClass: 4 },
-      { id: 'spirit_staff', name: 'a spirit staff hung with finger-bones', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 5, bonus: 0 }, weaponClass: 12 },
+      { id: 'totem_club', name: 'a totem club, ancestor-carved', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 0 }, weaponClass: 10 },
+      { id: 'spirit_staff', name: 'a spirit staff hung with finger-bones', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 1 }, weaponClass: 12 },
     ],
     chest: [
-      { id: 'leather_tunic', name: 'a hide shirt hung with bone charms', acMin: 1, acMax: 3, size: 3 },
-      { id: 'padded_jerkin', name: 'a totem coat plated with carved bone', acMin: 1, acMax: 3, size: 3 },
+      { id: 'padded_jerkin', name: 'a totem coat plated with carved bone', acMin: 2, acMax: 3, size: 4 },
+      { id: 'leather_tunic', name: 'a hide cuirass strung with ancestor-teeth', acMin: 1, acMax: 4, size: 3 },
     ],
   },
 
-  // The sickle is weaponClass 17 and nobody else in the game rolls one — slashing at 80, the druid's
-  // better skill; the staff and the club fall back on bludgeon at 70.
+  // **The lightest and keenest caster.** Slashing at 80 is the druid's better skill and the sickle is
+  // weaponClass 17, which nobody else in the game rolls; the flint axe is the same skill in a different
+  // shape, and only the staff falls back on bludgeon at 70. Supple hide rather than plate, so the druid
+  // sits at the bottom of the caster armour range and the top of its damage — the shaman's mirror.
   druid: {
     mainHand: [
       { id: 'bronze_sickle', name: 'a bronze sickle, edge kept keen', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 5, bonus: 0 }, weaponClass: 17 },
-      { id: 'ash_quarterstaff', name: 'a quarterstaff of grey ash', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 1 }, weaponClass: 12 },
-      { id: 'hawthorn_club', name: 'a club of knotted hawthorn', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 0 }, weaponClass: 10 },
+      { id: 'flint_axe', name: 'a flint-headed hand axe, bound with sinew', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 1 }, weaponClass: 1 },
+      { id: 'ash_quarterstaff', name: 'a quarterstaff of grey ash', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 5, bonus: 0 }, weaponClass: 12 },
     ],
     chest: [
-      { id: 'leather_tunic', name: 'a hide jerkin, the hair still on it', acMin: 1, acMax: 3, size: 3 },
-      { id: 'padded_jerkin', name: 'a coat of layered leaves and boiled leather', acMin: 1, acMax: 3, size: 3 },
+      { id: 'leather_tunic', name: 'a jerkin of supple deerhide', acMin: 1, acMax: 2, size: 3 },
+      { id: 'quilted_vest', name: 'a mantle of woven bark and leaf', acMin: 1, acMax: 3, size: 2 },
     ],
   },
 
