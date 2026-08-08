@@ -44,10 +44,10 @@ reorder:
 
 ## 2. Progress
 
-26 phases. Twenty-four done — Acts I–IV complete; Act V keeps Phase 15's visible tail (weapons and
-shields *drawn on the body*, an art problem wearing a code problem's clothes); Act VI holds the last
-mechanic, **Phase 21**, whose prerequisite — accounts — was pulled early and built 2026-08-08 as
-**Phase 20b**.
+26 phases. **Twenty-five done, and the numbered schedule is complete** — the last of it closed
+2026-08-08 with Phase 21, save Phase 15's one visible tail (weapons and shields *drawn on the
+body*, an art problem wearing a code problem's clothes, waiting on the drawing pipeline). What
+remains is not phases: the parking lot's agreed follow-ons, Track A's operator rows, and art.
 
 | Act | Phases | State |
 | --- | --- | --- |
@@ -56,7 +56,7 @@ mechanic, **Phase 21**, whose prerequisite — accounts — was pulled early and
 | III — Life | 7–10 | **4 of 4 ✅** |
 | IV — Violence | 11–14, 14b, 14c | **6 of 6 ✅** |
 | V — Things | 15–17 | 2 of 3 — 16 ✅, 17 ✅, 15 all but the drawn-gear tail |
-| VI — Together | 18–20, 20b, 21 | 4 of 5 — 18 ✅, 19 ✅, 20 ✅, 20b ✅, 21 open |
+| VI — Together | 18–20, 20b, 21 | **5 of 5 ✅** |
 
 Beside the phases run two lighter tracks, added 2026-08-02: **Track V** (the world on screen) and
 **Track A** (the operator's panel, A1 of 7 done) — see §2b for how the three interleave, and the end
@@ -102,6 +102,7 @@ a new idea still answers the three questions; its second question now also picks
 | **13 ✅** | `look <direction>` ✅ *(the parked row, unblocked once doors and light settled)* | Phase 19 — slice 5: `swim` ✅, **and the phase with it** | A8d — a zone from nothing ✅ |
 | **14 ✅** | *(skips)* | Phase 20 — spells, all six slices ✅ | the mob editor's **casts** row ✅ |
 | **15 ✅** | *(skips)* | **Phase 20b — accounts and login** ✅ *(the parking lot's most misplaced row, pulled early as ordered)*, and the character name law with it ✅ | the account endpoints — list, password reset, claim ✅ *(next A: the server-lifecycle supervisor)* |
+| **16 ✅** | the creation cards, the roll with its numbers, `hud-who` ✅ *(the M's own presentation, taking the V slot as A7a once did)* | **Phase 21, whole** ✅ — abilities, races, classes, slots, creation, adoption, skills-by-class, channels, sun/senses, the quest | `quests.json` as authorable override data ✅ *(next A: the server-lifecycle supervisor, the biggest row standing)* |
 
 Round 3 ran long and out of order, and the reason is worth keeping: V6 (colour) had to land before
 A5, because A5's prose editor is a colour editor and building the palette before the renderer would
@@ -1315,7 +1316,7 @@ its digits.
 lists your characters by name, level and day ✅ — driven in the browser 2026-08-08, three client
 bugs found and fixed in the driving.
 
-#### Phase 21 — Classes, races, quests, channels — **under way 2026-08-08**
+#### Phase 21 — Classes, races, quests, channels ✅ **done 2026-08-08 — built whole in one day, and the numbered schedule with it**
 
 The content layer the previous twenty phases exist to support. Designed in
 [DESIGN-characters.md](DESIGN-characters.md) (owner's three decisions, same day: the Toril seven
@@ -1344,7 +1345,22 @@ in that note's §9 slices:
   level and map kept, and the HUD now says who you are (hover for the numbers). Driven whole in
   the browser and over the wire; the drive caught `Net`'s queue holding `charCreate` hostage for a
   `welcome` it was meant to cause.
-- Next: class skill ceilings, channels, sun and senses, the one quest (§9's tail).
+- **Slices 4-7 ✅ 2026-08-08, the tail in one evening.** **Skills by temperament**: the
+  `ceilingFor` seam Phase 19 left got its body — four groups, zero meaning "the training never
+  happened" (a wizard does not bash badly, a wizard does not bash; zero-ceiling rows vanish from
+  the sheet), floors clamped under low ceilings, driven with the sorcerer's refusal.
+  **Channels**: gossip, tell/reply, gsay and a `who` worth reading — three new `LogChannel`s,
+  protocol 25, driven two-socket. **Sun and senses**: the underdark races burn under the open sky
+  — a visible `sun_scorched` affect at −2 hit, installed and removed by an idempotent tick pass —
+  and ultravision/infravision floor the bare eye at 4/3 tiles; the drow burned in the field, was
+  relieved indoors, and saw four tiles bare. **The quest**: `quests.json` in the overrides, one
+  `quest` verb holding the giver conversation, kill-counts hooked into the award path — *Gwark
+  thins the warren*, driven end to end against fleeing wimpy youths (the game's own morale made
+  the drive honest). **And the roll card grew numbers beside its words** (owner's third ask, same
+  day): "good 15", live under a plain 4d6-drop-lowest explainer, so nobody grinds for an
+  impossible twenty or keeps a dud unknowing. Lessons paid: the command table's order *is*
+  abbreviation priority (`gossip` briefly stole `g`, `quest` stole `q`; the test wall caught
+  both), and `resting` is a status, not a posture — bitten twice now.
 
 ---
 
@@ -2001,6 +2017,7 @@ mentioned and forgotten comes back every month.
 
 | Idea | Verdict | Where |
 | --- | --- | --- |
+| **Show the roll numbers beside the words, and explain the dice** (owner, 2026-08-08, third ask) | **Agreed and built within the hour — it amends the morning ruling by putting words and numbers together at the roll.** The reason, verbatim: *"so they do not spend all day trying for a maxed out character or accepting a dud because they have no idea."* The card reads "good 15", word and number tracking the bonus spend live, over one plain paragraph naming 4d6-drop-lowest, the 3-18 range and the ~12 average. | Phase 21 slice 3 card, amended the day it shipped ✅ |
 | **Character creation off the new-account click — pick race and class, roll stats, reroll per D&D rules** (owner, 2026-08-08, second ask) | **Agreed, and it is already the schedule: DESIGN-characters.md §6 is this exact flow** — the picker's new-name form becomes the door into race card, class card, then the roll. The second ask sharpened one mechanic: *"according to DnD rules"* names **4d6-drop-lowest**, the SRD's own method, which replaced the note's first-draft 3d6 the same day (`shared/scores.ts`). Rerolls are unlimited and each reroll resets the five bonus points; the racial bonus stays inside the roll and class minimums are met by raising, both per the source. | Phase 21 slice 3, next after circles and slots; the roll itself landed with slice 1 |
 | **Character-name rules — no numbers or specials, no crude words or their misspelled evasions, no famous D&D names** (owner, 2026-08-08) | **Agreed and built the same hour — it arrived while the account door was open, and the door is where a name is minted.** Owner's examples, verbatim: *"no Schitthead or PhuckPhace"*. The structural half transcribes `nanny.c:1495` `_parse_name` — letters only, 2–12 (`MAX_NAME_LENGTH 12`), the `smart_ass[]` reserved list — with interior capitals normalised rather than refused. The taste half is policy, not transcription: rude roots matched as substrings *after* folding the evasion spellings (ph→f, sch→sh, y→i, doubles collapsed — so both examples die as typed), and the famous of the Realms and the wider canon refused by exact match, Drizzt to Astarion. **A fence, not a wall**, and `shared/src/names.ts` says so — the operator is the backstop. Minting only: saves that predate the law are grandfathered, because orphaning `aldric11` over a digit costs more than the digit does. | Phase 20b, built 2026-08-08 ✅ |
 | **Either-hand weapons — light blades wieldable in main OR off hand, Windsong among them** (owner, 2026-08-07) | **Agreed, and it is the doorway to dual-wield, which decides its size.** The *flag* is small — a `handedness: 'either'` beside `twoHanded`, a `wield <weapon> offhand` form, the paper doll already has the slot — but an offhand weapon that never swings is a stat stick wearing a sword's name: the thing that makes it *matter* is the **offhand attack**, which is a combat-round change (the source rolls the second attack off `SKILL_DUAL_WIELD` with its own to-hit penalty, and our round grants one swing per actor by design). So the flag, the wield form and the Windsong/dagger data land **with** the dual-wield skill, as one visible slice — not before it, where the flag would sit tested-and-meaningless, which is the four-mechanisms failure `ROADMAP.md` rule 1 exists to prevent | **One slice, with Phase 21's early skills or beside them**: `SKILL_DUAL_WIELD` from the source, the second swing on the round boundary, the either-hand flag, and Windsong's own entry — she was born for the off hand and should demonstrate it |

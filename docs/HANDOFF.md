@@ -435,7 +435,32 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-### Start here — where 2026-08-08 left it
+### Start here — where 2026-08-08 ended: the numbered schedule is complete
+
+**Phase 21 closed the same day it opened, and with it every numbered phase but Phase 15's art
+tail.** The evening's slices 4-7: **skills by temperament** (the `ceilingFor` seam got its four
+`maxlearn` rows; zero means the training never happened and the verbs refuse it — the wizard's
+sheet lists no bash at all), **channels** (gossip/tell/reply/gsay + a `who` with race and class —
+protocol 25), **sun and senses** (the underdark races wear a visible `sun_scorched` −2 under the
+open sky, off in shade, via an idempotent tick pass; ultravision/infravision floor the bare eye
+at 4/3), and **the quest** (*Gwark thins the warren* — `quests.json` overrides, one `quest` verb
+holding the whole giver conversation, kill-counts hooked into the award path, 500 xp + 50 copper
+at the turn-in, `done` persisted). **The roll card gained numbers beside its words the same
+evening** (owner's third ask): "good 15", live, under a plain 4d6-drop-lowest explainer. 1,708
+tests. Lessons paid for: the command table's order *is* abbreviation priority (`gossip` stole
+`g`, `quest` stole `q`; the test wall caught both — the channels live at the table's tail now),
+`resting` is a *status* (bitten twice now), and a probe that leaves 3.2 seconds after `kill` has
+killed nothing — the opening blow waits a round, and wimpy youths flee weak hitters, which made
+the quest drive honest.
+
+**What next, with no numbered phase left**: the parking lot's agreed rows (either-hand weapons →
+dual-wield, opening moves on the mob click menu, weapon procs, whisper's room half), Track A's
+**server-lifecycle supervisor** (the biggest operator row standing), the **mob and worn-gear art
+drawing problem** (Phase 15's tail, and the whole visual ceiling now), and the spells inheritance
+(memorization times, spellbooks, penetration, globes). Two chips are open: does admin-spawn merge
+authored spells, and the creation card's mid-disconnect recovery.
+
+### Before that — earlier the same day
 
 **Phase 21 opened the same day accounts closed — designed whole, slice 1 built and driven.** The
 owner took the three decisions ([DESIGN-characters.md](DESIGN-characters.md)): nine races (the

@@ -70,7 +70,11 @@ Con 11; Sorcerer and Necromancer need Int 15; Rogue needs Dex 15 / Agi-folded-DE
 needs Wis 13 / Cha 10. The roll re-rolls any ability under its class minimum up to it — the
 source's own behaviour, and why class comes before the roll.
 
-**Words to roll, numbers to play**: the creation card renders each score through the word ladder
+**Words to roll — and, by the owner's third ask (2026-08-08), numbers beside them**: *"the actual
+number as well… so they don't spend all day trying for a maxed out character or accepting a dud."*
+The card shows "good 15", both halves tracking the bonus spend live, over a plain paragraph naming
+the dice, the range and the average; the sheet afterwards stays numbers alone. The card renders
+each score through the word ladder
 mapped onto 3–20 (3–4 *lame*, 5–7 *poor*, 8–9 *below average*, 10–11 *average*, 12–13 *above
 average*, 14–15 *good*, 16–17 *very good*, 18–19 *excellent*, 20 *quite excellent*). The character
 sheet after creation shows `16 (+3)`.
