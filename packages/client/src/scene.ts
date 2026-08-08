@@ -29,12 +29,10 @@ import {
   Tile,
   buildZoneTilemap,
   describeStance,
-  isWalkable,
   normaliseIntent,
   samePlace,
   setDoorTiles,
   stepMovement,
-  tileAt,
   type AffectView,
   MAX_LEVEL,
   type Equipped,
@@ -698,12 +696,11 @@ const DRAG_HOLD_MS = 150;
 const DRAG_HEADING_STEPS = 100;
 
 /**
- * Minimum gap between refusal flashes while a drag is in progress.
+ * Minimum gap between refusal flashes while the button is still down.
  *
- * A single click flashes every time it is refused, as it always has. A *drag* across unseen ground
- * is refused continuously, and at {@link DRAG_REPATH_MS} that stacks three overlapping rings inside
- * one {@link DENIED_MS} fade — which reads as a fault rather than as feedback. Longer than the fade,
- * so at most one ring is ever alive: the refusal becomes a slow pulse under the cursor.
+ * Longer than {@link DENIED_MS}, so at most one ring is ever alive: refusals arriving faster than a
+ * ring can fade would stack into overlapping circles, which reads as a fault rather than as
+ * feedback. A refusal that lands after the button is released is never throttled.
  */
 const DENIED_DRAG_MS = 520;
 
@@ -2276,7 +2273,7 @@ export class WorldScene extends Phaser.Scene {
     // The press is a plain click first and the start of a possible drag second. Order matters: a
     // click that turns out to be a drag must behave, at this instant, exactly as it always has.
     this.beginDrag(pointer);
-    this.requestMoveTo(world.x, world.y, false);
+    this.requestMoveTo(world.x, world.y);
   }
 
   /**
@@ -2416,66 +2413,27 @@ export class WorldScene extends Phaser.Scene {
    *
    * **A destination, never a route.** The server owns the pathfinding because the route has to be
    * gated on the tiles this character has *seen*, and a client that computed its own path could
-   * simply ignore that and walk through the dark.
+   * simply ignore that and walk through the dark. The copy of that bitset this client holds is for
+   * painting fog with, never for deciding where the character may go.
    *
-   * `dragging` changes one thing: a re-path that the server is certain to refuse is **not sent at
-   * all**. The server answers those with a `log` line as well as a `pathFailed`, and that line is
-   * right for a click and unreadable for a drag, where a held pointer asks again eight times a
-   * second for as long as the button is down.
-   *
-   * This is not the client deciding where it may walk. Both halves of {@link sendableDestination}
-   * are gates the server applies itself, from data it sent here — the `seen` bitset and the tilemap
-   * built from the `zone` message — so declining to ask a question whose answer is already in hand
-   * cannot grant anything the server would not. The copy of that bitset is held to paint with and to
-   * hold a question back with, never to decide where the character may go. Worst case it is one tick
-   * stale at the very edge of the torchlight and a legal destination waits {@link DRAG_REPATH_MS} for
-   * the next sweep to ask again. A plain click is never filtered, so the refusal — and the server's
-   * sentence explaining it — still happens where it is wanted.
+   * **Every press sends, unfiltered.** This took a `dragging` flag until 2026-08-08, and dropped
+   * re-paths the server was certain to refuse — worth doing back when holding the button re-pathed
+   * several times a second, and unreachable once a hold began cancelling the route and steering
+   * instead. What was left was one caller passing one value and a local gate on the `seen` bitset
+   * that no press could arrive at. The refusal, and the server's sentence explaining it, were always
+   * the authority anyway.
    */
-  private requestMoveTo(worldX: number, worldY: number, dragging: boolean): void {
+  private requestMoveTo(worldX: number, worldY: number): void {
     const grid = this.grid;
     if (!grid) return;
 
     const tx = Math.floor(worldX / TILE_SIZE);
     const ty = Math.floor(worldY / TILE_SIZE);
-    // Set before the gate below, so a locally-declined drag flashes where the pointer actually is.
+    // Remembered so a refusal can be flashed where the pointer actually was — the one thing the
+    // server cannot report, because it does not know where on screen the click landed.
     this.lastClick = { x: worldX, y: worldY };
 
-    if (dragging && !this.sendableDestination(grid, tx, ty)) {
-      this.flashDeniedThrottled(worldX, worldY);
-      return;
-    }
     this.net.send({ t: 'moveTo', tx, ty });
-  }
-
-  /**
-   * Whether a *drag* re-path to this tile is worth sending. Both halves are refusals the server
-   * would make anyway; the point is to make them silently rather than eight sentences a second.
-   *
-   * The walkability half is not redundant with the `seen` half, and leaving it out was a real hole.
-   * `computeVisible` reveals an opaque tile whenever a ray touches it — walls are lit, they simply
-   * do not transmit — so **void tiles enter `seen` like any other**: standing in a doorway at a
-   * bare radius of 3 marks six of them. Dragging the cursor along the edge of a room or out towards
-   * an exit, which is the ordinary way to aim at one, therefore cleared the `seen` gate on every
-   * sweep, and the server answered each with `not-walkable` *and* "There is nothing to walk on
-   * there." The ring was throttled and the log line was not, so the two channels disagreed and the
-   * panel filled with a sentence the player had done nothing unusual to earn.
-   */
-  private sendableDestination(grid: TileGrid, tx: number, ty: number): boolean {
-    return this.knownGround(grid, tx, ty) && isWalkable(tileAt(grid, tx, ty));
-  }
-
-  /**
-   * Whether this character has seen a tile, per the server's own bitset.
-   *
-   * Answers `true` before the first snapshot arrives: with nothing authoritative to consult, the
-   * right move is to ask the server rather than to invent a refusal.
-   */
-  private knownGround(grid: TileGrid, tx: number, ty: number): boolean {
-    const seen = this.seen;
-    if (!seen) return true;
-    if (tx < 0 || ty < 0 || tx >= grid.width || ty >= grid.height) return false;
-    return bitsetHas(seen, ty * grid.width + tx);
   }
 
   /** Whether a canvas click landed underneath one of the DOM panels. See {@link UI_PANELS}. */
@@ -2567,9 +2525,10 @@ export class WorldScene extends Phaser.Scene {
   private reportPathFailure(): void {
     const click = this.lastClick;
     if (!click) return;
-    // A drag refuses continuously; a click refuses once. Same ring, different rate — see
-    // `DENIED_DRAG_MS`. The flash is kept in both cases: it is the only thing on screen saying the
-    // ground under the cursor is not somewhere this character can go.
+    // Throttled only while the button is still down, so a player clicking unwalkable ground twice
+    // in quick succession gets one ring rather than two overlapping ones — see `DENIED_DRAG_MS`.
+    // The flash is kept either way: it is the only thing on screen saying the ground under the
+    // cursor is not somewhere this character can go.
     if (this.dragPointer) this.flashDeniedThrottled(click.x, click.y);
     else this.flashDenied(click.x, click.y);
   }
