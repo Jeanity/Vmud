@@ -44,10 +44,12 @@ reorder:
 
 ## 2. Progress
 
-26 phases. **Twenty-five done, and the numbered schedule is complete** — the last of it closed
-2026-08-08 with Phase 21, save Phase 15's one visible tail (weapons and shields *drawn on the
-body*, an art problem wearing a code problem's clothes, waiting on the drawing pipeline). What
-remains is not phases: the parking lot's agreed follow-ons, Track A's operator rows, and art.
+32 phases. **Twenty-five done** — the original numbered schedule closed 2026-08-08 with Phase 21,
+save Phase 15's one visible tail (weapons and shields *drawn on the body*, an art problem wearing
+a code problem's clothes, waiting on the drawing pipeline) — **and the evening of the same day the
+owner commissioned the capital**: Act VII, Phases 22–27, designed in
+[DESIGN-city.md](DESIGN-city.md). Beyond it: the parking lot's agreed follow-ons, Track A's
+operator rows, and art.
 
 | Act | Phases | State |
 | --- | --- | --- |
@@ -57,6 +59,7 @@ remains is not phases: the parking lot's agreed follow-ons, Track A's operator r
 | IV — Violence | 11–14, 14b, 14c | **6 of 6 ✅** |
 | V — Things | 15–17 | 2 of 3 — 16 ✅, 17 ✅, 15 all but the drawn-gear tail |
 | VI — Together | 18–20, 20b, 21 | **5 of 5 ✅** |
+| VII — Ironquay | 22–27 | **0 of 6** — designed 2026-08-08, [DESIGN-city.md](DESIGN-city.md) |
 
 Beside the phases run two lighter tracks, added 2026-08-02: **Track V** (the world on screen) and
 **Track A** (the operator's panel, A1 of 7 done) — see §2b for how the three interleave, and the end
@@ -1364,6 +1367,70 @@ in that note's §9 slices:
 
 ---
 
+### Act VII — Ironquay
+
+The capital, commissioned by the owner the evening the numbered schedule closed (2026-08-08). The
+full design — districts, z-levels, the mechanism ledger, the three decisions it rests on — is
+[DESIGN-city.md](DESIGN-city.md); these rows are its schedule. The act's shape follows §4
+question 2 exactly: five smallish mechanisms (authored zones, boards, trainers, patrols, rare
+loads), and a city's worth of content that spends them plus nearly everything the first six acts
+built. Two pieces are parked *inside* the act by the owner's own words: the bank waits on the
+coin-weight decision, and weather-and-wind comes after everything else — *"this can wait until
+everything else is done."*
+
+#### Phase 22 — The authored world
+
+`data/authored/` — first-party zones, **committed to git** where the harvest never is — merged by
+worldgen beside the harvested world, ids at 900001+ (Windsong's convention, promoted from items
+to zones), identical validation plus one new rule: a cross-source exit (an Ironquay road ending
+in a harvested wilderness) is checked at merge time, when both sides are in hand.
+**Seen when.** A hand-written courtyard renders, walks, and fails validation as loudly as a
+harvested zone does.
+
+#### Phase 23 — Ironquay Square
+
+The owner's chosen first milestone: small but alive. The square, the **noticeboard** transcribed
+from `boards.c` (gods post from the admin panel, players `read` — the machine the `read` row
+deferred once already), the Anchor & Anvil (an `inn` room flag: faster regen, and memorization
+already prefers `resting`), four anchor shops on the live shop system, static gate guards, and
+**Ironquay** joining the reserved-names law.
+**Seen when.** A player reads the gods' news on the board, buys bread, and wakes rested at the inn.
+
+#### Phase 24 — The guilds
+
+Trainers, transcribed from `guild.c`'s `do_practice`: the skills table already stores 0 as
+*training never happened* — a trainer is the thing that moves it, for coin, under the class
+ceilings that have gated verbs since Phase 21. The Guild Ward and the Mages' Tower interior are
+the content; the tower is the wizards' guild wearing its own architecture.
+**Seen when.** A skill sitting at 0 is bought into life at the warriors' yard and the next roll
+shows it.
+
+#### Phase 25 — Walls and watch
+
+Patrol routes and bounded wander — one mechanism worn two ways (`specs.mobile.c`'s cityguard,
+`mobact.c`'s wanderers). Mobs today stand still unless fighting or pursuing; after this, the
+watch walks beats on the Wall Walk (z = +1, the owner's upper level, gatehouse stairs at the
+three gates) and merchants and townsfolk move through the streets below.
+**Seen when.** A guard walks his beat above while a merchant crosses the square beneath him.
+
+#### Phase 26 — Underquay and the Shambles
+
+The city's dark half, and it is content: the sewers at z = −1 with grates in four districts, the
+locked vault (built now, opened only if coin ever gains weight), and the Shambles — the district
+the aggression system makes honest, dangerous exactly as the owner asked: *"aren't safe to wander
+in to unless you are prepared to defend yourself."*
+**Seen when.** The grate opens under Harbourside and an unwise shortcut through the Shambles
+becomes a story.
+
+#### Phase 27 — Harbourside and the roads
+
+The docks on the western water, the three roads stitched to harvested wilderness through Phase
+22's cross-source rule, **rare loads promoted to data** (Windsong's ranger already fakes the
+mechanism at 2%; this makes it a spawn field), and the quest wave — the city and its surrounds
+populated from the live quest system with `REFERENCE-duris-quests.md` as the pattern book.
+**Seen when.** You walk out the East Gate to somewhere the harvest built, and the gossip channel
+hears about a named mob somebody met on the way.
+
 ### Track V — the world on screen
 
 Presentation of what already exists: client work, at most an additive message field, no new rules.
@@ -2114,6 +2181,7 @@ mentioned and forgotten comes back every month.
 
 | Idea | Verdict | Where |
 | --- | --- | --- |
+| **A capital city — walled districts stitched from many zones, an underworld beneath, patrolled walls above, guild training, an ocean dock, roads out north/east/south, roaming townsfolk, a mages' tower, inns, a square noticeboard for the gods, shops of every kind, dangerous quarters, rare loads; a bank if coin gains weight; weather and wind last** (owner, 2026-08-08, the evening ask) | **Agreed, and it is big enough to be the schedule's next act rather than a row.** Interviewed the same evening, three decisions closed: the name is **Ironquay** (owner's pick from the shortlist — not Waterdeep, not any city with a game named after it — reserved in `names.ts` the same commit), the geometry is **authored, not harvested** (`data/authored/`, committed, ids 900001+ on Windsong's convention — the first content that is *ours* and shippable), and the first milestone is **the town square, alive** — board, inn, shops, gates — growing outward. §4 question 2 splits the ask cleanly: five smallish mechanisms (authored-zone pipeline with one cross-source validation rule, boards from `boards.c`, trainers from `guild.c` finally moving skills stored at 0, patrol/wander from `specs.mobile.c`/`mobact.c`, rare-load spawn chance), everything else content that spends the first six acts. Two pieces parked inside the act on the owner's own words: the bank behind the coin-weight decision (*"we may need a bank if we start giving the currencies weight"* — the Underquay vault gets built and locked either way), and weather-and-wind explicitly after everything else (*"this can wait until everything else is done"*) | **Act VII, Phases 22–27** — [DESIGN-city.md](DESIGN-city.md), written the same evening |
 | **Mark the quest giver, offer work instead of war, and make him unkillable** (owner, 2026-08-08, fourth ask) | **Agreed and built the same day — three asks that are one mechanism, because all three read the same row of `quests.json`.** Verbatim: *"a ? would be best if it possible"* for the marker, and the reason the armour is not optional: *"we need to make quest mobs un-attackable and undamageable in case some caster decides to cast a room effect spell"*. Built as (1) `EntityView.questGiver` — one bit, protocol 26, the quest's *contents* stay off the wire exactly as a shop's prices do — which hangs a gold `?` over the head and swaps the click menu's **Attack** row for **Quest**; (2) an untouchable-vnum registry in `combat.ts` seeded from the same rows at boot, refused in `canBeAttacked` so `shouldAreaHit` inherits it for free and refused again inside `landBlow` for any path that forgot to ask. A registry keyed by *template* rather than a flag on the instance, so an admin-spawned copy of a giver is as sacred as the placed one. The area path needed one fix to be testable at all: `castClassSpell` demanded a target before it would cast, so an area could never be aimed at a room. | Phase 21 slice 7's content, built the same day ✅ |
 | **Show the roll numbers beside the words, and explain the dice** (owner, 2026-08-08, third ask) | **Agreed and built within the hour — it amends the morning ruling by putting words and numbers together at the roll.** The reason, verbatim: *"so they do not spend all day trying for a maxed out character or accepting a dud because they have no idea."* The card reads "good 15", word and number tracking the bonus spend live, over one plain paragraph naming 4d6-drop-lowest, the 3-18 range and the ~12 average. | Phase 21 slice 3 card, amended the day it shipped ✅ |
 | **Character creation off the new-account click — pick race and class, roll stats, reroll per D&D rules** (owner, 2026-08-08, second ask) | **Agreed, and it is already the schedule: DESIGN-characters.md §6 is this exact flow** — the picker's new-name form becomes the door into race card, class card, then the roll. The second ask sharpened one mechanic: *"according to DnD rules"* names **4d6-drop-lowest**, the SRD's own method, which replaced the note's first-draft 3d6 the same day (`shared/scores.ts`). Rerolls are unlimited and each reroll resets the five bonus points; the racial bonus stays inside the roll and class minimums are met by raising, both per the source. | Phase 21 slice 3, next after circles and slots; the roll itself landed with slice 1 |
