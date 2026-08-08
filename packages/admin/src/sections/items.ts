@@ -25,7 +25,7 @@
  * first reached a character sheet and printed their codes verbatim.
  */
 
-import { CRAFTSMANSHIP_NAMES, DURIS_ITEM, MISSILE_TYPE_NAMES, WEAPON_CLASS_CHOICES, parseColour } from '@mygame/shared';
+import { CRAFTSMANSHIP_NAMES, DURIS_ITEM, MISSILE_TYPE_NAMES, WEAPON_CLASS_CHOICES, parseColour, stackLimitFor } from '@mygame/shared';
 
 import { call } from '../api.ts';
 import { artPicker, artThumb } from '../artpicker.ts';
@@ -180,10 +180,21 @@ function traits(row: ItemRow): string[] {
   if (row.canThrow) out.push(row.throwRange === 2 ? 'throwable, 2 rooms' : 'throwable');
   if (row.returning) out.push('returns');
   if (row.container) {
-    // A quiver's own key rides with its capacity rather than on a line of its own — "holds 25 (missile)"
-    // was already saying the category and could not say *which*, which is the whole compatibility rule.
+    // **A quiver states its capacity in arrows, because its slot count reads as a lie.** Capacity is in
+    // *slots* and a full stack of 20 missiles costs exactly one, so the harvested quiver that displayed
+    // "holds 5" actually holds a hundred arrows — and the owner reasonably read the 5 and asked for a
+    // quiver that could carry twenty. Every quiver in the catalogue already could. The slots stay
+    // visible in brackets so the number the rest of the inventory speaks in is still there.
+    //
+    // A quiver's own missile key rides here too rather than on a line of its own: "holds 25 (missile)"
+    // said the category and could not say *which*, which is the whole compatibility rule.
     const only = row.missileType !== undefined && row.type === DURIS_ITEM.quiver ? `, ${missileName(row.missileType)}s only` : '';
-    out.push(`holds ${row.container.capacity} (${row.container.accepts}${only})`);
+    if (row.type === DURIS_ITEM.quiver) {
+      const slots = Math.floor(row.container.capacity);
+      out.push(`holds ${slots * stackLimitFor(DURIS_ITEM.missile)} arrows (${slots} slots${only})`);
+    } else {
+      out.push(`holds ${row.container.capacity} (${row.container.accepts}${only})`);
+    }
   }
   if (row.stackLimit) out.push(`stacks to ${row.stackLimit}`);
   if (row.uses !== undefined) out.push(`${row.uses} charges`);

@@ -328,6 +328,27 @@ Doors block: Duris terminates its range walk on `EX_CLOSED | EX_LOCKED | EX_SECR
 **Seen when:** a level-1 ranger fires west at a kobold youth, misses more often than not, and sometimes
 hits the shaman standing next to it.
 
+#### Firing in a group must not pull the mob off the tank — owner, 2026-08-08
+
+> "if they are in a group they will want to step back and fire instead of going melee if can. I used to
+> play a ranger and I preferred firing.. less chance of a mob switching to you"
+
+**This is a threat rule and it points the opposite way to §2.1, deliberately.** The two ranged cases are
+not the same act:
+
+- **From an adjacent room** — the shot is *meant* to grab the mob. That is the pull, and `provoked` is
+  what makes it work.
+- **From inside the room, in a group** — the shot must *not* grab it. A ranger who out-threats the tank
+  by standing at the back and firing has been punished for playing their class correctly.
+
+So threat from a ranged attack should be lower than threat from the equivalent melee blow, and the
+distinction is co-location rather than weapon. Settle the multiplier against the threat book in
+`combat.ts` when slice 3 is built; do not invent a number here.
+
+Worth noting the shape this gives the class: a ranger's damage is unchanged, but their *threat per point
+of damage* is lower, which is what makes "step back and fire" a real tactical choice rather than a
+flavour preference.
+
 ### Slice 4 — the arrow is an object with a fate
 
 The owner's (6) and (7), and Duris does all of this already: a spent arrow moves to the victim
@@ -366,6 +387,46 @@ geometry already passes; the walk needs re-slicing or drawing, and `swing` needs
 ship first.
 
 **Seen when:** a ranger on screen draws a bow and an arrow crosses the room.
+
+### Slice 7 — the bow that needs no arrows
+
+The one request here the world cannot already answer. Owner, 2026-08-08:
+
+> "we need a magic bow or 2 that has its own arrows that never run out. it is going to be a very rare and
+> very hard to get bow though"
+
+Two halves, and only the first is new mechanism:
+
+1. **A launcher that supplies its own ammunition.** A flag on the template — the fire path skips the
+   quiver lookup and the spend, and slice 4's breakage and recovery never run because there is no object
+   to land. Cleanest as a field on the launcher rather than a phantom missile: an arrow that exists only
+   while in flight would have to be excluded from the floor, the corpse and the loot table one call site
+   at a time.
+2. **Very rare and very hard to get** is placement, and it is the harder half — ranged gear is currently
+   placed *nowhere* (§4), so this needs an acquisition story rather than a vnum. It should wait for
+   whatever answers that for ordinary bows, or it becomes the only bow anyone can get.
+
+Authored, at or above `AUTHORED_VNUM_BASE` — the source ships no such object, and inventing a Duris vnum
+for it would put our content in their number space.
+
+**Deliberately last.** It is the reward at the end of the mechanic, and building it before the mechanic
+means the rare bow is the thing being debugged.
+
+### Already answered by slice 1 — do not build these
+
+Three of the owner's follow-ups (2026-08-08) turned out to be requests for data the harvest was already
+carrying and discarding. Recorded so nobody builds them twice:
+
+- *"quivers that hold up to 50 arrows for higher levels"* — **50 of the 53 quivers already hold 50 or
+  more.** Capacity is in slots and a full stack of 20 missiles costs one, so the range is 20 arrows
+  (vnum 22259) to 2,400 (vnum 94017). What was wrong was the panel, which printed the slot count and
+  read as "holds 5"; it now says arrows.
+- *"different types of arrows that do different damage"* — **19 distinct damage dice across the 53
+  missiles that carry them**, 1d1 to 4d6, including `45012` an arrow of slaying (4d6) and `184` an arrow
+  of mortal-slaying (5d4).
+- *"same goes for throwing knives for rogues"* — **68 throwable knives and daggers, 23 distinct dice**,
+  2d4 the commonest, up to 5d10. (`10d100` on one record is almost certainly a builder's typo and worth
+  a look before anyone tunes against it.)
 
 ---
 
