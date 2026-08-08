@@ -12,7 +12,7 @@
     "id": "szxvu-smelts-the-nuggets",
     "giver": 1420,
     "name": "Szxvu's smelting",
-    "ask": "For say, 10 platinum coins, I can take 8 silver nuggets and make it into a block of usable silver. With that block of silver I could make many great things.... for a price.",
+    "ask": "I can take 8 silver nuggets and make it into a block of usable silver. With that block of silver I could make many great things.... for a price.",
     "thanks": "There's much can be done with a couple good block of silver ... could make a great shield!",
     "objective": { "kind": "bring", "vnum": 1447, "count": 8, "what": "small nuggets of silver" },
     "reward": { "xp": 0, "copper": 0, "item": 1448 }
