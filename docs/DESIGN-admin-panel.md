@@ -97,7 +97,7 @@ follows.
 | **Zones** | **built (A3), read-only** | read first: zone list, room browser with flags/sector/prose, door states, repop clocks. Live ops second: force a repop, work a door. Authoring last, as §1 overlays: room prose, flags, sector |
 | **Mobs** | with zones | live: instances by zone, slay, spawn from template. Authoring: template overrides (name, level, combat numbers, aggro) as §1 overlays over the harvested spawn files |
 | **Items** | **built (15c); editing A6 ✅; creating A6b ✅; art A7** | the harvested catalogue, searched. 16,421 entries is not a page, so the term goes to the server and a bounded page comes back with the total beside it — an operator reading the first fifty of nine hundred and believing it is the answer is the failure that avoids. Matched on keywords (what a player types), display name with colour stripped, and exact vnum (what a reset table names). The catalogue is a **worldgen output**, so edits land as a *partial* overlay (`data/world/overrides/items.json`, keyed by vnum) composed over the harvest at boot — §1's rule, and what lets `npm run worldgen` rebuild the catalogue underneath authored changes forever. **A6 built the editor**: name (through the A5 colour box, as planned), keywords, armour class, damage dice and cost — content, never behaviour. `slot`, `type`, `container` and stacking are refused by name, because they are derived from Duris' own bits and editing them is a mechanics change wearing a content edit's clothes. Clearing a field restores the harvested value exactly: the server stashes the **pristine template** of anything overridden, so a revert is a revert rather than whatever the last edit left. Edited rows wear ✎; edits shape future spawns, and instances already in bags keep the copy they were made with — an `Item` is a flat copy by `DESIGN-inventory.md` §8's design, and rewriting saves would be an edit nobody could audit. **A6b added creating one**, which is not the same job: a patch presupposes something to patch, so a created item is a **whole record** in a second overlay (`items-authored.json`) with the opposite lifecycle — a partial override that authors nothing is deleted, a created item whose fields are blanked is not. Numbered from **9,000,000**, an order of magnitude above the harvest's highest vnum of 700,008, so a re-harvest can never collide; the allocator's counter is stored rather than derived, because deleting the highest item would otherwise free its number and a recycled vnum silently changes what a spawn overlay names. Created rows wear **✦** and their editor offers *Delete* where a harvested one offers *Restore harvested* — a different fact, not a louder one, and the fields the harvest owns (`type`, `slot`, `size`) become editable precisely because there is no harvest to disagree with. `POST /players/:slug/give` came with it: an item that can be authored and never held cannot be checked at all, and A4's spawn tooling wants the same call. **Still missing: art.** `ITEM_LAYER` in the client is ten hardcoded rows and holds neither the catalogue nor a created item — A7a/A7b |
-| **Quests** | stub until Phase 17 | nothing exists to edit. The tab names the phase |
+| **Quests** | **built (A7q)** | §11 below — the last stub in the panel, and it stopped being one when Phase 21 slice 7 built the mechanism it was waiting for. List, create, edit, delete over `data/world/overrides/quests.json`; every write re-seeds the live world in one motion |
 
 **The `announce` channel was taken, and it was a protocol bump (10).** A1 shipped announcements on
 `system` with a prefix and this file said a dedicated channel would be a change to make on purpose
@@ -395,3 +395,82 @@ a server too wedged to answer is one that especially needs stopping, so a failed
 blocks the stop. The panel's confirm names how many people are online, read off the game's own
 `/health` rather than guessed here — *"restart?"* with no number is a question an operator answers
 wrongly.
+
+## 11. Quests — A7q
+
+Phase 21 slice 7 built one quest and one verb, and said the definitions were shaped so *"the admin
+panel can grow an editor"*. This is that editor, in A6/A9's authoring pattern with three differences
+that fall out of what a quest is rather than out of taste.
+
+### The id is the caller's, and it is permanent
+
+Items and mobs allocate their vnums server-side, because a caller who could choose one could choose
+one a future harvest claims. **A quest id is the opposite case**: nothing harvests `quests.json`, and
+the id is a slug a *person* has to recognise in an audit line — so the caller names it, and the only
+rule is that it may not already be taken (`409`, not a silent replace: overwriting a quest id
+rewrites work in progress for every character carrying it).
+
+It is also **the key `PlayerRecord.quests` files progress under**, which is why `PATCH` refuses an id
+change outright. A rename does not move anybody's progress, it strands it — `decodeQuests` drops ids
+the definitions no longer carry, so nothing *breaks*, it is simply lost. A rename is therefore a
+delete and a create: two acts, both audited, both the operator's own. The same sentence applies to a
+delete, and the response says how many online characters it applied to (`stranded`).
+
+### One write re-seeds three things, or none
+
+`index.ts` seeds three things from these rows at boot: the map the `quest` verb reads,
+`sim.setQuestGivers` for the view's `?` badge, and `combat.ts`'s untouchable registry. **The three
+must not be separable** — a route that could update one of them is a route that mints a `?` over a
+mob anybody may kill. So boot and every write both call one function, `seedQuestGivers`, which reads
+the map rather than taking rows: there is no way to seed the registries from a set the verb is not
+also reading.
+
+**The badge is live for people already standing there**, and that costs one deliberate line. The
+immunity is free — `canBeAttacked` reads the registry on every swing — but the badge is a field of an
+`EntityView` a client was sent minutes ago, and nothing re-sends a view for a mob that has not moved,
+entered, left or fought. That is `describeRoom`'s watch-set trap seen from the other side. So the
+vnums whose giver status **flipped** are re-sent through `syncEntityState`, which is exactly the
+message for *"here is an entity you already know about, as it now stands"*; the response reports the
+count as `resynced`. Only the flipped ones, so editing a quest's prose does not re-broadcast the
+warren.
+
+### Shape is validated in one place, existence in another
+
+`draftQuest` in `server/src/quests.ts` answers the form POST **and** the hand-edited file — the
+`mob-authoring.ts` arrangement, so a field cannot be legal through one door and illegal through the
+other. What it cannot check is whether the world has the vnums a quest names: it runs at boot, before
+one is loaded. So *existence* is the router's, where there is a world to ask and a person to tell.
+The giver is checked outright; the objective's target is checked only when there is a catalogue to
+check against, because `deps.items` is legitimately empty on a checkout with no Duris source and a
+rule that refused every `bring` quest there would be enforcing the absence of a git-ignored
+directory.
+
+### API
+
+```
+GET    /quests                       every quest, with giverName / targetName resolved and how many
+                                     of the giver are standing
+POST   /quests                       {id, giver, name, ask, thanks, objective, reward} — the id is
+                                     the caller's; 409 if taken
+PATCH  /quests/:id                   any subset, laid over the record and re-validated whole;
+                                     409 on an id change
+DELETE /quests/:id                   un-badges and un-armours the giver; reports `stranded`
+```
+
+| Refused | Status | Because |
+| --- | --- | --- |
+| id not a slug, or over 60 chars | 400 | it is a file key and a save-file key; it has to be typeable and stable |
+| id already taken | 409 | replacing it silently would rewrite progress for everyone carrying it |
+| id changed on `PATCH` | 409 | progress is filed under it; a rename is a delete and a create |
+| giver is not a loaded mob template | 400 | a quest with no giver is work nobody can ever be offered |
+| kill target is not a loaded mob template | 400 | it could never complete |
+| bring target is not in the catalogue (when there is one) | 400 | same, and skipped when the catalogue is empty by design |
+| objective kind is not `kill`/`bring` | 400 | the loader has two shapes and no third |
+| count outside 1–100 | 400 | past a hundred it is a typo, not an objective |
+| xp or copper outside 0–10,000,000 | 400 | the same ceilings the mob editor keeps for the pools these pay out of |
+| name / ask / thanks / what empty or overlong | 400 | speech with nothing in it is a giver standing mute |
+
+Writes are audited as `quest.create`, `quest.author` and `quest.delete`, and the file is rewritten
+whole in the layout it was hand-authored in — keys in reading order, `objective` and `reward` on one
+line each — so a panel edit and a hand edit produce the same bytes and `git diff` shows the change
+rather than the reformat.

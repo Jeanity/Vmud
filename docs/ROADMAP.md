@@ -2029,7 +2029,46 @@ order.
   `@mygame/shared`, would make it die of the fault it exists to report; the three-string set is
   duplicated for exactly that reason. 28 tests over the backoff ladder, the ring buffer's
   chunk-to-line splitting, and the exit bookkeeping.
-- **A7q — Quests.** After Phase 21, same rule as the old A7.
+- **A7q — Quests** ✅ **done 2026-08-08.** The row's own rule — *after Phase 21* — met the day Phase 21
+  finished: slice 7 shipped `quests.json` and said the definitions were shaped so *"the admin panel can
+  grow an editor (Track A)"*, and this is that editor. `GET/POST/PATCH/DELETE /quests` on the existing
+  `AdminApi`, a Quests section in the panel's own pattern, and the last stub in `main.ts` deleted —
+  `DESIGN-admin-panel.md` §11 has the routes and the refusal table.
+
+  **Seen when:** a quest authored over HTTP against the running server put a gold `?` over a mob that
+  had never had one ✅ — Szxvu the kobold blacksmith (vnum 1420, zone 168), created by `POST /quests`
+  with no restart anywhere. A WS probe entering the hut read `questGiver: true` off `t:'room'`'s
+  `view.entities`, `quest` opened the conversation and took the work, and `kill blacksmith` came back
+  *"has no quarrel with you"* — badge, offer and armour, all from one write.
+
+  Three things the build settled, and the first is the whole shape of the row.
+
+  1. **One write re-seeds three things or none.** The definitions, the `?` badge (`sim.setQuestGivers`)
+     and `combat.ts`'s untouchable registry were three lines at boot; an editor that could write a row
+     without running the other two would mint a badge over a mob anybody may kill. They are now one
+     function, `seedQuestGivers`, called at boot and by the live op — and it **reads** the quest map
+     rather than taking rows, so the registries cannot be seeded from a set the `quest` verb is not
+     also reading.
+  2. **The badge is live for people already standing in the room, and it cost one deliberate line.**
+     The immunity is free (`canBeAttacked` reads the registry on every swing); the badge is a field of
+     an `EntityView` sent minutes ago, and nothing re-sends a view for a mob that has not moved,
+     entered, left or fought — `describeRoom`'s watch-set trap from the other side. So the vnums whose
+     giver status *flipped* are re-sent through `syncEntityState`. **Driven:** with the socket held
+     open, a `DELETE /quests/:id` produced `entityUpdate id=165 questGiver=false` on a character who
+     had not moved.
+  3. **The id is the caller's, alone among the authoring sections — and it is permanent.** Items and
+     mobs allocate vnums server-side because a chosen number could collide with a future harvest;
+     nothing harvests `quests.json`, and the id is a slug a person recognises in an audit line. But it
+     is also the key `PlayerRecord.quests` files progress under, so `PATCH` **refuses an id change**
+     with that sentence: a rename does not move progress, it strands it (`decodeQuests` drops unknown
+     ids, so nothing breaks — it is simply lost). A rename is a delete and a create, and a delete
+     reports how many online characters it stranded.
+
+  The writer rewrites the file whole in the layout it was hand-authored in — keys in reading order,
+  `objective` and `reward` on one line each — which is checked the only way that matters: creating,
+  patching and deleting the demo quest against the shipped `quests.json` left `git diff` **empty**.
+  14 tests in `admin.test.ts`'s rig, over the validator's refusal table, the re-seed, the strand count
+  and the loader round-trip.
 
 ---
 

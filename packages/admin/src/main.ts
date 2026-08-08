@@ -13,10 +13,10 @@ import { messagingSection } from './sections/messaging.ts';
 import { itemsSection } from './sections/items.ts';
 import { mobsSection } from './sections/mobs.ts';
 import { playersSection } from './sections/players.ts';
+import { questsSection } from './sections/quests.ts';
 import { supervisorSection } from './sections/supervisor.ts';
 import { worldSection } from './sections/world.ts';
 import { zonesSection } from './sections/zones.ts';
-import { stubSection } from './sections/stubs.ts';
 
 interface Section {
   readonly slug: string;
@@ -39,9 +39,9 @@ const SECTIONS: Section[] = [
   zonesSection,
   mobsSection,
   itemsSection,
-  stubSection('quests', 'Quests', 'Phase 17', [
-    'Nothing exists to edit — quests are Phase 17. This tab exists so the panel’s shape is the plan’s shape.',
-  ]),
+  // A7q. The last stub in the panel, and it stopped being one when Phase 21 slice 7 gave it something
+  // to edit — the tab that named the phase it was waiting for now edits the thing that phase built.
+  questsSection,
 ];
 
 const nav = document.getElementById('nav')!;

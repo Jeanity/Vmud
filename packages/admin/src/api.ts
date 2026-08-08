@@ -223,6 +223,55 @@ export interface RoomsBody {
   rooms: { id: number; name: string; zone: number; zoneName: string; level: number }[];
 }
 
+/* ---- A7q: quests --------------------------------------------------------- */
+
+/**
+ * One quest as `GET /quests` sends it — the record, plus the names its numbers stand for.
+ *
+ * The names are *hints* and never fields: `giver` stays the vnum, because the vnum is the join key
+ * and the file holds nothing else. A form that posted a name back would be posting something the
+ * server cannot store. See `admin.ts`'s `questRow`.
+ */
+export interface QuestObjective {
+  kind: 'kill' | 'bring';
+  vnum: number;
+  /** Present only on a kill — a `bring` with a count would be a field the loader ignores. */
+  count?: number;
+  what: string;
+}
+
+export interface QuestRow {
+  id: string;
+  giver: number;
+  name: string;
+  ask: string;
+  thanks: string;
+  objective: QuestObjective;
+  reward: { xp: number; copper: number };
+  /** Null when the vnum names nothing this server loaded — a real state, not an error. */
+  giverName: string | null;
+  /** How many of the giver are standing right now. A patron who never spawns is a quest nobody finds. */
+  giverStanding: number;
+  targetName: string | null;
+}
+
+export interface QuestsBody {
+  total: number;
+  quests: QuestRow[];
+}
+
+/** What a write answers with: the row as it now stands, and what the live re-seed did. */
+export interface QuestWriteBody {
+  ok: boolean;
+  quest?: QuestRow;
+  /** Every giver vnum after the write — the registry behind the `?` badge and the immunity. */
+  givers: number[];
+  /** How many standing bodies were re-sent to their watchers because their giver status flipped. */
+  resynced: number;
+  /** On a delete: how many online characters were carrying progress this id no longer names. */
+  stranded?: number;
+}
+
 /* ---- A3: the zone browser ------------------------------------------------ */
 
 export interface Occupants {

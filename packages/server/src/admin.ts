@@ -88,6 +88,7 @@ import {
   type MobOverride,
   type MobOverrides,
 } from './mob-overrides.ts';
+import { draftQuest, saveQuests, type QuestDef, type QuestDraft } from './quests.ts';
 import { draftAuthoredRoom, narrowsExtent, saveAuthoredRooms, takeAuthoredRoomId } from './room-authoring.ts';
 import { ZONE_NAME_MAX, readZoneName, saveAuthoredZones, takeAuthoredZoneId } from './zone-authoring.ts';
 import {
@@ -409,6 +410,27 @@ export interface LiveOps {
    * somebody killed by a rule nobody meant to be in force.
    */
   setSettings(next: WorldSettings): void;
+
+  /* ---- A7q: quests ------------------------------------------------------- */
+
+  /** The authored quests as the running world holds them. The read half; the router does the rest. */
+  quests(): ReadonlyMap<string, QuestDef>;
+
+  /**
+   * Replaces the live definitions **and re-seeds everything that hangs off them**, in one call.
+   *
+   * One function rather than a setter plus two seeders, for the reason {@link setSettings} gives about
+   * apply-and-save: the three must not be separable. `index.ts` seeds three things from one set of rows
+   * at boot — the quest map the `quest` verb reads, `sim.setQuestGivers` for the view's `?` badge, and
+   * `combat.ts`'s untouchable registry — and the whole point of seeding them together is that the badge
+   * and the immunity cannot come to disagree. A route that could update one of the three would be a
+   * route that can produce a mob wearing a `?` that anybody may kill.
+   *
+   * Returns the giver vnums as they now stand, and **how many bodies were re-sent to their watchers**:
+   * a quest deleted out from under a standing giver has to take its badge and its armour with it, and
+   * `resynced` is the number that says whether anybody actually saw that happen.
+   */
+  setQuests(next: readonly QuestDef[]): { readonly givers: readonly number[]; readonly resynced: number };
 }
 
 /** Who an operator's line is aimed at. See {@link AdminDeps.announce}. */
@@ -474,6 +496,13 @@ export interface AdminDeps {
   readonly authoredMobsFile?: string | undefined;
   /** A9c: where placements are written. Absent in tests that assert without touching disk. */
   readonly placementsFile?: string | undefined;
+  /**
+   * A7q: where the authored quests are written. Absent in tests that assert without touching disk.
+   *
+   * The same shape as its five siblings above, and pointed at `quests.ts`'s own constant in `index.ts`
+   * so the loader and the writer can never drift apart on the path.
+   */
+  readonly questsFile?: string | undefined;
   /** Boot-time constants the dashboard reports. */
   readonly facts: {
     readonly protocol: number;
@@ -769,6 +798,16 @@ export class AdminApi {
       if (request.method === 'GET') return this.item(slug);
       if (request.method === 'PATCH') return this.authorItem(slug, request.body);
       if (request.method === 'DELETE') return this.destroyItem(slug);
+    }
+    // A7q. **Keyed by a slug rather than a number**, alone among the authoring sections — a quest's id
+    // is its own join key into every character's save file, so it is a name somebody chose and not a
+    // vnum somebody was allocated. Which is also why there is no `POST /quests/template` split: a quest
+    // has no *instance* id space for `/quests/:id` to collide with.
+    if (head === 'quests' && parts.length === 1 && request.method === 'GET') return this.quests();
+    if (head === 'quests' && parts.length === 1 && request.method === 'POST') return this.createQuest(request.body);
+    if (head === 'quests' && slug !== undefined && parts.length === 2) {
+      if (request.method === 'PATCH') return this.authorQuest(slug, request.body);
+      if (request.method === 'DELETE') return this.destroyQuest(slug);
     }
     // DESIGN-accounts.md §7. Three routes, and they are the whole reset story: with no email on an
     // account, the operator over loopback is what "forgot my password" resolves to.
@@ -2914,6 +2953,190 @@ export class AdminApi {
   /** Persists the created-mob overlay, if this server was given somewhere to put it. */
   private saveMade(): void {
     if (this.deps.authoredMobsFile) saveAuthoredMobs(this.deps.live.authoredMobs(), this.deps.authoredMobsFile);
+  }
+
+  /* ------------------------------------------------------------------------ */
+  /* A7q — quests                                                              */
+  /* ------------------------------------------------------------------------ */
+
+  /**
+   * `GET /quests` — every authored quest, with the **names** behind its three vnums.
+   *
+   * The names are resolved here rather than fetched per row by the panel, for the reason the mob search
+   * folds its overrides in: the server already has the maps, and a request per row would be four
+   * requests to answer a question one map lookup answers. And it is the whole difference between a list
+   * an operator can check their work against and a list of numbers — *"Gwark"* against *"1401"*.
+   *
+   * `null` where a vnum names nothing this server loaded, which is a real state rather than an error:
+   * a checkout with no Duris source has an empty item catalogue by design, and a quest is content that
+   * outlives the run it was written on.
+   */
+  private quests(): AdminResponse {
+    const quests = [...this.deps.live.quests().values()].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return { status: 200, body: { total: quests.length, quests: quests.map((quest) => this.questRow(quest)) } };
+  }
+
+  /**
+   * One quest as the panel reads it: the record, plus the names its numbers stand for.
+   *
+   * The names ride *beside* the definition rather than inside it — `giver` stays the number, because the
+   * number is the join key and a form that posted a name back would be posting something the file cannot
+   * hold. A hint, in other words, and never a field.
+   */
+  private questRow(quest: QuestDef): Record<string, unknown> {
+    const giver = this.deps.live.mobTemplateOf(quest.giver);
+    const target =
+      quest.objective.kind === 'kill'
+        ? this.deps.live.mobTemplateOf(quest.objective.vnum)?.name
+        : this.deps.items.get(quest.objective.vnum)?.name;
+    return {
+      ...quest,
+      giverName: giver ? stripColour(giver.name) : null,
+      /** How many of the giver are standing right now — a quest whose patron never spawns is unfindable. */
+      giverStanding: giver ? this.deps.live.liveCountOf(quest.giver) : 0,
+      targetName: target ? stripColour(target) : null,
+    };
+  }
+
+  /**
+   * `POST /quests` — A7q's create.
+   *
+   * **The id comes from the caller**, and this is the one authoring route where that is right rather
+   * than a mistake. Items and mobs allocate their vnums server-side because a caller who could choose
+   * one could choose one a future harvest claims — but a quest id is a slug in a hand-authored file
+   * that nothing harvests, and it is what a *person* has to recognise in an audit line and in a save
+   * file. So it is theirs to choose, and the only rule is that it may not already be taken.
+   */
+  private createQuest(body: unknown): AdminResponse {
+    const draft = asRecord(body);
+    if (!draft) return { status: 400, body: { error: 'POST body must be a JSON object' } };
+
+    const drafted = draftQuest(draft as QuestDraft);
+    if ('error' in drafted) return { status: 400, body: { error: drafted.error } };
+    const refused = this.questWorldCheck(drafted.quest);
+    if (refused) return refused;
+
+    // 409 rather than 400: the draft is well-formed, and what is wrong is the world it is landing in.
+    // Silently replacing the quest that already holds this id would rewrite work in progress for every
+    // character carrying it, which is the shape of edit an admin tool exists to not make by accident.
+    if (this.deps.live.quests().has(drafted.quest.id)) {
+      return { status: 409, body: { error: `a quest with id "${drafted.quest.id}" already exists — pick another id, or edit that one` } };
+    }
+
+    const applied = this.applyQuests([...this.deps.live.quests().values(), drafted.quest]);
+    this.audit('quest.create', { id: drafted.quest.id, giver: drafted.quest.giver, givers: applied.givers.length });
+    return { status: 201, body: { ok: true, quest: this.questRow(drafted.quest), ...applied } };
+  }
+
+  /**
+   * `PATCH /quests/:id` — an edit, laid over the record that exists and re-validated whole.
+   *
+   * The `reauthorMob` shape rather than a field-by-field patch: a quest is a small whole record with no
+   * harvest under it, so a patch of one field is still a complete draft and there is only ever one
+   * validator to keep honest.
+   *
+   * **The id may not change, and that refusal is the design.** `PlayerRecord.quests` is keyed by quest
+   * id, so a rename does not move anybody's progress — it strands it, and every character mid-quest
+   * silently starts again from nothing. `decodeQuests` drops ids the definitions no longer carry, so
+   * nothing *breaks*; it is simply lost. A rename is therefore a delete and a create: two acts, both
+   * audited, both the operator's own.
+   */
+  private authorQuest(slug: string, body: unknown): AdminResponse {
+    const current = this.deps.live.quests().get(slug);
+    if (!current) return { status: 404, body: { error: `no quest with id "${slug}"` } };
+    const patch = asRecord(body);
+    if (!patch) return { status: 400, body: { error: 'PATCH body must be a JSON object' } };
+    const keys = Object.keys(patch);
+    if (keys.length === 0) return { status: 400, body: { error: 'empty patch' } };
+    if (patch.id !== undefined && patch.id !== slug) {
+      return {
+        status: 409,
+        body: {
+          error:
+            `a quest's id is the key every character's progress is filed under, so it cannot be ` +
+            `changed here — every character mid-quest would lose theirs. Delete "${slug}" and create ` +
+            `the new one, which is the same thing said out loud.`,
+        },
+      };
+    }
+
+    const drafted = draftQuest({ ...current, ...patch, id: slug } as QuestDraft);
+    if ('error' in drafted) return { status: 400, body: { error: drafted.error } };
+    const refused = this.questWorldCheck(drafted.quest);
+    if (refused) return refused;
+
+    const applied = this.applyQuests(
+      [...this.deps.live.quests().values()].map((quest) => (quest.id === slug ? drafted.quest : quest)),
+    );
+    this.audit('quest.author', { id: slug, fields: keys.filter((key) => key !== 'id'), givers: applied.givers.length });
+    return { status: 200, body: { ok: true, quest: this.questRow(drafted.quest), ...applied } };
+  }
+
+  /**
+   * `DELETE /quests/:id` — the quest stops existing, and its giver stops being one.
+   *
+   * **Two consequences worth stating rather than discovering**, and both are reported in the response.
+   * The giver loses its `?` and its immunity the instant this returns, because the registries are
+   * re-seeded from what is left — that is `resynced` (how many standing bodies were re-sent to the
+   * people watching them). And every character who was carrying this quest keeps a row in their save
+   * file that now names nothing: `decodeQuests` drops an unknown id on the next load, so the row is
+   * inert rather than dangerous, but *"a quest deleted is progress lost"* is the honest sentence and
+   * `stranded` is how many characters online right now it applies to.
+   */
+  private destroyQuest(slug: string): AdminResponse {
+    const quest = this.deps.live.quests().get(slug);
+    if (!quest) return { status: 404, body: { error: `no quest with id "${slug}"` } };
+
+    const stranded = this.deps.live.online().filter((player) => player.quests.has(slug)).length;
+    const applied = this.applyQuests([...this.deps.live.quests().values()].filter((row) => row.id !== slug));
+    this.audit('quest.delete', { id: slug, giver: quest.giver, stranded, ...applied });
+    return { status: 200, body: { ok: true, id: slug, stranded, ...applied } };
+  }
+
+  /**
+   * The vnums a quest names, against the world this server actually loaded.
+   *
+   * Split from `draftQuest` on purpose: that validator answers a **form and a hand-edited file**, and
+   * the file is read at boot before anything is loaded. So shape lives there and existence lives here,
+   * where there is a world to ask and a person to tell.
+   *
+   * **The giver is checked outright**, because it is the one vnum with live consequences — it seeds the
+   * `?` badge and the untouchable registry, and a giver that names nothing is a quest nobody can ever
+   * be offered. The **objective's target is checked only when there is a catalogue to check against**:
+   * `deps.items` is legitimately empty on a checkout with no Duris source (see its own note), and a
+   * rule that refused every `bring` quest on such a checkout would be enforcing the absence of a
+   * git-ignored directory.
+   */
+  private questWorldCheck(quest: QuestDef): AdminResponse | undefined {
+    if (!this.deps.live.mobTemplateOf(quest.giver)) {
+      return { status: 400, body: { error: `no mob ${quest.giver} among the loaded templates — a quest needs a giver who exists` } };
+    }
+    if (quest.objective.kind === 'kill' && !this.deps.live.mobTemplateOf(quest.objective.vnum)) {
+      return {
+        status: 400,
+        body: { error: `no mob ${quest.objective.vnum} among the loaded templates — nothing to kill, so the quest could never complete` },
+      };
+    }
+    if (quest.objective.kind === 'bring' && this.deps.items.size > 0 && !this.deps.items.get(quest.objective.vnum)) {
+      return {
+        status: 400,
+        body: { error: `no item ${quest.objective.vnum} in the catalogue — nothing to bring, so the quest could never complete` },
+      };
+    }
+    return undefined;
+  }
+
+  /**
+   * Applies a new set of quests to the running world and writes the file, in that order.
+   *
+   * **Live first, disk second**, the order every overlay in this file keeps: the live map is the truth
+   * and the file is its shadow, so a write that fails leaves a world that is right and a file that is
+   * behind, rather than the reverse.
+   */
+  private applyQuests(next: readonly QuestDef[]): { givers: readonly number[]; resynced: number } {
+    const applied = this.deps.live.setQuests(next);
+    if (this.deps.questsFile) saveQuests(next, this.deps.questsFile);
+    return { givers: applied.givers, resynced: applied.resynced };
   }
 
   /* ------------------------------------------------------------------------ */

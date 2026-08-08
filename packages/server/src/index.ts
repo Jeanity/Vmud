@@ -276,7 +276,7 @@ import {
   type PlayerIdentity,
   type PlayerRecord,
 } from './players.ts';
-import { loadQuests, questsBy } from './quests.ts';
+import { QUESTS_FILE, loadQuests, questsBy } from './quests.ts';
 import { directionFrom, peek } from './peek.ts';
 import {
   isUntouchable,
@@ -1028,11 +1028,26 @@ const MEMORIZE_SLOT_MS = 20_000;
  */
 const quests = loadQuests();
 if (quests.size > 0) console.log(`[quests] ${quests.size} authored quest(s) loaded`);
-// The giver is marked for the client and armoured against everything: the view's badge and
-// combat's untouchable registry are seeded from the same rows, so they cannot disagree.
-const giverVnums = new Set([...quests.values()].map((quest) => quest.giver));
-sim.setQuestGivers(giverVnums);
-setUntouchableVnums(giverVnums);
+
+/**
+ * Seeds everything that hangs off the quest rows, from the quest rows. **A7q made this a function.**
+ *
+ * The giver is marked for the client and armoured against everything: the view's badge and combat's
+ * untouchable registry are seeded from the same map, so they cannot disagree. That was three lines at
+ * boot until the admin panel grew an editor — and an editor that could write a quest without running
+ * these two lines would be an editor that mints a `?` over a mob anybody may kill.
+ *
+ * So it is one function, called at boot and called again by {@link LiveOps.setQuests} on every write.
+ * It reads `quests` rather than taking rows, which is the thing that makes it impossible to seed the
+ * registries from a set the `quest` verb is not also reading.
+ */
+function seedQuestGivers(): Set<number> {
+  const givers = new Set([...quests.values()].map((quest) => quest.giver));
+  sim.setQuestGivers(givers);
+  setUntouchableVnums(givers);
+  return givers;
+}
+seedQuestGivers();
 
 /** Auth failures one socket may accrue before it is closed. A budget for typos, not dictionaries. */
 const AUTH_ATTEMPT_BUDGET = 5;
@@ -8533,6 +8548,52 @@ const adminLive: LiveOps = {
       .sort((a, b) => a.vnum - b.vnum);
   },
 
+  /* ---- A7q: quests ------------------------------------------------------- */
+
+  quests: () => quests,
+
+  /**
+   * A7q: the whole live half of the quest editor, and the reason it is one function.
+   *
+   * Three things move together or the world lies: the map `doQuest` and `advanceKillQuests` read, the
+   * giver set behind the `?` badge, and `combat.ts`'s untouchable registry. `seedQuestGivers` owns the
+   * last two and reads the first, so the only way to get them out of step would be to not call it.
+   *
+   * **The map is cleared and refilled rather than replaced.** `quests` is a `const` closed over by the
+   * two quest functions above; rebinding it is impossible and reassigning a new map would leave them
+   * reading the old one for ever. This is the one place that matters, and it matters silently.
+   *
+   * ## The badge, live
+   *
+   * A quest deleted out from under a standing giver has to take the `?` *and* the immunity with it, and
+   * the immunity is free — `canBeAttacked` reads the registry on every swing. The badge is not: it is a
+   * field of an `EntityView` a client was sent minutes ago, and nothing re-sends a view for a mob that
+   * has not moved, entered, left or fought. That is `describeRoom`'s own trap seen from the other side.
+   * So the changed vnums are re-sent explicitly through `syncEntityState`, which is exactly the message
+   * for *"here is an entity you already know about, as it now stands"* — the same call a fight starting
+   * or a shield being worn already makes. Only the vnums whose giver status actually **flipped**, so an
+   * edit to a quest's prose does not re-broadcast the warren.
+   */
+  setQuests(next) {
+    const before = new Set([...quests.values()].map((quest) => quest.giver));
+    quests.clear();
+    for (const quest of next) quests.set(quest.id, quest);
+    const givers = seedQuestGivers();
+
+    const flipped = new Set<number>();
+    for (const vnum of before) if (!givers.has(vnum)) flipped.add(vnum);
+    for (const vnum of givers) if (!before.has(vnum)) flipped.add(vnum);
+    let resynced = 0;
+    if (flipped.size > 0) {
+      for (const actor of sim.allActors()) {
+        if (!isMob(actor) || !flipped.has(actor.vnum)) continue;
+        syncEntityState(actor);
+        resynced++;
+      }
+    }
+    return { givers: [...givers].sort((a, b) => a - b), resynced };
+  },
+
   mobOverrides() {
     return mobOverrides;
   },
@@ -8955,6 +9016,8 @@ const admin = new AdminApi({
   mobOverridesFile: MOBS_FILE,
   placementsFile: PLACEMENTS_FILE,
   authoredMobsFile: AUTHORED_MOBS_FILE,
+  // A7q. `quests.ts`'s own constant, so the loader six hundred lines above and the writer share a path.
+  questsFile: QUESTS_FILE,
   facts: { protocol: PROTOCOL_VERSION, tickMs: TICK_MS, roundMs: ROUND_MS, startedAt: Date.now() },
 });
 // Announced at boot like every other switch, so a server quietly running an open admin API is not a

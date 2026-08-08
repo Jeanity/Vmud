@@ -35,6 +35,7 @@ import { AdminApi, type AdminDeps, type AdminRequest, type AnnounceScope, type L
 import { applyItemOverride, loadItemOverrides, mergeItemOverride, type ItemOverrides } from './item-overrides.ts';
 import { draftAuthoredMob, type AuthoredMobStore } from './mob-authoring.ts';
 import { loadPlacements, type Placements } from './placements.ts';
+import { loadQuests, type QuestDef } from './quests.ts';
 import { applyMobOverride, mergeMobOverride } from './mob-overrides.ts';
 import {
   draftAuthoredItem,
@@ -94,6 +95,10 @@ function fakePlayer(name: string): Player {
     place: { zone: 600, level: 0 },
     light: undefined,
     affects: [],
+    // A7q: real on a real `Player` and read by the quest delete, which counts who is mid-quest before
+    // it strands them. Empty rather than absent, so a test that puts progress in it is putting it where
+    // the server would find it.
+    quests: new Map<string, number | 'done'>(),
   } as unknown as Player;
 }
 
@@ -106,9 +111,12 @@ interface Rig {
   calls: string[];
   heard: string[];
   scopes: AnnounceScope[];
+  /** A7q: the live definitions, and the giver registry re-seeded from them on every write. */
+  quests: Map<string, QuestDef>;
+  questGivers: Set<number>;
 }
 
-function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string; itemOverridesFile?: string; authoredRoomsFile?: string; mobOverridesFile?: string; authoredMobsFile?: string; placementsFile?: string; noPopulation?: boolean; zone?: Zone; occupants?: { players: string[]; mobs: string[]; corpses: string[] }; resets?: Record<string, number> } = {}): Rig {
+function makeRig(options: { token?: string; auditFile?: string; overridesFile?: string; itemOverridesFile?: string; authoredRoomsFile?: string; mobOverridesFile?: string; authoredMobsFile?: string; placementsFile?: string; questsFile?: string; quests?: QuestDef[]; noPopulation?: boolean; zone?: Zone; occupants?: { players: string[]; mobs: string[]; corpses: string[] }; resets?: Record<string, number> } = {}): Rig {
   const dir = mkdtempSync(join(tmpdir(), 'mygame-admin-'));
   const store = new PlayerStore({ dir });
   // A real store in its own corner of the temp dir: the account routes are thin enough that mocking
@@ -339,6 +347,24 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
       calls.push(`forgetPlace ${place.zone}:${place.level}`);
       return { characters: 3, told: 1 };
     },
+    // A7q. The real map, the real re-seed, and a `resynced` count derived from the bodies the rig has
+    // standing — so a test that deletes a quest can assert the giver was actually re-sent, which is the
+    // half of the feature that is invisible from the response body alone.
+    quests: () => questDefs,
+    setQuests: (next) => {
+      const before = new Set([...questDefs.values()].map((quest) => quest.giver));
+      questDefs.clear();
+      for (const quest of next) questDefs.set(quest.id, quest);
+      questGivers.clear();
+      for (const quest of questDefs.values()) questGivers.add(quest.giver);
+      const flipped = new Set<number>();
+      for (const vnum of before) if (!questGivers.has(vnum)) flipped.add(vnum);
+      for (const vnum of questGivers) if (!before.has(vnum)) flipped.add(vnum);
+      let resynced = 0;
+      for (const list of zoneMobs.values()) for (const mob of list) if (flipped.has(mob.vnum)) resynced++;
+      calls.push(`setQuests ${questDefs.size} givers=${[...questGivers].join(',')}`);
+      return { givers: [...questGivers].sort((a, b) => a - b), resynced };
+    },
     publishRoom: (room, _place, regrid) => void calls.push(`publishRoom ${room.id} regrid=${regrid}`),
     // Held in the rig rather than written to disk: what these tests check is that the router reads,
     // validates and announces, not that a JSON file round-trips.
@@ -367,6 +393,14 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
   // A9b: the created-mob store. Empty to start, exactly as a fresh server's is.
   const madeHere: AuthoredMobStore = { mobs: new Map(), next: AUTHORED_MOB_BASE };
 
+  // A7q: the authored quests, and the giver registry `index.ts` seeds from them. Two structures rather
+  // than one derived on demand, because the thing under test is precisely that the second is re-seeded
+  // whenever the first is written — a derived getter could not fail the way the real code can.
+  const questDefs = new Map<string, QuestDef>(
+    (options.quests ?? []).map((quest) => [quest.id, quest] as const),
+  );
+  const questGivers = new Set<number>([...questDefs.values()].map((quest) => quest.giver));
+
   const deps: AdminDeps = {
     world,
     store,
@@ -389,9 +423,10 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     authoredMobsFile: options.authoredMobsFile,
     placementsFile: options.placementsFile,
     itemOverridesFile: options.itemOverridesFile,
+    questsFile: options.questsFile,
     facts: { protocol: 9, tickMs: 100, roundMs: 3000, startedAt: Date.now() },
   };
-  return { api: new AdminApi(deps), store, accounts, dir, players, calls, heard, scopes };
+  return { api: new AdminApi(deps), store, accounts, dir, players, calls, heard, scopes, quests: questDefs, questGivers };
 }
 
 function req(method: string, path: string, body?: unknown): AdminRequest {
@@ -2058,6 +2093,201 @@ describe('making a mob', () => {
     };
     assert.equal(written.next, AUTHORED_MOB_BASE + 1);
     assert.equal(written.mobs[String(AUTHORED_MOB_BASE)]?.name, 'a bone hound');
+  });
+});
+
+/**
+ * A7q — the quest editor.
+ *
+ * The giver is mob **61**, which the rig has two of standing in zone 600, because half of what these
+ * tests are about is what happens to those two bodies: the `?` over their heads and the immunity behind
+ * it are seeded from these rows, and a write that did not re-seed them would leave a badge on a mob
+ * anybody may kill. `resynced` is the count that says the bodies were re-sent.
+ */
+describe('authoring a quest — A7q', () => {
+  const CULL = {
+    id: 'cull-the-shamans',
+    giver: 61,
+    name: 'Cull the shamans',
+    ask: 'The shamans have grown loud. Silence two of them.',
+    thanks: 'Quiet at last.',
+    objective: { kind: 'kill', vnum: 62, count: 2, what: 'kobold shamans' },
+    reward: { xp: 500, copper: 50 },
+  };
+
+  it('creates one, and re-seeds the giver registry in the same breath', () => {
+    const { api, questGivers } = makeRig();
+    const response = quietly(() => api.route(req('POST', '/quests', CULL)));
+    assert.equal(response.status, 201);
+    const body = response.body as { quest: Record<string, unknown>; givers: number[]; resynced: number };
+    assert.equal(body.quest.id, 'cull-the-shamans');
+    // The whole point of the route: the badge and the immunity move with the row, not on the next boot.
+    assert.deepEqual(body.givers, [61]);
+    assert.deepEqual([...questGivers], [61]);
+    // Both standing kobold guards were re-sent to whoever was watching them — the badge is live.
+    assert.equal(body.resynced, 2);
+  });
+
+  it('resolves the names behind the numbers, so a list is readable', () => {
+    const { api } = makeRig({ quests: [CULL as QuestDef] });
+    const body = api.route(req('GET', '/quests')).body as {
+      total: number;
+      quests: { id: string; giver: number; giverName: string; giverStanding: number; targetName: string }[];
+    };
+    assert.equal(body.total, 1);
+    assert.equal(body.quests[0]?.giver, 61, 'the number stays the join key');
+    assert.equal(body.quests[0]?.giverName, 'a kobold guard');
+    // Colour codes stripped, exactly as the mob search strips them: `&+y` is not a name.
+    assert.equal(body.quests[0]?.targetName, 'a kobold shaman');
+    assert.equal(body.quests[0]?.giverStanding, 3);
+  });
+
+  it('refuses a giver the world does not have', () => {
+    const { api } = makeRig();
+    const response = api.route(req('POST', '/quests', { ...CULL, giver: 4242 }));
+    assert.equal(response.status, 400);
+    assert.match((response.body as { error: string }).error, /no mob 4242 among the loaded templates/);
+  });
+
+  it('refuses a kill target the world does not have, because it could never complete', () => {
+    const { api } = makeRig();
+    const response = api.route(req('POST', '/quests', { ...CULL, objective: { ...CULL.objective, vnum: 4242 } }));
+    assert.equal(response.status, 400);
+    assert.match((response.body as { error: string }).error, /nothing to kill/);
+  });
+
+  it('takes a bring objective against the item catalogue', () => {
+    const { api } = makeRig();
+    const bring = { ...CULL, id: 'fetch-the-dagger', objective: { kind: 'bring', vnum: 100, what: 'the silver dagger' } };
+    assert.equal(quietly(() => api.route(req('POST', '/quests', bring))).status, 201);
+    const missing = api.route(req('POST', '/quests', { ...bring, id: 'x', objective: { kind: 'bring', vnum: 999, what: 'a rumour' } }));
+    assert.equal(missing.status, 400);
+    assert.match((missing.body as { error: string }).error, /nothing to bring/);
+  });
+
+  it('says what is wrong with a draft rather than merely refusing', () => {
+    const { api } = makeRig();
+    const cases: [Record<string, unknown>, RegExp][] = [
+      [{ ...CULL, id: 'Cull The Shamans' }, /slug/],
+      [{ ...CULL, id: '' }, /id is required/],
+      [{ ...CULL, name: '  ' }, /name is required/],
+      [{ ...CULL, ask: 'x'.repeat(601) }, /at most 600 characters/],
+      [{ ...CULL, objective: { kind: 'steal', vnum: 62, what: 'a purse' } }, /kind must be "kill" or "bring"/],
+      [{ ...CULL, objective: { kind: 'kill', vnum: 62, count: 0, what: 'shamans' } }, /count must be a whole number from 1 to 100/],
+      [{ ...CULL, objective: { kind: 'kill', vnum: 62, count: 2, what: '' } }, /objective what is required/],
+      [{ ...CULL, reward: { xp: -1, copper: 0 } }, /reward xp/],
+      [{ ...CULL, reward: { xp: 0, copper: 99_000_000 } }, /reward copper/],
+    ];
+    for (const [body, reason] of cases) {
+      const response = api.route(req('POST', '/quests', body));
+      assert.equal(response.status, 400, JSON.stringify(body).slice(0, 60));
+      assert.match((response.body as { error: string }).error, reason);
+    }
+  });
+
+  it('refuses a second quest with an id already taken', () => {
+    const { api } = makeRig({ quests: [CULL as QuestDef] });
+    const response = api.route(req('POST', '/quests', { ...CULL, name: 'A different quest' }));
+    assert.equal(response.status, 409);
+    assert.match((response.body as { error: string }).error, /already exists/);
+    // And the one that was there is untouched — a refused create must not be a half-applied edit.
+    const listed = api.route(req('GET', '/quests')).body as { quests: { name: string }[] };
+    assert.equal(listed.quests[0]?.name, 'Cull the shamans');
+  });
+
+  it('patches as a re-draft, leaving the fields it did not mention', () => {
+    const { api } = makeRig({ quests: [CULL as QuestDef] });
+    const response = quietly(() => api.route(req('PATCH', '/quests/cull-the-shamans', { reward: { xp: 900, copper: 0 } })));
+    assert.equal(response.status, 200);
+    const quest = (response.body as { quest: Record<string, unknown> }).quest;
+    assert.deepEqual(quest.reward, { xp: 900, copper: 0 });
+    assert.equal(quest.ask, 'The shamans have grown loud. Silence two of them.');
+    assert.deepEqual(quest.objective, { kind: 'kill', vnum: 62, count: 2, what: 'kobold shamans' });
+  });
+
+  it('refuses an id change, because the id is where progress is filed', () => {
+    const { api } = makeRig({ quests: [CULL as QuestDef] });
+    const response = api.route(req('PATCH', '/quests/cull-the-shamans', { id: 'renamed' }));
+    assert.equal(response.status, 409);
+    assert.match((response.body as { error: string }).error, /every character mid-quest would lose theirs/);
+    // An id echoed back unchanged is not a change, and must not be treated as one.
+    assert.equal(quietly(() => api.route(req('PATCH', '/quests/cull-the-shamans', { id: 'cull-the-shamans', name: 'Hush' }))).status, 200);
+  });
+
+  it('404s a quest nobody has, on both verbs', () => {
+    const { api } = makeRig();
+    assert.equal(api.route(req('PATCH', '/quests/nothing', { name: 'x' })).status, 404);
+    assert.equal(api.route(req('DELETE', '/quests/nothing')).status, 404);
+  });
+
+  it('deletes one, un-badges its giver and says whose progress it stranded', () => {
+    const { api, players, questGivers } = makeRig({ quests: [CULL as QuestDef] });
+    const ravi = fakePlayer('Ravi');
+    ravi.quests.set('cull-the-shamans', 1);
+    players.push(ravi, fakePlayer('Nobody'));
+
+    const response = quietly(() => api.route(req('DELETE', '/quests/cull-the-shamans')));
+    assert.equal(response.status, 200);
+    const body = response.body as { stranded: number; givers: number[]; resynced: number };
+    // The giver stops being one the instant this returns — registry emptied, both bodies re-sent.
+    assert.deepEqual(body.givers, []);
+    assert.equal(questGivers.size, 0);
+    assert.equal(body.resynced, 2);
+    // And the honest sentence: one character was mid-quest, and their row now names nothing.
+    assert.equal(body.stranded, 1);
+  });
+
+  it('leaves the world alone when nothing about the giver changed', () => {
+    // An edit to prose must not re-broadcast the warren: only a vnum whose giver status *flipped* is
+    // re-sent, which is the difference between a resync and a stampede.
+    const { api } = makeRig({ quests: [CULL as QuestDef] });
+    const response = quietly(() => api.route(req('PATCH', '/quests/cull-the-shamans', { thanks: 'Well done.' })));
+    assert.equal((response.body as { resynced: number }).resynced, 0);
+  });
+
+  it('round-trips through the loader, in the shape the file is hand-authored in', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mygame-a7q-'));
+    const questsFile = join(dir, 'quests.json');
+    const { api } = makeRig({ questsFile });
+    quietly(() => api.route(req('POST', '/quests', CULL)));
+    quietly(() => api.route(req('PATCH', '/quests/cull-the-shamans', { reward: { xp: 750, copper: 25 } })));
+
+    // The written file, read by the loader the server boots with — the only test of "does it survive a
+    // restart" that does not need a restart.
+    const reloaded = loadQuests(questsFile);
+    assert.equal(reloaded.size, 1);
+    assert.deepEqual(reloaded.get('cull-the-shamans')?.reward, { xp: 750, copper: 25 });
+
+    // And the layout, because the file is git-tracked content a person edits: keys in reading order,
+    // and the two leaf records on one line each.
+    const text = readFileSync(questsFile, 'utf8');
+    assert.match(text, /"objective": \{ "kind": "kill", "vnum": 62, "count": 2, "what": "kobold shamans" \}/);
+    assert.match(text, /"reward": \{ "xp": 750, "copper": 25 \}/);
+    assert.deepEqual(
+      [...text.matchAll(/^ {4}"(\w+)":/gm)].map((m) => m[1]),
+      ['id', 'giver', 'name', 'ask', 'thanks', 'objective', 'reward'],
+    );
+
+    // A delete empties it rather than leaving the last record behind.
+    quietly(() => api.route(req('DELETE', '/quests/cull-the-shamans')));
+    assert.equal(loadQuests(questsFile).size, 0);
+    assert.equal(readFileSync(questsFile, 'utf8'), '[]\n');
+  });
+
+  it('audits every write', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mygame-a7q-audit-'));
+    const auditFile = join(dir, 'audit.jsonl');
+    const { api } = makeRig({ auditFile });
+    quietly(() => {
+      api.route(req('POST', '/quests', CULL));
+      api.route(req('PATCH', '/quests/cull-the-shamans', { name: 'Hush the shamans' }));
+      api.route(req('DELETE', '/quests/cull-the-shamans'));
+    });
+    const actions = readFileSync(auditFile, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => (JSON.parse(line) as { action: string }).action);
+    assert.deepEqual(actions, ['quest.create', 'quest.author', 'quest.delete']);
   });
 });
 
