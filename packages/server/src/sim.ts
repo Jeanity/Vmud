@@ -1294,17 +1294,6 @@ export class Simulation {
   /* ------------------------------------------------------------------------ */
 
   /**
-   * Recomputes a player's lit tiles when — and only when — they can have changed.
-   *
-   * Returns `true` when it actually recomputed, which is the caller's signal that there may be new
-   * tiles to fold into `seen` and ship. A player standing still, or drifting within one tile, gets
-   * `false` and costs nothing: at 10 Hz most ticks of most walks land in the tile they started in,
-   * and shadowcasting all of them again would be pure waste.
-   *
-   * Called on arrival too, because {@link relocate} invalidates the cache — the same tile numbers on
-   * a different Place's grid are a different place entirely.
-   */
-  /**
    * Adds the room's own light to a lit set, when the room has any.
    *
    * Reads the room out of the zone rather than the tile under the character's feet, for the reason
@@ -1325,6 +1314,17 @@ export class Simulation {
     return lit;
   }
 
+  /**
+   * Recomputes a player's lit tiles when — and only when — they can have changed.
+   *
+   * Returns `true` when it actually recomputed, which is the caller's signal that there may be new
+   * tiles to fold into `seen` and ship. A player standing still, or drifting within one tile, gets
+   * `false` and costs nothing: at 10 Hz most ticks of most walks land in the tile they started in,
+   * and shadowcasting all of them again would be pure waste.
+   *
+   * Called on arrival too, because {@link relocate} invalidates the cache — the same tile numbers on
+   * a different Place's grid are a different place entirely.
+   */
   refreshVisible(player: Player): boolean {
     // A `rooms`-mode source is a different *kind* of seeing, not a bigger number, so it takes a
     // different derivation and a different cache key. Everything downstream — `seen`, the click

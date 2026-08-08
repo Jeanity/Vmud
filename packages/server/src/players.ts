@@ -958,13 +958,6 @@ export class PlayerStore {
   }
 
   /**
-   * Forgets every ground pickup this character has collected, and says how many.
-   *
-   * The tester's "give me my torches back": pickups are per-character facts (see `pickups.ts`), so
-   * clearing the set makes every room offer its find again — for this character and nobody else.
-   * Safe while online for the same reason: `hasTaken` reads this set at walk time.
-   */
-  /**
    * Forgets one Place's explored map, for **every** character this store knows about — A8 slice 3.
    *
    * Returns how many actually had one to lose.
@@ -1023,6 +1016,13 @@ export class PlayerStore {
     return cleared;
   }
 
+  /**
+   * Forgets every ground pickup this character has collected, and says how many.
+   *
+   * The tester's "give me my torches back": pickups are per-character facts (see `pickups.ts`), so
+   * clearing the set makes every room offer its find again — for this character and nobody else.
+   * Safe while online for the same reason: `hasTaken` reads this set at walk time.
+   */
   clearTaken(record: PlayerRecord): number {
     const count = record.taken.size;
     if (count === 0) return 0;
@@ -1230,15 +1230,6 @@ function sameAffects(a: readonly Affect[], b: readonly Affect[]): boolean {
 }
 
 /**
- * The stored level and experience, shape-checked.
- *
- * The same defensive posture as everything else here — the file is hand-editable, and
- * `"level": "big"` has to produce a character with no recorded progress rather than a NaN that
- * derives NaN hit points. A level outside the game's own band is clamped rather than dropped:
- * somebody who hand-wrote 99 meant "high", not "forget my level". The brand-new pair reads as
- * nothing recorded, mirroring what {@link PlayerStore.setProgress} writes.
- */
-/**
  * Who a stored character *is* — Phase 21. All three or nothing: scores without a race cannot
  * re-derive their bonuses and a class without scores cannot gate anything, so a partially-readable
  * identity reads as none and the adoption flow (DESIGN-characters.md §6) simply runs again. A save
@@ -1268,6 +1259,15 @@ function decodeSpentSlots(stored: unknown): Map<number, number> {
   return out;
 }
 
+/**
+ * The stored level and experience, shape-checked.
+ *
+ * The same defensive posture as everything else here — the file is hand-editable, and
+ * `"level": "big"` has to produce a character with no recorded progress rather than a NaN that
+ * derives NaN hit points. A level outside the game's own band is clamped rather than dropped:
+ * somebody who hand-wrote 99 meant "high", not "forget my level". The brand-new pair reads as
+ * nothing recorded, mirroring what {@link PlayerStore.setProgress} writes.
+ */
 function decodeProgress(
   level: unknown,
   experience: unknown,

@@ -912,14 +912,6 @@ export class AdminApi {
   /* ------------------------------------------------------------------------ */
 
   /**
-   * Every loaded zone, with its live repop clock.
-   *
-   * The clock is the half that cannot come from the world files: it is re-rolled from the zone's own
-   * band after each reset, so *when the next one is due* is a fact about this run. A zone with no
-   * population file reports `null` rather than 0 — "never repops" and "repops now" are opposite
-   * things and a dash beats a zero.
-   */
-  /**
    * The item catalogue, searched.
    *
    * **Searched rather than listed, because 16,421 entries is not a page.** The whole catalogue is about
@@ -1495,6 +1487,14 @@ export class AdminApi {
     };
   }
 
+  /**
+   * Every loaded zone, with its live repop clock.
+   *
+   * The clock is the half that cannot come from the world files: it is re-rolled from the zone's own
+   * band after each reset, so *when the next one is due* is a fact about this run. A zone with no
+   * population file reports `null` rather than 0 — "never repops" and "repops now" are opposite
+   * things and a dash beats a zero.
+   */
   private zones(): AdminResponse {
     const { world, live } = this.deps;
     // A8d: created zones the config does not load yet. Shown so a creation is not invisible until a
@@ -1822,17 +1822,6 @@ export class AdminApi {
   }
 
   /**
-   * Drafts a description for one room. **Saves nothing.**
-   *
-   * The draft comes back to the editor's box, where it can be read, rewritten, coloured or discarded,
-   * and only the ordinary `PATCH` writes it. That order is the point: unreviewed machine prose must
-   * never be the thing already in the world, and *not* keeping a draft must be the cheap path.
-   *
-   * Everything the model is shown is assembled here rather than in the panel, so the prompt cannot
-   * drift between what an operator sees and what is actually sent — and so the same context the
-   * editor already displays is the context the model gets.
-   */
-  /**
    * `POST /items/:vnum/colour` — **A7f**, a colour proposed from the item's own description.
    *
    * Owner's ask, 2026-08-05: *"it would be great if we can have ollama do the edits based on the
@@ -1904,6 +1893,17 @@ export class AdminApi {
     };
   }
 
+  /**
+   * Drafts a description for one room. **Saves nothing.**
+   *
+   * The draft comes back to the editor's box, where it can be read, rewritten, coloured or discarded,
+   * and only the ordinary `PATCH` writes it. That order is the point: unreviewed machine prose must
+   * never be the thing already in the world, and *not* keeping a draft must be the cheap path.
+   *
+   * Everything the model is shown is assembled here rather than in the panel, so the prompt cannot
+   * drift between what an operator sees and what is actually sent — and so the same context the
+   * editor already displays is the context the model gets.
+   */
   private async describe(slug: string, body: unknown): Promise<AdminResponse> {
     const id = Number(slug);
     if (!Number.isInteger(id)) return { status: 400, body: { error: `"${slug}" is not a room id` } };
@@ -3591,13 +3591,6 @@ function cleanLine(value: unknown): string | undefined {
 const BODY_LIMIT = 64 * 1024;
 
 /**
- * The node adapter: reads the body, hands the router a plain request, writes its plain response.
- *
- * Lives here rather than in `index.ts` so that file's contribution stays one line — everything in
- * this function is testable in principle, but the request/response shapes above are where the
- * behaviour is, and they are tested directly.
- */
-/**
  * Whether a catalogue entry answers to a search term.
  *
  * Three surfaces, and each is there for a different kind of operator. **Keywords** are what a player
@@ -3648,6 +3641,13 @@ function itemRow(template: ItemTemplate): Record<string, unknown> {
   };
 }
 
+/**
+ * The node adapter: reads the body, hands the router a plain request, writes its plain response.
+ *
+ * Lives here rather than in `index.ts` so that file's contribution stays one line — everything in
+ * this function is testable in principle, but the request/response shapes above are where the
+ * behaviour is, and they are tested directly.
+ */
 export function serveAdmin(api: AdminApi, req: IncomingMessage, res: ServerResponse): void {
   const chunks: Buffer[] = [];
   let size = 0;

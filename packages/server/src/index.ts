@@ -819,16 +819,6 @@ const DEV_DECAY_MS = ((): number | undefined => {
 })();
 
 /**
- * A weapon handed to every character on join, for testing. Off unless `GAME_DEV_DAMAGE` is set.
- *
- * The sibling of {@link DEV_LIGHT} and for the same reason: IceCrag's weakest inhabitant has about 150
- * hit points and the practice weapon does 1d6, so *watching* anything to do with a health bar means
- * either a hundred swings or a switch. `GAME_DEV_DAMAGE=8d10+40` makes a fight short enough to see.
- *
- * Dice notation, parsed by the same `parseDice` the harvest uses — an unreadable value is refused loudly
- * rather than silently becoming a mob that swings for NaN.
- */
-/**
  * A level to start every character at, for testing. Off unless `GAME_DEV_LEVEL` is set.
  *
  * **These numbers are a test rig, not a progression.** `ROADMAP.md` §4 records character progression —
@@ -865,6 +855,16 @@ function devProfile(level: number): { maxHp: number; combat: CombatStats } {
   };
 }
 
+/**
+ * A weapon handed to every character on join, for testing. Off unless `GAME_DEV_DAMAGE` is set.
+ *
+ * The sibling of {@link DEV_LIGHT} and for the same reason: IceCrag's weakest inhabitant has about 150
+ * hit points and the practice weapon does 1d6, so *watching* anything to do with a health bar means
+ * either a hundred swings or a switch. `GAME_DEV_DAMAGE=8d10+40` makes a fight short enough to see.
+ *
+ * Dice notation, parsed by the same `parseDice` the harvest uses — an unreadable value is refused loudly
+ * rather than silently becoming a mob that swings for NaN.
+ */
 const DEV_DAMAGE = process.env.GAME_DEV_DAMAGE ? parseDice(process.env.GAME_DEV_DAMAGE) : undefined;
 if (process.env.GAME_DEV_DAMAGE && !DEV_DAMAGE) {
   console.warn(`[dev] GAME_DEV_DAMAGE="${process.env.GAME_DEV_DAMAGE}" is not dice notation; ignoring`);
@@ -2035,14 +2035,6 @@ function bracket(observer: Player, outcome: AttackOutcome, text: string): string
 }
 
 /**
- * One swing, as the log reads it.
- *
- * **The roll is printed.** `CLAUDE.md` calls for "combat rolls" in the text log and `rules.ts` has carried
- * the natural d20 on `AttackResult` since it was written, unread — showing it is what makes a fight
- * auditable rather than a health bar moving for reasons nobody can check. A critical and a fumble say so,
- * because a natural 20 and a natural 1 are the two rolls with rules attached.
- */
-/**
  * What this body's blow is called — **V7**, and the one place the two mappings meet.
  *
  * A **player** swings what is in their main hand, so the verb comes from the weapon's class
@@ -2072,6 +2064,14 @@ function attackTypeOf(actor: Actor, hand: 'mainHand' | 'offHand' = 'mainHand'): 
   return attackTypeForWeapon(undefined);
 }
 
+/**
+ * One swing, as the log reads it.
+ *
+ * **The roll is printed.** `CLAUDE.md` calls for "combat rolls" in the text log and `rules.ts` has carried
+ * the natural d20 on `AttackResult` since it was written, unread — showing it is what makes a fight
+ * auditable rather than a health bar moving for reasons nobody can check. A critical and a fumble say so,
+ * because a natural 20 and a natural 1 are the two rolls with rules attached.
+ */
 function announceAttack(outcome: AttackOutcome): void {
   const { attacker, target } = outcome;
   // A helpless target has no armour class worth quoting — the roll is shown because a fight stays
@@ -2218,38 +2218,6 @@ function announceAttack(outcome: AttackOutcome): void {
 
 
 /**
- * A player who has bled out. Phase 14b's last clause, and the answer Phase 13 left open.
- *
- * **Nothing reached here before.** `combat.ts` routes only mobs to {@link resolveDeath} — a player at
- * zero is spared by the mercy rule into the dying window, and the window's *end* was never built. A
- * character who bled past the floor simply lay at negative hit points for ever, and the only way back
- * was an admin edit. So this is not a penalty bolted onto a death; it is the death.
- *
- * The order is the interesting part, and each step depends on the one before:
- *
- * 1. **The corpse is made first**, from the body, while it still has a position — Phase 13's rule, and
- *    the same reason `resolveDeath` does it in that order.
- * 2. **The cost is charged before the respawn**, so the line that reports it can be sent with the
- *    arrival rather than a tick later, and so a character cannot log out in the gap and keep the level.
- * 3. **The respawn is a full arrival**, the same one a teleport runs: fog, room, entities. Restoring
- *    hit points without it would leave a live character standing in a room the client thinks is empty.
- *
- * `DESIGN-progression.md` §6.
- *
- * ## What death costs, now that a corpse can hold things
- *
- * **Your bag goes into the corpse. What you are wearing stays on you.** 14b deferred this with *"a
- * corpse you cannot loot is a character permanently disarmed"*; 15b makes the corpse lootable, so the
- * question is live and this is the middle it lands on.
- *
- * Taking everything is the conventional MUD answer and it is the wrong one here — the owner's stated
- * horror is *"there is nothing worse than playing a game of months and losing everything due to one
- * mistake"*, and a naked corpse run through the zone that just killed you is exactly that mistake
- * compounding. Taking *nothing* makes death a teleport with an experience bill. The split costs you
- * the thing you chose to be carrying, leaves you able to fight your way back to it, and makes the
- * thirty-minute player-corpse clock in `corpses.ts` a deadline that means something.
- */
-/**
  * Slice 5's arrival bookkeeping, identical on the typed and continuous paths.
  *
  * The **entry shore** is written when a dry room is left for a swimming one — the owner's anti-ferry
@@ -2354,6 +2322,38 @@ function comeAshore(corpse: Corpse, entryShore?: RoomId): void {
   }
 }
 
+/**
+ * A player who has bled out. Phase 14b's last clause, and the answer Phase 13 left open.
+ *
+ * **Nothing reached here before.** `combat.ts` routes only mobs to {@link resolveDeath} — a player at
+ * zero is spared by the mercy rule into the dying window, and the window's *end* was never built. A
+ * character who bled past the floor simply lay at negative hit points for ever, and the only way back
+ * was an admin edit. So this is not a penalty bolted onto a death; it is the death.
+ *
+ * The order is the interesting part, and each step depends on the one before:
+ *
+ * 1. **The corpse is made first**, from the body, while it still has a position — Phase 13's rule, and
+ *    the same reason `resolveDeath` does it in that order.
+ * 2. **The cost is charged before the respawn**, so the line that reports it can be sent with the
+ *    arrival rather than a tick later, and so a character cannot log out in the gap and keep the level.
+ * 3. **The respawn is a full arrival**, the same one a teleport runs: fog, room, entities. Restoring
+ *    hit points without it would leave a live character standing in a room the client thinks is empty.
+ *
+ * `DESIGN-progression.md` §6.
+ *
+ * ## What death costs, now that a corpse can hold things
+ *
+ * **Your bag goes into the corpse. What you are wearing stays on you.** 14b deferred this with *"a
+ * corpse you cannot loot is a character permanently disarmed"*; 15b makes the corpse lootable, so the
+ * question is live and this is the middle it lands on.
+ *
+ * Taking everything is the conventional MUD answer and it is the wrong one here — the owner's stated
+ * horror is *"there is nothing worse than playing a game of months and losing everything due to one
+ * mistake"*, and a naked corpse run through the zone that just killed you is exactly that mistake
+ * compounding. Taking *nothing* makes death a teleport with an experience bill. The split costs you
+ * the thing you chose to be carrying, leaves you able to fight your way back to it, and makes the
+ * thirty-minute player-corpse clock in `corpses.ts` a deadline that means something.
+ */
 function reapPlayer(player: Player): void {
   const diedIn = player.roomId;
 
@@ -3003,7 +3003,6 @@ function refuseIfFighting(player: Player): boolean {
   return true;
 }
 
-/** Classic MUD single-step movement: walk one room and land in its centre. */
 /**
  * `follow <name>`, `follow stop`, `follow me` — Phase 18's first half.
  *
@@ -3703,24 +3702,6 @@ function doRescue(player: Player, rest: string): void {
 /* -------------------------------------------------------------------------- */
 
 /**
- * `cast <spell> [target]` — the wind-up, before any real spell exists to wind up.
- *
- * `DESIGN-spells.md` §0 is the specification and §2's decisions bound this slice: the machinery, not
- * the magic. What is transcribed: the casting state locks every command (`permits`) and roots the
- * body (the three intent gates); the caster's auto-attacks stop — the swing is cancelled here and
- * given back when the cast ends either way, because a caster is a held piece; the wind-up re-validates
- * **once per second** on the source's own cadence (the beat is the interruption system: a changed
- * room catches every forced exit with no hook in `relocate`, and a lost footing catches bash through
- * the knockdown it already had); interruption costs nothing; and the star meter prints each beat,
- * which is the *Seen when* itself. Dropped and named: stun and silence (no such affects), the
- * ground-casting save (no such skill), the max-circle agility abort (no ability scores).
- *
- * The room's view is one line at the start and one at the end — `EntityView` carries no affects by
- * design, and a visible-states field is its own row, not this slice's. The bare room resync (`look`
- * with no argument via the client's own refresh) stays available mid-cast; everything a player *does*
- * is locked.
- */
-/**
  * A class spell leaves the book — Phase 21 slice 2, and the moment `DESIGN-spells.md`'s "until
  * classes change who knows what" arrives. The knowledge gate is `knownSpells` (class list x open
  * circles); the economy is castings per circle, checked here and **paid at completion** — the
@@ -3788,6 +3769,24 @@ function castClassSpell(player: Player, spell: Spell, term: string): void {
   scheduler.schedule('cast', player.id, 1000);
 }
 
+/**
+ * `cast <spell> [target]` — the wind-up, before any real spell exists to wind up.
+ *
+ * `DESIGN-spells.md` §0 is the specification and §2's decisions bound this slice: the machinery, not
+ * the magic. What is transcribed: the casting state locks every command (`permits`) and roots the
+ * body (the three intent gates); the caster's auto-attacks stop — the swing is cancelled here and
+ * given back when the cast ends either way, because a caster is a held piece; the wind-up re-validates
+ * **once per second** on the source's own cadence (the beat is the interruption system: a changed
+ * room catches every forced exit with no hook in `relocate`, and a lost footing catches bash through
+ * the knockdown it already had); interruption costs nothing; and the star meter prints each beat,
+ * which is the *Seen when* itself. Dropped and named: stun and silence (no such affects), the
+ * ground-casting save (no such skill), the max-circle agility abort (no ability scores).
+ *
+ * The room's view is one line at the start and one at the end — `EntityView` carries no affects by
+ * design, and a visible-states field is its own row, not this slice's. The bare room resync (`look`
+ * with no argument via the client's own refresh) stays available mid-cast; everything a player *does*
+ * is locked.
+ */
 function doCast(player: Player, rest: string): void {
   const line = rest.trim();
   if (!line) {
@@ -4183,12 +4182,6 @@ function matchExtra(word: string, extras: readonly ExtraDescription[] | undefine
   return undefined;
 }
 
-/**
- * One second of wind-up — the source's own `event_spellcast`, whose comment owns its shape: *"this is
- * simplistic part, which just checks for _most_ obvious stuff like char moving around etc. this is
- * called once / second."* The simplicity is the design: no hook in `relocate`, no hook in `bash` —
- * a forced exit changes the room and a knockdown changes the posture, and the next beat notices both.
- */
 /** A room line about any actor — `actToRoom` for bodies that are not players, same gate, same render. */
 function actAround(actor: Actor, channel: LogChannel, render: (who: string) => string, excludeId?: EntityId): void {
   const observers = [...sim.playersIn(actor.roomId)].filter((p) => p.id !== excludeId);
@@ -4197,6 +4190,12 @@ function actAround(actor: Actor, channel: LogChannel, render: (who: string) => s
   }
 }
 
+/**
+ * One second of wind-up — the source's own `event_spellcast`, whose comment owns its shape: *"this is
+ * simplistic part, which just checks for _most_ obvious stuff like char moving around etc. this is
+ * called once / second."* The simplicity is the design: no hook in `relocate`, no hook in `bash` —
+ * a forced exit changes the room and a knockdown changes the posture, and the next beat notices both.
+ */
 function castBeat(caster: Actor): void {
   const cast = caster.casting;
   if (!cast) return; // A stale event after a stop; `cancel` covers this, the return is the belt.
@@ -4868,6 +4867,7 @@ function mobStartCast(mob: Mob, target: Actor): boolean {
   return true;
 }
 
+/** Classic MUD single-step movement: walk one room and land in its centre. */
 function stepRoom(player: Player, dir: Direction): void {
   // Reached by the `move` intent as well as the typed command, and only the latter has been through
   // the table's gate. §5: `flee` is the one way out, and it is named in the refusal.
@@ -6072,23 +6072,6 @@ function workDoorCommand(player: Player, verb: 'open' | 'close', argument: strin
 }
 
 /**
- * Everything a typed line passes through, in order.
- *
- * **This is the one gate, and that is the point of it.** The MUD puts roughly 300 lines of state
- * machine between looking a command up and running it — falling, currents, casting, charm
- * disobedience, and stealth broken by an *allowlist* of commands that do not break it. The design
- * lesson (`REFERENCE-mud-mechanics.md` §3.12) is not the list, it is the location: a check at the
- * single point every action passes through can be audited by reading one function, and scattered
- * `breakStealth()` calls at each action site will always be forgotten somewhere, and players will
- * find the one you forgot.
- *
- * So the seam is here and it is named, even though the gauntlet is currently one flood check. The
- * position legality gate arrives in roadmap Phase 4 and the stealth allowlist with stealth itself;
- * both belong between the lookup and the dispatch below, and nowhere else. Nothing is declared ahead
- * of having a mechanic to declare it for — a table column no code reads is how this project ended up
- * with four tested mechanisms that have never been called.
- */
-/**
  * Why the body will not do it — and it names the axis that is actually the problem.
  *
  * "You cannot do that" is the answer that makes a player think the game is broken. "You would have to
@@ -6162,6 +6145,23 @@ function permits(player: Player, command: Command): boolean {
   return true;
 }
 
+/**
+ * Everything a typed line passes through, in order.
+ *
+ * **This is the one gate, and that is the point of it.** The MUD puts roughly 300 lines of state
+ * machine between looking a command up and running it — falling, currents, casting, charm
+ * disobedience, and stealth broken by an *allowlist* of commands that do not break it. The design
+ * lesson (`REFERENCE-mud-mechanics.md` §3.12) is not the list, it is the location: a check at the
+ * single point every action passes through can be audited by reading one function, and scattered
+ * `breakStealth()` calls at each action site will always be forgotten somewhere, and players will
+ * find the one you forgot.
+ *
+ * So the seam is here and it is named, even though the gauntlet is currently one flood check. The
+ * position legality gate arrives in roadmap Phase 4 and the stealth allowlist with stealth itself;
+ * both belong between the lookup and the dispatch below, and nowhere else. Nothing is declared ahead
+ * of having a mechanic to declare it for — a table column no code reads is how this project ended up
+ * with four tested mechanisms that have never been called.
+ */
 function runCommand(player: Player, line: string): void {
   const budget = budgets.get(player.id);
   if (budget && !spendCommand(budget, Date.now())) {
@@ -6876,27 +6876,6 @@ function hpLevelBonus(identity: PlayerIdentity | undefined): number {
 }
 
 /**
- * A landing blow teaches the arm that threw it — **Phase 19's whole Seen when**.
- *
- * Every gate here is the source's, and the order they are in matters:
- *
- * - **Players only.** A mob's proficiency is a pure function of its level (`mobWeaponSkill`), so there is
- *   nothing to raise; `notch_skill` returns on `IS_NPC` for exactly this reason.
- * - **The blow has to have landed.** `new_combat.c` notches inside the damage branch, and it is the right
- *   place: swinging at air teaches nothing.
- * - **Not in a safe room.** `notch_skill` refuses `ROOM_GUILD | ROOM_SAFE` — you cannot grind in
- *   sanctuary, which is what stops the one safe room in the world becoming a training hall.
- * - **Not against something helpless or trivial.** The source refuses a target below level 2 and a
- *   player's own pet, both anti-farming: *"This prevents players from notching up skills using images and
- *   summoned pets."* We have no pets, so the level floor is the half that transcribes.
- *
- * The **cooldown is read before the roll and written after it**, which is the shape `guild.c` has and the
- * only shape that behaves: reading it after would let one swing both notch and re-arm at full chance.
- *
- * `refitCombat` at the end is what makes the notch worth anything — `attackBonus` is folded from the
- * skill, so a point that never reached the profile would be a number going up on a sheet.
- */
-/**
  * What a defender brings to the dodge and parry rolls — **Phase 19 slice 2**.
  *
  * The one place a player's skills and a mob's are both answered, which is why `combat.ts` takes it as a
@@ -6950,6 +6929,24 @@ function notchFromDefence(outcome: AttackOutcome): void {
   notchSkill(target, skill, skill === 'dodge' ? DODGE_NOTCH_CHANCE : PARRY_NOTCH_CHANCE);
 }
 
+/**
+ * A landing blow teaches the arm that threw it — **Phase 19's whole Seen when**.
+ *
+ * Every gate here is the source's, and the order they are in matters:
+ *
+ * - **Players only.** A mob's proficiency is a pure function of its level (`mobWeaponSkill`), so there is
+ *   nothing to raise; `notch_skill` returns on `IS_NPC` for exactly this reason.
+ * - **The blow has to have landed.** `new_combat.c` notches inside the damage branch, and it is the right
+ *   place: swinging at air teaches nothing.
+ * - **Not against something helpless or trivial.** The source refuses a target below level 2 and a
+ *   player's own pet, both anti-farming: *"This prevents players from notching up skills using images and
+ *   summoned pets."* We have no pets, so the level floor is the half that transcribes.
+ * - **Not in a safe room.** `notch_skill` refuses `ROOM_GUILD | ROOM_SAFE` — you cannot grind in
+ *   sanctuary, which is what stops the one safe room in the world becoming a training hall.
+ *
+ * The roll itself, the cooldown and the refit are {@link notchSkill}'s, shared with every other way a
+ * skill can be learned.
+ */
 function notchFromSwing(outcome: AttackOutcome): void {
   const { attacker, target } = outcome;
   if (!isPlayer(attacker) || !outcome.hit) return;
@@ -6991,6 +6988,9 @@ function notchFromDualWield(outcome: AttackOutcome): void {
  * chose is `OFFENSIVE_NOTCH_CHANCE`), and nothing else does: the cooldown, the curve, the ceiling, the
  * sentence, the refit and the save are the same however the skill was used. Two copies of this would have
  * been two places to forget the refit, which is the line that makes a notch worth anything.
+ *
+ * The **cooldown is read before the roll and written after it**, which is the shape `guild.c` has and the
+ * only shape that behaves: reading it after would let one swing both notch and re-arm at full chance.
  *
  * Returns whether the notch took, because `rescue` needs the answer **before** its outcome: the
  * source's roll there is `notch_skill(…) || roll > skill` — a notch forces the fumble. Every other
@@ -7631,7 +7631,6 @@ function putInContainer(player: Player, rest: string): void {
   rememberProgress(player);
 }
 
-/** `get <item> from <container>`: take something back out, of yours or of one lying here. */
 /**
  * The corpse in the room a word names, if any — **nearest still worth searching**, `loot`'s own rule.
  *
@@ -7666,6 +7665,7 @@ function getFromSomething(player: Player, wanted: string, target: string): void 
   return getFromContainer(player, wanted, target);
 }
 
+/** `get <item> from <container>`: take something back out, of yours or of one lying here. */
 function getFromContainer(player: Player, wanted: string, target: string): void {
   const lookup = resolveContainer(player, target);
   if (lookup.found !== 'container') {
@@ -7860,6 +7860,19 @@ function wearFromBag(player: Player, rest: string): void {
 }
 
 /**
+ * The words that mean *the other hand*, stripped off the tail of a `wield` argument.
+ *
+ * **A suffix rather than a command of its own, which is why `commands.ts` gains no row.** The parking
+ * lot asked for `wield <weapon> offhand`, and that is one verb taking two words — adding an `offhand`
+ * command would have put a new prefix into the abbreviation table for no gain, and that table's order
+ * is load-bearing (a mid-table insert once stole `g` from `get`).
+ *
+ * Four spellings because a player types what they think of, and `off hand`, `off-hand`, `offhand` and
+ * Duris' own `secondary` (`actobj.c:4923` — *"your secondary hand"*) are all the same thought.
+ */
+const OFFHAND_WORDS: readonly string[] = ['offhand', 'off-hand', 'off hand', 'secondary', 'second'];
+
+/**
  * `wield <weapon>`: take a weapon in hand — `wear`'s sibling, and now that it has a rule of its own.
  *
  * **Duris splits the two and 15b did not, for a reason that has since expired.** The argument then was
@@ -7873,19 +7886,6 @@ function wearFromBag(player: Player, rest: string): void {
  * in their hand rather than a lecture. Duris refuses both ways; that costs a beginner a swing and buys
  * nothing.
  */
-/**
- * The words that mean *the other hand*, stripped off the tail of a `wield` argument.
- *
- * **A suffix rather than a command of its own, which is why `commands.ts` gains no row.** The parking
- * lot asked for `wield <weapon> offhand`, and that is one verb taking two words — adding an `offhand`
- * command would have put a new prefix into the abbreviation table for no gain, and that table's order
- * is load-bearing (a mid-table insert once stole `g` from `get`).
- *
- * Four spellings because a player types what they think of, and `off hand`, `off-hand`, `offhand` and
- * Duris' own `secondary` (`actobj.c:4923` — *"your secondary hand"*) are all the same thought.
- */
-const OFFHAND_WORDS: readonly string[] = ['offhand', 'off-hand', 'off hand', 'secondary', 'second'];
-
 function wieldFromBag(player: Player, rest: string): void {
   const trimmed = rest.trim();
   const lowered = trimmed.toLowerCase();

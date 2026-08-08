@@ -201,7 +201,6 @@ function readWords(raw: unknown): readonly string[] | undefined {
   return words.length > 0 ? [...new Set(words)] : undefined;
 }
 
-/** One authored line of prose, trimmed — or nothing. */
 /** A well-formed spell list, or nothing: known ids only, deduplicated, capped where sanity lives. */
 function readSpellList(raw: unknown): readonly SpellId[] | undefined {
   if (!Array.isArray(raw)) return undefined;
@@ -210,6 +209,7 @@ function readSpellList(raw: unknown): readonly SpellId[] | undefined {
   return spells.slice(0, 8);
 }
 
+/** One authored line of prose, trimmed — or nothing. */
 function readProse(raw: unknown): string | undefined {
   if (typeof raw !== 'string' || !raw.trim()) return undefined;
   return raw.trim();

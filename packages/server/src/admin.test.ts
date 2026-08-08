@@ -1870,13 +1870,6 @@ describe('editing a mob template', () => {
 });
 
 /**
- * A9b — mobs made here rather than harvested.
- *
- * The tests pin what makes a created mob a different animal from an edited one: it is a whole record with
- * no harvest behind it, it gets a number the caller may not choose, that number is never handed out twice,
- * and it can be deleted where a Duris creature cannot.
- */
-/**
  * A9c — where a creature lives.
  *
  * Owner's ask, 2026-08-06: *"the mob needs to be assigned a room in a zone and not just dropped by hand."*
@@ -1987,6 +1980,13 @@ describe('placing a mob in a room', () => {
   });
 });
 
+/**
+ * A9b — mobs made here rather than harvested.
+ *
+ * The tests pin what makes a created mob a different animal from an edited one: it is a whole record with
+ * no harvest behind it, it gets a number the caller may not choose, that number is never handed out twice,
+ * and it can be deleted where a Duris creature cannot.
+ */
 describe('making a mob', () => {
   const HOUND = {
     name: 'a bone hound',
