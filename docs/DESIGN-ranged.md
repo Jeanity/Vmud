@@ -349,6 +349,22 @@ Worth noting the shape this gives the class: a ranger's damage is unchanged, but
 of damage* is lower, which is what makes "step back and fire" a real tactical choice rather than a
 flavour preference.
 
+#### Slices 3 and 4 are one slice — owner, 2026-08-08
+
+> "arrows shouldn't be consumed.. there is a chance they break but they should be recoverable from either
+> the ground if you miss or from the corpse if you kill the mob you shot"
+
+**So there is no intermediate state where a shot spends an arrow and the arrow goes nowhere.** The plan
+had slice 3 resolve the shot and slice 4 give the arrow its destination, which quietly assumes a version
+of the game where firing deletes ammunition — and that is the one behaviour the owner has ruled out. An
+arrow leaves the quiver, but leaving the quiver *is a move to somewhere*: the far room's floor on a miss,
+the victim on a hit, and only the breakage roll destroys anything.
+
+Build them together. The cost is small — `ground.ts` already has a per-room item store and corpses
+already hold lootable inventory (§ slice 4), so both destinations exist and neither is new mechanism.
+The alternative is shipping a slice whose only visible behaviour is ammunition evaporating, then fixing
+it, which is worse than one larger slice.
+
 ### Slice 4 — the arrow is an object with a fate
 
 The owner's (6) and (7), and Duris does all of this already: a spent arrow moves to the victim
