@@ -92,8 +92,8 @@ and restarting is the whole of "installing" a zone.
 | Zone + level travel | One operation — see `Place` below |
 | Visibility | Tile-granular shadowcasting line of sight, three states, persisted per character |
 | Light sources | Catalogue, durations, expiry chains, ground pickups, room-mode illumination |
-| Click-to-move | Server-side A*, gated on tiles you have **seen** |
-| Hold-to-drag | Virtual joystick — straight-line steering, **not** gated |
+| Click-to-move | Server-side A*, gated on tiles you have **seen**. One `moveTo` per press, unfiltered — the client-side drag filter was removed 2026-08-08, see below |
+| Hold-to-drag | Virtual joystick — straight-line steering, **not** gated. **Measured on the wire 2026-08-08**: press → one `moveTo`; the hold crosses `DRAG_HOLD_MS` at 146 ms → `stop`; then 55 `steer` frames over 1.5 s ending `dx:0, dy:0` on release — and **no `moveTo` at all while held**. That last absence is the point: a drag re-paths nothing, so the `dragging` filter `requestMoveTo` used to carry was unreachable and is gone |
 | Camera | Discrete zoom ladder (defaults to 0.5), follows the character; right-drag pans and lets go, driving re-attaches; `M` for the map overview |
 | Fog brightness | Live slider, persisted |
 | Affects | One timed-modifier record for everything; the carried light is now one row of it |
