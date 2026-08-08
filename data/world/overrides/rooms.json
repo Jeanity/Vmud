@@ -5,6 +5,13 @@
     "by": "qwen2.5:14b",
     "brief": "a war room high in the guard tower, maps and a cold draught"
   },
+  "41180": {
+    "name": "A Ring of Ancient Oaks",
+    "description": "&+gThe thick trunks of oaks and birches grow close together here, and the ground between them is rich and loamy, thick with ferns and blackberry. But the trees to the &+ynorth&+g stand apart from the rest &+G- nine old oaks in a circle, their roots lifting a ring of turf that no bramble has crossed. &+WToadstools&+g crowd the inside of it. The air over the ring shivers like heat off a road, and the birdsong of the wood does not carry into it.&N",
+    "at": "2026-08-08",
+    "by": "claude-opus-5",
+    "brief": "The Evermeet end of the faerie ring (links.json, 2026-08-08). Overridden so the crossing is findable: without prose naming the ring and the north exit, a player has no reason to walk into what the map draws as more forest."
+  },
   "41269": {
     "flags": [
       "dark",
@@ -1192,6 +1199,10 @@
     "by": "gemma3:12b",
     "brief": "The Stump Bog, in the Forgotten Realms: a drowned wood along the River Dessarin — black standing water, rotted stumps, and a decrepit cemetery slowly going under. Realms atmosphere carried entirely by physical detail: what has grown, rotted, sunk, been broken or been left behind. This room: An Ancient Tomb."
   },
+  "89341": {
+    "description": "The forest floor is covered with carpets of moss and scrub, softening footfalls.  Strung between two thin trees, a large spider web covers the area.  Clusters of seasonal green flowers grow here beneath an arbor of branches, waiting to bloom.  A rotting carcass fouls the air with the acrid smell of death.  The snapping of tree branches echoes through the forest.  You can continue to the north, east and west.",
+    "at": "2026-08-08T07:43:45.416Z"
+  },
   "95782": {
     "description": "The surface of this enormous stump is slick with algae and moss, making footing treacherous. A thick layer of grey mold coats the exposed wood, smelling sharply of decay and stagnant water. Twisted vines crawl across the top, some bearing withered black berries, while others are choked with pale fungal growths. The air hangs heavy with the buzzing of unseen insects from within the stump's hollowed heart. Through gaps in the dense canopy above, a weak light illuminates patches of floating debris on the black water below. A rusted iron chain dangles forlornly from a rotted eye-bolt embedded near the edge. Several weathered stones lie scattered about the stump's top, hinting at some former structure now submerged within the mire.",
     "at": "2026-08-03T01:44:19.633Z",
@@ -1203,12 +1214,5 @@
     "at": "2026-08-03T01:35:43.661Z",
     "by": "gemma3:12b",
     "brief": "The Stump Bog, in the Forgotten Realms: a drowned wood along the River Dessarin — black standing water, rotted stumps, and a decrepit cemetery slowly going under. Realms atmosphere carried entirely by physical detail: what has grown, rotted, sunk, been broken or been left behind. This room: Shallows in the River Dessarin (Water)."
-  },
-  "41180": {
-    "name": "A Ring of Ancient Oaks",
-    "description": "&+gThe thick trunks of oaks and birches grow close together here, and the ground between them is rich and loamy, thick with ferns and blackberry. But the trees to the &+ynorth&+g stand apart from the rest &+G- nine old oaks in a circle, their roots lifting a ring of turf that no bramble has crossed. &+WToadstools&+g crowd the inside of it. The air over the ring shivers like heat off a road, and the birdsong of the wood does not carry into it.&N",
-    "brief": "The Evermeet end of the faerie ring (links.json, 2026-08-08). Overridden so the crossing is findable: without prose naming the ring and the north exit, a player has no reason to walk into what the map draws as more forest.",
-    "at": "2026-08-08",
-    "by": "claude-opus-5"
   }
 }
