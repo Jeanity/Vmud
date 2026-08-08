@@ -226,8 +226,15 @@ interface StarterEntry {
  *
  * Modest on purpose. The totals land between roughly **+2 and +9 armour class**, so an unlucky
  * character sits near AC 12 and a lucky one near AC 19 — against the level 1–5 band's attack bonus of
- * 0, that is the difference between being hit about 45% of the time and about 30%. A real gap that
- * neither trivialises the starter zone nor makes it unplayable.
+ * 0, that is the difference between being hit **45% of the time and 10%**. A real gap that neither
+ * trivialises the starter zone nor makes it unplayable.
+ *
+ * **That second figure used to read "about 30%", and it was wrong.** `resolveAttack` hits when
+ * `natural + bonus >= targetAc` (or on a natural 20), so at attack bonus 0 an AC of 19 is reached
+ * only by a natural 19 or 20 — 10%, not 30%. 30% is AC 15. The error mattered rather than being a
+ * stray decimal: it under-prices a point of armour by more than double, and a later pass designing
+ * the class kits took it at face value and nearly built a whole exchange rate on it. Each point of
+ * AC across this band is worth a flat **5 percentage points** of incoming hits.
  *
  * Weapons vary in **damage die** rather than armour: a dagger is quick and light, a club is heavier.
  * The spread is small because a level-1 weapon should not decide the first ten levels.
@@ -271,42 +278,204 @@ const STARTER_KIT: Readonly<Partial<Record<EquipSlot, readonly StarterEntry[]>>>
 };
 
 /**
- * What a class starts with *instead of* the common roll, slot by slot — owner's ruling, 2026-08-08.
+ * What a class starts with *instead of* the common roll, slot by slot — owner's ruling, 2026-08-08,
+ * grown from the paladin's two slots to all nine classes when the owner asked for a paladin chest
+ * piece and named the risk it created in the same breath: *"we don't need 1 buffed class that
+ * everyone is going to want to play. we will have to give the other classes something equivalent."*
  *
  * Sparse and overriding rather than additive: a slot named here replaces {@link STARTER_KIT}'s
- * choices for that class, and a slot absent here falls through to the common table. So a paladin's
- * tunic, breeches and boots still vary the way everyone else's do; only the two slots that say
- * something about the class are fixed.
+ * choices for that class, and a slot absent here falls through to the common table. Head, hands,
+ * legs and feet are left alone for everybody, so every kit still varies in most of its slots.
  *
- * **The paladin is the first and only entry, and it completes the same ruling that gave them one-
- * handed weapon skills.** Their four 1h rows in `skills.ts` were argued from the SRD's sword-and-
- * board description; a paladin who then rolled a random dagger and no shield would have the training
- * and none of the kit. The longsword is `weaponClass` 5, so it trains `slashing-1h` — the skill the
- * ruling granted — from the first swing, which is the point of `weaponClass` being on these entries
- * at all.
+ * ## The correctness half, which matters more than the balance half
  *
- * **Neither piece is an upgrade in disguise.** The blade is `2d6`, matching the club, the heaviest of
- * the four common weapons — the paladin gets a *predictable* weapon, not a better one, and the
- * comment above still holds that a level-1 weapon should not decide the first ten levels.
+ * The nine-class skill re-key left most classes with most weapon skills at **0**, and the common
+ * `mainHand` rolls at random across four weapons. Measured before this table existed: a **cleric,
+ * shaman, necromancer or rogue had a 75% chance** of starting with a weapon they could never train
+ * — a cleric holding a short sword has `slashing-1h` ceiling 0, so that weapon swings at +0 for
+ * ever and no amount of use lifts it. Ranger 25%, sorcerer 50%, druid 25%. Every `mainHand` below
+ * maps to a skill its class actually has, and `equipment.test.ts` pins that for all nine.
  *
- * The shield is **`0..2`**, trimmed from `1..3` on the owner's call once the first version was
- * standing up. It is the *lightest* band in the table rather than the chest slot's, and the reason to
- * prefer it is that it keeps the shield a piece of character rather than a head start: a paladin's
- * floor is now the same as everybody else's and only their ceiling moves, so the two kits overlap
- * instead of stacking. A rolled `0` is not a bug — half the common table can roll `0` too, and a
- * shield that turned out plain is the same fiction as a tunic that did.
+ * Note `StarterEntry` carries no `twoHanded` field, so every entry resolves through
+ * `weaponSkillFor`'s one-handed branch. That is why the ranger's spear (`weaponClass` 15) trains
+ * `piercing-1h` rather than `reach` — the good outcome, since no class has a `reach` grant before
+ * level 25.
  *
- * The shield's id is the bare `shield` on purpose: it is protocol 14's art *class*, already mapped in
- * the client's `KIT_ART` to `offhand-shield`, so it draws with no new art. Starting weapons are not
- * drawn on the body yet — none of the four common ones are either — so the longsword needs none.
+ * ## The balance half, in the only currency level 1 has
+ *
+ * At level 1 weapon skill contributes **+0 to every class** (`toHitFrom(1)` is 0; it first bites at
+ * level 7) and dual wield swings **0% of rounds**. So the only things a starting kit can be worth
+ * are **armour class and average weapon damage**, and those are what these rows trade.
+ *
+ * Fitness is `F = 20·D / (11 − AC)` — damage dealt over the share of rounds a level-1 mob connects,
+ * the player's own hit chance cancelling because at level 1 it is identical across the nine.
+ * Measured over the real roll:
+ *
+ * ```
+ *   paladin 19.05   rogue 18.62   warrior 18.59   ranger 18.52      martial, spread 2.9%
+ *   sorcerer 17.86  necromancer 17.86  cleric 17.60  shaman 17.44   caster,  spread 2.4%
+ *   druid 17.44                                     (common table 19.11)
+ * ```
+ *
+ * The martials sit ~6% above the casters, and that gap is the one deliberate inequality in the
+ * table: the five casters hold circle-1 spells at level 1 and the four martials hold none until 11
+ * or never. A sorcerer's two castings of `magic_missile` are ~22 damage a rest, comfortably more
+ * than 6% of a kit. **No class is best on both axes** — the paladin tops armour, the warrior tops
+ * damage — and that is the invariant to preserve if these numbers are ever retuned.
+ *
+ * Worth saying plainly, because it reads as a nerf and is: the paladin's damage went *down* to pay
+ * for the chest piece. Before this table they were AC 5.32 / damage 7.00, F 24.65 against a common
+ * 19.11 — **29% ahead of every other class**, which is the imbalance the owner spotted from the
+ * outside. The mail is real; the sword is now the softest in the game at 2d4. That is the trade.
+ *
+ * ## Art
+ *
+ * Chest `id`s are reused from the common table wherever possible, because `KIT_ART` in the client
+ * maps ids to sheets and **an id with no row simply does not draw**. `mail_shirt` is the one new id
+ * and it ships with its mapping to `torso-chainmail`, whose six sheets are already staged. The
+ * cleric's round shield reuses the bare `shield` id for the same reason. A `name` is free — only
+ * the `id` reaches the renderer — which is why a druid's hide jerkin and a rogue's dark leathers
+ * can both be a `leather_tunic` underneath.
  */
 const CLASS_KIT: Readonly<Partial<Record<ClassId, Readonly<Partial<Record<EquipSlot, readonly StarterEntry[]>>>>>> = {
+  /* ------------------------------------------------------------------ martial */
+
+  // Tops the table on damage and sits at the bottom on armour — the warrior buys the blow with the
+  // bruise. The only class that can train all four one-handed skills, so all four are on offer.
+  warrior: {
+    mainHand: [
+      { id: 'broadsword', name: "a soldier's broadsword, notched to the spine", acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 6, bonus: 0 }, weaponClass: 5 },
+      { id: 'bearded_axe', name: 'a bearded axe with a sweat-dark haft', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 2 }, weaponClass: 1 },
+      { id: 'war_hammer', name: 'an iron-shod war hammer', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 5, bonus: 1 }, weaponClass: 4 },
+      { id: 'footman_flail', name: "a footman's flail, three links short", acMin: 0, acMax: 0, size: 2, damage: { count: 3, sides: 4, bonus: 0 }, weaponClass: 3 },
+    ],
+    chest: [
+      { id: 'leather_tunic', name: 'a leather tunic, sold down and bought back', acMin: 0, acMax: 2, size: 3 },
+      { id: 'padded_jerkin', name: 'a padded jerkin gone flat across the chest', acMin: 0, acMax: 2, size: 3 },
+      { id: 'quilted_vest', name: 'a quilted vest, more mend than vest', acMin: 0, acMax: 1, size: 2 },
+    ],
+  },
+
+  // Slashing and piercing both at 95, so the ranger's weapon roll is a genuine choice of shape rather
+  // than of skill. The spear stays one-handed on purpose — see the docblock.
+  ranger: {
+    mainHand: [
+      { id: 'hunting_sword', name: 'a hunting sword with a stag-horn grip', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 5, bonus: 0 }, weaponClass: 5 },
+      { id: 'hunting_hatchet', name: 'a hatchet, chipped at the bit', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 1 }, weaponClass: 1 },
+      { id: 'skinning_knife', name: 'a skinning knife, worn narrow', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 4, bonus: 2 }, weaponClass: 2 },
+      { id: 'boar_spear', name: 'a boar spear, hafted short', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 5, bonus: 0 }, weaponClass: 15 },
+    ],
+    chest: [
+      { id: 'leather_tunic', name: 'a set of green-dyed travelling leathers', acMin: 1, acMax: 2, size: 3 },
+      { id: 'padded_jerkin', name: 'a weathered jerkin, oiled against the rain', acMin: 1, acMax: 3, size: 3 },
+    ],
+  },
+
+  // The armoured one. The longsword is FIXED — the owner asked for it by name — so the mail is paid
+  // for in the blade's dice rather than in variety: 2d4 is the softest weapon in the game.
   paladin: {
     mainHand: [
-      { id: 'longsword', name: 'a plain steel longsword', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 6, bonus: 0 }, weaponClass: 5 },
+      { id: 'longsword', name: 'a plain steel longsword', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 0 }, weaponClass: 5 },
     ],
     offHand: [
       { id: 'shield', name: 'a battered kite shield', acMin: 0, acMax: 2, size: 3 },
+    ],
+    chest: [
+      { id: 'mail_shirt', name: 'a mail shirt, kept oiled', acMin: 2, acMax: 3, size: 4 },
+      { id: 'mail_shirt', name: 'a scale hauberk with a mended shoulder', acMin: 1, acMax: 3, size: 4 },
+    ],
+  },
+
+  // piercing-1h at 90 is the rogue's only weapon skill, so every option is a blade — and the four
+  // differ in shape rather than in what they train. Light armour, second on damage.
+  rogue: {
+    mainHand: [
+      { id: 'stiletto', name: 'a needle-point stiletto', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 6, bonus: 0 }, weaponClass: 2 },
+      { id: 'poniard', name: 'a curved poniard', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 4, bonus: 2 }, weaponClass: 2 },
+      { id: 'dirk', name: 'a dirk with a cord-wrapped hilt', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 5, bonus: 1 }, weaponClass: 2 },
+      { id: 'boot_knife', name: 'a flat knife made for a boot', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 5, bonus: 0 }, weaponClass: 2 },
+    ],
+    chest: [
+      { id: 'leather_tunic', name: 'a jerkin of soft dark leather', acMin: 0, acMax: 2, size: 3 },
+      { id: 'quilted_vest', name: 'a close-cut vest, quiet at the seams', acMin: 1, acMax: 2, size: 2 },
+    ],
+  },
+
+  /* ------------------------------------------------------------------- caster */
+
+  // bludgeon-1h at 70 is the cleric's ONLY weapon skill — the oldest rule in the genre arriving from
+  // the data rather than from memory. Four blunt instruments, and the round shield reuses the bare
+  // `shield` id so it draws through the mapping the paladin's already uses.
+  cleric: {
+    mainHand: [
+      { id: 'iron_mace', name: 'a pitted iron mace', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 0 }, weaponClass: 6 },
+      { id: 'temple_hammer', name: 'a temple hammer, its head bound with wire', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 1 }, weaponClass: 4 },
+      { id: 'oak_cudgel', name: 'a knotted oak cudgel', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 1 }, weaponClass: 10 },
+      { id: 'walking_staff', name: "a priest's walking staff", acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 3, bonus: 1 }, weaponClass: 12 },
+    ],
+    offHand: [
+      { id: 'shield', name: 'a dented round shield', acMin: 0, acMax: 1, size: 3 },
+    ],
+    chest: [
+      { id: 'mail_shirt', name: 'a mail shirt from the temple stores', acMin: 1, acMax: 3, size: 4 },
+      { id: 'quilted_vest', name: 'a grey wool vestment over a padded shirt', acMin: 1, acMax: 2, size: 2 },
+    ],
+  },
+
+  // Bludgeon on both axes and nothing else. The shaman is the only level-1 caster with neither an AC
+  // buff nor a nuke, which is the argument for sitting mid-table on gear rather than at the bottom.
+  shaman: {
+    mainHand: [
+      { id: 'totem_club', name: 'a totem club, ancestor-carved', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 1 }, weaponClass: 10 },
+      { id: 'stone_maul', name: 'a stone-headed maul', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 0 }, weaponClass: 4 },
+      { id: 'spirit_staff', name: 'a spirit staff hung with finger-bones', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 5, bonus: 0 }, weaponClass: 12 },
+    ],
+    chest: [
+      { id: 'leather_tunic', name: 'a hide shirt hung with bone charms', acMin: 1, acMax: 3, size: 3 },
+      { id: 'padded_jerkin', name: 'a totem coat plated with carved bone', acMin: 1, acMax: 3, size: 3 },
+    ],
+  },
+
+  // The sickle is weaponClass 17 and nobody else in the game rolls one — slashing at 80, the druid's
+  // better skill; the staff and the club fall back on bludgeon at 70.
+  druid: {
+    mainHand: [
+      { id: 'bronze_sickle', name: 'a bronze sickle, edge kept keen', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 5, bonus: 0 }, weaponClass: 17 },
+      { id: 'ash_quarterstaff', name: 'a quarterstaff of grey ash', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 1 }, weaponClass: 12 },
+      { id: 'hawthorn_club', name: 'a club of knotted hawthorn', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 0 }, weaponClass: 10 },
+    ],
+    chest: [
+      { id: 'leather_tunic', name: 'a hide jerkin, the hair still on it', acMin: 1, acMax: 3, size: 3 },
+      { id: 'padded_jerkin', name: 'a coat of layered leaves and boiled leather', acMin: 1, acMax: 3, size: 3 },
+    ],
+  },
+
+  // Two staves on bludgeon-1h (60) and two blades on piercing-1h (80), so half the rolls open the
+  // better ceiling and the other half look like a wizard.
+  sorcerer: {
+    mainHand: [
+      { id: 'blackthorn_staff', name: 'a gnarled blackthorn staff', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 5, bonus: 0 }, weaponClass: 12 },
+      { id: 'shod_staff', name: 'an iron-shod walking staff', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 1 }, weaponClass: 12 },
+      { id: 'ritual_dagger', name: 'a slim ritual dagger', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 5, bonus: 0 }, weaponClass: 2 },
+      { id: 'wire_knife', name: 'a knife with a wire-wound grip', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 4, bonus: 2 }, weaponClass: 2 },
+    ],
+    chest: [
+      { id: 'quilted_vest', name: 'a quilted robe, thin at the elbows', acMin: 1, acMax: 2, size: 2 },
+      { id: 'padded_jerkin', name: "a scholar's padded coat, ink at the cuff", acMin: 1, acMax: 2, size: 3 },
+    ],
+  },
+
+  // piercing-1h at 80 is the necromancer's only weapon skill. Four blades, no exceptions.
+  necromancer: {
+    mainHand: [
+      { id: 'bone_knife', name: 'a bone-handled knife', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 5, bonus: 0 }, weaponClass: 2 },
+      { id: 'sacrificial_blade', name: 'a thin sacrificial blade', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 4, bonus: 2 }, weaponClass: 2 },
+      { id: 'corpse_awl', name: "a corpse-tender's awl", acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 5, bonus: 0 }, weaponClass: 2 },
+      { id: 'grave_dagger', name: 'a dagger dulled by grave soil', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 4, bonus: 1 }, weaponClass: 2 },
+    ],
+    chest: [
+      { id: 'quilted_vest', name: 'a grave-cloth vest, stiff with age', acMin: 0, acMax: 2, size: 2 },
+      { id: 'padded_jerkin', name: 'a padded coat, black and much repaired', acMin: 1, acMax: 3, size: 3 },
     ],
   },
 };

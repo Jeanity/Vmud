@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { CLASS_IDS } from './classes.ts';
 import { DEFAULT_WEAPON } from './combat.ts';
 import { EQUIP_SLOTS, armourClassFrom, readEquipped, resolveWearSlot, rollStarterKit, weaponFrom } from './equipment.ts';
 import type { Item } from './equipment.ts';
 import { makeRng } from './rules.ts';
+import { ceilingFor, weaponSkillFor } from './skills.ts';
 
 describe('the starter kit', () => {
   it('dresses a character rather than leaving them in one shoe', () => {
@@ -74,33 +76,113 @@ describe("the paladin's kit — the sword-and-board ruling in the starting gear"
     assert.deepEqual([...seen].sort(), [0, 1, 2], `shield AC values seen: ${[...seen].sort().join(',')}`);
   });
 
-  it('leaves every other class exactly as it was', () => {
-    // The override is per slot, so a class with no row falls through to the common table — and the
-    // common table has no off hand at all, which is what makes the shield the paladin's own.
-    for (const klass of ['warrior', 'cleric', 'rogue', 'sorcerer'] as const) {
+  it('keeps the shield to the two classes that carry one', () => {
+    // This used to assert that every other class was untouched, which was true when the paladin was
+    // the table's only row. All nine have rows now, so the surviving claim is the narrower one: an
+    // off hand is the paladin's and the cleric's alone, and nobody else is handed a spare hand.
+    for (const klass of ['warrior', 'ranger', 'rogue', 'sorcerer', 'necromancer', 'druid', 'shaman'] as const) {
       for (let seed = 0; seed < 20; seed++) {
-        assert.deepEqual(rollStarterKit(makeRng(seed), klass), rollStarterKit(makeRng(seed)));
         assert.equal(rollStarterKit(makeRng(seed), klass).offHand, undefined, `${klass} carries no shield`);
       }
+    }
+    for (const klass of ['paladin', 'cleric'] as const) {
+      assert.equal(rollStarterKit(makeRng(3), klass).offHand?.id, 'shield', `${klass} carries one`);
     }
   });
 
   it('still varies everywhere the ruling did not speak', () => {
-    // Only the two named slots are fixed. If the whole kit went constant, a paladin would be the one
+    // Only the weapon is truly fixed. If the whole kit went constant, a paladin would be the one
     // class whose opening hand is a cookie cutter — the exact thing the common roll exists to avoid.
+    //
+    // Counted by **name, not id**: the paladin's mail shirt and scale hauberk deliberately share the
+    // `mail_shirt` id so they share a sheet in `KIT_ART`, while differing in prose and in AC band.
+    // Counting ids here would report a variety of one and be measuring the art, not the kit.
     const chests = new Set<string>();
     const acs = new Set<number>();
     for (let seed = 0; seed < 60; seed++) {
       const kit = rollStarterKit(makeRng(seed), 'paladin');
-      chests.add(kit.chest!.id);
+      chests.add(kit.chest!.name);
       acs.add(armourClassFrom(kit));
     }
-    assert.ok(chests.size >= 2, `the tunic still varies (saw ${[...chests].join(',')})`);
+    assert.ok(chests.size >= 2, `the chest piece still varies (saw ${[...chests].join(' / ')})`);
     assert.ok(acs.size >= 4, 'and so does the armour total');
   });
 
   it('is still reproducible from its seed', () => {
     assert.deepEqual(rollStarterKit(makeRng(9), 'paladin'), rollStarterKit(makeRng(9), 'paladin'));
+  });
+});
+
+describe('the class kits, as a table — the two invariants worth guarding', () => {
+  it('never hands a class a weapon it can never train', () => {
+    // The bug the class kits exist to fix, and the reason this test is worth more than the balance
+    // one below. The common mainHand rolls at random across four weapons, and the nine-class re-key
+    // left most classes with most weapon skills at 0 — so a **cleric, shaman, necromancer or rogue
+    // had a 75% chance** of starting with a weapon whose ceiling is 0, which swings at +0 for ever
+    // because `learnedAt` can never lift a skill off a zero ceiling. Measured, not asserted.
+    for (const classId of CLASS_IDS) {
+      for (let seed = 0; seed < 200; seed++) {
+        const weapon = rollStarterKit(makeRng(seed), classId).mainHand!;
+        const skill = weaponSkillFor(weapon);
+        assert.ok(skill, `${classId} seed ${seed}: ${weapon.id} trains nothing at all`);
+        assert.ok(
+          ceilingFor(skill!, classId) > 0,
+          `${classId} seed ${seed} starts with ${weapon.id} (${skill}), which it can never train`,
+        );
+      }
+    }
+  });
+
+  it('keeps every class within reach of every other at level 1', () => {
+    // At level 1 the only currencies are armour class and weapon damage: weapon skill is +0 for
+    // everyone (`toHitFrom(1)` is 0) and dual wield swings 0% of rounds. Fitness is therefore
+    // F = 20*D/(11-AC) — damage out over the share of rounds a level-1 mob connects.
+    //
+    // The owner's constraint was "we don't need 1 buffed class that everyone is going to want to
+    // play", so this pins the spread rather than any individual number: retune the table freely, but
+    // not into a dominant class. The martials are held tighter than the whole, because the casters
+    // deliberately sit ~6% below them and buy the difference back with circle-1 spells.
+    const MARTIAL = new Set(['warrior', 'ranger', 'paladin', 'rogue']);
+    const N = 800;
+    const fitness = new Map<string, number>();
+    for (const classId of CLASS_IDS) {
+      let ac = 0;
+      let dmg = 0;
+      for (let seed = 0; seed < N; seed++) {
+        const kit = rollStarterKit(makeRng(seed), classId);
+        ac += armourClassFrom(kit);
+        const d = kit.mainHand!.damage!;
+        dmg += (d.count * (d.sides + 1)) / 2 + d.bonus;
+      }
+      fitness.set(classId, (20 * (dmg / N)) / (11 - ac / N));
+    }
+    const all = [...fitness.values()];
+    const martials = [...fitness].filter(([c]) => MARTIAL.has(c)).map(([, f]) => f);
+    const pct = (xs: number[]) => ((Math.max(...xs) - Math.min(...xs)) / Math.min(...xs)) * 100;
+    const report = [...fitness].map(([c, f]) => `${c} ${f.toFixed(2)}`).join(', ');
+
+    assert.ok(pct(martials) < 6, `martial spread ${pct(martials).toFixed(1)}% — ${report}`);
+    assert.ok(pct(all) < 14, `overall spread ${pct(all).toFixed(1)}% — ${report}`);
+
+    // And nobody may be best on both axes at once, which is the shape of dominance rather than its
+    // size: a class that led on armour AND damage would be the one everyone picks whatever the spread.
+    let bestAc = '';
+    let bestDmg = '';
+    let acTop = -1;
+    let dmgTop = -1;
+    for (const classId of CLASS_IDS) {
+      let ac = 0;
+      let dmg = 0;
+      for (let seed = 0; seed < N; seed++) {
+        const kit = rollStarterKit(makeRng(seed), classId);
+        ac += armourClassFrom(kit);
+        const d = kit.mainHand!.damage!;
+        dmg += (d.count * (d.sides + 1)) / 2 + d.bonus;
+      }
+      if (ac / N > acTop) { acTop = ac / N; bestAc = classId; }
+      if (dmg / N > dmgTop) { dmgTop = dmg / N; bestDmg = classId; }
+    }
+    assert.notEqual(bestAc, bestDmg, `${bestAc} leads on both armour and damage — that is a dominant class`);
   });
 });
 

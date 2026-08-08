@@ -463,6 +463,11 @@ const KIT_ART: Readonly<Record<string, string>> = {
   leather_cap: 'head-cap-leather',
   cloth_hood: 'head-hood-cloth',
   shield: 'offhand-shield',
+  // The class kits' one new id — the paladin's mail and the cleric's temple-issue shirt, which share
+  // it so they share a sheet. **A kit id with no row here does not draw at all** (`sheetFor` returns
+  // an empty layer list), so a chest piece added to `equipment.ts` without a line added here is
+  // invisible on the body — which would have quietly defeated the whole point of asking for one.
+  mail_shirt: 'torso-chainmail',
 };
 
 /**

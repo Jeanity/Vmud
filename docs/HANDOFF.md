@@ -487,7 +487,32 @@ the `slashing-1h` the ruling granted, from the first swing) and a kite shield in
 armour *floor* matches everyone else's and only their ceiling moves. Only those two slots are fixed; tunic, breeches and boots still vary as everyone else's
 do. Every other class falls through to the common table unchanged, and the common table has no off
 hand at all, which is what makes the shield the paladin's own. At +0..+2 the two kits overlap rather than stack:
-an unlucky paladin sits inside the common +2..+9 band and only a lucky one clears it. Note the house 95 cap
+an unlucky paladin sits inside the common +2..+9 band and only a lucky one clears it.
+
+**Then the kit went to all nine classes, because the paladin was the buffed class and the owner said
+so before it got worse.** Asking for "a chest piece worth wearing" surfaced that the paladin was
+already 29% ahead of the field on gear — and the re-key had left a worse problem underneath: because
+the common `mainHand` rolls at random and most classes now have most weapon skills at 0, a **cleric,
+shaman, necromancer or rogue had a 75% chance of starting with a weapon they could never train**
+(ranger 25%, sorcerer 50%, druid 25%). That is the correctness half and it mattered more than the
+balance half. `CLASS_KIT` now has a row for every class; every `mainHand` maps to a skill that class
+actually has, pinned by a test.
+
+Balance is argued in the only currency level 1 has. Weapon skill is **+0 for every class** at level 1
+(it first bites at 7) and dual wield swings **0% of rounds**, so a kit can only be worth armour class
+and weapon damage. Fitness `F = 20·D/(11−AC)`, measured over the real roll: martials
+**18.52–19.00** (spread 2.6%), casters **17.42–17.85** (2.5%), common table 19.11. The ~6% martial
+lead is the one deliberate inequality — the five casters hold circle-1 spells at level 1 and the four
+martials hold none until 11 or never. **No class is best on both axes**: the paladin tops armour, the
+warrior tops damage, and a test fails if that ever stops being true. The paladin's damage came *down*
+to 2d4 to pay for the mail; that is the trade, and it puts them on the line at 19.00.
+
+Two traps worth carrying forward. **`KIT_ART` maps ids to sheets and an id with no row does not draw**
+— a chest piece added to `equipment.ts` without a line in `scene.ts` is invisible, which would have
+silently defeated the request; `mail_shirt` ships with its mapping to the already-staged
+`torso-chainmail`. And the docblock above `STARTER_KIT` **used to claim AC 19 is hit ~30% of the
+time**; it is 10% (30% is AC 15), an error that under-prices armour by more than double and that a
+design pass took at face value before it was caught. Corrected in place. Note the house 95 cap
 already levels paladin with warrior here, exactly as it does in 2h; the source's 95-vs-100 gap does
 not survive `SKILL_CEILING`, and that is the cap's doing rather than this ruling's.
 
