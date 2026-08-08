@@ -483,11 +483,11 @@ pass re-transcribing from the source and quietly taking the shield hand back. **
 now matches the ruling**: `CLASS_KIT` in `equipment.ts` overrides the common roll per class, and the
 paladin — its only entry — always starts with a plain steel longsword (`weaponClass` 5, so it trains
 the `slashing-1h` the ruling granted, from the first swing) and a kite shield in the off hand at
-+1..+3 AC. Only those two slots are fixed; tunic, breeches and boots still vary as everyone else's
+**+0..+2 AC** — the table's lightest band, trimmed from +1..+3 on the owner's call so a paladin's
+armour *floor* matches everyone else's and only their ceiling moves. Only those two slots are fixed; tunic, breeches and boots still vary as everyone else's
 do. Every other class falls through to the common table unchanged, and the common table has no off
-hand at all, which is what makes the shield the paladin's own. Worth knowing rather than fixing: the
-shield puts a paladin a little above the +2..+9 AC band the common kit lands in — the archetype
-arriving in the numbers, and intended. Note the house 95 cap
+hand at all, which is what makes the shield the paladin's own. At +0..+2 the two kits overlap rather than stack:
+an unlucky paladin sits inside the common +2..+9 band and only a lucky one clears it. Note the house 95 cap
 already levels paladin with warrior here, exactly as it does in 2h; the source's 95-vs-100 gap does
 not survive `SKILL_CEILING`, and that is the cap's doing rather than this ruling's.
 

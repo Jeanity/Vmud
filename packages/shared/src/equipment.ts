@@ -287,10 +287,14 @@ const STARTER_KIT: Readonly<Partial<Record<EquipSlot, readonly StarterEntry[]>>>
  *
  * **Neither piece is an upgrade in disguise.** The blade is `2d6`, matching the club, the heaviest of
  * the four common weapons — the paladin gets a *predictable* weapon, not a better one, and the
- * comment above still holds that a level-1 weapon should not decide the first ten levels. The
- * shield's `1..3` is the same band as the chest slot, so it widens the AC spread by one slot's worth
- * rather than by a new magnitude. A paladin therefore sits a little above the +2..+9 band the common
- * kit lands in, which is the archetype arriving in the numbers and is the intended effect.
+ * comment above still holds that a level-1 weapon should not decide the first ten levels.
+ *
+ * The shield is **`0..2`**, trimmed from `1..3` on the owner's call once the first version was
+ * standing up. It is the *lightest* band in the table rather than the chest slot's, and the reason to
+ * prefer it is that it keeps the shield a piece of character rather than a head start: a paladin's
+ * floor is now the same as everybody else's and only their ceiling moves, so the two kits overlap
+ * instead of stacking. A rolled `0` is not a bug — half the common table can roll `0` too, and a
+ * shield that turned out plain is the same fiction as a tunic that did.
  *
  * The shield's id is the bare `shield` on purpose: it is protocol 14's art *class*, already mapped in
  * the client's `KIT_ART` to `offhand-shield`, so it draws with no new art. Starting weapons are not
@@ -302,7 +306,7 @@ const CLASS_KIT: Readonly<Partial<Record<ClassId, Readonly<Partial<Record<EquipS
       { id: 'longsword', name: 'a plain steel longsword', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 6, bonus: 0 }, weaponClass: 5 },
     ],
     offHand: [
-      { id: 'shield', name: 'a battered kite shield', acMin: 1, acMax: 3, size: 3 },
+      { id: 'shield', name: 'a battered kite shield', acMin: 0, acMax: 2, size: 3 },
     ],
   },
 };

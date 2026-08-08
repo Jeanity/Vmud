@@ -62,8 +62,16 @@ describe("the paladin's kit — the sword-and-board ruling in the starting gear"
       const kit = rollStarterKit(makeRng(seed), 'paladin');
       assert.equal(kit.offHand?.id, 'shield', `seed ${seed} has a shield`);
       assert.equal(kit.offHand?.slot, 'offHand');
-      assert.ok((kit.offHand?.ac ?? 0) >= 1, 'a shield that is worth nothing is a prop');
     }
+  });
+
+  it('rolls the shield in 0..2, the table’s lightest band', () => {
+    // Trimmed from 1..3 on the owner's call. The floor matters as much as the ceiling: at 0 a paladin
+    // starts no better armoured than anyone else and only their *best* case is above the common kit,
+    // so the two overlap rather than stack. A 0 roll is therefore expected, not a gap to assert away.
+    const seen = new Set<number>();
+    for (let seed = 0; seed < 200; seed++) seen.add(rollStarterKit(makeRng(seed), 'paladin').offHand!.ac);
+    assert.deepEqual([...seen].sort(), [0, 1, 2], `shield AC values seen: ${[...seen].sort().join(',')}`);
   });
 
   it('leaves every other class exactly as it was', () => {
