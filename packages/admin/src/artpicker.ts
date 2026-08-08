@@ -120,13 +120,6 @@ async function preferredModel(): Promise<{ model?: string }> {
 }
 
 /**
- * A 64×64 window onto a staged sheet, showing the south-facing standing frame.
- *
- * Served from `/lpc/<sheet>.png` on the panel's own origin — the game server, through the Vite proxy
- * — so this is a plain `<img>`-less div with a background and needs neither auth nor a canvas. See
- * `server/src/art.ts` for why the sheets come from there rather than from the client's port.
- */
-/**
  * Whether an entry is an **overlay** — art that is meaningless on its own.
  *
  * ULPC splits a lot of gear into a base and the things painted on top of it: `cape_trim` is the hem
@@ -148,6 +141,13 @@ export function isOverlayArt(kind: string): boolean {
   return /_(trim|paint|pattern|overlay)$/.test(kind);
 }
 
+/**
+ * A 64×64 window onto a staged sheet, showing the south-facing standing frame.
+ *
+ * Served from `/lpc/<sheet>.png` on the panel's own origin — the game server, through the Vite proxy
+ * — so this is a plain `<img>`-less div with a background and needs neither auth nor a canvas. See
+ * `server/src/art.ts` for why the sheets come from there rather than from the client's port.
+ */
 export function artThumb(sheet: string, scale = 2): HTMLElement {
   const size = 64 * scale;
   return el('div', {

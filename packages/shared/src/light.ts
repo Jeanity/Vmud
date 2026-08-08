@@ -148,19 +148,6 @@ export const LIGHT_SOURCES: Readonly<Record<string, LightSource>> = {
   },
 
   /**
-   * The owner's own example, and the one source that changes the *kind* of seeing you get.
-   *
-   * Room-radius **1**: your room and every room one exit away, entirely, walls and corners and all,
-   * with no line of sight involved. One is not a placeholder — it is exactly the interest-management
-   * radius (`current room + immediate neighbours`), so for thirty seconds you can see precisely the
-   * region the server is already streaming you and not one room further. The beacon shows you
-   * everything you are being told about; there is nothing beyond it to show.
-   *
-   * Thirty seconds is about a dozen room crossings: long enough to read the junction you are standing
-   * in and choose a direction, far too short to travel by. Then it crumbles to a torch, so the
-   * aftermath is a working light rather than a punishment.
-   */
-  /**
    * **A testing tool, not content.** Lights the room you are standing in and everything one exit away,
    * entirely and permanently, so a mechanic can be watched without first solving the lighting puzzle
    * that Phase 5 deliberately made hard.
@@ -179,6 +166,19 @@ export const LIGHT_SOURCES: Readonly<Record<string, LightSource>> = {
     scatterWeight: 0,
   },
 
+  /**
+   * The owner's own example, and the one source that changes the *kind* of seeing you get.
+   *
+   * Room-radius **1**: your room and every room one exit away, entirely, walls and corners and all,
+   * with no line of sight involved. One is not a placeholder — it is exactly the interest-management
+   * radius (`current room + immediate neighbours`), so for thirty seconds you can see precisely the
+   * region the server is already streaming you and not one room further. The beacon shows you
+   * everything you are being told about; there is nothing beyond it to show.
+   *
+   * Thirty seconds is about a dozen room crossings: long enough to read the junction you are standing
+   * in and choose a direction, far too short to travel by. Then it crumbles to a torch, so the
+   * aftermath is a working light rather than a punishment.
+   */
   beacon_of_hope: {
     id: 'beacon_of_hope',
     name: 'the Beacon of Hope',
@@ -195,7 +195,7 @@ export const LIGHT_SOURCES: Readonly<Record<string, LightSource>> = {
 /* Lights the world ships                                                      */
 /* -------------------------------------------------------------------------- */
 
-/**
+/*
  * **Removed 2026-08-06: light is no longer a property of your hands.**
  *
  * This used to be `['mainHand', 'offHand']`, transcribing Duris' `handler.c:431` — *"a lantern in your bag
@@ -602,6 +602,20 @@ export function toCarriedLight(source: LightSource, remainingMs?: number): Carri
 /* -------------------------------------------------------------------------- */
 
 /**
+ * The sectors that sit under the open sky — where a self-lit room means the *sun* is what lights
+ * it. Phase 21 slice 6's sun-vulnerability reads this beside {@link roomLightsItself}; caves,
+ * interiors and the depths are shelter no matter how bright.
+ */
+const OPEN_SKY = new Set<string>([
+  'city', 'road', 'field', 'forest', 'hills', 'mountain', 'swamp', 'desert', 'arctic',
+  'shallow_water', 'deep_water', 'air',
+]);
+
+export function underOpenSky(sector: string): boolean {
+  return OPEN_SKY.has(sector);
+}
+
+/**
  * Whether a room lights itself — **the owner's ask, 2026-08-06, and a flag we already harvest.**
  *
  * *"Some zones should have naturally lit areas that wouldn't even need a light source at all."* The data
@@ -627,20 +641,6 @@ export function toCarriedLight(source: LightSource, remainingMs?: number): Carri
  * inferred forest zones — an open wood in daylight — and it is also the honest one: absent data must not
  * become a claim that somewhere is dark.
  */
-/**
- * The sectors that sit under the open sky — where a self-lit room means the *sun* is what lights
- * it. Phase 21 slice 6's sun-vulnerability reads this beside {@link roomLightsItself}; caves,
- * interiors and the depths are shelter no matter how bright.
- */
-const OPEN_SKY = new Set<string>([
-  'city', 'road', 'field', 'forest', 'hills', 'mountain', 'swamp', 'desert', 'arctic',
-  'shallow_water', 'deep_water', 'air',
-]);
-
-export function underOpenSky(sector: string): boolean {
-  return OPEN_SKY.has(sector);
-}
-
 export function roomLightsItself(room: { readonly flags?: readonly string[] } | undefined): boolean {
   if (!room) return false;
   return !(room.flags?.includes('dark') ?? false);

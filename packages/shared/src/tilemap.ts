@@ -138,7 +138,6 @@ export function sectorIndex(sector: Sector): number {
   return SECTOR_TO_INDEX.get(sector) ?? 3;
 }
 
-/** Tile-space centre of a room block — where a character spawns or lands after a transition. */
 /**
  * World-pixel centre of a tile. Movement always targets centres, never corners.
  *
@@ -150,6 +149,7 @@ export function tileCentre(t: number): number {
   return t * TILE_SIZE + TILE_SIZE / 2;
 }
 
+/** Tile-space centre of a room block — where a character spawns or lands after a transition. */
 export function roomCentre(origin: { tx: number; ty: number }): { tx: number; ty: number } {
   const half = (ROOM_TILES - 1) / 2;
   return { tx: origin.tx + half, ty: origin.ty + half };

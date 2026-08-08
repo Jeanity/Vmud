@@ -8068,13 +8068,6 @@ function removeWorn(player: Player, rest: string): void {
   afterKitChange(player);
 }
 
-/**
- * `inventory`: what you are carrying, and what you are wearing.
- *
- * Both lists, because they are one question a player asks. Diku prints them from two commands
- * (`inventory` and `equipment`) and every player types both in sequence; there is no reason to make
- * them.
- */
 /* -------------------------------------------------------------------------- */
 /* Shops — Phase 17                                                            */
 /* -------------------------------------------------------------------------- */
@@ -8289,6 +8282,13 @@ function offered(
   return { at, item, template };
 }
 
+/**
+ * `inventory`: what you are carrying, and what you are wearing.
+ *
+ * Both lists, because they are one question a player asks. Diku prints them from two commands
+ * (`inventory` and `equipment`) and every player types both in sequence; there is no reason to make
+ * them.
+ */
 function listInventory(player: Player): void {
   const used = slotsUsed(player.inventory);
   send(player.id, {

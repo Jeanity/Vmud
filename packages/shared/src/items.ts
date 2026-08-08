@@ -411,7 +411,6 @@ export interface ContainerRule {
   readonly accepts: ContainerAccepts;
 }
 
-/** One catalogue entry. Harvested; never authored by hand. */
 /**
  * Duris' `ITEM_BOAT` (type 22) — the shipped game's **live** deep-water key: carried at the top level
  * or worn (*"water walking items actually"* — `actmove.c`'s own comment), it answers *"You need a
@@ -420,6 +419,7 @@ export interface ContainerRule {
  */
 export const ITEM_TYPE_BOAT = 22;
 
+/** One catalogue entry: harvested from Duris, or authored at or above {@link AUTHORED_VNUM_BASE}. */
 export interface ItemTemplate {
   /** Duris' object vnum. The join key between the `.obj` files and every `G`/`E`/`P` reset command. */
   readonly vnum: number;

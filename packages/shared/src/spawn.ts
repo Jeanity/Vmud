@@ -27,15 +27,6 @@ import type { RoomId, ZoneId } from './world.ts';
 /* -------------------------------------------------------------------------- */
 
 /**
- * What one kind of creature is.
- *
- * Deliberately thin, and it grew by exactly one field in Phase 9. Duris' `.mob` record also carries five
- * `affected_by` words, saving throws, class, gold and experience — and none of *that* has a consumer, so
- * none of it is harvested. Loot and experience are Phase 13. Re-running the harvest is free and offline, so
- * a field costs nothing to add later and costs the inert surface `ROADMAP.md` rule 1 warns about if added
- * now.
- */
-/**
  * Where **our own** mob vnums start. Nothing Duris ships may ever reach here. **A9b.**
  *
  * `AUTHORED_VNUM_BASE`'s twin, and it exists for the same reason rather than by analogy: a vnum is the
@@ -53,6 +44,15 @@ import type { RoomId, ZoneId } from './world.ts';
  */
 export const AUTHORED_MOB_BASE = 9_000_000;
 
+/**
+ * What one kind of creature is.
+ *
+ * **A field lands when it has a reader, and not before.** Duris' `.mob` record also carries five
+ * `affected_by` words, saving throws and a class, and none of *that* has a consumer here, so none of it
+ * is harvested — it would be exactly the inert surface `ROADMAP.md` rule 1 warns about. Re-running the
+ * harvest is free and offline, so a field costs nothing to add at the moment something wants to read it,
+ * which is how `race`, `experience` and `coins` arrived after this list first settled.
+ */
 export interface MobTemplate {
   /**
    * The MUD's own mob vnum. **The instance limit is keyed on this**, so it has to be the real number and
