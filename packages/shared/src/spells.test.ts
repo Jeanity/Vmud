@@ -241,3 +241,17 @@ describe('the mob’s quick chant', () => {
     assert.equal(mobCastMs(rng, spell, 60), 0);
   });
 });
+
+describe('gate 2 — the player dialect, Phase 21', () => {
+  it('rolls for the blooded player races by their defines.h codes', () => {
+    for (const code of ['PL', 'PD', 'PE', 'P2']) {
+      assert.equal(shrugChance(code, 50), 5, code);
+    }
+  });
+
+  it('still rolls for nobody human', () => {
+    assert.equal(shrugChance('PH', 50), 0);
+    assert.equal(shrugChance('PB', 50), 0);
+    assert.equal(shrugChance('PM', 50), 0); // a mountain dwarf resists nothing arcane
+  });
+});

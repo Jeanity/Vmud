@@ -321,7 +321,15 @@ export function defaultSaveMod(casterLevel: number, victimLevel: number, circle:
  * codes the loaded zones do not yet spawn. A victim with no race — every player until Phase 21 —
  * never shrugs, which is the source's own shape: MR is innate, and innates ride races.
  */
-export const MAGIC_RESISTANT_RACES: ReadonlySet<string> = new Set(['DR', 'DL', 'DE', 'DV', 'FE', 'AE', 'WE', 'EE']);
+export const MAGIC_RESISTANT_RACES: ReadonlySet<string> = new Set([
+  // The harvest's own mob codes, as Phase 20 transcribed them from `resists_spell`.
+  'DR', 'DL', 'DE', 'DV', 'FE', 'AE', 'WE', 'EE',
+  // Phase 21: the *player* race codes (`defines.h:891`) for the races `innates.c` marks resistant
+  // — drow, duergar, grey elf, half-elf. Two namespaces, discovered the hard way: the first drive
+  // of a drow player arrived here as `PL` and shrugged nothing, because this set spoke only the
+  // harvest's dialect. Additive, so every pinned mob expectation stands.
+  'PL', 'PD', 'PE', 'P2',
+]);
 
 /**
  * The shrug chance, as a percentage — `get_innate_resistance` (`innates.c:3688-3720`). The racial

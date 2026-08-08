@@ -83,9 +83,14 @@ export function loadShops(file = SHOPS_FILE): Map<number, Shop> {
  * Rounded **up**, so a keeper never sells at a loss to rounding. At the shipped median of 1.10 that
  * is a penny on eleven, which nobody will notice; on the cheapest item in the world it is the
  * difference between a price and a gift.
+ *
+ * **Phase 21: charisma tilts the spread** — two percent a modifier point, CHA's first reader
+ * (DESIGN-characters.md §2). Duris does this through `CHA_APP(ch).prices`; ours rides the SRD
+ * modifier instead, so a +3 face pays 94 on the hundred and a −2 lout pays 104. Zero for the
+ * identity-less, who shop exactly as they did before the phase.
  */
-export function priceToBuy(template: ItemTemplate, shop: Shop): number {
-  return Math.max(1, Math.ceil(template.cost * shop.sellPercent));
+export function priceToBuy(template: ItemTemplate, shop: Shop, chaMod = 0): number {
+  return Math.max(1, Math.ceil(template.cost * shop.sellPercent * (1 - chaMod * 0.02)));
 }
 
 /**
@@ -94,9 +99,17 @@ export function priceToBuy(template: ItemTemplate, shop: Shop): number {
  * Rounded **down**, for the mirror of the reason above, and floored at zero rather than at one: an
  * item the world says is worth nothing fetches nothing, and inventing a penny for it would make
  * every piece of trash in the world a slow income.
+ *
+ * Charisma raises this end of the spread too — and is then **clamped below what the same charmer
+ * would be charged**, because the harvest's anti-arbitrage rule (`shop.c`'s own) must survive the
+ * tilt: a face good enough to be paid more than the shelf price would be a money printer with
+ * dimples.
  */
-export function priceToSell(template: ItemTemplate, shop: Shop): number {
-  return Math.max(0, Math.floor(template.cost * shop.buyPercent));
+export function priceToSell(template: ItemTemplate, shop: Shop, chaMod = 0): number {
+  const paid = Math.floor(template.cost * shop.buyPercent * (1 + chaMod * 0.02));
+  if (chaMod <= 0) return Math.max(0, paid); // untinted, the harvest's own clamp is the guarantee
+  const ceiling = Math.max(0, priceToBuy(template, shop, chaMod) - 1);
+  return Math.max(0, Math.min(paid, ceiling));
 }
 
 /**

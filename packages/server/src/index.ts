@@ -7434,9 +7434,14 @@ function listShopStock(player: Player): void {
     send(player.id, {
       t: 'log',
       channel: 'system',
-      text: `  ${String(index + 1).padStart(2)}. ${template.name}&N — ${describePurse(purseFromValue(priceToBuy(template, here.shop)))}`,
+      text: `  ${String(index + 1).padStart(2)}. ${template.name}&N — ${describePurse(purseFromValue(priceToBuy(template, here.shop, shopCha(player))))}`,
     });
   });
+}
+
+/** The shopper's charisma modifier — CHA's first reader, zero for the identity-less. Phase 21. */
+function shopCha(player: Player): number {
+  return player.identity ? abilityMod(player.identity.scores.cha) : 0;
 }
 
 /** `buy <keyword|number>` — the coin leaves, the item arrives, and the bag has to have room. */
@@ -7454,7 +7459,7 @@ function buyFromShop(player: Player, rest: string): void {
     return;
   }
 
-  const price = priceToBuy(template, here.shop);
+  const price = priceToBuy(template, here.shop, shopCha(player));
   const paid = spendCoins(player.purse, price);
   if (!paid) {
     keeperSays(player, here.mob, `That costs ${stripColour(describePurse(purseFromValue(price)))}. You do not have it.`);
@@ -7487,7 +7492,7 @@ function valueAtShop(player: Player, rest: string): void {
   keeperSays(
     player,
     here.mob,
-    `I will give you ${stripColour(describePurse(purseFromValue(priceToSell(found.template, here.shop))))} for ${stripColour(found.item.name)}.`,
+    `I will give you ${stripColour(describePurse(purseFromValue(priceToSell(found.template, here.shop, shopCha(player)))))} for ${stripColour(found.item.name)}.`,
   );
 }
 
@@ -7498,7 +7503,7 @@ function sellToShop(player: Player, rest: string): void {
   const found = offered(player, here, rest);
   if (!found) return;
 
-  const paid = priceToSell(found.template, here.shop);
+  const paid = priceToSell(found.template, here.shop, shopCha(player));
   const taken = removeAt(player.inventory, found.at);
   if (!taken) {
     // Re-read rather than trusting the resolution above, the same discipline `pickUp` keeps: two
