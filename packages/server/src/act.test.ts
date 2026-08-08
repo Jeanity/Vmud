@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { UNSEEN_NAME, actLines, type Actor } from './act.ts';
+import { UNSEEN_NAME, actLines, actLinesPair, type Actor } from './act.ts';
 
 const alice: Actor = { id: 1, name: 'Alice' };
 const bob: Actor = { id: 2, name: 'Bob' };
@@ -63,5 +63,57 @@ describe('actLines — the leak', () => {
   it('sends nothing to an empty room', () => {
     assert.deepEqual(actLines(alice, [alice], seenBy([]), says), []);
     assert.deepEqual(actLines(alice, [], seenBy([]), says), []);
+  });
+});
+
+describe('actLinesPair — the leak, on the other name', () => {
+  const dave: Actor = { id: 4, name: 'Dave' };
+  const whispers = (who: string, whom: string): string => `${who} whispers something to ${whom}.`;
+
+  it('gates both names against the same observer, independently', () => {
+    // `whisper` is the first line that names two people to a third. Rendering it through `actLines`
+    // gated the whisperer and pasted the recipient's name in from their own record — the original
+    // leak wearing the other hat. `act()` never had the bug: `$n` goes through `PERS(ch, to)` and
+    // `$N` through `PERS(vict, to)`, both against the recipient.
+    const room = [alice, bob, carol, dave];
+    // Carol sees only Alice; Dave sees only Bob.
+    const sight = (observer: Actor, subject: Actor): boolean =>
+      (observer.id === 3 && subject.id === 1) || (observer.id === 4 && subject.id === 2);
+
+    assert.deepEqual(actLinesPair(alice, bob, room, sight, whispers), [
+      { to: 3, text: `Alice whispers something to ${UNSEEN_NAME}.` },
+      { to: 4, text: `${UNSEEN_NAME} whispers something to Bob.` },
+    ]);
+  });
+
+  it('never lets an unseen subject’s name reach an observer, in either position', () => {
+    // The property, over every combination of who is lit, rather than one example of it.
+    const room = [alice, bob, carol];
+    for (const lit of [[], [1], [2], [1, 2]]) {
+      const sight = (_observer: Actor, subject: Actor): boolean => lit.includes(subject.id);
+      const [line] = actLinesPair(alice, bob, room, sight, whispers);
+      assert.equal(line!.text.includes(alice.name), lit.includes(1), line!.text);
+      assert.equal(line!.text.includes(bob.name), lit.includes(2), line!.text);
+    }
+  });
+
+  it('writes to neither subject, which is what TO_NOTVICT means', () => {
+    // The actor is omitted by `act()` itself and the victim by the flag; both are told what happened
+    // in the second person by the caller, so a "someone" line can never reach either of the two
+    // people who certainly know who was involved.
+    const lines = actLinesPair(alice, bob, [alice, bob, carol, dave], () => true, whispers);
+    assert.deepEqual(lines.map((l) => l.to), [3, 4]);
+  });
+
+  it('says "someone" twice rather than dropping the line', () => {
+    // Whispering in company is an audible, visible act even when you cannot see who is doing it —
+    // and the room hearing nothing at all is the version that would make conspiracy invisible.
+    const lines = actLinesPair(alice, bob, [carol], seenBy([]), whispers);
+    assert.deepEqual(lines, [{ to: 3, text: `${UNSEEN_NAME} whispers something to ${UNSEEN_NAME}.` }]);
+  });
+
+  it('sends nothing to a room holding only the two of them', () => {
+    assert.deepEqual(actLinesPair(alice, bob, [alice, bob], () => true, whispers), []);
+    assert.deepEqual(actLinesPair(alice, bob, [], () => true, whispers), []);
   });
 });

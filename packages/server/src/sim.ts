@@ -424,8 +424,17 @@ export interface Player extends Actor {
   spentSlots: Map<number, number>;
   /** Continuous rest toward the next slot back. Transient on purpose — standing resets the trance. */
   memorizeMs: number;
-  /** Who last told you something — `reply`'s target, by name. Transient; a session fact. */
-  replyTo?: string;
+  /**
+   * Who last spoke to you privately, and *how*. `reply`'s target. Transient; a session fact.
+   *
+   * The mode rides along rather than being a second field, so the two cannot drift: there is no way
+   * to hold a name without holding the manner it arrived in. It matters because the two private
+   * verbs have different reach — a `tell` crosses the world, a `whisper` is a sound in one room —
+   * and `reply` answers **in kind**. Answering a whisper with a tell would take the reply out of the
+   * room the whisper was standing in, leaving the onlookers who were shown *"X whispers something to
+   * Y"* watching one half of a conversation. See `doReply`.
+   */
+  replyTo?: { readonly name: string; readonly mode: 'tell' | 'whisper' };
   /** Quest state by id — restored from the record, written back through it. Slice 7. */
   quests: Map<string, number | 'done'>;
   /** Latest steering intent, normalised, replaced each time the client sends one. */

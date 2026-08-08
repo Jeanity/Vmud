@@ -72,3 +72,40 @@ export function actLines<A extends Actor, O extends Actor>(
   }
   return lines;
 }
+
+/**
+ * The same rule for a line about **two** characters — the MUD's `$n` *and* `$N`.
+ *
+ * `whisper` is the first line the game has that names two people to a third: *"X whispers something
+ * to Y."* Rendering it through {@link actLines} gated only `X`, and `Y` was pasted in from the
+ * actor's own record — which is the original leak wearing the other hat. An observer who cannot see
+ * the person being whispered *to* still read their name off the log, while their client had never
+ * been told that body was in the room.
+ *
+ * The source does not have this problem, because it never had one name to gate: `act()` expands `$n`
+ * through `PERS(ch, to)` and `$N` through `PERS(vict, to)`, both against the same recipient. Two
+ * subjects, one observer, one rule — which is all this is.
+ *
+ * Neither subject is written to. That is `TO_NOTVICT` exactly: `act()` already omits the actor, the
+ * flag omits the victim, and both of them are told what happened in the second person by the caller.
+ */
+export function actLinesPair<A extends Actor, B extends Actor, O extends Actor>(
+  actor: A,
+  other: B,
+  observers: Iterable<O>,
+  canSee: (observer: O, subject: A | B) => boolean,
+  render: (who: string, whom: string) => string,
+): ActLine[] {
+  const lines: ActLine[] = [];
+  for (const observer of observers) {
+    if (observer.id === actor.id || observer.id === other.id) continue;
+    lines.push({
+      to: observer.id,
+      text: render(
+        canSee(observer, actor) ? actor.name : UNSEEN_NAME,
+        canSee(observer, other) ? other.name : UNSEEN_NAME,
+      ),
+    });
+  }
+  return lines;
+}

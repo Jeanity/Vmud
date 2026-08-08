@@ -225,7 +225,7 @@ import { lightSource, lightSourceFrom, type LightSource } from '@mygame/shared/l
 import { canWalkStraightTo, findPath, type PathFailure } from '@mygame/shared/pathfind.ts';
 import { bitsToBase64, bitsetToSet } from '@mygame/shared/vision.ts';
 
-import { UNSEEN_NAME, actLines } from './act.ts';
+import { UNSEEN_NAME, actLines, actLinesPair } from './act.ts';
 import { roomLightsItself, underOpenSky } from '@mygame/shared/light.ts';
 
 import { AccountStore, MAX_CHARACTERS_PER_ACCOUNT, type AccountRecord, type AuthResult } from './accounts.ts';
@@ -5533,7 +5533,7 @@ function doGossip(player: Player, rest: string): void {
 function deliverTell(from: Player, to: Player, text: string): void {
   send(to.id, { t: 'log', channel: 'tell', text: `&+c${from.name} tells you, '${text}'&N` });
   send(from.id, { t: 'log', channel: 'tell', text: `&+cYou tell ${to.name}, '${text}'&N` });
-  to.replyTo = from.name;
+  to.replyTo = { name: from.name, mode: 'tell' };
 }
 
 /** `tell <name> <text>` — person to person, anywhere in the world. The whisper row's other half. */
@@ -5554,20 +5554,50 @@ function doTell(player: Player, rest: string): void {
   deliverTell(player, target, said);
 }
 
-/** `reply <text>` — answers the last person who told you anything, by name, wherever they went. */
+/**
+ * `reply <text>` — answers the last person who spoke to you privately, **in the manner they used**.
+ *
+ * ## Why the mode is carried, when Duris does not carry it
+ *
+ * Duris' `do_reply` re-runs `do_tell` against `ch->only.pc->last_tell` (`actcomm.c:871-887`), and
+ * `last_tell` is written in exactly one place — inside `do_tell` (`actcomm.c:1032-1033`). `do_whisper`
+ * never touches it, so **in the source a whisper cannot be replied to at all**; you type the verb
+ * again. That is a defensible answer, and it is not the one taken here: a private word deserves the
+ * one-key answer whichever verb carried it.
+ *
+ * But routing a whisper's answer through `tell` — the literal "set `replyTo` and let `reply` do what
+ * it always does" — would quietly change its reach mid-conversation. The room was shown *"X whispers
+ * something to Y"*; a tell back leaves the room entirely, so those onlookers see the opening of a
+ * conversation and never its other half. So `reply` answers a whisper **with a whisper**, and the
+ * mode stored beside the name is the whole of what makes that possible.
+ */
 function doReply(player: Player, rest: string): void {
   const said = rest.trim();
   if (!said) {
     send(player.id, { t: 'log', channel: 'error', text: 'Reply what?' });
     return;
   }
-  if (!player.replyTo) {
+  const to = player.replyTo;
+  if (!to) {
     send(player.id, { t: 'log', channel: 'error', text: 'Nobody has told you anything to reply to.' });
     return;
   }
-  const target = [...sim.allPlayers()].find((p) => p.name === player.replyTo);
+  if (to.mode === 'whisper') {
+    // Room-scoped on the way back, exactly as it was on the way in — `playersIn`, not `allPlayers`.
+    // Leaning in to murmur needs the other person within leaning distance, and the refusal has to
+    // name that rather than borrow `tell`'s "no longer here", which would read as *gone from the
+    // world* when they are very often standing one room away.
+    const near = [...sim.playersIn(player.roomId)].find((p) => p.id !== player.id && p.name === to.name);
+    if (!near) {
+      send(player.id, { t: 'log', channel: 'error', text: `${to.name} is no longer close enough to whisper to.` });
+      return;
+    }
+    deliverWhisper(player, near, said.slice(0, 400));
+    return;
+  }
+  const target = [...sim.allPlayers()].find((p) => p.name === to.name);
   if (!target) {
-    send(player.id, { t: 'log', channel: 'error', text: `${player.replyTo} is no longer here.` });
+    send(player.id, { t: 'log', channel: 'error', text: `${to.name} is no longer here.` });
     return;
   }
   deliverTell(player, target, said);
@@ -5800,16 +5830,20 @@ function saySomething(player: Player, text: string): void {
  *
  * ## The room learns *that* you whispered, which is Duris' call and a good one
  *
- * `do_whisper` sends `"$n whispers something to $N."` to everyone else in the room (`TO_NOTVICT`).
- * Transcribed rather than decided: whispering in company is itself a visible act, and a whisper that
- * left no trace would make a room of people unable to tell conversation from conspiracy.
+ * `do_whisper` sends `"$n whispers something to $N."` to everyone else in the room (`TO_NOTVICT`,
+ * `actcomm.c:1126`). Transcribed rather than decided: whispering in company is itself a visible act,
+ * and a whisper that left no trace would make a room of people unable to tell conversation from
+ * conspiracy. The function is live code — no `#if` guard encloses it, and `interp.c:2631` registers
+ * it in the command table unconditionally.
+ *
+ * `reply` answers one of these with another one; the reasoning is in {@link doReply}.
  */
 function whisperTo(player: Player, rest: string): void {
-  // `half_chop` in the source: the first word is the target, everything after it is the message.
-  const trimmed = rest.trim();
-  const split = trimmed.indexOf(' ');
-  const name = split < 0 ? trimmed : trimmed.slice(0, split);
-  const said = (split < 0 ? '' : trimmed.slice(split + 1)).trim().slice(0, 400);
+  // `splitCommand` is this project's `half_chop`, and sharing it with `tell` is the point: the split
+  // this hand-rolled looked for a literal space, so a tab between the name and the message swallowed
+  // the whole line into the name and the whisper came back as "who do you want to whisper to".
+  const { word: name, rest: text } = splitCommand(rest);
+  const said = text.slice(0, 400);
   if (!name || !said) {
     send(player.id, { t: 'log', channel: 'error', text: 'Who do you want to whisper to — and what?' });
     return;
@@ -5832,26 +5866,52 @@ function whisperTo(player: Player, rest: string): void {
     return;
   }
 
-  send(player.id, { t: 'log', channel: 'say', text: `You whisper '${said}' to ${target.name}&N.` });
+  deliverWhisper(player, target, said);
+}
+
+/**
+ * The three sentences a whisper makes — shared by `whisper` and by a whispered `reply`, exactly as
+ * {@link deliverTell} is shared by `tell` and a told one.
+ *
+ * ## Why all three ride `say`, and not `tell` or a channel of whisper's own
+ *
+ * Considered and rejected: a `whisper` member on `LogChannel`, protocol 27, its own dim colour in the
+ * client's `.ch-*` block. The discriminator is already written down a few functions up, in
+ * {@link doGossip}: Phase 21's three channels are **voices over the world, not sounds in it**, which
+ * is precisely why none of them sets `from`/`speech`. A whisper is the other kind of thing. It is
+ * gated by the room's own {@link canSee}; `permits` refuses it from a body not upright enough to lean
+ * (`STAT_RESTING + POS_SITTING`, stricter than `say`'s `POS_PRONE`); and the recipient's line *does*
+ * carry `from`/`speech` and *does* draw a bubble. Every property that separates `say` from `tell`
+ * puts a whisper on `say`'s side, so a third colour would be painting the wrong distinction.
+ *
+ * And the bump buys only that colour: `log.ts` turns a channel into a CSS class and nothing else —
+ * there is no per-channel filtering to hang off it. Protocol stays at **26**.
+ */
+function deliverWhisper(from: Player, to: Actor, said: string): void {
+  send(from.id, { t: 'log', channel: 'say', text: `You whisper '${said}' to ${to.name}&N.` });
 
   // **The bubble goes only here.** `from`/`speech` ride this one line, so the recipient's client is
   // the only one with anything to draw — which is the whole of the privacy, and it is the same gate
   // the sentence passes rather than a second one beside it.
-  if (isPlayer(target)) {
-    send(target.id, {
+  if (isPlayer(to)) {
+    send(to.id, {
       t: 'log',
       channel: 'say',
-      text: `${capitalise(nameSeenBy(target, player))} whispers to you, '${said}'`,
+      text: `${capitalise(nameSeenBy(to, from))} whispers to you, '${said}'`,
       // Only when they can actually see who it was. An unseen whisperer's line reads "someone
       // whispers to you" and there is no body on their screen to hang a bubble from anyway — but
       // saying so here keeps the two halves from ever disagreeing.
-      ...(canSee(target, player) ? { from: player.id, speech: said } : {}),
+      ...(canSee(to, from) ? { from: from.id, speech: said } : {}),
     });
+    // The one thing the source does not do (`do_whisper` never writes `last_tell`), and the mode is
+    // carried so the answer comes back as a whisper rather than as a tell. See {@link doReply}.
+    to.replyTo = { name: from.name, mode: 'whisper' };
   }
 
-  // Everyone else: that it happened, and between whom. Never what was said.
-  for (const line of actLines(player, sim.playersIn(player.roomId), canSee, (who) => `${who} whispers something to ${target.name}&N.`)) {
-    if (line.to === player.id || line.to === target.id) continue;
+  // Everyone else: that it happened, and between whom. Never what was said. `actLinesPair` because
+  // **both** names need the gate — `$n` and `$N` in the source — and it drops the whisperer and the
+  // recipient itself, which is what `TO_NOTVICT` means.
+  for (const line of actLinesPair(from, to, sim.playersIn(from.roomId), canSee, (who, whom) => `${who} whispers something to ${whom}&N.`)) {
     send(line.to, { t: 'log', channel: 'say', text: line.text });
   }
 }

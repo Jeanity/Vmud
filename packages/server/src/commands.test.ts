@@ -275,6 +275,16 @@ describe('splitCommand', () => {
     // players typed at each other.
     assert.equal(splitCommand('say  two   spaces').rest, 'two   spaces');
   });
+
+  it('splits on any whitespace, which is why `whisper` shares it rather than hand-rolling', () => {
+    // `whisper` split its own name-from-message on a literal space, so a tab swallowed the whole
+    // line into the name and the whisper came back as "who do you want to whisper to". This is the
+    // project's `half_chop`; there should only be one of it.
+    assert.deepEqual(splitCommand('whisper\tBob meet me outside'), {
+      word: 'whisper',
+      rest: 'Bob meet me outside',
+    });
+  });
 });
 
 describe('parseTargetRef — ordinals', () => {

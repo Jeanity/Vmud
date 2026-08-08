@@ -478,6 +478,12 @@ sees nothing for a mob that never moves and never fights, and reads as a server 
 there. All three paths build their views through `sim.viewOf`, which is the only thing in the
 project that constructs an `EntityView`.
 
+**`whisper`'s two loose ends were tied the same day**: `reply` answers a whisper *with* a whisper
+rather than lifting the answer out of the room as a tell (the manner now rides beside the name in
+`replyTo`), and the room's *"X whispers something to Y"* line was naming **Y** ungated — the original
+`say` leak on the second subject, now closed by `actLinesPair`. Whisper stays on the `say` channel and
+the protocol stays **26**: it is a sound in a room, not a voice over the world. 1,755 tests.
+
 **Track A's biggest operator row is now closed: the server-lifecycle supervisor landed as A10.** The
 panel can start, stop and restart the game server, and it keeps answering while the game server does
 not — which is the whole of why lifecycle could not be a route on the thing it restarts. A **separate
