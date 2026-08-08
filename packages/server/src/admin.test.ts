@@ -2316,7 +2316,7 @@ describe('authoring a quest — A7q', () => {
     assert.equal(readFileSync(questsFile, 'utf8'), '[]\n');
   });
 
-  it('writes the reward item only when one is paid, as it writes count only on a kill', () => {
+  it('writes the reward item only when one is paid, as it writes a bring count only above one', () => {
     const dir = mkdtempSync(join(tmpdir(), 'mygame-a7q-item-'));
     const questsFile = join(dir, 'quests.json');
     const { api } = makeRig({ questsFile });
@@ -2330,6 +2330,51 @@ describe('authoring a quest — A7q', () => {
     quietly(() => api.route(req('PATCH', '/quests/cull-the-shamans', { reward: { xp: 5, copper: 0, item: null } })));
     assert.match(readFileSync(questsFile, 'utf8'), /"reward": \{ "xp": 5, "copper": 0 \}\n/);
     assert.deepEqual(loadQuests(questsFile).get('cull-the-shamans')?.reward, { xp: 5, copper: 0 });
+  });
+
+  /**
+   * The writer's half of the back-compatibility bargain, and the reason it is worth a test of its own:
+   * the four quests shipped in `data/world/overrides/quests.json` were hand-authored before a `bring`
+   * could count. A writer that stamped `"count": 1` onto each of them would turn the first panel edit
+   * of any one quest into a diff touching every other, in the one directory under `data/` git tracks.
+   */
+  it('leaves a bring of one uncounted in the file, and writes the count when there is one to write', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mygame-a7q-count-'));
+    const questsFile = join(dir, 'quests.json');
+    const { api } = makeRig({ questsFile });
+
+    // Posted with no count at all — the shape every `bring` quest in the shipped file has.
+    const fetch = { ...CULL, id: 'fetch-the-dagger', objective: { kind: 'bring', vnum: 100, what: 'the silver dagger' } };
+    assert.equal(quietly(() => api.route(req('POST', '/quests', fetch))).status, 201);
+    assert.match(readFileSync(questsFile, 'utf8'), /"objective": \{ "kind": "bring", "vnum": 100, "what": "the silver dagger" \}/);
+    // Silent in the file, a 1 in the record: the normalisation is the loader's, not the reader's.
+    assert.equal(loadQuests(questsFile).get('fetch-the-dagger')?.objective.count, 1);
+
+    // Ask for eight and the field appears, in `kill`'s own slot between the vnum and the words.
+    quietly(() => api.route(req('PATCH', '/quests/fetch-the-dagger', { objective: { kind: 'bring', vnum: 100, count: 8, what: 'silver daggers' } })));
+    assert.match(readFileSync(questsFile, 'utf8'), /"objective": \{ "kind": "bring", "vnum": 100, "count": 8, "what": "silver daggers" \}/);
+    assert.equal(loadQuests(questsFile).get('fetch-the-dagger')?.objective.count, 8);
+
+    // And back down to one, which takes the key away again rather than leaving a `1` behind.
+    quietly(() => api.route(req('PATCH', '/quests/fetch-the-dagger', { objective: { kind: 'bring', vnum: 100, count: 1, what: 'the silver dagger' } })));
+    assert.match(readFileSync(questsFile, 'utf8'), /"objective": \{ "kind": "bring", "vnum": 100, "what": "the silver dagger" \}/);
+  });
+
+  it('refuses a count outside 1–100 on a bring, exactly as it does on a kill', () => {
+    const { api } = makeRig();
+    const fetch = { ...CULL, id: 'fetch-too-many', objective: { kind: 'bring', vnum: 100, count: 250, what: 'daggers' } };
+    const tooMany = api.route(req('POST', '/quests', fetch));
+    assert.equal(tooMany.status, 400);
+    assert.match((tooMany.body as { error: string }).error, /count must be a whole number from 1 to 100/);
+
+    for (const count of [0, -1, 2.5]) {
+      const bad = api.route(req('POST', '/quests', { ...fetch, objective: { ...fetch.objective, count } }));
+      assert.equal(bad.status, 400, `count ${count} should be refused`);
+    }
+    // A `kill` still may not omit it — the asymmetry is deliberate, and this is the half that holds.
+    const mute = api.route(req('POST', '/quests', { ...CULL, id: 'kill-some', objective: { kind: 'kill', vnum: 62, what: 'shamans' } }));
+    assert.equal(mute.status, 400);
+    assert.match((mute.body as { error: string }).error, /count must be a whole number from 1 to 100/);
   });
 
   it('audits every write', () => {

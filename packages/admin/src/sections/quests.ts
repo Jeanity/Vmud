@@ -36,11 +36,15 @@ function coloured(text: string): HTMLElement {
   return holder;
 }
 
-/** *“kill 3 × kobold youths”* — the objective in the words the progress line uses. */
+/**
+ * *“kill 3 × kobold youths”*, *“bring 8 × small nuggets of silver”* — the objective in the words the
+ * progress line uses.
+ *
+ * One branch now rather than two: a `bring` counts as a `kill` does, so the sentence is the same
+ * sentence. `?? 1` survives only for a row read from a server older than counting.
+ */
 function objectiveLine(objective: QuestObjective): string {
-  return objective.kind === 'kill'
-    ? `kill ${objective.count ?? 1} × ${objective.what}`
-    : `bring ${objective.what}`;
+  return `${objective.kind} ${objective.count ?? 1} × ${objective.what}`;
 }
 
 /**
@@ -140,15 +144,11 @@ function questForm(quest: QuestRow | undefined): QuestForm {
     type: 'text', placeholder: 'kobold youths',
     value: quest?.objective.what ?? '',
   }) as HTMLInputElement;
+  // **Shown for both kinds now, and no longer toggled.** It used to be hidden on a `bring`, because
+  // the loader ignored a count there and a box the server ignores is a box that lies — the same
+  // argument landing the other way round now that the loader honours it. 1,154 of the harvested Duris
+  // exchanges want several of an item, so hiding it was hiding the commonest fetch quest there is.
   const countRow = el('span', { class: 'row' }, el('label', {}, 'count'), count);
-  // A `bring` has no count — the loader would ignore one, and a box the server ignores is a box that
-  // lies. The kind toggle hides it rather than disabling it, and re-aims the target lookup at the
-  // catalogue the objective actually names.
-  const syncKind = (): void => {
-    countRow.style.display = kind.value === 'kill' ? '' : 'none';
-  };
-  kind.addEventListener('change', syncKind);
-  syncKind();
 
   const xp = el('input', { type: 'number', min: '0', value: String(quest?.reward.xp ?? 0) }) as HTMLInputElement;
   const copper = el('input', { type: 'number', min: '0', value: String(quest?.reward.copper ?? 0) }) as HTMLInputElement;
@@ -179,10 +179,23 @@ function questForm(quest: QuestRow | undefined): QuestForm {
       if (giverVnum === undefined) return { error: 'a giver vnum is required' };
       const targetVnum = target.value();
       if (targetVnum === undefined) return { error: 'the objective needs a vnum' };
-      const objective: Record<string, unknown> =
-        kind.value === 'kill'
-          ? { kind: 'kill', vnum: targetVnum, count: Number(count.value || 1), what: what.value.trim() }
-          : { kind: 'bring', vnum: targetVnum, what: what.value.trim() };
+      // Checked here as well as on the server, for the reason every box on this form is: `min`/`max`
+      // on a number input is advisory — typing `0` or `250` into it is not blocked, it merely fails
+      // the browser's own validity check that nothing here consults. The sentence is the server's own,
+      // so an operator who trips it at the form and one who trips it through a hand-edited file are
+      // told the same thing.
+      const counted = Number(count.value || 1);
+      if (!Number.isInteger(counted) || counted < 1 || counted > 100) {
+        return { error: 'objective count must be a whole number from 1 to 100' };
+      }
+      // Both kinds carry it. A `bring` of one still posts `count: 1`, which the server normalises to
+      // the same record it would have made from a draft that omitted the field.
+      const objective: Record<string, unknown> = {
+        kind: kind.value === 'kill' ? 'kill' : 'bring',
+        vnum: targetVnum,
+        count: counted,
+        what: what.value.trim(),
+      };
       return {
         draft: {
           giver: giverVnum,

@@ -277,7 +277,7 @@ import {
   type PlayerIdentity,
   type PlayerRecord,
 } from './players.ts';
-import { QUESTS_FILE, loadQuests, questsBy } from './quests.ts';
+import { QUESTS_FILE, carriedForQuest, consumeBrought, loadQuests, objectivePhrase, questsBy } from './quests.ts';
 import { directionFrom, peek } from './peek.ts';
 import {
   isUntouchable,
@@ -5485,11 +5485,18 @@ function doQuest(player: Player): void {
     }
     for (const [id, state] of held) {
       const def = quests.get(id);
-      if (!def || def.objective.kind !== 'kill') continue;
+      if (!def) continue;
+      // **A `bring` reports too, and its progress is the bag.** This used to skip every objective that
+      // was not a `kill`, so a fetch quest was one you could hold and never get a word about. The
+      // number a `kill` stores is `state`; the number a `bring` has is however many of the thing you
+      // are carrying right now, which is why one of these is read from the save and the other from
+      // the inventory. Both print the same `n of m` line, because to a player they are the same
+      // question — how far along am I.
+      const done = def.objective.kind === 'kill' ? (state as number) : carriedForQuest(player.inventory, def.objective.vnum);
       send(player.id, {
         t: 'log',
         channel: 'system',
-        text: `Quest "${def.name}": ${state} of ${def.objective.count} ${def.objective.what}.`,
+        text: `Quest "${def.name}": ${done} of ${def.objective.count} ${def.objective.what}.`,
       });
     }
     return;
@@ -5504,34 +5511,53 @@ function doQuest(player: Player): void {
     if (state === undefined) {
       player.quests.set(def.id, 0);
       send(player.id, { t: 'log', channel: 'say', text: `${giver.name}&N says, '${def.ask}'` });
-      if (def.objective.kind === 'kill') {
-        send(player.id, {
-          t: 'log',
-          channel: 'system',
-          text: `Quest taken: ${def.objective.count} ${def.objective.what}. (Say "quest" here again when it is done.)`,
-        });
-      }
+      // Both kinds now, in the sentence the `kill` already used, unchanged: the count is the
+      // objective, and a fetch quest that announced itself with no number left the player to infer
+      // *"one"* from silence — right by accident until it was wrong for eight nuggets.
+      send(player.id, {
+        t: 'log',
+        channel: 'system',
+        text: `Quest taken: ${objectivePhrase(def.objective)}. (Say "quest" here again when it is done.)`,
+      });
       persistAdminEdit(player);
       continue;
     }
-    const complete =
+    // How far along, in the units the objective counts. A `kill` accumulates into the save file; a
+    // `bring` is however much of it is in the bag at this moment — the vnum join, not a word, which is
+    // the bug commit `41aecce` fixed and `carriedForQuest` now owns along with the summing that makes
+    // a stack of eight read as eight.
+    const done =
       def.objective.kind === 'kill'
-        ? typeof state === 'number' && state >= def.objective.count
-        : // **The vnum, not a word.** This asked `matchInventory` for the bare number, which matches
-          // nothing: an instance's id is `obj:<vnum>` and its keyword list is the catalogue's words
-          // unioned with its name — neither is ever the digits. Every `bring` quest was therefore
-          // uncompletable, invisibly, and it stayed invisible because the only shipped quest was a
-          // `kill`. `vnumOf` is the join the death spoils and the keyword resolver already use.
-          player.inventory.stacks.some((stack) => vnumOf(stack.item) === (def.objective as { vnum: number }).vnum);
-    if (!complete) {
-      if (def.objective.kind === 'kill') {
-        send(player.id, {
-          t: 'log',
-          channel: 'say',
-          text: `${giver.name}&N says, 'Not done. ${def.objective.count - (state as number)} of the ${def.objective.what} still stand.'`,
-        });
-      }
+        ? typeof state === 'number'
+          ? state
+          : 0
+        : carriedForQuest(player.inventory, def.objective.vnum);
+    if (done < def.objective.count) {
+      send(player.id, {
+        t: 'log',
+        channel: 'say',
+        text:
+          def.objective.kind === 'kill'
+            ? `${giver.name}&N says, 'Not done. ${def.objective.count - done} of the ${def.objective.what} still stand.'`
+            : // A `bring` said nothing at all here, so short-handing a fetch quest was indistinguishable
+              // from the giver having no work — you spoke and were ignored. It says the shortfall now,
+              // in the same shape the kill's refusal has. *"1 more an onion"* is the wording trap:
+              // a `what` authored before counting is written for a sentence with no number in it, so a
+              // quest that wants one asks for the thing rather than for a quantity of it.
+              def.objective.count === 1
+              ? `${giver.name}&N says, 'Not yet. Bring me ${def.objective.what}.'`
+              : `${giver.name}&N says, 'Not yet. Bring me ${def.objective.count - done} more ${def.objective.what}.'`,
+      });
       continue;
+    }
+    // **The giver takes what was brought.** Exactly the count, before anything is paid, so a turn-in
+    // cannot hand over the reward and leave the goods in the bag — which is what happened until now,
+    // and what made one onion able to satisfy the Viscount for ever. `quest.c:145-160` does the same
+    // thing with `obj_from_char` + `extract_obj`, and the prose two paragraphs down has always
+    // claimed the giver *"has taken the brought thing"*.
+    if (def.objective.kind === 'bring') {
+      sim.setInventory(player, consumeBrought(player.inventory, def.objective.vnum, def.objective.count));
+      send(player.id, { t: 'self', view: sim.selfViewOf(player) });
     }
     player.quests.set(def.id, 'done');
     send(player.id, { t: 'log', channel: 'say', text: `${giver.name}&N says, '${def.thanks}'` });

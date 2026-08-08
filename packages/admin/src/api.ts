@@ -235,7 +235,10 @@ export interface RoomsBody {
 export interface QuestObjective {
   kind: 'kill' | 'bring';
   vnum: number;
-  /** Present only on a kill — a `bring` with a count would be a field the loader ignores. */
+  /**
+   * How many, on **both** kinds. Optional only because a row may have been written by a server from
+   * before a `bring` could count; the server normalises a missing one to 1 and always sends it back.
+   */
   count?: number;
   what: string;
 }

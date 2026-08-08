@@ -9,6 +9,13 @@
  *
  * What a *player* holds is one number per quest id — kills so far — or the string `done`; the
  * definitions carry everything else, so editing a quest's prose or reward touches no save file.
+ *
+ * **A counted `bring` stores nothing, and that is the design.** Its progress is read off the bag at
+ * the moment somebody asks — {@link carriedForQuest} — rather than accumulated into that number, so
+ * the save format did not change when counting arrived and {@link decodeQuests} needed no new case.
+ * Storing it would be a second copy of a fact the inventory already holds, and the two would part
+ * company the first time a player dropped a nugget: a stored `5/8` over an empty bag is a quest that
+ * completes on air.
  * The loader takes the same posture as `shops.ts`: a missing file is a world with no quests in it,
  * not a server that will not boot, and a malformed row is skipped loudly rather than half-loaded.
  *
@@ -33,6 +40,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
+import { vnumOf, type Inventory, type Stack } from '@mygame/shared';
+
 import { WORLD_DIR } from './world.ts';
 
 export const QUESTS_FILE = join(WORLD_DIR, 'overrides', 'quests.json');
@@ -46,9 +55,17 @@ export interface QuestDef {
   readonly ask: string;
   /** What the giver says at the turn-in. */
   readonly thanks: string;
+  /**
+   * **Both shapes count.** `bring` gained a `count` for the reason `REFERENCE-duris-quests.md` §4
+   * gives: of the 3,275 harvested exchanges, **1,154 want several of an item** — Szxvu's eight silver
+   * nuggets, the priest's three pages — and a fetch objective that could only ever mean *one* could
+   * express none of them. It is normalised rather than optional here: a draft may omit it and mean
+   * one, but a definition always carries the number, so nothing downstream has to remember a default.
+   * That is what lets `objective.count` be read straight off the union without narrowing first.
+   */
   readonly objective:
     | { readonly kind: 'kill'; readonly vnum: number; readonly count: number; readonly what: string }
-    | { readonly kind: 'bring'; readonly vnum: number; readonly what: string };
+    | { readonly kind: 'bring'; readonly vnum: number; readonly count: number; readonly what: string };
   /**
    * What it pays. `item` is an optional third pool beside the two numbers — see the header's
    * *"a reward from pools that already exist"*, of which the catalogue is one.
@@ -136,15 +153,23 @@ export function draftQuest(draft: QuestDraft): { quest: QuestDef } | { error: st
   }
   const what = readLine(raw.what, 'objective what', QUEST_WHAT_MAX);
   if ('error' in what) return what;
-  let objective: QuestDef['objective'];
-  if (raw.kind === 'kill') {
-    if (typeof raw.count !== 'number' || !Number.isInteger(raw.count) || raw.count < 1 || raw.count > QUEST_COUNT_MAX) {
-      return { error: `objective count must be a whole number from 1 to ${QUEST_COUNT_MAX}` };
-    }
-    objective = { kind: 'kill', vnum: raw.vnum, count: raw.count, what: what.text };
-  } else {
-    objective = { kind: 'bring', vnum: raw.vnum, what: what.text };
+  // **`kill` requires the number; `bring` defaults it to one.** The asymmetry is back-compatibility
+  // and nothing else: every `bring` quest authored before counting existed omits the field and means
+  // one of the thing, and those rows are shipped content in a git-tracked file. `null` reads as absent
+  // for the same reason it does on `reward.item` — a form that cleared the box.
+  const countable = raw.count === undefined || raw.count === null ? (raw.kind === 'bring' ? 1 : undefined) : raw.count;
+  if (
+    typeof countable !== 'number' ||
+    !Number.isInteger(countable) ||
+    countable < 1 ||
+    countable > QUEST_COUNT_MAX
+  ) {
+    return { error: `objective count must be a whole number from 1 to ${QUEST_COUNT_MAX}` };
   }
+  const objective: QuestDef['objective'] =
+    raw.kind === 'kill'
+      ? { kind: 'kill', vnum: raw.vnum, count: countable, what: what.text }
+      : { kind: 'bring', vnum: raw.vnum, count: countable, what: what.text };
 
   if (typeof draft.reward !== 'object' || draft.reward === null) {
     return { error: 'reward must be {"xp":…,"copper":…}' };
@@ -214,8 +239,14 @@ export function loadQuests(file = QUESTS_FILE): Map<string, QuestDef> {
  * **Key order is rebuilt field by field**, never copied from whatever object arrived — `id, giver,
  * name, ask, thanks, objective, reward` is the reading order (who asks, what they say, what they
  * want, what they pay), and `JSON.stringify` follows insertion order, so stating it here is what
- * fixes it. `count` is written only on a `kill`, because a `bring` carrying one would be a field the
- * loader ignores and a reader believes.
+ * fixes it.
+ *
+ * **A `bring` writes `count` only when it is more than one.** It used to write none at all, because
+ * the loader ignored the field; now the loader honours it and the rule becomes the same one
+ * `reward.item` keeps — say what is true, and stay silent about the default. That silence is load
+ * bearing: the four quests shipped in this file were hand-authored before counting existed, and a
+ * writer that added `"count": 1` to each of them would turn the first panel edit of any quest into a
+ * diff touching every other. A `kill` still always writes it, because a `kill` has always required it.
  *
  * **`objective` and `reward` stay on one line each**, which is the only reason this is not a plain
  * `JSON.stringify(rows, null, 2)`: an eight-line quest block reads as a quest, and the pretty
@@ -232,8 +263,8 @@ export function saveQuests(quests: Iterable<QuestDef>, file = QUESTS_FILE): void
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     .map((quest) => {
       const objective =
-        quest.objective.kind === 'kill'
-          ? { kind: 'kill', vnum: quest.objective.vnum, count: quest.objective.count, what: quest.objective.what }
+        quest.objective.kind === 'kill' || quest.objective.count > 1
+          ? { kind: quest.objective.kind, vnum: quest.objective.vnum, count: quest.objective.count, what: quest.objective.what }
           : { kind: 'bring', vnum: quest.objective.vnum, what: quest.objective.what };
       const fields = [
         `    "id": ${JSON.stringify(quest.id)}`,
@@ -255,6 +286,77 @@ export function saveQuests(quests: Iterable<QuestDef>, file = QUESTS_FILE): void
 function inline(record: Record<string, unknown>): string {
   const pairs = Object.entries(record).map(([key, value]) => `${JSON.stringify(key)}: ${JSON.stringify(value)}`);
   return `{ ${pairs.join(', ')} }`;
+}
+
+/* -------------------------------------------------------------------------- */
+/* The `bring` arithmetic — here rather than in `index.ts`, so it can be tested */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How many of an item vnum a bag holds, counting **stacks by their depth**.
+ *
+ * The two things this gets right are the two the one-item version never had to.
+ *
+ * **It matches on `vnumOf`, not on a word.** The bug commit `41aecce` fixed: an instance's id is
+ * `obj:<vnum>` and its keyword list is the catalogue's words unioned with its display name, so asking
+ * `matchInventory` for the bare digits matched nothing and every `bring` quest was silently
+ * uncompletable. `vnumOf` is the join the death spoils and the keyword resolver already use.
+ *
+ * **A stack of eight nuggets is eight nuggets.** Summing `stack.count` rather than counting stacks is
+ * the whole difference for a counted objective, because the thing Szxvu wants eight of is exactly the
+ * kind of small identical object the bag merges into one slot. Counting slots would report `1` for a
+ * full stack and make an eight-nugget quest permanently unfinishable.
+ *
+ * **Top-level only, deliberately.** A thing inside a closed pack is not in your hands; the one-item
+ * check never looked in containers either, and widening that here would change what every existing
+ * quest accepts under cover of a counting change.
+ */
+export function carriedForQuest(inventory: Inventory, vnum: number): number {
+  return inventory.stacks.reduce((total, stack) => (vnumOf(stack.item) === vnum ? total + stack.count : total), 0);
+}
+
+/**
+ * Takes exactly `count` of a vnum out of the bag — the turn-in's own half of the exchange.
+ *
+ * **Duris eats the object, and we did not.** `quest_completion` does `obj_from_char` + `extract_obj`
+ * (`quest.c:145-160`); ours only ever checked that you *held* the thing, so the Viscount ate an onion
+ * you walked away still carrying and a single item could turn in every fetch quest in the world.
+ * `REFERENCE-duris-quests.md` §4 lists that as the one gap to fold into this work, and the turn-in's
+ * own comment in `index.ts` already claimed the giver *"has taken the brought thing"* — so this is
+ * the code catching up with what the prose beside it always said.
+ *
+ * **Exactly `count`, never the stack.** Bring eight of ten nuggets and two stay yours. Stacks are
+ * drained in the order they sit in, and one emptied is dropped rather than kept at zero — the rule
+ * `removeAt` states for the same reason: a bag must never hold a stack of nothing.
+ *
+ * Callers check {@link carriedForQuest} first. Handed more than the bag holds this takes what there
+ * is, because a consume that silently *refused* would close a quest and leave the goods behind.
+ */
+export function consumeBrought(inventory: Inventory, vnum: number, count: number): Inventory {
+  let left = Math.max(0, count);
+  const stacks: Stack[] = [];
+  for (const stack of inventory.stacks) {
+    if (left === 0 || vnumOf(stack.item) !== vnum) {
+      stacks.push(stack);
+      continue;
+    }
+    const taken = Math.min(left, stack.count);
+    left -= taken;
+    if (taken < stack.count) stacks.push({ ...stack, count: stack.count - taken });
+  }
+  return { stacks, capacity: inventory.capacity };
+}
+
+/**
+ * The objective as a phrase — *"8 small nuggets of silver"*, but *"an onion"* rather than *"1 an onion"*.
+ *
+ * The `what` of a quest authored before counting existed is written for a sentence with no number in
+ * front of it, article and all, because there was never a number to put there. Prefixing `1` to those
+ * reads as a typo — and they are exactly the quests whose wording must not change, so the count is
+ * spoken only when it is worth speaking. A `kill` of one gets the same courtesy for free.
+ */
+export function objectivePhrase(objective: QuestDef['objective']): string {
+  return objective.count === 1 ? objective.what : `${objective.count} ${objective.what}`;
 }
 
 /** The quests a giver template offers, in file order. */

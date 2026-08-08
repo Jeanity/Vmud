@@ -463,6 +463,37 @@ full bag is refused rather than silently emptied onto the floor. A refusal is to
 the quest still closes — a turn-in that half-happens because a bag was full is worse than one that
 owes an item.
 
+### A `bring` counts, and the giver takes what it counted
+
+`objective.count` was a `kill` field. It is now on **both** shapes, because
+[REFERENCE-duris-quests.md](REFERENCE-duris-quests.md) §4 puts the arithmetic plainly: of the 3,275
+harvested exchanges, **1,154 want several of an item** — Szxvu's eight silver nuggets, the priest's
+three pages of speech notes — and a fetch objective that could only ever mean *one* could express
+none of them. It was the single biggest unlock in the corpus and the smallest conceptual step, since
+`kill` had already proved the counting UI.
+
+**On a `bring` it is optional and defaults to 1; on a `kill` it stays required.** The asymmetry is
+back-compatibility and nothing else: the `bring` quests already in `quests.json` were hand-authored
+before counting existed, and they mean one of the thing. The writer keeps the other half of that
+bargain — a `bring` writes `count` only when it is **more than one**, so those rows round-trip
+byte-identical and the first panel edit of any quest does not produce a diff touching every other.
+The panel posts `count` on both kinds and shows the box on both; a `bring` of one posts `1` and the
+server normalises it to the record a draft omitting the field would have made.
+
+**Progress is read off the bag, never stored.** `PlayerRecord.quests` still holds one number per
+quest id — kills so far — and a counted `bring` adds no case to it, because the number of nuggets you
+are carrying is a fact the inventory already holds. A stored `5/8` over an emptied bag is a quest
+that completes on air.
+
+**And the turn-in now takes the goods.** Until this landed, `bring` only checked that you *held* the
+thing: the Viscount ate an onion you walked away still carrying, and one item could satisfy every
+fetch quest in the world for ever. Duris's `quest_completion` does `obj_from_char` + `extract_obj`
+(`quest.c:145-160`), the turn-in's own comment in `index.ts` had always claimed the giver *"has taken
+the brought thing"*, and §4 lists consumption as the one gap to fold into the counting work. Exactly
+`count` is taken, before anything is paid — bring ten of an eight-nugget quest and two stay yours —
+and it goes through `sim.setInventory`, the one legal write seam, so the held-light derivation cannot
+be skipped by a quest.
+
 ### API
 
 ```
@@ -484,7 +515,9 @@ DELETE /quests/:id                   un-badges and un-armours the giver; reports
 | kill target is not a loaded mob template | 400 | it could never complete |
 | bring target is not in the catalogue (when there is one) | 400 | same, and skipped when the catalogue is empty by design |
 | objective kind is not `kill`/`bring` | 400 | the loader has two shapes and no third |
-| count outside 1–100 | 400 | past a hundred it is a typo, not an objective |
+| count outside 1–100, on either kind | 400 | past a hundred it is a typo, not an objective |
+| count missing on a `kill` | 400 | it has always been required there, and a kill of "some" is not an objective |
+| count missing on a `bring` | — | accepted, and normalised to 1: the quests authored before counting existed mean one of the thing |
 | xp or copper outside 0–10,000,000 | 400 | the same ceilings the mob editor keeps for the pools these pay out of |
 | `reward.item` not a whole vnum | 400 | it names a catalogue row; absent is how a quest pays no item, because vnum 0 is legal |
 | `reward.item` is not in the catalogue (when there is one) | 400 | the quest would owe a reward that cannot be made; skipped on an empty catalogue like the bring target |

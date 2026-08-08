@@ -80,9 +80,12 @@ merely a template in the file), the objective is a **single item** our `bring` s
 item is **actually obtainable** in a populated zone, and the giver's own words carry the ask.
 
 **Zones 260 and 261 can host nothing.** They are in `world.config.json`'s `zones` but not its
-`populate`, so they have rooms and no mobs at all. Zone 168's only quest giver is Szxvu, whose four
-exchanges are all multi-item or chain steps (§4) — so the newbie zone keeps Gwark's kill quest and
-gains nothing here.
+`populate`, so they have rooms and no mobs at all.
+
+**Zone 168 gained its giver once `bring` could count.** Szxvu the kobold blacksmith (mob 1420, room
+41221) was blocked on nothing else — his smelting quest is §5's first entry, and it shipped the day
+`objective.count` landed on a `bring`. The newbie zone now has both Gwark's kill and Szxvu's fetch.
+His three remaining exchanges are chain steps or multi-*vnum*, so they still wait on §4's first row.
 
 ### Where the words came from
 
@@ -125,9 +128,9 @@ Ranked by how much of the corpus each one unlocks.
 
 | Shape | How common | What it is | Recommendation |
 | --- | --- | --- | --- |
-| **Several items, or several of one** | **1,154 exchanges** | `G I 1447` eight times over — Szxvu smelting eight silver nuggets; the priest's three pages of speech notes; the sergeant's three-piece fur suit. | **Add this next.** `objective.kind: 'bring'` wants a `count`, exactly as `kill` has one, plus a list form for distinct vnums. It is the single biggest unlock and the smallest conceptual step — `kill` already proves the counting UI. |
-| **A fee as part of the ask** | **329 exchanges** | `G C 20` — the jeweler's 2 silver, the smith's 170 platinum. The player pays *into* the quest. | Second. A `cost` on the objective, charged at turn-in and refused if the purse is short. Cheap, and it makes every crafting giver honest. |
-| **The item is consumed** | all of them | `quest_completion` does `obj_from_char` + `extract_obj` (`quest.c:145-160`). Our `bring` only checks that you *hold* the thing and never takes it — so the Viscount eats an onion you keep. | Fold into the `bring` work above. It is one line and a design decision, not a schema change. |
+| **Several of one item** | **~1,154 exchanges** | `G I 1447` eight times over — Szxvu smelting eight silver nuggets. | **Done.** `objective.kind: 'bring'` carries a `count`, optional and defaulting to 1 so the quests authored before it are untouched. Szxvu's smelting shipped with it. What is still missing is the **list form for distinct vnums** — the priest's three *different* pages, the sergeant's three-piece fur suit — which is the remainder of this row and wants an objective holding several vnums rather than one. |
+| **A fee as part of the ask** | **329 exchanges** | `G C 20` — the jeweler's 2 silver, the smith's 170 platinum. The player pays *into* the quest. | **Next.** A `cost` on the objective, charged at turn-in and refused if the purse is short. Cheap, and it makes every crafting giver honest — including Szxvu, whose ask still quotes a 10-platinum fee nothing charges. |
+| **The item is consumed** | all of them | `quest_completion` does `obj_from_char` + `extract_obj` (`quest.c:145-160`). | **Done**, folded into the counting work as recommended. The turn-in takes exactly `count` before it pays, so the Viscount no longer eats an onion you keep, and bringing ten of an eight-nugget quest leaves you two. |
 | **Chains** | pervasive | Szxvu wants gem eyes, hands them back, and asks for frames; the ice artist's shoes are the siege master's objective. | Needs a `requires: <quest id>` gate. Wait until there is a chain worth walking. |
 | **The giver vanishes** | **574 exchanges** | The `D` block — the servant, the priest, the sergeant all leave once served. | Low value for us: a one-shot giver in a persistent multiplayer world means the *first* player takes the quest and nobody else ever can. Recommend **not** porting it. |
 | **Teaching a skill** | 1 exchange | `R S <skill>`. | Ignore. One instance in 3,275. |
@@ -140,11 +143,12 @@ Ranked by how much of the corpus each one unlocks.
 Every entry below is a real quest with a citation, blocked on something named. Zone numbers are ours;
 vnums are the MUD's own and never change.
 
-### Blocked only on a `count` for `bring` — zone 168, already populated
+### ~~Blocked only on a `count` for `bring`~~ — **shipped**, zone 168
 
 Szxvu the kobold blacksmith (mob **1420**, room 41221) is the newbie zone's only quest giver. The
-silver he wants is carried by kobold miners (1441) and mine leaders (1443) who stand two rooms away,
-so this becomes live the moment `bring` can count.
+silver he wants is carried by kobold miners (1441) and mine leaders (1443) who stand two rooms away.
+This is now **live** — it is the quest `objective.count` was built for, and the JSON below is what
+sits in `data/world/overrides/quests.json` today.
 
 ```json
 {
@@ -158,8 +162,14 @@ so this becomes live the moment `bring` can count.
 }
 ```
 
-*`kobold.qst:65`. Needs `objective.count` on a `bring`, and the 10-platinum fee (`G C 10000`) is
-dropped. Ask and thanks are the `nugget nuggets` keyword and the tail of the `Q` message.*
+*`kobold.qst:65`. Ask and thanks are the `nugget nuggets` keyword and the tail of the `Q` message.*
+
+*One honest wart, kept deliberately rather than fixed by paraphrase: the ask **quotes the
+10-platinum fee** (`G C 10000`) that our schema cannot charge, where the jeweler's entry in §2 had
+its price line cut for exactly that reason. It is left in because this text is the acceptance target
+recorded here, and cutting it silently would make the document disagree with the shipped file. It
+should be trimmed to `"I can take 8 silver nuggets and make it into a block of usable silver…"` the
+day the fee lands (§4, row two) — or before, if the promise reads as a lie first.*
 
 ### Blocked on a placement — zone 36, populated
 
