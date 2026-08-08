@@ -451,9 +451,16 @@ evening**: circles open on the five-level cadence, casting debits a slot at comp
 (pay-then-fizzle, the source's order), `rest` memorizes them back — the drive caught the gate
 reading `status !== 'normal'` where **`resting` is a status, not a posture** (§1.3's two-axis trap,
 again) — `spells` reads the book, INT/WIS size the mana pool, and the roll is **4d6-drop-lowest**
-(owner's second ask). 1,705 tests. **Next in the phase**: slice 3 (protocol 24 creation
-conversation + the picker's race/class/roll cards + legacy adoption — the owner's explicit ask),
-then skills-by-class, channels, sun/senses, the one quest. Note for the next drive: fight the *placement-repopped*
+(owner's second ask). **Slice 3 landed the same night — creation is on screen.** Protocol 24: the
+picker's new-name form opens race cards, class cards, then the roll in the source's words with
+reroll and the five points; `charConfirm` carries the spend; a pre-identity save entered bare gets
+`charAdopt` and the same cards minus the name (Weststar is now a Mountain Dwarf Cleric, level and
+map kept). The HUD gained `#hud-who` — race and class under the name, the six scores as numbers on
+hover. Driven whole in the browser (adoption, reroll, spend, refusals) and over the wire (fresh
+mint: Brunhild the gnome cleric entered level 1 with `circle 1 — 2 of 2 castings` and a swollen
+pool). The drive's catch: `Net`'s queue held `charCreate` hostage for a `welcome` it was meant to
+cause — creation is handshake traffic now. 1,705 tests. **Next in the phase**: skills-by-class,
+channels, sun/senses, the one quest. Note for the next drive: fight the *placement-repopped*
 shaman, not an admin-spawned twin (a chip is open on whether the spawn path merges authored
 spells), and remember `PlayerStore`'s cache means save-file surgery needs the server down.
 

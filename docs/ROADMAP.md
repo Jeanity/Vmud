@@ -1335,9 +1335,16 @@ in that note's §9 slices:
   became **4d6-drop-lowest** the same day (owner's second ask: *"according to DnD rules"*).
   Driven end to end: book → debit (4→3) → missile → trance → refill (3→4), beside a warrior who
   sees the catalogue and is refused the cast. Scrolls stay classless and slot-free, deliberately.
-- Next: the protocol-24 creation conversation and legacy adoption (slice 3 — race card, class
-  card, the roll in words with reroll and five points), then class skill ceilings, channels, sun
-  and senses, the one quest (§9's tail).
+- **Slice 3 ✅ 2026-08-08** — **creation, on screen**: protocol 24's conversation
+  (`charCreate` → `charRolled` in *words* → `charConfirm` carrying the spend — the design's
+  separate `charBonus` folded into the confirm, one message fewer), the picker's new-name form
+  opens race cards (live folded bonuses, flavour lines), class cards, then the roll with reroll
+  and the five points as `−`/`+` spinners. **Legacy adoption**: entering a pre-identity save gets
+  `charAdopt` and the same cards minus the name — Weststar walked in a Mountain Dwarf Cleric,
+  level and map kept, and the HUD now says who you are (hover for the numbers). Driven whole in
+  the browser and over the wire; the drive caught `Net`'s queue holding `charCreate` hostage for a
+  `welcome` it was meant to cause.
+- Next: class skill ceilings, channels, sun and senses, the one quest (§9's tail).
 
 ---
 

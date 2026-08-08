@@ -179,10 +179,14 @@ The 20b handshake grows a conversation between `account` and `enter`:
 ```
 C→S  charCreate { name, race, class }     name passes the name law; combination passes the matrix
 S→C  charRolled { words: {str:'good',…}, bonus: 5, mins: {...} }
-C→S  charBonus  { spend: {str:2, con:3} }   — or —   charCreate again (reroll, bonus resets)
-C→S  charConfirm {}
+C→S  charConfirm { spend: {str:2, con:3} }  — or —  charCreate again (reroll, bonus resets)
 S→C  account …                            the new character in the list; client enters it
 ```
+
+_Corrected in the building (slice 3): `charBonus` folded into `charConfirm` — the spend rides the
+confirm, one refusal path instead of two. And one wire lesson: the client's send-queue must treat
+the whole creation conversation as handshake traffic, or `charCreate` queues behind the `welcome`
+it exists to cause._
 
 The picker's "a new name" form becomes the door into this: name → race card (art, one line of
 flavour, the word-bonuses) → class card → the roll, in words, with reroll and five points to
