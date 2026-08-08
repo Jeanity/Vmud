@@ -5297,7 +5297,13 @@ function conditionOf(fraction: number): string {
  * which is also what the screen is showing.
  */
 function targetsFor(observer: Player): EntityView[] {
-  const entities = visibleEntities(observer);
+  // **Seeing a body is not being able to reach it, and slice 2 made that distinction load-bearing.**
+  // `visibleEntities` now also carries whoever you peeked at one room away, which is right for drawing
+  // and wrong for every verb built on this: `targetsFor` feeds `resolveTarget`, and `resolveTarget`
+  // feeds `kill`, `get`, `look <keyword>` and the rest — so without this filter `kill kobold` would
+  // reach through a wall at something in the next room, which is a bug the reveal introduced and not a
+  // feature it earned. Ranged is the one verb allowed to name them, and it asks for them by name.
+  const entities = visibleEntities(observer).filter((e) => e.revealed !== true);
   const people = entities.filter((e) => e.kind !== 'item');
   const things = entities.filter((e) => e.kind === 'item');
   return [...people, ...things];
@@ -5522,7 +5528,11 @@ function describeCorpse(player: Player, corpse: Corpse): void {
  * through, so pointing at something you cannot see finds nothing, exactly as naming it would.
  */
 function targetById(player: Player, id: EntityId): EntityView | undefined {
-  return visibleEntities(player).find((entity) => entity.id === id);
+  // Through `targetsFor` rather than `visibleEntities` directly, so a **click is exactly as powerful as
+  // a word** — which is this function's whole stated job. Slice 2 put peeked bodies in the visible set,
+  // and reading it raw here would have let the pointer attack something a room away that no typed
+  // keyword could name. The two paths share one filter rather than each keeping their own.
+  return targetsFor(player).find((entity) => entity.id === id);
 }
 
 /** The exits of the current room, with what is in the way of each. */
