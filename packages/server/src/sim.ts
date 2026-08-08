@@ -2062,6 +2062,21 @@ export class Simulation {
   }
 
   /**
+   * The **subset** of those the server will not let anyone harm, for the view's `untouchable` bit.
+   *
+   * A third copy of a fact `combat.ts` already holds, and it earns its keep the way `questGivers`
+   * does: the view is built here and the refusal happens there, so this side needs to be able to
+   * answer *"would that blow be refused"* without importing the combat module into the renderer's
+   * data path. `seedQuestGivers` fills both from one pass over the same rows, which is what stops
+   * them drifting — the badge, the armour and the menu all come out of a single read.
+   */
+  private protectedGivers = new Set<number>();
+
+  setProtectedGivers(vnums: Iterable<number>): void {
+    this.protectedGivers = new Set(vnums);
+  }
+
+  /**
    * How one actor appears to somebody else — players and mobs through the same function.
    *
    * There is no branch on `kind` here beyond passing it along, and that is the whole return on the
@@ -2075,6 +2090,7 @@ export class Simulation {
       id: actor.id,
       kind: actor.kind,
       ...(isMob(actor) && this.questGivers.has(actor.vnum) ? { questGiver: true as const } : {}),
+      ...(isMob(actor) && this.protectedGivers.has(actor.vnum) ? { untouchable: true as const } : {}),
       name: actor.name,
       sprite: actor.sprite,
       x: actor.x,

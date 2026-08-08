@@ -2127,17 +2127,27 @@ export class WorldScene extends Phaser.Scene {
         verbs.push({ label: 'Look inside', run: () => this.net.send({ t: 'look', target: view.id, inside: true }) });
       }
       verbs.push({ label: 'Get', run: () => this.net.send({ t: 'get', target: view.id }) });
-    } else if (view.questGiver) {
-      // A giver's menu offers work, never war — the server refuses the attack anyway; the menu
-      // simply does not pretend otherwise. `quest` resolves the giver standing in the room.
-      verbs.push({ label: 'Quest', run: () => this.net.send({ t: 'command', text: 'quest' }) });
     } else {
-      verbs.push(...this.openersFor(view));
-      verbs.push({
-        label: 'Attack',
-        danger: true,
-        run: () => this.net.send({ t: 'attack', target: view.id }),
-      });
+      // **Work first, then war, and the two are independent.** *Quest* appears for anyone who offers
+      // work; the fighting rows appear for anyone who can be fought. Until protocol 27 those were the
+      // same bit, so a giver's menu could only offer work — right for the ones we armour, wrong for
+      // every other, and the owner's correction was that most givers are ordinary bodies: *"the
+      // viscount for example should be killable."*
+      //
+      // `untouchable` rather than `questGiver` gates the blows, because a menu must never offer what
+      // the server will refuse — the same rule the openers already follow. `quest` resolves the giver
+      // standing in the room rather than taking the id, which is why this row sends a command.
+      if (view.questGiver) {
+        verbs.push({ label: 'Quest', run: () => this.net.send({ t: 'command', text: 'quest' }) });
+      }
+      if (!view.untouchable) {
+        verbs.push(...this.openersFor(view));
+        verbs.push({
+          label: 'Attack',
+          danger: true,
+          run: () => this.net.send({ t: 'attack', target: view.id }),
+        });
+      }
     }
     this.targetMenu.show(pointer.x, pointer.y, stripColour(view.name), verbs);
   }

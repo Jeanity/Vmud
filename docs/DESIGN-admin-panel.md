@@ -434,6 +434,14 @@ message for *"here is an entity you already know about, as it now stands"*; the 
 count as `resynced`. Only the flipped ones, so editing a quest's prose does not re-broadcast the
 warren.
 
+**And since protocol 27 the armour is watched the same way, which the first cut of this got wrong.**
+Ticking `protectGiver` on a mob that is *already* a giver does not change the giver set, so a
+comparison of only those two re-sends nothing — leaving every client in the room holding an
+`EntityView` whose `untouchable` disagrees with what `combat.ts` now believes, and therefore
+offering **Attack** on a body the server will refuse to let anyone hit. That is the exact failure
+the bit was added to prevent, arriving through the door marked *live edit*. Both sets are diffed,
+both directions.
+
 ### Shape is validated in one place, existence in another
 
 `draftQuest` in `server/src/quests.ts` answers the form POST **and** the hand-edited file — the

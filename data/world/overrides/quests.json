@@ -1,5 +1,32 @@
 [
   {
+    "id": "celriyas-brothers-sword",
+    "giver": 14028,
+    "name": "Celriya's brother's sword",
+    "ask": "I have always wondered what has become of my people. Their absence from me has been a void in my soul I wish I could someday fill. My brother, Tvelor, forged a powerful sword once. I wonder if that sword is still among my people. But alas, I am far too old now to seek out my lost kin.",
+    "thanks": "It... it is amazing. Now I know my people made it safely beyond this realm; I am at peace. There is little reward I can offer you for such a thing as peace of mind, but please accept this, and my debt of gratitude for the kindness and the time you spent finding this artifact of my people.",
+    "objective": { "kind": "bring", "vnum": 14001, "what": "an elvish sword of great antiquity" },
+    "reward": { "xp": 0, "copper": 0, "item": 14011 }
+  },
+  {
+    "id": "finns-mammoth-key",
+    "giver": 14015,
+    "name": "Finn's castle key",
+    "ask": "I can't believe this! I just can't believe it... I lost the key to my own castle gate. Even if I do return to the mortal realm I couldn't even get into my own castle. It could be anywhere. I might not even have remembered to bring it with me when I first left.",
+    "thanks": "I can finally return to my castle! This is a miracle, thank you ever so much. There's no way I'm going to leave my castle again... here, take my sword. I'll no longer have a need for such a thing now that I'll be retiring. Here's a little extra money too for all your efforts.",
+    "objective": { "kind": "bring", "vnum": 14037, "what": "a mammoth key of crafted iron" },
+    "reward": { "xp": 0, "copper": 500000, "item": 14023 }
+  },
+  {
+    "id": "finns-signet-ring",
+    "giver": 14015,
+    "name": "Finn's signet ring",
+    "ask": "Alas, I've wandered this realm to its farthest corners, helped Queen Mab in her quest to regain her throne, but can not find my way back home to the mortal realm. If only I had not lost my signet ring...",
+    "thanks": "Thank you, thank you — for your efforts I'll reward you. Now let me just find... no. No! My key! I can't find the key to my castle!",
+    "objective": { "kind": "bring", "vnum": 14036, "what": "Finn's signet ring" },
+    "reward": { "xp": 0, "copper": 0, "item": 14018 }
+  },
+  {
     "id": "gwark-thins-the-warren",
     "giver": 1401,
     "name": "Thin the warren",
@@ -43,32 +70,5 @@
     "thanks": "Magnificent! I've been waiting quite a while for this. Here... drink this and see what happens.",
     "objective": { "kind": "bring", "vnum": 97115, "what": "an onion" },
     "reward": { "xp": 0, "copper": 0, "item": 97135 }
-  },
-  {
-    "id": "finns-signet-ring",
-    "giver": 14015,
-    "name": "Finn's signet ring",
-    "ask": "Alas, I've wandered this realm to its farthest corners, helped Queen Mab in her quest to regain her throne, but can not find my way back home to the mortal realm. If only I had not lost my signet ring...",
-    "thanks": "Thank you, thank you — for your efforts I'll reward you. Now let me just find... no. No! My key! I can't find the key to my castle!",
-    "objective": { "kind": "bring", "vnum": 14036, "what": "Finn's signet ring" },
-    "reward": { "xp": 0, "copper": 0, "item": 14018 }
-  },
-  {
-    "id": "finns-mammoth-key",
-    "giver": 14015,
-    "name": "Finn's castle key",
-    "ask": "I can't believe this! I just can't believe it... I lost the key to my own castle gate. Even if I do return to the mortal realm I couldn't even get into my own castle. It could be anywhere. I might not even have remembered to bring it with me when I first left.",
-    "thanks": "I can finally return to my castle! This is a miracle, thank you ever so much. There's no way I'm going to leave my castle again... here, take my sword. I'll no longer have a need for such a thing now that I'll be retiring. Here's a little extra money too for all your efforts.",
-    "objective": { "kind": "bring", "vnum": 14037, "what": "a mammoth key of crafted iron" },
-    "reward": { "xp": 0, "copper": 500000, "item": 14023 }
-  },
-  {
-    "id": "celriyas-brothers-sword",
-    "giver": 14028,
-    "name": "Celriya's brother's sword",
-    "ask": "I have always wondered what has become of my people. Their absence from me has been a void in my soul I wish I could someday fill. My brother, Tvelor, forged a powerful sword once. I wonder if that sword is still among my people. But alas, I am far too old now to seek out my lost kin.",
-    "thanks": "It... it is amazing. Now I know my people made it safely beyond this realm; I am at peace. There is little reward I can offer you for such a thing as peace of mind, but please accept this, and my debt of gratitude for the kindness and the time you spent finding this artifact of my people.",
-    "objective": { "kind": "bring", "vnum": 14001, "what": "an elvish sword of great antiquity" },
-    "reward": { "xp": 0, "copper": 0, "item": 14011 }
   }
 ]

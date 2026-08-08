@@ -1033,20 +1033,32 @@ if (quests.size > 0) console.log(`[quests] ${quests.size} authored quest(s) load
 /**
  * Seeds everything that hangs off the quest rows, from the quest rows. **A7q made this a function.**
  *
- * The giver is marked for the client and armoured against everything: the view's badge and combat's
- * untouchable registry are seeded from the same map, so they cannot disagree. That was three lines at
- * boot until the admin panel grew an editor — and an editor that could write a quest without running
- * these two lines would be an editor that mints a `?` over a mob anybody may kill.
+ * The giver is marked for the client, and armoured **only if its quest asked to be**: the view's badge
+ * and combat's untouchable registry are seeded from the same map, so they cannot disagree. That was
+ * three lines at boot until the admin panel grew an editor — and an editor that could write a quest
+ * without running these lines would be an editor that mints a `?` over a mob the server has forgotten.
+ *
+ * **The two sets stopped being the same set on 2026-08-08**, when the owner corrected the rule he had
+ * asked for that morning: *"the viscount for example should be killable."* Every giver is badged;
+ * only a giver whose row carries `protectGiver` is immortal. The flag is OR-ed across a giver's rows
+ * — see {@link QuestDef.protectGiver} — because a body cannot be half-immortal, and deciding it by
+ * whichever row was read last would make the armour depend on the order of a file.
  *
  * So it is one function, called at boot and called again by {@link LiveOps.setQuests} on every write.
  * It reads `quests` rather than taking rows, which is the thing that makes it impossible to seed the
  * registries from a set the `quest` verb is not also reading.
  */
-function seedQuestGivers(): Set<number> {
-  const givers = new Set([...quests.values()].map((quest) => quest.giver));
+function seedQuestGivers(): { givers: Set<number>; protectedGivers: Set<number> } {
+  const givers = new Set<number>();
+  const protectedGivers = new Set<number>();
+  for (const quest of quests.values()) {
+    givers.add(quest.giver);
+    if (quest.protectGiver === true) protectedGivers.add(quest.giver);
+  }
   sim.setQuestGivers(givers);
-  setUntouchableVnums(givers);
-  return givers;
+  sim.setProtectedGivers(protectedGivers);
+  setUntouchableVnums(protectedGivers);
+  return { givers, protectedGivers };
 }
 seedQuestGivers();
 
@@ -8652,13 +8664,24 @@ const adminLive: LiveOps = {
    */
   setQuests(next) {
     const before = new Set([...quests.values()].map((quest) => quest.giver));
+    // **The armour is watched as closely as the badge, and for a sharper reason.** Ticking
+    // `protectGiver` on a mob that was already a giver does not change the giver set at all, so
+    // comparing only those two would re-send nothing — and every client already in the room would keep
+    // an `EntityView` whose `untouchable` says the opposite of what `combat.ts` now believes. That
+    // leaves *Attack* on the click menu of a body the server will refuse to let anyone hit, which is
+    // precisely the thing protocol 27 added the bit to prevent. Both sets, therefore, compared both ways.
+    const beforeProtected = new Set(
+      [...quests.values()].filter((quest) => quest.protectGiver === true).map((quest) => quest.giver),
+    );
     quests.clear();
     for (const quest of next) quests.set(quest.id, quest);
-    const givers = seedQuestGivers();
+    const { givers, protectedGivers } = seedQuestGivers();
 
     const flipped = new Set<number>();
     for (const vnum of before) if (!givers.has(vnum)) flipped.add(vnum);
     for (const vnum of givers) if (!before.has(vnum)) flipped.add(vnum);
+    for (const vnum of beforeProtected) if (!protectedGivers.has(vnum)) flipped.add(vnum);
+    for (const vnum of protectedGivers) if (!beforeProtected.has(vnum)) flipped.add(vnum);
     let resynced = 0;
     if (flipped.size > 0) {
       for (const actor of sim.allActors()) {

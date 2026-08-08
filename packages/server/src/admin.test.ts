@@ -353,13 +353,24 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     quests: () => questDefs,
     setQuests: (next) => {
       const before = new Set([...questDefs.values()].map((quest) => quest.giver));
+      // Mirrors `index.ts` exactly, including the armour diff: a giver whose `protectGiver` flips is
+      // still the same giver, so the badge comparison alone reports no change and re-sends nothing.
+      const beforeProtected = new Set(
+        [...questDefs.values()].filter((quest) => quest.protectGiver === true).map((quest) => quest.giver),
+      );
       questDefs.clear();
       for (const quest of next) questDefs.set(quest.id, quest);
       questGivers.clear();
-      for (const quest of questDefs.values()) questGivers.add(quest.giver);
+      const protectedGivers = new Set<number>();
+      for (const quest of questDefs.values()) {
+        questGivers.add(quest.giver);
+        if (quest.protectGiver === true) protectedGivers.add(quest.giver);
+      }
       const flipped = new Set<number>();
       for (const vnum of before) if (!questGivers.has(vnum)) flipped.add(vnum);
       for (const vnum of questGivers) if (!before.has(vnum)) flipped.add(vnum);
+      for (const vnum of beforeProtected) if (!protectedGivers.has(vnum)) flipped.add(vnum);
+      for (const vnum of protectedGivers) if (!beforeProtected.has(vnum)) flipped.add(vnum);
       let resynced = 0;
       for (const list of zoneMobs.values()) for (const mob of list) if (flipped.has(mob.vnum)) resynced++;
       calls.push(`setQuests ${questDefs.size} givers=${[...questGivers].join(',')}`);
@@ -2140,6 +2151,37 @@ describe('authoring a quest — A7q', () => {
     // Colour codes stripped, exactly as the mob search strips them: `&+y` is not a name.
     assert.equal(body.quests[0]?.targetName, 'a kobold shaman');
     assert.equal(body.quests[0]?.giverStanding, 3);
+  });
+
+  it('re-sends the giver when only the armour flips, which the badge diff alone never notices', () => {
+    // The bug this pins: ticking `protectGiver` on a mob that is *already* a giver leaves the giver
+    // set identical, so a re-sync that compared only those two would report `resynced: 0` — and every
+    // client already in the room would keep showing **Attack** on a body the server has just started
+    // refusing to let anyone hit. The stale menu is invisible from the response body, which is exactly
+    // why it is asserted here rather than trusted to a look-and-see drive.
+    const { api, questGivers } = makeRig({ quests: [CULL as QuestDef] });
+    const response = quietly(() => api.route(req('PATCH', '/quests/cull-the-shamans', { protectGiver: true })));
+    assert.equal(response.status, 200);
+    const body = response.body as { quest: { protectGiver?: true }; givers: number[]; resynced: number };
+    assert.equal(body.quest.protectGiver, true);
+    // The giver set did not move — and the bodies were re-sent anyway.
+    assert.deepEqual(body.givers, [61]);
+    assert.deepEqual([...questGivers], [61]);
+    assert.equal(body.resynced, 2, 'both standing guards must be re-sent when the armour changes');
+
+    // And off again, which is the direction an operator uses to undo a mistake.
+    const off = quietly(() => api.route(req('PATCH', '/quests/cull-the-shamans', { protectGiver: false })));
+    assert.equal(off.status, 200);
+    const offBody = off.body as { quest: { protectGiver?: true }; resynced: number };
+    assert.equal(offBody.quest.protectGiver, undefined);
+    assert.equal(offBody.resynced, 2);
+  });
+
+  it('leaves a quest that says nothing about armour with a killable giver', () => {
+    const { api } = makeRig({ quests: [CULL as QuestDef] });
+    const body = api.route(req('GET', '/quests')).body as { quests: { protectGiver?: true }[] };
+    // The owner's default, asserted rather than assumed: work on offer is not a licence to live.
+    assert.equal(body.quests[0]?.protectGiver, undefined);
   });
 
   it('refuses a giver the world does not have', () => {

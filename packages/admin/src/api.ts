@@ -251,6 +251,8 @@ export interface QuestRow {
   thanks: string;
   objective: QuestObjective;
   reward: { xp: number; copper: number; item?: number };
+  /** Set only when the giver is armoured against all harm. Absent — the default — means killable. */
+  protectGiver?: true;
   /** Null when the vnum names nothing this server loaded — a real state, not an error. */
   giverName: string | null;
   /** How many of the giver are standing right now. A patron who never spawns is a quest nobody finds. */

@@ -161,6 +161,44 @@ describe('a bring objective that counts', () => {
   });
 });
 
+describe('the armour, which is off unless asked for', () => {
+  /** The same valid draft, with the flag in whatever state the test is about. */
+  const withFlag = (protectGiver: unknown): QuestDraft => ({
+    ...draft({ kind: 'bring', vnum: 1447, count: 8, what: 'small nuggets of silver' }),
+    protectGiver,
+  });
+
+  it('leaves a giver killable when nothing asks otherwise, which is every quest authored before the flag', () => {
+    const made = draftQuest(draft({ kind: 'bring', vnum: 97115, what: 'an onion' }));
+    assert.ok('quest' in made);
+    // Absent, not `false` — the owner's correction was that killable is the ordinary state of a
+    // body, so the file says nothing at all about the ones that have no armour.
+    assert.equal('protectGiver' in made.quest, false);
+  });
+
+  it('records the armour when it is asked for', () => {
+    const made = draftQuest(withFlag(true));
+    assert.ok('quest' in made);
+    assert.equal(made.quest.protectGiver, true);
+  });
+
+  it('treats false and null as no armour rather than as a second way of writing it', () => {
+    for (const value of [false, null, undefined]) {
+      const made = draftQuest(withFlag(value));
+      assert.ok('quest' in made, `${String(value)} should be accepted`);
+      assert.equal('protectGiver' in made.quest, false, `${String(value)} should leave the field absent`);
+    }
+  });
+
+  it('refuses anything that is not a boolean, so a truthy string cannot arm a giver by accident', () => {
+    for (const value of ['true', 1, {}]) {
+      const made = draftQuest(withFlag(value));
+      assert.ok('error' in made, `${JSON.stringify(value)} should be refused`);
+      assert.match(made.error, /protectGiver must be true or false/);
+    }
+  });
+});
+
 describe('saying what the objective is', () => {
   it('speaks the count, and stays quiet about one', () => {
     // Measured on the wire before it was fixed: the Viscount announced *"Quest taken: 1 an onion."*
@@ -192,5 +230,29 @@ describe('the file a person edits', () => {
     const back = loadQuests(file);
     assert.equal(back.get('szxvu-smelts-the-nuggets')?.objective.count, 8);
     assert.equal(back.get('the-viscounts-onion')?.objective.count, 1);
+  });
+
+  it('round-trips the armour, so an operator editing a typo cannot disarm a giver', () => {
+    // The failure this guards is silent and remote from its cause: `PATCH` lays a form's fields over
+    // the record and re-validates the whole, so a writer that dropped the flag would turn a fix to
+    // the giver's *ask* into a giver anybody can kill — discovered days later, by a dead one.
+    const file = join(mkdtempSync(join(tmpdir(), 'mygame-quests-')), 'quests.json');
+    const armoured = draftQuest({
+      ...draft({ kind: 'kill', vnum: 1422, count: 3, what: 'kobold youths' }),
+      id: 'gwark-culls-the-warren',
+      protectGiver: true,
+    });
+    const ordinary = draftQuest({ ...draft({ kind: 'bring', vnum: 97115, what: 'an onion' }), id: 'the-viscounts-onion' });
+    assert.ok('quest' in armoured && 'quest' in ordinary);
+    saveQuests([armoured.quest, ordinary.quest], file);
+
+    const text = readFileSync(file, 'utf8');
+    assert.match(text, /"protectGiver": true/);
+    // Once, on the one row that asked — the killable giver says nothing.
+    assert.equal(text.match(/protectGiver/g)?.length, 1);
+
+    const back = loadQuests(file);
+    assert.equal(back.get('gwark-culls-the-warren')?.protectGiver, true);
+    assert.equal(back.get('the-viscounts-onion')?.protectGiver, undefined);
   });
 });

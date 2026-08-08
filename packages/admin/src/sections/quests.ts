@@ -156,6 +156,12 @@ function questForm(quest: QuestRow | undefined): QuestForm {
   // the patch over the record and re-validates the whole, so a form that read only two numbers would
   // rewrite `reward` without the item every time somebody fixed a typo in the ask.
   const rewardItem = vnumField({ value: quest?.reward.item, kind: 'item', seed: quest?.rewardItemName });
+  // **Off is the default, and the box says what it costs.** Every giver used to be immortal; the owner
+  // corrected that the day it shipped, so the armour is now something an operator asks for on the rows
+  // where a dead giver would be a problem. It reads `=== true` rather than truthiness because the
+  // field is `?: true` — absent is the only other state it has.
+  const protectGiver = el('input', { type: 'checkbox' }) as HTMLInputElement;
+  protectGiver.checked = quest?.protectGiver === true;
 
   return {
     rows: [
@@ -173,6 +179,13 @@ function questForm(quest: QuestRow | undefined): QuestForm {
       ),
       el('div', { class: 'row' }, el('label', {}, 'xp'), xp, el('label', {}, 'copper'), copper),
       el('div', { class: 'row' }, el('label', {}, 'reward item'), rewardItem.node),
+      el(
+        'div',
+        { class: 'row' },
+        el('label', {}, 'protect giver'),
+        protectGiver,
+        el('span', { class: 'muted' }, 'cannot be attacked or damaged by anything, including room spells'),
+      ),
     ],
     read() {
       const giverVnum = giver.value();
@@ -206,6 +219,10 @@ function questForm(quest: QuestRow | undefined): QuestForm {
           // An empty box is `null` rather than omitted, so clearing one through `PATCH` actually
           // clears it — a missing key would be laid over the record and leave the old vnum standing.
           reward: { xp: Number(xp.value || 0), copper: Number(copper.value || 0), item: rewardItem.value() ?? null },
+          // Posted on every write, `false` included, for the reward item's reason one row up: a key
+          // left out of a `PATCH` is laid over the record and leaves the old value standing, so an
+          // unticked box has to say so out loud or it could never turn the armour off.
+          protectGiver: protectGiver.checked,
         },
       };
     },
@@ -321,6 +338,9 @@ export const questsSection = {
             { class: 'muted' },
             quest.giverName ? `${quest.giverName} (${quest.giver})` : `giver ${quest.giver} — not loaded`,
             quest.giverStanding === 0 ? ' · none standing' : '',
+            // Shown only when set, because it is the exception now rather than the rule — a list where
+            // every row said "killable" would be a list nobody reads the end of.
+            quest.protectGiver === true ? ' · protected' : '',
           ),
         );
         line.addEventListener('click', () => openEditor(quest, line));

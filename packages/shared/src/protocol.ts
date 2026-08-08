@@ -287,7 +287,16 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * `identity` (race, class, the six scores — the sheet shows numbers; the roll showed words) and
  * {@link CharacterSummary} gains `race`/`class`, so the picker can say what a body is.
  *
- * Is 26: the asker is marked — `EntityView` gains `questGiver`, the one bit the client needs to
+ * Is 27: **the armour comes off the badge.** `EntityView` gains `untouchable` beside `questGiver`,
+ * because the owner corrected the rule the day after asking for it (2026-08-08): *"the viscount for
+ * example should be killable… add the can't kill/damage flag to quest mobs that we don't want to
+ * die and leave it off when it doesn't matter."* Protocol 26 hung both facts on one bit, so marking
+ * a body as an asker also made it immortal, and there was no way to say *asks for help, and can be
+ * murdered for it*. Two bits say it. **`untouchable` is a property of the body, not of quest-ness** —
+ * nothing about it mentions quests, which is what lets a shopkeeper or a god's herald carry it later
+ * without being given a quest to justify the armour.
+ *
+ * Was 26: the asker is marked — `EntityView` gains `questGiver`, the one bit the client needs to
  * hang a golden question mark over a head and put *Quest* on the click menu (owner's ask,
  * 2026-08-08). A flag rather than the quest's contents: what is offered is the server's business,
  * learnt by asking, exactly as the shops keep their prices off the wire.
@@ -297,7 +306,7 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * message shape: they are lines in the log, which is what a MUD channel is, and the client styles
  * them by class exactly as it styles the six that came before.
  */
-export const PROTOCOL_VERSION = 26;
+export const PROTOCOL_VERSION = 27;
 
 /**
  * One member of your group, as the roster draws them — protocol 19.
@@ -454,8 +463,17 @@ export interface BagView {
 export interface EntityView {
   readonly id: EntityId;
   readonly kind: EntityKind;
-  /** This body offers work — protocol 26. The marker and the menu row hang off this one bit. */
+  /** This body offers work — protocol 26. The golden `?` and the *Quest* menu row hang off this bit. */
   readonly questGiver?: true;
+  /**
+   * This body cannot be harmed — protocol 27, and **independent of {@link questGiver}**.
+   *
+   * The client needs it for one reason: a menu must never offer a blow the server will refuse.
+   * Until 27 the two facts were one bit, so every asker was immortal; the owner's correction was
+   * that most of them should not be. A giver without this bit now shows *Quest* **and** *Attack*,
+   * which is the honest menu — you can ask the Viscount for work, or you can murder him.
+   */
+  readonly untouchable?: true;
   readonly name: string;
   /** Sprite key resolved against the client's asset atlas. */
   readonly sprite: string;

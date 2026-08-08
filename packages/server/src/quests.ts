@@ -71,6 +71,24 @@ export interface QuestDef {
    * *"a reward from pools that already exist"*, of which the catalogue is one.
    */
   readonly reward: { readonly xp: number; readonly copper: number; readonly item?: number };
+  /**
+   * **This giver may not be harmed.** Absent — and it is absent by default — the giver is an ordinary
+   * body that can be fought and killed like any other.
+   *
+   * The owner asked for untouchable givers on 2026-08-08 and corrected it the same evening, which is
+   * the whole reason this is a field rather than a rule: *"the viscount for example should be
+   * killable… add the can't kill/damage flag to quest mobs that we don't want to die and leave it off
+   * when it doesn't matter if they die."* The first build made **every** giver immortal, which reads
+   * as a world where anyone with work to offer is beyond the law — and it quietly removed a legitimate
+   * player choice, because murdering a quest-giver is a thing a player is allowed to decide to do.
+   *
+   * **It protects the giver, not the quest**, so the flag is OR-ed across a giver's rows: one quest
+   * asking for protection protects the body for all of them. A mob cannot be half-immortal, and the
+   * alternative — the last row read wins — would make the armour depend on file order.
+   *
+   * The badge is unaffected. `questGiver` still marks every giver; only the armour is opt-in.
+   */
+  readonly protectGiver?: true;
 }
 
 /** Player-side state: kills so far, or finished. The definitions own everything else. */
@@ -104,6 +122,7 @@ export interface QuestDraft {
   readonly thanks?: unknown;
   readonly objective?: unknown;
   readonly reward?: unknown;
+  readonly protectGiver?: unknown;
 }
 
 /** A required line of prose, trimmed. The reason it is not usable comes back as a sentence. */
@@ -193,6 +212,15 @@ export function draftQuest(draft: QuestDraft): { quest: QuestDef } | { error: st
     return { error: 'reward item must be a whole item vnum, or absent' };
   }
 
+  // **Strictly a boolean, and only `true` survives.** The field is stored as `?: true` rather than
+  // `?: boolean` for the same reason `reward.item` is absent rather than zero: a `false` written into
+  // the file would be a word saying nothing, and two spellings of "not protected" is one more than a
+  // reader should have to check for. A form posting `false` therefore clears the flag rather than
+  // recording it, which is exactly what unticking the box means.
+  if (draft.protectGiver !== undefined && draft.protectGiver !== null && typeof draft.protectGiver !== 'boolean') {
+    return { error: 'protectGiver must be true or false' };
+  }
+
   return {
     quest: {
       id,
@@ -202,6 +230,7 @@ export function draftQuest(draft: QuestDraft): { quest: QuestDef } | { error: st
       thanks: thanks.text,
       objective,
       reward: { xp, copper, ...(item === undefined ? {} : { item }) },
+      ...(draft.protectGiver === true ? { protectGiver: true as const } : {}),
     },
   };
 }
@@ -277,6 +306,10 @@ export function saveQuests(quests: Iterable<QuestDef>, file = QUESTS_FILE): void
         // treats as absent should not be written as something a reader would believe.
         `    "reward": ${inline({ xp: quest.reward.xp, copper: quest.reward.copper, ...(quest.reward.item === undefined ? {} : { item: quest.reward.item }) })}`,
       ];
+      // Last, and only when it is set — it is the rarest field and the only one about the giver's
+      // body rather than the bargain, so it reads as a footnote on the row instead of interrupting
+      // who-asks-what-they-say-what-they-want-what-they-pay.
+      if (quest.protectGiver === true) fields.push('    "protectGiver": true');
       return `  {\n${fields.join(',\n')}\n  }`;
     });
   writeFileSync(file, blocks.length === 0 ? '[]\n' : `[\n${blocks.join(',\n')}\n]\n`);
