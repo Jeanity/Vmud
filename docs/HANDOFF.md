@@ -392,6 +392,7 @@ See `CLAUDE.md` for the full list. The ones that bite hardest:
 | `DESIGN-skills.md` | **Read before starting Phase 19.** What a skill is, the floor and the ceiling, the per-weapon-type mapping, how a 0–100 percentage meets a d20 roll — and the two places our own reference doc cites code the shipped source does not compile |
 | `DESIGN-zone-geometry.md` | **Read before starting A8.** Adding and removing rooms: the id space, the `seen`-invalidation edge, two-sided exits, orphaned resets, and the build order whose first slice is safe |
 | `DESIGN-spell-memory.md` | **Read before touching casting costs.** The seven things `DESIGN-spells.md` handed forward, settled: real mem times, the `spl_table` generator, a spell's circle belonging to its class, spellbooks and scribing cut, the psionicist, the full gate stack — and a third build flag our own code cites the wrong side of |
+| `DESIGN-ranged.md` | **Read before starting ranged combat, and read §0 before estimating it.** Bows, thrown knives, firing into the next room, and the pull. Six slices, two blocking decisions. Written 2026-08-08 for whoever picks it up |
 | `PLAN-3d-migration.md` | If the 3D question returns: engine choice, costs, milestones, go/no-go |
 
 **The single best reference is on disk, not on the web:** the complete Duris MUD C source at
@@ -445,6 +446,18 @@ every stretch ships something testable of a different kind. Read that for *what 
 file stays the answer to *where things stand*.
 
 ### Start here — where 2026-08-08 ended: the numbered schedule is complete
+
+**Waiting to be picked up: ranged combat, planned but not built.** The owner asked for a plan rather
+than an implementation — *"tomorrow I get back my fable usage and will put fable in charge but if you can
+create the plan it would be a good start"* — so [DESIGN-ranged.md](DESIGN-ranged.md) is six slices written
+cold-readable, and **§0 is the part to read before estimating anything**. Two findings reshape the feature:
+there is **no bow in Duris' weapon-class ladder at all** (ranged is an item *type*, and all three types are
+already named in `DURIS_ITEM`, so `weaponSkillFor` is the wrong seam), and **only 17% of the world can be
+pulled** — 1,248 of 1,503 mob templates carry `pursuit.tier: sentinel` with `trackRooms: 0` and will never
+follow anyone. Two decisions are blocking and both are the owner's: what a sentinel does when shot from
+outside its room, and whether ranged aggro may spread to room-mates (it must not — that is the whole
+point). Slice 1, un-gating the harvest so the 108 ranged items stop arriving as zero-damage sticks, depends
+on neither and can start immediately.
 
 **Last in: skill ceilings re-keyed from four class groups to the nine classes** (owner's ask, after
 asking why a mage could bash). Slice 4 keyed `ceilingFor` on a temperament and the fold was lossy in
