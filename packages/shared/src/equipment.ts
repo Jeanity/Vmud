@@ -313,14 +313,20 @@ const STARTER_KIT: Readonly<Partial<Record<EquipSlot, readonly StarterEntry[]>>>
  *
  * ```
  *   paladin 19.00  rogue 18.60  warrior 18.58  ranger 18.52                martial, spread 2.6%
- *   necromancer 17.85  sorcerer 17.84  druid 17.78  shaman 17.74  cleric 17.52   caster, 1.9%
+ *   necromancer 17.85  druid 17.78  sorcerer 17.74  shaman 17.74  cleric 17.52   caster, 1.9%
  *                                                   (common table 19.11)
  * ```
  *
- * Equal fitness is not the same as an equal kit, and the druid and the shaman are the case that
- * proves it: they land within 0.04 of each other and are built from opposite materials — AC 4.25 with
- * a keen sickle against AC 4.99 with a stone maul. They used to sit on the *same point* in both
- * currencies, which made them one kit wearing two sets of nouns.
+ * **Equal fitness is not the same as an equal kit**, and two pairs had to learn it the hard way. The
+ * druid and the shaman both sat on AC 4.50 / damage 5.67; the sorcerer and the necromancer both sat on
+ * AC 4.00 / damage 6.25. Same fitness is the goal — same *coordinates* means one kit wearing two sets
+ * of nouns. Both pairs are now each other's mirror and meet again only in fitness: AC 4.25 with a keen
+ * sickle against AC 4.99 with a stone maul, and AC 3.25 with a blackthorn staff against AC 4.00 with a
+ * bone knife. Neither pair was caught by a test — both were caught by looking at the nine side by
+ * side, which is why `equipment.test.ts` now measures the distance between *every* pair.
+ *
+ * The five casters therefore run as a ladder rather than a cluster: sorcerer 3.25, necromancer 4.00,
+ * druid 4.25, cleric 4.73, shaman 4.99 — frail-and-swinging through to armoured-and-slow.
  *
  * The martials sit ~6% above the casters, and that gap is the one deliberate inequality in the
  * table: the five casters hold circle-1 spells at level 1 and the four martials hold none until 11
@@ -391,8 +397,12 @@ const CLASS_KIT: Readonly<Partial<Record<ClassId, Readonly<Partial<Record<EquipS
     ],
   },
 
-  // piercing-1h at 90 is the rogue's only weapon skill, so every option is a blade — and the four
-  // differ in shape rather than in what they train. Light armour, second on damage.
+  // piercing-1h at 90 is the rogue's only weapon skill, so every option is a **dagger** — not a sword.
+  // Worth being exact, because "blade" hides the rule: a short sword is `weaponClass` 9 and trains
+  // *slashing*, which the rogue cannot train at all. Duris does let a thief use short swords, but
+  // through a hardcode in `fight.c` rather than the skill table (its own 1h-slashing row for the class
+  // is commented out and says so), and we have not built that exception. The four differ in shape
+  // rather than in what they train. Light armour, second on damage.
   rogue: {
     mainHand: [
       { id: 'stiletto', name: 'a needle-point stiletto', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 6, bonus: 0 }, weaponClass: 2 },
@@ -465,22 +475,39 @@ const CLASS_KIT: Readonly<Partial<Record<ClassId, Readonly<Partial<Record<EquipS
     ],
   },
 
-  // Two staves on bludgeon-1h (60) and two blades on piercing-1h (80), so half the rolls open the
-  // better ceiling and the other half look like a wizard.
+  // **The frailest kit in the game, carrying the biggest stick.** Two staves on bludgeon-1h (60) and
+  // two **daggers** on piercing-1h (80), so half the rolls open the better ceiling and the other half
+  // look like a wizard — and the staves are the heaviest weapons any caster swings, the blackthorn on
+  // 3d4. Daggers specifically, never swords: `weaponClass` 5, 9 and 13 all train *slashing*, which a
+  // sorcerer's ceiling puts at 0, so a sword is a weapon they could carry and never learn.
+  // Robes and nothing under them: AC 3.25 is the lowest of the nine, and a `0` chest roll is common.
+  //
+  // The second half of the same correction the druid and the shaman got. This class and the
+  // necromancer used to sit on one point (AC 4.00, damage 6.25) — both frail arcanists, both d6, and
+  // numerically indistinguishable. The split runs along the one real difference between them: a
+  // sorcerer may train a staff and a necromancer may not, so the sorcerer takes the reach and the
+  // fragility and the necromancer stays close and stays covered.
   sorcerer: {
     mainHand: [
-      { id: 'blackthorn_staff', name: 'a gnarled blackthorn staff', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 5, bonus: 0 }, weaponClass: 12 },
-      { id: 'shod_staff', name: 'an iron-shod walking staff', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 4, bonus: 1 }, weaponClass: 12 },
-      { id: 'ritual_dagger', name: 'a slim ritual dagger', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 5, bonus: 0 }, weaponClass: 2 },
-      { id: 'wire_knife', name: 'a knife with a wire-wound grip', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 4, bonus: 2 }, weaponClass: 2 },
+      { id: 'blackthorn_staff', name: 'a gnarled blackthorn staff', acMin: 0, acMax: 0, size: 2, damage: { count: 3, sides: 4, bonus: 0 }, weaponClass: 12 },
+      { id: 'shod_staff', name: 'an iron-shod walking staff', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 6, bonus: 0 }, weaponClass: 12 },
+      { id: 'ritual_dagger', name: 'a slim ritual dagger', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 5, bonus: 1 }, weaponClass: 2 },
+      { id: 'wire_knife', name: 'a knife with a wire-wound grip', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 5, bonus: 0 }, weaponClass: 2 },
     ],
     chest: [
-      { id: 'quilted_vest', name: 'a quilted robe, thin at the elbows', acMin: 1, acMax: 2, size: 2 },
-      { id: 'padded_jerkin', name: "a scholar's padded coat, ink at the cuff", acMin: 1, acMax: 2, size: 3 },
+      { id: 'quilted_vest', name: 'a threadbare robe, thin at the elbows', acMin: 0, acMax: 1, size: 2 },
+      { id: 'padded_jerkin', name: "a scholar's coat, ink at the cuff", acMin: 0, acMax: 2, size: 3 },
     ],
   },
 
-  // piercing-1h at 80 is the necromancer's only weapon skill. Four blades, no exceptions.
+  // **Daggers only, and better covered than the sorcerer for it.** piercing-1h at 80 is the
+  // necromancer's single weapon skill, so there is no staff to reach for, no sword they could ever
+  // learn, and no decision beyond which knife. Grave-cloth and a much-repaired coat put them three
+  // quarters of a point of armour above the sorcerer while giving up half a point of damage — the
+  // same fight, closer in.
+  //
+  // The numbers here did not move in the split; the sorcerer's did. Separating a pair only needs one
+  // of them to move, and this was the one whose kit already said what it was.
   necromancer: {
     mainHand: [
       { id: 'bone_knife', name: 'a bone-handled knife', acMin: 0, acMax: 0, size: 1, damage: { count: 2, sides: 5, bonus: 0 }, weaponClass: 2 },

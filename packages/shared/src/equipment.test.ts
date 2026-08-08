@@ -134,10 +134,14 @@ describe('the class kits, as a table — the two invariants worth guarding', () 
   });
 
   it('gives no two classes the same kit in both currencies', () => {
-    // Equal fitness is fine and intended — it means two classes are equally strong. Equal *armour and
-    // damage* is not: it means they are one kit wearing two sets of nouns, which the druid and the
-    // shaman literally were (both AC 4.50 / damage 5.67) until the owner spotted it on the comparison.
-    // They now sit at opposite ends of the caster frontier, so this pins the shape rather than the size.
+    // Equal *fitness* is fine and intended — it means two classes are equally strong, which is the
+    // whole point of a frontier. Equal *armour and damage* is not: it means they are one kit wearing
+    // two sets of nouns. It happened twice, both times found by looking at the nine side by side
+    // rather than by any test — druid and shaman on AC 4.50 / damage 5.67, then sorcerer and
+    // necromancer on AC 4.00 / damage 6.25.
+    //
+    // So this checks every pair rather than the two that were caught. Distance is in the plane the
+    // level-1 game actually scores on; the failure it guards against is a distance of zero.
     const N = 800;
     const point = (classId: (typeof CLASS_IDS)[number]) => {
       let ac = 0;
@@ -150,15 +154,20 @@ describe('the class kits, as a table — the two invariants worth guarding', () 
       }
       return { ac: ac / N, dmg: dmg / N };
     };
-    const pts = new Map(CLASS_IDS.map((c) => [c, point(c)]));
+    const pts = CLASS_IDS.map((c) => ({ c, ...point(c) }));
 
-    // The pair the owner asked to separate, checked by name so the intent survives a retune.
-    const druid = pts.get('druid')!;
-    const shaman = pts.get('shaman')!;
-    assert.ok(
-      Math.abs(druid.ac - shaman.ac) > 0.4 && Math.abs(druid.dmg - shaman.dmg) > 0.4,
-      `druid ${druid.ac.toFixed(2)}/${druid.dmg.toFixed(2)} and shaman ${shaman.ac.toFixed(2)}/${shaman.dmg.toFixed(2)} are too alike`,
-    );
+    let closest = { pair: '', d: Infinity };
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        const a = pts[i]!;
+        const b = pts[j]!;
+        const d = Math.hypot(a.ac - b.ac, a.dmg - b.dmg);
+        if (d < closest.d) {
+          closest = { pair: `${a.c} ${a.ac.toFixed(2)}/${a.dmg.toFixed(2)} vs ${b.c} ${b.ac.toFixed(2)}/${b.dmg.toFixed(2)}`, d };
+        }
+      }
+    }
+    assert.ok(closest.d > 0.2, `two classes are effectively the same kit — ${closest.pair} (distance ${closest.d.toFixed(2)})`);
   });
 
   it('keeps every class within reach of every other at level 1', () => {
