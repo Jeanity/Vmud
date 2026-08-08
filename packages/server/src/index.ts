@@ -9348,7 +9348,9 @@ wss.on('connection', (socket, request) => {
       }
       // The stored spelling is canonical: `enter aldric` puts on the character named Aldric.
       const name = record.name;
-      player = sim.spawn(name, progressRng);
+      // The class comes off the record, which chargen has already written by the time `enter`
+      // arrives — `spawn` cannot read `player.identity`, since that is hydrated a few lines below.
+      player = sim.spawn(name, progressRng, record.identity?.class);
       sockets.set(player.id, socket);
       watching.set(player.id, new Set());
       budgets.set(player.id, newCommandBudget(Date.now()));

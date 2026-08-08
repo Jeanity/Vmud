@@ -45,6 +45,57 @@ describe('the starter kit', () => {
   });
 });
 
+describe("the paladin's kit — the sword-and-board ruling in the starting gear", () => {
+  it('always arms them with a longsword, and it trains the skill the ruling granted', () => {
+    // weaponClass 5 is what makes this more than flavour: `weaponSkillFor` reads it and returns
+    // 'slashing-1h', which is one of the four rows the owner's ruling added to the paladin.
+    for (let seed = 0; seed < 40; seed++) {
+      const kit = rollStarterKit(makeRng(seed), 'paladin');
+      assert.equal(kit.mainHand?.id, 'longsword', `seed ${seed} is holding a longsword`);
+      assert.equal(kit.mainHand?.weaponClass, 5, 'and it is a longsword by weaponClass, not only by name');
+      assert.ok(kit.mainHand?.damage, 'and it can be swung');
+    }
+  });
+
+  it('always gives them a shield, in the off hand', () => {
+    for (let seed = 0; seed < 40; seed++) {
+      const kit = rollStarterKit(makeRng(seed), 'paladin');
+      assert.equal(kit.offHand?.id, 'shield', `seed ${seed} has a shield`);
+      assert.equal(kit.offHand?.slot, 'offHand');
+      assert.ok((kit.offHand?.ac ?? 0) >= 1, 'a shield that is worth nothing is a prop');
+    }
+  });
+
+  it('leaves every other class exactly as it was', () => {
+    // The override is per slot, so a class with no row falls through to the common table — and the
+    // common table has no off hand at all, which is what makes the shield the paladin's own.
+    for (const klass of ['warrior', 'cleric', 'rogue', 'sorcerer'] as const) {
+      for (let seed = 0; seed < 20; seed++) {
+        assert.deepEqual(rollStarterKit(makeRng(seed), klass), rollStarterKit(makeRng(seed)));
+        assert.equal(rollStarterKit(makeRng(seed), klass).offHand, undefined, `${klass} carries no shield`);
+      }
+    }
+  });
+
+  it('still varies everywhere the ruling did not speak', () => {
+    // Only the two named slots are fixed. If the whole kit went constant, a paladin would be the one
+    // class whose opening hand is a cookie cutter — the exact thing the common roll exists to avoid.
+    const chests = new Set<string>();
+    const acs = new Set<number>();
+    for (let seed = 0; seed < 60; seed++) {
+      const kit = rollStarterKit(makeRng(seed), 'paladin');
+      chests.add(kit.chest!.id);
+      acs.add(armourClassFrom(kit));
+    }
+    assert.ok(chests.size >= 2, `the tunic still varies (saw ${[...chests].join(',')})`);
+    assert.ok(acs.size >= 4, 'and so does the armour total');
+  });
+
+  it('is still reproducible from its seed', () => {
+    assert.deepEqual(rollStarterKit(makeRng(9), 'paladin'), rollStarterKit(makeRng(9), 'paladin'));
+  });
+});
+
 describe('what the kit is worth', () => {
   it('adds armour class the SRD way — higher is harder to hit', () => {
     // Duris' own scale runs the other way (Malice wears -122), which is what `armourToAc` converts.

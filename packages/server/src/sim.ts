@@ -8,6 +8,7 @@
 import {
   bareRadiusFor,
   RACES,
+  type ClassId,
   AffectFlag,
   HP_FLOOR,
   PLAYER_SPEED,
@@ -818,8 +819,13 @@ export class Simulation {
    * Takes the rng for the same reason {@link spawnMob} does: the starting kit is rolled, and every
    * roll in the simulation comes from the seeded source — `CLAUDE.md` rule 3. Character creation is
    * simulation, and `Math.random()` here would make a character's opening hand unreproducible.
+   *
+   * `classId` is the chosen class, where there is one — the kit reads it so a paladin starts with the
+   * sword and shield their skill table now assumes. It arrives as an argument rather than off
+   * `player.identity` because the identity is hydrated by `restoreProgress` *after* this returns, so
+   * reading it here would see `undefined` for every character ever created.
    */
-  spawn(name: string, rng: Rng): Player {
+  spawn(name: string, rng: Rng, classId?: ClassId): Player {
     const spawnRoom = this.world.spawnRoom();
     const place = placeOf(spawnRoom);
     const origin = this.world.grid(place)?.roomOrigins.get(spawnRoom.id);
@@ -832,7 +838,7 @@ export class Simulation {
     const maxHp = STARTING_HIT_POINTS;
     // Rolled once, here, and stored on the record at the first save. The variance is the point: two
     // fresh characters are not the same character. See `equipment.ts`.
-    const equipped = rollStarterKit(rng);
+    const equipped = rollStarterKit(rng, classId);
     const base = playerCombatStats(1);
     const player: Player = {
       id: this.nextId++,

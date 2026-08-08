@@ -27,6 +27,7 @@
  * map onto LPC's layered sprites — which is what makes worn gear *visible on the character*.
  */
 
+import type { ClassId } from './classes.ts';
 import type { Dice, Rng } from './rules.ts';
 
 /**
@@ -269,6 +270,43 @@ const STARTER_KIT: Readonly<Partial<Record<EquipSlot, readonly StarterEntry[]>>>
   ],
 };
 
+/**
+ * What a class starts with *instead of* the common roll, slot by slot — owner's ruling, 2026-08-08.
+ *
+ * Sparse and overriding rather than additive: a slot named here replaces {@link STARTER_KIT}'s
+ * choices for that class, and a slot absent here falls through to the common table. So a paladin's
+ * tunic, breeches and boots still vary the way everyone else's do; only the two slots that say
+ * something about the class are fixed.
+ *
+ * **The paladin is the first and only entry, and it completes the same ruling that gave them one-
+ * handed weapon skills.** Their four 1h rows in `skills.ts` were argued from the SRD's sword-and-
+ * board description; a paladin who then rolled a random dagger and no shield would have the training
+ * and none of the kit. The longsword is `weaponClass` 5, so it trains `slashing-1h` — the skill the
+ * ruling granted — from the first swing, which is the point of `weaponClass` being on these entries
+ * at all.
+ *
+ * **Neither piece is an upgrade in disguise.** The blade is `2d6`, matching the club, the heaviest of
+ * the four common weapons — the paladin gets a *predictable* weapon, not a better one, and the
+ * comment above still holds that a level-1 weapon should not decide the first ten levels. The
+ * shield's `1..3` is the same band as the chest slot, so it widens the AC spread by one slot's worth
+ * rather than by a new magnitude. A paladin therefore sits a little above the +2..+9 band the common
+ * kit lands in, which is the archetype arriving in the numbers and is the intended effect.
+ *
+ * The shield's id is the bare `shield` on purpose: it is protocol 14's art *class*, already mapped in
+ * the client's `KIT_ART` to `offhand-shield`, so it draws with no new art. Starting weapons are not
+ * drawn on the body yet — none of the four common ones are either — so the longsword needs none.
+ */
+const CLASS_KIT: Readonly<Partial<Record<ClassId, Readonly<Partial<Record<EquipSlot, readonly StarterEntry[]>>>>>> = {
+  paladin: {
+    mainHand: [
+      { id: 'longsword', name: 'a plain steel longsword', acMin: 0, acMax: 0, size: 2, damage: { count: 2, sides: 6, bonus: 0 }, weaponClass: 5 },
+    ],
+    offHand: [
+      { id: 'shield', name: 'a battered kite shield', acMin: 1, acMax: 3, size: 3 },
+    ],
+  },
+};
+
 /** Inclusive integer in `[min, max]`, through the seeded rng. */
 function between(rng: Rng, min: number, max: number): number {
   return min + Math.floor(rng() * (max - min + 1));
@@ -283,11 +321,17 @@ function between(rng: Rng, min: number, max: number): number {
  *
  * Every slot in {@link STARTER_KIT} is filled — a new character is dressed, not naked with one shoe.
  * The variance is in *which* item and *how good*, not in whether you got one.
+ *
+ * `classId` selects {@link CLASS_KIT}'s overrides where it has any. It is **optional and absent means
+ * the common kit**, which is not a fallback so much as the honest answer for the two callers that
+ * genuinely have no class: a pre-Phase-21 character with no identity, and the tests. A class with no
+ * row in `CLASS_KIT` also takes the common kit, which is every class but the paladin.
  */
-export function rollStarterKit(rng: Rng): Equipped {
+export function rollStarterKit(rng: Rng, classId?: ClassId): Equipped {
   const kit: Equipped = {};
+  const override = classId === undefined ? undefined : CLASS_KIT[classId];
   for (const slot of EQUIP_SLOTS) {
-    const choices = STARTER_KIT[slot];
+    const choices = override?.[slot] ?? STARTER_KIT[slot];
     if (!choices || choices.length === 0) continue;
     const pick = choices[Math.floor(rng() * choices.length)]!;
     kit[slot] = {
