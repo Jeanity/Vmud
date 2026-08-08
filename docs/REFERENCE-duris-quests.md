@@ -350,3 +350,56 @@ the counts above come from parsing all 262 files with those rules. Two things a 
 its totals will be wrong: `fread_string` reads to the next `~` **wherever it falls**, including
 mid-sentence (`kobold.qst:14`), and `boot_the_quests` builds its lists by prepending, so the *last*
 `Q` block in a giver is the *first* one tested at turn-in.
+
+---
+
+## Appendix: scripted quests in the C spec-procs
+
+A follow-up sweep (2026-08-08) checked every `CMD_GIVE`/`CMD_ASK` handler across all of `specs.*.c` —
+35 raw hits collapsing to 27 distinct functions once duplicates and one false positive
+(`CMD_GIVEPET` substring-matching `CMD_GIVE`) are removed — against `specs.assign.c`'s vnum→proc
+wiring, including its dozen disabled `#if 0` blocks and the one handler (`teacher`) that bypasses
+`specs.assign.c` entirely via a dynamic attach in `db.c`. The headline confirms §1: of the 27, only
+**11** are genuine, live, player-completable give/ask exchanges, tabulated below. The rest are two
+pay-tolls, a shop mechanic, dialogue with no payoff, an informational hook, a broken reward, a
+keyword death-trap — and **seven** with no live wiring at all. The `.qst` data in §1 remains the real
+quest corpus; this is the whole of what the C side adds on top of it.
+
+### Live and player-completable
+
+| Handler | File:line | Vnum(s) | Objective → reward |
+| --- | --- | --- | --- |
+| `harpy_evil` | `specs.mobile.c:127` | 31124 | Give the Choosing Feather (31112) → race becomes harpy, evil-aligned |
+| `harpy_good` | `specs.mobile.c:175` | 31109 | Give the Choosing Feather (31112) → race becomes harpy, good-aligned |
+| `claw_cavern_drow_mage` | `specs.mobile.c:10037` | 80726 | Give the Rainbow Key (80733) → mage dies, drops Rainbow Shards (80734) |
+| `world_quest` | `specs.mobile.c:10377` | 36 vnums, many zones | Ask "quest" → procedural kill-task; the live wiring for §1's "Generated world quests" row |
+| `newbie_paladin` | `specs.mobile.c:10616` | 22801 | Ask about "racewar" as a newbie → blessed sword + full starter gear set |
+| `clear_epic_task_spec` | `specs.mobile.c:14852` | 22428 | Ask for "prayer", pay ~10,000,000 copper → epic-task debuff cleared |
+| `smelter` | `specs.mobile.c:15277` | 83187 | Give 2 matching ore + a fee → smelted into the next size up |
+| `sex_crazed_prostitute` | `specs.grove.c:425` | 93602 | Give ≥500 copper → temporary follower |
+| `well_built_prostitute` | `specs.grove.c:619` | 93603 | Give ≥500 copper → temporary follower |
+| `sleezy_prostitute` | `specs.grove.c:813` | 93611 | Give ≥500 copper → temporary follower |
+| `burbul_map_obj` (object) | `specs.ailvio.c:27` | 29328 | Ask about "burbul map" → free map handed over |
+
+`harpy_evil`/`harpy_good` are one choice split across two mobs — the same feather, either mob, for the
+opposite alignment. The three `*_prostitute` handlers are copy-pasted from one template; a fourth
+sibling exists (`topless_prostitute`) but was never assigned — see below.
+
+### Dead, orphaned, or otherwise not worth chasing
+
+- `monk_remort` (`specs.mobile.c:15179`) — individually commented out at `specs.assign.c:194`.
+- `myranth_key` (`specs.myranth.c:3438`) — a four-key combine puzzle never assigned to any object vnum.
+- `topless_prostitute` (`specs.grove.c:230`) — identical to its three live siblings above, never assigned.
+- `bs_tax` (`specs.bloodstone.c:2541`) and `bs_bouncer` (`specs.bloodstone.c:3072`) — toll-gate
+  handlers, never assigned anywhere.
+- `prostitute_one` (`specs.verzanan.c:2395`) — both its assignment attempts sit inside disabled
+  `#if 0` blocks in `specs.assign.c`.
+- `um_mezzoloth` (`specs.undermountain.c:1775`) — assigned inside a `#if 0` block that disables all
+  17 Undermountain spec procs at once.
+
+Two more are live, not dead, but worth flagging as near-misses so nobody mistakes them for working
+quests: `gargoyle_master` (`specs.mobile.c:223`, vnum 31108) correctly tracks a harpy-corpse count,
+but its payoff — the actual race change — is commented out, so asking again past the threshold does
+nothing; `shabo_palle` (`specs.mobile.c:12742`, vnum 32842) isn't really `CMD_ASK`-gated despite the
+token match — it's a keyword trap on any command that spawns a killer after ten repeats of
+"pallistren darkaland".
