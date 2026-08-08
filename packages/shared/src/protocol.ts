@@ -303,8 +303,10 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  *
  * Was 25: other people, at last — Phase 21's channels. `LogChannel` gains `gossip` (world-wide),
  * `tell` (person to person, anywhere) and `gsay` (the group the roster already draws). No new
- * message shape: they are lines in the log, which is what a MUD channel is, and the client styles
- * them by class exactly as it styles the six that came before.
+ * message shape: they are lines in the log, which is what a MUD channel is, and each arrives
+ * pre-coloured — `&+m` gossip, `&+c` tell, `&+G` gsay, the whole line wrapped server-side — so it
+ * is `paint`'s existing colour-code renderer that tells them apart on screen, not a `.ch-*` rule
+ * like the six before them carry.
  */
 export const PROTOCOL_VERSION = 27;
 
