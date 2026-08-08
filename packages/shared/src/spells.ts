@@ -169,8 +169,16 @@ export function rollSpellBlows(rng: Rng, spell: SpellId, level: number): SpellBl
 /* Areas — slice 6                                                             */
 /* -------------------------------------------------------------------------- */
 
-/** Ice storm's floor: `spell.area.minChance.iceStorm` defaults to 90 (`magic.c:12894`). */
-export const ICE_STORM_MIN_CHANCE = 90;
+/**
+ * Ice storm's floor — the **live** value, not the C fallback. `spell_ice_storm` reads
+ * `get_property("spell.area.minChance.iceStorm", 90)` (`magic.c:12894`), and the 90 is only reached
+ * when the key is absent: `get_property` `bsearch`es the loaded table and returns the default *only*
+ * on a miss (`properties.c:59-72`). The key is present — `spell.area.minChance.iceStorm=0.000`
+ * (`lib/duris.properties:821`) — so the running server floors an ice storm at **none** of the players
+ * present and lets {@link areaHitCount}'s own draw decide. We shipped the fallback for a phase; this
+ * is the live number. (`chanceStep` is 10 there and read by nobody — the ladder is dead code.)
+ */
+export const ICE_STORM_MIN_CHANCE = 0;
 
 /**
  * How many of the players present an area actually strikes — the live half of `cast_as_damage_area`
@@ -314,32 +322,70 @@ export function defaultSaveMod(casterLevel: number, victimLevel: number, circle:
 /* -------------------------------------------------------------------------- */
 
 /**
- * Race codes that carry `INNATE_MAGIC_RESISTANCE` (`assign_innates`, `innates.c:477-788`), keyed by
- * the harvest's own codes (`attacks.ts`'s vocabulary): dragons and dracoliches, demons and devils,
- * the four elementals. The source's list also names drow, the elf family, tiefling, gith, lich,
- * vampire and beholder — player-adjacent races whose codes join this set with Phase 21, and undead
- * codes the loaded zones do not yet spawn. A victim with no race — every player until Phase 21 —
- * never shrugs, which is the source's own shape: MR is innate, and innates ride races.
+ * Race codes that carry `INNATE_MAGIC_RESISTANCE` (`assign_innates`, `innates.c:477-791`), each with
+ * the **live racial base** its shrug is scaled from. Membership and base are two different sources
+ * and both are transcribed here:
+ *
+ * - *who rolls* is the C — `resists_spell` gates on `has_innate(victim, INNATE_MAGIC_RESISTANCE)`
+ *   (`innates.c:3757`) and nothing else;
+ * - *how much* is a runtime property — `update_racial_shrug_data` fills `racial_shrug_data[race]`
+ *   from `innate.shrug.<race>` with a default of 0 (`sparser.c:2942-2952`), keyed on the race's
+ *   `no_spaces` name, and `get_innate_resistance` reads that array (`innates.c:3696`).
+ *
+ * This is `DESIGN-spells.md` §2.6 in its plainest form — *"the property names recorded beside each
+ * number"* — and it is why the table is a map and not a set. Phase 20 shipped the set with **no
+ * bases at all**, so every resistant race in the game sat on the 5% floor; a drow was as hard to
+ * nuke as a wood elf. A victim with no race never shrugs: MR is innate, and innates ride races.
+ *
+ * The keys are the source's own mob race codes — `race_names_table`'s fourth column (`common.c:67`),
+ * echoed in `defines.h`'s own per-race comments, and the same short string `worldgen/src/mobs.ts`
+ * reads out of a `.mob` file's second line. **Four of Phase 20's eight mob codes were not that
+ * vocabulary** and are corrected here: dragon is `D` not `DR` (which is *drider*), dracolich `UD`
+ * not `DL`, demon `X` not `DE`, devil `Y` not `DV` (which is *deva*), and the fire/air/water
+ * elementals are `EF`/`EA`/`EW` — `FE` and `DL` and `DE` name no race at all, and `AE` is a
+ * quadruped. Inert either way: no mob in the loaded world carries any of these codes, because
+ * `spriteFor` spawns only the humanoids we can draw. See `DESIGN-spell-memory.md` §6.
  */
-export const MAGIC_RESISTANT_RACES: ReadonlySet<string> = new Set([
-  // The harvest's own mob codes, as Phase 20 transcribed them from `resists_spell`.
-  'DR', 'DL', 'DE', 'DV', 'FE', 'AE', 'WE', 'EE',
-  // Phase 21: the *player* race codes (`defines.h:891`) for the races `innates.c` marks resistant
-  // — drow, duergar, grey elf, half-elf. Two namespaces, discovered the hard way: the first drive
-  // of a drow player arrived here as `PL` and shrugged nothing, because this set spoke only the
-  // harvest's dialect. Additive, so every pinned mob expectation stands.
-  'PL', 'PD', 'PE', 'P2',
+export const MAGIC_RESISTANT_RACES: ReadonlyMap<string, number> = new Map([
+  // Player races (`defines.h:891+`). Duergar are **absent** and that is the correction, not an
+  // oversight: `assign_innates` gives them `MAGICAL_REDUCTION`, a −20% damage modifier that never
+  // reaches this roll. `innates.c:552`, `fight.c:3817`, and §6 of the spell-memory note.
+  ['PL', 35], // drow      — `innate.shrug.DrowElf=35`   (`duris.properties:1908`), `innates.c:542`
+  ['PE', 35], // grey elf  — `innate.shrug.GreyElf=35`   (`duris.properties:1901`), `innates.c:509`
+  ['P2', 20], // half-elf  — `innate.shrug.Half-Elf=20`  (`duris.properties:1904`), `innates.c:513`
+  // The mob races Phase 20 chose, under their real codes and with their real bases.
+  ['D', 45],  // dragon          — `innate.shrug.Dragon=45`          (:1918), `innates.c:766`
+  ['UD', 30], // dracolich       — `innate.shrug.Dracolich=30`       (:1920), `innates.c:769`
+  ['X', 50],  // demon           — `innate.shrug.Demon=50`          (:1915), `innates.c:773`
+  ['Y', 50],  // devil           — `innate.shrug.Devil=50`          (:1916), `innates.c:768`
+  ['EF', 20], // fire elemental  — `innate.shrug.FireElemental=20`  (:1913), `innates.c:777`
+  ['EA', 20], // air elemental   — `innate.shrug.AirElemental=20`   (:1911), `innates.c:774`
+  ['EW', 55], // water elemental — `innate.shrug.WaterElemental=55` (:1912), `innates.c:776`
+  ['EE', 20], // earth elemental — `innate.shrug.EarthElemental=20` (:1914), `innates.c:775`
 ]);
 
 /**
- * The shrug chance, as a percentage — `get_innate_resistance` (`innates.c:3688-3720`). The racial
- * base is a runtime property in Duris (`innate.shrug.<race>`, default 0), so the C alone cannot say
- * what a drow shrugs; ours ships the same default and the same consequence: an MR race with no
- * authored number shrugs at the **floor of 5%**, scaled up by level exactly as the source scales it.
- * Zero for everyone else — the gate simply is not rolled.
+ * The shrug chance, as a percentage — `get_innate_resistance` (`innates.c:3688-3720`), transcribed
+ * whole. The arithmetic is unchanged from Phase 20 and stays pinned; what changed is its **input**,
+ * which used to be a zero nobody ever passed and is now the race's live base from
+ * {@link MAGIC_RESISTANT_RACES}:
+ *
+ * ```
+ * res = base − min(6, 56 − level)      // a flat toll that only a level above 56 turns into a bonus
+ * res = res × min(1, level / 50)       // and the whole thing ramps in over the first fifty levels
+ * res = max(5, res), capped at 100     // the 5% floor every unauthored race used to sit on
+ * ```
+ *
+ * The floor is why the bug was quiet: a drow *did* shrug, at 5%, so nothing looked broken. At level
+ * 30 — the top of our band — a drow now shrugs **17%** where it shrugged 5, and a half-elf 8%.
+ * Zero for everyone else; the gate is simply not rolled.
+ *
+ * Dropped with their names: the rrakkma group bonus (`innates.c:3701-3717`) needs groups of blooded
+ * players; desecrate land's −10 needs the spell.
  */
-export function shrugChance(raceCode: string | undefined, level: number, base = 0): number {
-  if (!raceCode || !MAGIC_RESISTANT_RACES.has(raceCode.toUpperCase())) return 0;
+export function shrugChance(raceCode: string | undefined, level: number): number {
+  const base = raceCode === undefined ? undefined : MAGIC_RESISTANT_RACES.get(raceCode.toUpperCase());
+  if (base === undefined) return 0;
   const lvl = Math.max(1, level);
   const raw = base - Math.min(6, 56 - lvl);
   const scaled = raw * Math.min(1, lvl / 50);

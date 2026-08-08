@@ -109,7 +109,7 @@ Live factors from `duris.properties`; folded bonus per §1's formula; senses/qui
 | Grey Elf | PE | +1 DEX, +1 INT, +1 WIS, +1 CHA, −1 STR, −1 CON | M | infravision, **MR** |
 | Wood Elf¹ | WE | — | M | — |
 | Mountain Dwarf | PM | +2 STR, +1 CON, +2 WIS, −1 DEX, −1 INT, −1 CHA | M | infravision |
-| Duergar | PD | +2 STR, +2 CON, +2 WIS, −2 INT, −2 CHA, −1 DEX | M | ultravision, **MR-adjacent (magical reduction)**, underdark sneak, **sun-vulnerable** |
+| Duergar | PD | +2 STR, +2 CON, +2 WIS, −2 INT, −2 CHA, −1 DEX | M | ultravision, **no MR** (magical reduction — a different mechanism, see below), underdark sneak, **sun-vulnerable** |
 | Halfling | PF | +2 DEX, +1 WIS, +1 CHA, −1 POW→— , −0 STR | S | infravision-less; the sneak race |
 | Gnome | PG | +2 INT, +1 DEX, +1 AGI→DEX, −1 STR, −1 CON | S | infravision |
 | Half-elf | P2 | +1 everywhere but STR/CON (the generalist) | M | infravision, **MR** |
@@ -118,6 +118,15 @@ Live factors from `duris.properties`; folded bonus per §1's formula; senses/qui
 ¹ Wood Elf is **out**: the owner picked nine and Wood Elf was not among them; the row exists in
 the source table should it ever be wanted. (Codes are the source's mob race codes — the same
 namespace `shrugChance` already keys on, which is the whole trick of §5.)
+
+_Corrected 2026-08-08, `DESIGN-spell-memory.md` §6's true-up: **the duergar row said "MR-adjacent
+(magical reduction)" and the code read that hedge as `true`.** They are not the same gate.
+`assign_innates` gives duergar — and mountain dwarves — `MAGICAL_REDUCTION` (`innates.c:552`,
+`473`), and its only reader in the whole source is a damage-modifier predicate that takes 20% off
+**generic** spell damage (`fight.c:3817`); `resists_spell` tests `INNATE_MAGIC_RESISTANCE` and
+nothing else (`innates.c:3757`). So a duergar never rolls the shrug, and `races.ts` now says
+`magicResistant: false`. Damage reduction is real and unbuilt — parked in §6 of that note. Of our
+nine, three carry MR: Grey Elf, Half-elf, Drow._
 
 Exact folded numbers are computed from the factor table *in code* at boot, not hand-copied into a
 second table that can drift — the rows above are what the formula yields today, recorded for
@@ -156,10 +165,10 @@ per-group ceilings in the class table, replacing today's flat level-driven floor
 
 ## 5. Magic resistance goes live
 
-`shrugChance(raceCode, level, targetLevel)` rolls for whatever `MAGIC_RESISTANT_RACES` names. A
-player character gains `race.code`, and the shrug gate — dormant since Phase 20 because "players
-are raceless" — fires for drow, duergar, grey elves and half-elves. **No new arithmetic**; the
-tests that pinned it stay the authority.
+`shrugChance(raceCode, level)` rolls for whatever `MAGIC_RESISTANT_RACES` names. A player character
+gains `race.code`, and the shrug gate — dormant since Phase 20 because "players are raceless" —
+fires for drow, grey elves and half-elves. **No new arithmetic**; the tests that pinned it stay the
+authority.
 
 _Corrected in the building (slice 1's drive, 2026-08-08): this section originally claimed the
 player codes enter "the same namespace" the gate already keyed on. **There are two namespaces.**
@@ -167,6 +176,17 @@ The gate's set held the *harvest's* mob codes (`DR`, `DE`, …); `defines.h`'s p
 `PD`, `PE`, `P2`) are a different dialect, and the first live drow arrived at the gate as `PL` and
 shrugged nothing — found by a temporary chance-log at the call site, chance=0 where 5 was owed.
 The set now speaks both dialects, additively, with the pinned mob expectations untouched._
+
+_Amended 2026-08-08 (`DESIGN-spell-memory.md` §6's true-up), on three counts._ **Duergar are not
+one of them** — see the note under §3's table; the gate's set held `PD` on a hedge and now does
+not. **The gate held no racial bases at all**, so every race it did name sat on the source's 5%
+floor: a drow was exactly as hard to nuke as a wood elf, and this section's "goes live" was live at
+one twentieth of its intended strength. The bases are the live server's own — `innate.shrug.DrowElf`
+and friends, `duris.properties:1899-1938` — and they now ride the same table as the codes, so a code
+and its number can never drift apart. At the top of our band, level 30: **drow and grey elf 17%,
+half-elf 8%**, all three up from 5. And **the mob half of that "second dialect" was not a dialect at
+all** — four of its eight codes matched no race in `race_names_table`, which is the correction the
+note's §6 records. None of it was reachable: no mob in the loaded world carries one._
 
 **Sun vulnerability** is the one racial *penalty* built now (both underdark races): in a sunlit
 outdoor room, −2 to hit and a system-channel line on entry (*"The cursed sun of the surface world

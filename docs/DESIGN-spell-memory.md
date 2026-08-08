@@ -417,6 +417,89 @@ level-56 boss penetrates at the 60 cap. That is what makes a boss caster frighte
    `get_property(..., 90)` fallback at `magic.c:12894`. Ours floors an ice storm at hitting 90% of the
    players present; the live server floors it at none.
 
+### Resolved — §8 slice 3, 2026-08-08
+
+**All three are fixed, and a fourth was found in the fixing.** Each decision and what it cost:
+
+**1. The bases are in, and `MAGIC_RESISTANT_RACES` is a map.** The set became
+`ReadonlyMap<string, number>`, code → live base, because membership and magnitude come from two
+different sources and both had to be transcribed: *who rolls* is the C (`resists_spell` tests
+`has_innate(victim, INNATE_MAGIC_RESISTANCE)` and nothing else, `innates.c:3757`), *how much* is a
+runtime property (`update_racial_shrug_data` fills `racial_shrug_data[race]` from
+`innate.shrug.<race>` with a default of 0, `sparser.c:2942-2952`, read by `get_innate_resistance` at
+`innates.c:3696`). That is `DESIGN-spells.md` §2.6's *"the property names recorded beside each
+number"*, so every row carries its property line and its `innates.c` grant. The level arithmetic is
+untouched — the third parameter is gone because the map is now the only source of a base, and
+nothing ever passed it.
+
+What a player feels, at the top of our band (level 30) and at the source's own ceiling:
+
+| Race | Code | Base | L30 before | L30 after | L50 after |
+| --- | --- | --- | --- | --- | --- |
+| Drow | `PL` | 35 | 5% | **17%** | 29% |
+| Grey Elf | `PE` | 35 | 5% | **17%** | 29% |
+| Half-elf | `P2` | 20 | 5% | **8%** | 14% |
+| Duergar | `PD` | — | 5% | **0% — removed** | — |
+| Dragon | `D` | 45 | 5% | 23% | 39% |
+| Water elemental | `EW` | 55 | 5% | 29% | 49% |
+| Demon / Devil | `X` / `Y` | 50 | 5% | 26% | 44% |
+| Dracolich | `UD` | 30 | 5% | 14% | 24% |
+| Fire / Air / Earth elemental | `EF` / `EA` / `EE` | 20 | 5% | 8% | 14% |
+
+**2. `'PD'` is out — magical reduction is a damage mechanism, not this one.** Grepped whole:
+`MAGICAL_REDUCTION` occurs **four times in the entire source** — the `#define` at `structs.h:417`,
+two grants (`RACE_MOUNTAIN` and `RACE_DUERGAR`, both at level 1, `innates.c:473` and `552`), and
+exactly one reader: a damage-modifier predicate in `spell_damage_modifiers[]` that does
+`dam_mod->mod += -0.2; dam_mod->type = More` on `case SPLDAM_GENERIC` (`fight.c:3817`). It never
+appears in `innates.c`'s resist path. **And it is live, not a dead branch** — the §0 doctrine's own
+test, run: there is not a single preprocessor directive between `fight.c:3600` and `3900`, and the
+table is iterated unconditionally by `spell_damage` at `fight.c:4659-4662`. So this is not a
+`NEW_COMBAT` / `wipe2011` / `CHAOS_MUD` ghost; it is a real mechanism we simply do not have. `'PD'`
+leaves the map, `races.ts` reads `magicResistant: false`, and `DESIGN-characters.md` §3's
+"MR-adjacent" hedge — which is what put it there — is corrected in place.
+
+**Parked, with its trigger: spell damage reduction.** A flat −20% multiplicative band on generic
+spell damage, carried by duergar *and mountain dwarves*. Not built now, because the shape it wants
+is the ward stack §6 already parks — `check_damage_ward`'s absorb pool and the `'absorbed'` outcome
+— and building a one-race percentage beside it invites two mechanisms where the source has one.
+**Build it with the damage-modifier stack**, i.e. whenever `check_damage_ward` or the globes land;
+that is the pass where a −20% racial band is one row rather than a special case. Until then both
+dwarves take spells whole, which is the honest under-implementation rather than a wrong gate.
+
+**3. `ICE_STORM_MIN_CHANCE` is 0.** `get_property` `bsearch`es the loaded property table and returns
+its default **only when the key is missing** (`properties.c:59-72`) — a present key worth `0.000` is
+returned as 0, not treated as unset. The key is present (`duris.properties:821`), so the running
+server reads **0** and the `90` at `magic.c:12894` is unreachable for this spell. Ours now matches:
+an ice storm no longer floors at nine of ten players in the room, it lets `areaHitCount`'s own draw
+decide, which for ten players is four to six. The 90 stays pinned in the tests as the shape a
+*floored* area spell has — fire storm and nova still read it (`magic.c:3562`, `4033`).
+
+**4. Found in the fixing: four of the eight mob codes named no race.** The keys are meant to be the
+source's own mob race codes — `race_names_table`'s fourth column (`common.c:67`), echoed in
+`defines.h`'s per-race comments, and the same string a `.mob` file's second line carries and
+`worldgen/src/mobs.ts:299` reads. Measured against that table, Phase 20's set was: `DR` is
+**drider**, not dragon (`D`); `DV` is **deva**, not devil (`Y`); `WE` is **wood elf**, not water
+elemental (`EW`); `AE` is a **quadruped**, not air elemental (`EA`); and `DL`, `DE`, `FE` name
+nothing at all — dracolich is `UD`, demon is `X`, fire elemental is `EF`. Corrected to the races
+Phase 20 meant, under their real codes.
+
+**Nothing was reachable, which is why it stayed quiet**: every race code in the loaded world is a
+humanoid (`PH`, `H`, `G`, `PT`, `PE`, `PG`, `PL`, `PB`, `PO`, `PM`, `P2`, `PF`, `PD`), because
+`spriteFor` refuses to spawn a body we cannot draw. **Parked, with its trigger**: the *rest* of the
+`assign_innates` roster — drider, wood elf, deva, eladrin, tiefling, both gith, pillithid, lich,
+both vampires, phantom, angel, dragonkin, beholder, illithid, wraith, shadow, spectre, undead and
+the void and ice elementals, all with bases in the same property block — joins the map **when the
+art set can draw one of them**, since a resistant race that cannot spawn is a row nobody can test.
+One caution recorded for that day: `RACE_BEHOLDERKIN` is granted MR at **level 51**
+(`innates.c:772`), the only level-gated grant in the list, and our function has no notion of when an
+innate arrives.
+
+_Not fixed here, and not in scope: `attacks.ts`'s `RACE_ATTACK` (`attacks.ts:210`) claims the same
+fourth-column vocabulary and does not use it either — `QU` for quadruped where the table says `AE`,
+`BE` for beholder where it says `BH`, `DR`/`DL` for dragon and dracolich. It is the same class of
+error in a table that only chooses an attack verb, so it costs flavour rather than damage. Worth a
+pass of its own._
+
 ## 7. Ground casting is dead code; concentration is live, and it is the one to adopt
 
 **Decided: adopt `concentration`; drop `ground casting` by name.**
@@ -485,9 +568,12 @@ who never refills, and the timer without the table is a caster with nothing to r
    empty new circle. *Seen when*: a level-5 cleric has six castings instead of two, spends them,
    sits, rests, and gets one back in eleven seconds — and a level-5 ranger gets theirs back while
    walking.
-3. **The three divergences.** §6: `shrugChance` fed the live racial bases from a small table beside
-   the other tuned numbers; `'PD'` decided; `ICE_STORM_MIN_CHANCE` corrected to the live 0 or kept
-   deliberately with a comment saying which. Small, and each is a wrong number shipping today.
+3. ~~**The three divergences.**~~ **Done, 2026-08-08** — and it was four, not three; §6's "Resolved"
+   block is the record. `shrugChance` reads live racial bases from the map that replaced
+   `MAGIC_RESISTANT_RACES`; `'PD'` is out, with damage reduction parked behind the ward stack;
+   `ICE_STORM_MIN_CHANCE` is the live 0; and four mob codes that named no race are corrected. A
+   level-30 drow went from 5% to 17%. **Landed out of order, ahead of slices 1 and 2** — it touches
+   no circle, so it does not owe them anything.
 4. **Concentration.** §7: the first mental skill, the roll on knockdown, the notch on the save.
    *Seen when*: a bashed cleric sometimes keeps the spell, and `skills` shows a second cooldown.
 5. **The elite penetration branch.** §6: `shrugChance` takes a caster, an elite or greater-race NPC

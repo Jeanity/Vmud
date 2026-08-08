@@ -11,6 +11,7 @@ import { describe, it } from 'node:test';
 
 import { makeRng } from './rules.ts';
 import {
+  ICE_STORM_MIN_CHANCE,
   MAGIC_RESISTANT_RACES,
   SPELLS,
   areaHitCount,
@@ -109,13 +110,16 @@ describe('areas — slice 6, the thinning that thins players only', () => {
     for (let i = 0; i < 50; i++) assert.equal(areaHitCount(rng, 1, 90), 1, 'median 5.5, capped at the one present');
   });
 
-  it("ice storm's 90% floor outranks the median roll in a crowd", () => {
-    // Ten players: the median roll lands 4..6, and the min-chance floor of 9 wins every time —
-    // which is the source's own tuning: the property default barely thins at all.
+  it('a 90% floor outranks the median roll in a crowd; ice storm has no floor at all', () => {
+    // Ten players and a floor of 90: the median roll lands 4..6 and the floor of 9 wins every time.
+    // That 90 is the *C fallback* — the shape a floored area spell has, and what fire storm, nova
+    // and the summons still read (`magic.c:3562, 4033`), so it stays pinned here.
     for (let i = 0; i < 100; i++) assert.equal(areaHitCount(rng, 10, 90), 9);
-    // With no floor, the median arithmetic shows itself: pc/2 + 5/pc ± 0.75 → 4..6 of ten.
+    // Ice storm's live property is 0 ({@link ICE_STORM_MIN_CHANCE}), which is this branch: with no
+    // floor the median arithmetic shows itself, pc/2 + 5/pc ± 0.75 → 4..6 of ten. Nine of ten
+    // players caught became five.
     for (let i = 0; i < 100; i++) {
-      const hit = areaHitCount(rng, 10, 0);
+      const hit = areaHitCount(rng, 10, ICE_STORM_MIN_CHANCE);
       assert.ok(hit >= 4 && hit <= 6, `rolled ${hit}`);
     }
   });
@@ -170,15 +174,32 @@ describe('gate 2 — the shrug', () => {
     assert.equal(shrugChance('H', 50), 0);
   });
 
-  it('floors an unauthored magic-resistant race at 5%, the source’s own default consequence', () => {
-    for (const race of MAGIC_RESISTANT_RACES) {
-      assert.equal(shrugChance(race, 50), 5, race);
+  it('gives every resistant race a live base, so none of them sit on the 5% floor any more', () => {
+    // The Phase 20 shape: no bases at all, every race pinned to `max(5, …)`. The true-up's whole
+    // point is that this loop can no longer pass with a table full of zeroes.
+    for (const [race, base] of MAGIC_RESISTANT_RACES) {
+      assert.ok(base > 0, `${race} has no racial base`);
+      assert.ok(shrugChance(race, 50) > 5, race);
     }
   });
 
+  it('reads the live racial bases — `innate.shrug.<race>`, transcribed', () => {
+    // The three that matter today, because they are player races we ship. `get_innate_resistance`
+    // at level 50: `(base − 6) × 1.0`.
+    assert.equal(MAGIC_RESISTANT_RACES.get('PL'), 35); // drow     — `duris.properties:1908`
+    assert.equal(MAGIC_RESISTANT_RACES.get('PE'), 35); // grey elf — `duris.properties:1901`
+    assert.equal(MAGIC_RESISTANT_RACES.get('P2'), 20); // half-elf — `duris.properties:1904`
+    assert.equal(shrugChance('PL', 50), 29);
+    assert.equal(shrugChance('PE', 50), 29);
+    assert.equal(shrugChance('P2', 50), 14);
+  });
+
   it('lets an authored base climb with level and caps at 100', () => {
-    assert.ok(shrugChance('DR', 50, 60) > shrugChance('DR', 25, 60));
-    assert.equal(shrugChance('DR', 60, 500), 100);
+    assert.ok(shrugChance('D', 50) > shrugChance('D', 25));
+    // The cap is transcription, not balance: `(res >= 100) ? 100 : res` (`innates.c:3719`). Our band
+    // stops at 30, where the ramp is still only three fifths in, so nothing in play approaches it —
+    // it takes a level past 56, where `min(6, 56 − level)` turns from a toll into a bonus.
+    assert.equal(shrugChance('EW', 200), 100);
   });
 });
 
@@ -244,14 +265,27 @@ describe('the mob’s quick chant', () => {
 
 describe('gate 2 — the player dialect, Phase 21', () => {
   it('rolls for the blooded player races by their defines.h codes', () => {
-    for (const code of ['PL', 'PD', 'PE', 'P2']) {
-      assert.equal(shrugChance(code, 50), 5, code);
+    // Three, not four. `assign_innates` marks grey elf, half-elf and drow (`innates.c:509, 513,
+    // 542`) — and no dwarf of either kind.
+    for (const code of ['PL', 'PE', 'P2']) {
+      assert.ok(shrugChance(code, 50) > 0, code);
     }
   });
 
-  it('still rolls for nobody human', () => {
+  it('is what a level-30 player actually feels — the top of our band', () => {
+    assert.equal(shrugChance('PL', 30), 17); // drow, up from the 5% floor it shipped on
+    assert.equal(shrugChance('PE', 30), 17); // grey elf, likewise
+    assert.equal(shrugChance('P2', 30), 8); // half-elf
+    assert.equal(shrugChance('PD', 30), 0); // duergar — magical reduction is not this gate
+  });
+
+  it('still rolls for nobody human — nor for either dwarf', () => {
     assert.equal(shrugChance('PH', 50), 0);
     assert.equal(shrugChance('PB', 50), 0);
     assert.equal(shrugChance('PM', 50), 0); // a mountain dwarf resists nothing arcane
+    // Duergar shipped in this set on a "MR-adjacent" hedge. `innates.c:552` gives them
+    // `MAGICAL_REDUCTION`, whose only reader is a −20% generic-spell-damage modifier
+    // (`fight.c:3817`); `resists_spell` never sees it. Damage reduction is a parked follow-on.
+    assert.equal(shrugChance('PD', 50), 0);
   });
 });

@@ -22,8 +22,13 @@
  *
  * `code` is the source's own mob race code (`defines.h:891` — `PH`, `PL`, …), the namespace
  * {@link shrugChance} has keyed on since Phase 20. Giving a player character a race code is what
- * finally lets a drow player shrug a kobold shaman's missile — no new arithmetic, the pinned
- * tests stay the authority.
+ * finally lets a drow player shrug a kobold shaman's missile — no new arithmetic, then or since.
+ *
+ * What *did* change is the number that arithmetic is fed. The gate held no racial bases at all, so
+ * every resistant race sat on the source's 5% floor; the bases are the live server's own
+ * (`innate.shrug.<race>`) and now ride the same table as the codes, which takes a level-30 drow from
+ * 5% to **17%**. The same pass found the duergar's {@link Race.magicResistant} to be a different
+ * mechanism wearing this one's name. `DESIGN-spell-memory.md` §6 is the record.
  */
 
 import { ABILITIES, type Ability } from './rules.ts';
@@ -62,7 +67,14 @@ export interface Race {
   readonly size: 'small' | 'medium';
   /** Sees in the dark. `ultravision` is the deeper form; both read as darkvision for now. */
   readonly vision: 'normal' | 'infravision' | 'ultravision';
-  /** Rolls on the shrug gate — `INNATE_MAGIC_RESISTANCE` (or the duergar's magical reduction). */
+  /**
+   * Rolls on the shrug gate — `INNATE_MAGIC_RESISTANCE`, and only that. Of our nine that is Grey
+   * Elf, Half-elf and Drow (`innates.c:509, 513, 542`). **Duergar are not one of them**: the source
+   * gives them `MAGICAL_REDUCTION` (`innates.c:552`), which is a −20% modifier on generic spell
+   * damage (`fight.c:3817`) and never reaches `resists_spell`. This field carried `true` for them
+   * for a phase on the strength of a "MR-adjacent" hedge; the mechanisms are different and the flag
+   * now says so. See `DESIGN-spell-memory.md` §6.
+   */
   readonly magicResistant: boolean;
   /** Burns under the open sun — drow and duergar. A reader in the light system, Phase 21 §5. */
   readonly sunVulnerable: boolean;
@@ -157,7 +169,8 @@ export const RACES: Readonly<Record<RaceId, Race>> = {
     factors: { str: 130, dex: 90, agi: 90, con: 135, int: 75, wis: 130, cha: 70 },
     size: 'medium',
     vision: 'ultravision',
-    magicResistant: true,
+    // Not magic resistant: `MAGICAL_REDUCTION`, not `INNATE_MAGIC_RESISTANCE` — see the field's note.
+    magicResistant: false,
     sunVulnerable: true,
     manaFactor: 95,
     hpBonus: 1,
