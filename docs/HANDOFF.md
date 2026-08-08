@@ -446,10 +446,14 @@ factor table, `PlayerRecord.identity` (race + class + scores, minted together, g
 prices — and **the shrug gate finally rolls for players**: the drive's hand-minted drow entered at
 `chance=5` beside a human control at `chance=0`, after the drive caught `MAGIC_RESISTANT_RACES`
 speaking only the harvest's race-code dialect and not `defines.h`'s player codes (two namespaces;
-the design note's §5 correction tells it). 1,702 tests. **Next in the phase**: slice 2 (circles
-and slots — mana pools land there too, deliberately deferred), slice 3 (protocol 24 creation
-conversation + the picker's race/class/roll cards + legacy adoption), then skills-by-class,
-channels, sun/senses, the one quest. Note for the next drive: fight the *placement-repopped*
+the design note's §5 correction tells it). **Slice 2 landed the same
+evening**: circles open on the five-level cadence, casting debits a slot at completion
+(pay-then-fizzle, the source's order), `rest` memorizes them back — the drive caught the gate
+reading `status !== 'normal'` where **`resting` is a status, not a posture** (§1.3's two-axis trap,
+again) — `spells` reads the book, INT/WIS size the mana pool, and the roll is **4d6-drop-lowest**
+(owner's second ask). 1,705 tests. **Next in the phase**: slice 3 (protocol 24 creation
+conversation + the picker's race/class/roll cards + legacy adoption — the owner's explicit ask),
+then skills-by-class, channels, sun/senses, the one quest. Note for the next drive: fight the *placement-repopped*
 shaman, not an admin-spawned twin (a chip is open on whether the spawn path merges authored
 spells), and remember `PlayerStore`'s cache means save-file surgery needs the server down.
 
