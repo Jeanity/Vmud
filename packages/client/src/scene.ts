@@ -655,7 +655,7 @@ const PATH_COLOUR = 0xffe9a8;
 const DENIED_COLOUR = 0xd08a7d;
 const DENIED_MS = 420;
 
-/**
+/*
  * Hold-to-drag: a virtual joystick, **not** a route.
  *
  * Holding the button walks the character in a straight line toward the pointer, wherever it is — lit
