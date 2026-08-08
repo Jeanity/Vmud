@@ -34,6 +34,7 @@ import {
   RACES,
   RACE_IDS,
   racialBonuses,
+  scoreWord,
   type Ability,
   type CharacterSummary,
   type ClassId,
@@ -82,6 +83,7 @@ export class LoginGate {
         race?: RaceId;
         class?: ClassId;
         words?: Readonly<Record<Ability, string>>;
+        scores?: Readonly<Record<Ability, number>>;
         bonus: number;
         spend: Partial<Record<Ability, number>>;
       }
@@ -180,6 +182,7 @@ export class LoginGate {
       if (!held) return;
       this.pending = 'none';
       held.words = message.words;
+      held.scores = message.scores;
       held.bonus = message.bonus;
       held.spend = {};
       this.showRoll();
@@ -468,6 +471,16 @@ export class LoginGate {
     const left = held.bonus - this.spent();
     this.chargenBonus.textContent =
       left > 0 ? `${left} point${left === 1 ? '' : 's'} to spend` : 'every point spent';
+    // The dice, explained — the owner's reason: nobody should grind for an impossible twenty or
+    // keep a dud because the odds were a mystery. Set here, not in the markup, so the words can
+    // never drift from the roll that is actually made.
+    const hint = document.getElementById('chargen-hint');
+    if (hint) {
+      hint.textContent =
+        'Each score: 4d6, drop the lowest — 3 to 18, average just over 12 — then your race’s ' +
+        'bonuses, raised to your calling’s minimums. Reroll all six as often as you like; the ' +
+        'five points reset each time.';
+    }
     this.chargenScores.replaceChildren(
       ...ABILITIES.map((ability) => {
         const row = document.createElement('div');
@@ -477,10 +490,14 @@ export class LoginGate {
         ab.textContent = ability;
         const word = document.createElement('span');
         word.className = 'word';
-        word.textContent = held.words![ability];
+        const spentHere = held.spend[ability] ?? 0;
+        // The owner's amendment: the number rides beside the word, and both track the spend live —
+        // "good 15" becomes "very good 16" as a point lands, which is the whole calibration.
+        const base = held.scores?.[ability];
+        const shown = base === undefined ? undefined : base + spentHere;
+        word.textContent = shown === undefined ? held.words![ability] : `${scoreWord(shown)} ${shown}`;
         const plus = document.createElement('span');
         plus.className = 'plus';
-        const spentHere = held.spend[ability] ?? 0;
         plus.textContent = spentHere > 0 ? `+${spentHere}` : '';
         const minus = document.createElement('button');
         minus.type = 'button';

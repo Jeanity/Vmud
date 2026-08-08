@@ -831,6 +831,13 @@ export type ServerMessage =
       readonly race: RaceId;
       readonly class: ClassId;
       readonly words: Readonly<Record<Ability, string>>;
+      /**
+       * The numbers beside the words — the owner's amendment (2026-08-08, third ask): *"the actual
+       * number as well… so they don't spend all day trying for a maxed out character or accepting
+       * a dud."* The words stay for flavour; the numbers are for calibration, and the card says
+       * how the dice work for the same reason.
+       */
+      readonly scores: Readonly<Record<Ability, number>>;
       readonly bonus: number;
     }
   /**

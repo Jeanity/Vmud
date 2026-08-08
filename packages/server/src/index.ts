@@ -8875,7 +8875,7 @@ wss.on('connection', (socket, request) => {
         const words = {} as Record<Ability, string>;
         for (const ability of ABILITIES) words[ability] = scoreWord(scores[ability]);
         socket.send(
-          encode({ t: 'charRolled', race: message.race, class: message.class, words, bonus: BONUS_POINTS }),
+          encode({ t: 'charRolled', race: message.race, class: message.class, words, scores, bonus: BONUS_POINTS }),
         );
         return;
       }
