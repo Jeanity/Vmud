@@ -219,3 +219,24 @@ describe('damage that rises with level — §8', () => {
     }
   });
 });
+
+describe('the identity bonus on the roll — Phase 21', () => {
+  it('adds constitution, blood and calling to every level crossed', () => {
+    const plain = applyExperience(makeRng(9), { level: 1, experience: 6_100, maxHp: 22 });
+    const tough = applyExperience(makeRng(9), { level: 1, experience: 6_100, maxHp: 22 }, 3);
+    assert.equal(tough.gained, plain.gained);
+    assert.equal(tough.hitPointsGained, plain.hitPointsGained + 3 * plain.gained);
+  });
+
+  it('floors each level at one point, however cursed the character', () => {
+    const cursed = applyExperience(makeRng(9), { level: 1, experience: 2_500, maxHp: 22 }, -50);
+    assert.equal(cursed.gained, 1);
+    assert.equal(cursed.hitPointsGained, 1);
+  });
+
+  it('changes nothing when absent — a pre-phase character levels as before', () => {
+    const a = applyExperience(makeRng(4), { level: 1, experience: 2_500, maxHp: 22 });
+    const b = applyExperience(makeRng(4), { level: 1, experience: 2_500, maxHp: 22 }, 0);
+    assert.deepEqual(a, b);
+  });
+});

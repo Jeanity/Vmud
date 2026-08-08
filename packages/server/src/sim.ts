@@ -111,6 +111,7 @@ import {
 } from '@mygame/shared/light.ts';
 import { DEFAULT_LIGHT_RADIUS, computeVisible } from '@mygame/shared/vision.ts';
 
+import type { PlayerIdentity } from './players.ts';
 import { LOCKS_HOLD, placeOf, type GameWorld } from './world.ts';
 
 /** Pixels a character covers in one tick at walking pace — 15 at today's numbers. */
@@ -405,6 +406,13 @@ export interface Actor {
  */
 export interface Player extends Actor {
   readonly kind: 'player';
+  /**
+   * Race, class and the six scores — Phase 21, restored from the record on entry and undefined for
+   * a character minted before the phase (who adopts on a later entry, DESIGN-characters.md §6).
+   * The derivations read it through `refitCombat` and friends; nothing consults a score directly
+   * mid-fight, for 1.5's recompute-from-base rule.
+   */
+  identity: PlayerIdentity | undefined;
   /** Latest steering intent, normalised, replaced each time the client sends one. */
   intentX: number;
   intentY: number;
@@ -856,6 +864,8 @@ export class Simulation {
       maxMove: MAX_MOVE_POOL,
       level: 1,
       experience: 0,
+      // Nobody until the record says so — set by `restoreProgress`, minted by creation. Phase 21.
+      identity: undefined,
       // §8 gives nothing below level 6, so a fresh character genuinely starts at zero rather than
       // starting at a number nobody rolled.
       damageBonus: 0,

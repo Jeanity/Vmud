@@ -109,8 +109,14 @@ export interface LevelUp extends Progress {
  *
  * Pure, and takes the rng so the roll is seeded like everything else in the simulation. The caller
  * owns applying the result; this function decides only what the result is.
+ *
+ * `hpLevelBonus` is **Phase 21's seam**: what the character's constitution, race and class add to
+ * every level's roll (DESIGN-characters.md §2), zero for the identity-less. Added inside the loop
+ * with a floor of one per level — the calibrated base curve (`DESIGN-progression.md` §3) stays the
+ * spine, so a barbarian outlasts a sorcerer without either leaving the band mob damage was tuned
+ * against; a bonus so negative it would *take* hit points on a level-up still grants one.
  */
-export function applyExperience(rng: Rng, current: Progress): LevelUp {
+export function applyExperience(rng: Rng, current: Progress, hpLevelBonus = 0): LevelUp {
   let { level, experience, maxHp } = current;
   let gained = 0;
   let hitPointsGained = 0;
@@ -120,7 +126,7 @@ export function applyExperience(rng: Rng, current: Progress): LevelUp {
     if (experience < cost) break;
     experience -= cost;
     level += 1;
-    const roll = hitPointsForLevel(rng, level);
+    const roll = Math.max(1, hitPointsForLevel(rng, level) + hpLevelBonus);
     maxHp += roll;
     hitPointsGained += roll;
     gained += 1;

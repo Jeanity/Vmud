@@ -99,8 +99,11 @@ import {
   toHitFrom,
   weaponSkillFor,
   WEAPON_NOTCH_CHANCE,
+  abilityMod,
   armourToAc,
   attackBonusFor,
+  CLASSES,
+  RACES,
   parseDice,
   roundLengthFor,
   type CombatStats,
@@ -247,6 +250,7 @@ import {
   seenTileCount,
   slugify,
   type LegacyRoomTiles,
+  type PlayerIdentity,
   type PlayerRecord,
 } from './players.ts';
 import { directionFrom, peek } from './peek.ts';
@@ -1541,6 +1545,10 @@ function rememberProgress(player: Player): void {
  * full at every login.
  */
 function restoreProgress(player: Player, record: PlayerRecord): void {
+  // **Who they are comes back before anything read off it.** Phase 21: `refitCombat` at the bottom
+  // folds the strength and dexterity modifiers, so the identity has to be on the player before that
+  // one rebuild runs — the same before-the-derivation ordering the kit gets one line down.
+  player.identity = record.identity;
   // **The kit comes back before anything derived from it.** A stored character keeps what they were
   // wearing; only a genuinely new one rolls a fresh kit, which is what stops a reconnect being a
   // reroll. `combat` is rebuilt from it below rather than stored, because armour class is a
@@ -1615,11 +1623,15 @@ function expectedHitPoints(level: number): number {
  */
 function levelUpIfEarned(player: Player): void {
   const before = player.level;
-  const result = applyExperience(progressRng, {
-    level: player.level,
-    experience: player.experience,
-    maxHp: player.maxHp,
-  });
+  const result = applyExperience(
+    progressRng,
+    {
+      level: player.level,
+      experience: player.experience,
+      maxHp: player.maxHp,
+    },
+    hpLevelBonus(player.identity),
+  );
   if (result.gained === 0) {
     player.experience = result.experience;
     return;
@@ -4095,8 +4107,15 @@ function completeSpellStrike(caster: Actor, spell: Spell, target: Actor, atLevel
     const mod = defaultSaveMod(atLevel, target.level, spell.circle) + sumApply(target.affects, 'saves');
     doubled = !rollSave(combatRng, target.level, mod, isMob(target));
   }
-  // Gate 2's chance, computed once; rolled per blow.
-  const race = isMob(target) ? mobTemplates.get(target.vnum)?.race : undefined;
+  // Gate 2's chance, computed once; rolled per blow. **Phase 21 lights the player half**: a race
+  // code from the character's identity enters exactly the gate mob codes always did — the arithmetic
+  // and its pinned tests unchanged, which was the whole design. A raceless legacy character still
+  // never shrugs, as before the phase.
+  const race = isMob(target)
+    ? mobTemplates.get(target.vnum)?.race
+    : isPlayer(target) && target.identity
+      ? RACES[target.identity.race].code
+      : undefined;
   const shrug = shrugChance(race, target.level);
 
   const changed: Actor[] = [];
@@ -6206,13 +6225,34 @@ function refitCombat(player: Player): void {
   // our AC points exactly as a worn breastplate does, and bless's `hit` is Duris hitroll, which is
   // the same 1:1 mapping gear's `hitrollFrom` already rides. The eighth caller learns nothing new;
   // affect installs and expiries simply have to pass through this seam too, and do.
+  // **Phase 21: what the character *is*, beside what they wear and know.** STR onto the swing and
+  // the to-hit, DEX onto the armour class — the SRD's own places for them, folded here because this
+  // is the one seam every stat-shaped fact already passes through. Zero for the identity-less, so a
+  // pre-phase character fights exactly as they did the day before the phase landed.
+  const strMod = player.identity ? abilityMod(player.identity.scores.str) : 0;
+  const dexMod = player.identity ? abilityMod(player.identity.scores.dex) : 0;
   player.combat = {
     ...base,
-    armourClass: base.armourClass + armourClassFrom(player.equipped) + sumApply(player.affects, 'ac'),
-    attackBonus: base.attackBonus + hitrollFrom(player.equipped) + skillBonus + sumApply(player.affects, 'hit'),
-    damage: { ...weapon, bonus: weapon.bonus + player.damageBonus + damrollFrom(player.equipped) },
+    armourClass: base.armourClass + armourClassFrom(player.equipped) + sumApply(player.affects, 'ac') + dexMod,
+    attackBonus:
+      base.attackBonus + hitrollFrom(player.equipped) + skillBonus + sumApply(player.affects, 'hit') + strMod,
+    damage: { ...weapon, bonus: weapon.bonus + player.damageBonus + damrollFrom(player.equipped) + strMod },
   };
   player.roundMs = base.roundMs;
+}
+
+/**
+ * What constitution, blood and calling add to every level's hit-point roll — Phase 21's
+ * `applyExperience` seam (DESIGN-characters.md §2). The class die arrives as a temper on the
+ * calibrated base curve rather than a replacement for it: +1 for the d10 classes, −1 for the d6
+ * ones, so a warrior outlasts a sorcerer without either leaving the band `DESIGN-progression.md`
+ * §3 tuned mob damage against.
+ */
+function hpLevelBonus(identity: PlayerIdentity | undefined): number {
+  if (!identity) return 0;
+  const die = CLASSES[identity.class].hitDie;
+  const classAdjust = die >= 10 ? 1 : die <= 6 ? -1 : 0;
+  return abilityMod(identity.scores.con) + RACES[identity.race].hpBonus + classAdjust;
 }
 
 /**
