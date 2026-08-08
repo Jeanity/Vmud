@@ -473,8 +473,11 @@ project that constructs an `EntityView`.
 dual-wield, opening moves on the mob click menu, weapon procs, whisper's room half), Track A's
 **server-lifecycle supervisor** (the biggest operator row standing), the **mob and worn-gear art
 drawing problem** (Phase 15's tail, and the whole visual ceiling now), and the spells inheritance
-(memorization times, spellbooks, penetration, globes). Two chips are open: does admin-spawn merge
-authored spells, and the creation card's mid-disconnect recovery.
+(memorization times, spellbooks, penetration, globes). Two chips were open: does admin-spawn merge
+authored spells, and the creation card's mid-disconnect recovery — the second is now closed, a
+reconnect replaying whatever protocol 24 state the old socket held (`login.ts`'s `resumeChargen`,
+decided by the pure `chargenResumeAction` in `shared/src/chargen-resume.ts`) rather than leaving the
+card stuck over a dead connection.
 
 ### Before that — earlier the same day
 

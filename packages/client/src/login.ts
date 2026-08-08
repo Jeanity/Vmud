@@ -33,6 +33,8 @@ import {
   PROTOCOL_VERSION,
   RACES,
   RACE_IDS,
+  chargenAdoptReplyAction,
+  chargenResumeAction,
   racialBonuses,
   scoreWord,
   type Ability,
@@ -70,11 +72,17 @@ export class LoginGate {
   private readonly chargenError: HTMLElement;
 
   /** Which step is waiting on the server, so `authFailed` lands under the right caret. */
-  private pending: 'none' | 'auth' | 'resume' | 'enter' | 'autoEnter' | 'chargen' = 'none';
+  private pending: 'none' | 'auth' | 'resume' | 'enter' | 'autoEnter' | 'chargen' | 'chargenResume' = 'none';
   /**
    * The creation card's held state — protocol 24. `name` for a fresh mint, `adoptName` when a
    * pre-identity save is deciding who it always was; the spend is client-side bookkeeping the
    * server re-validates at the confirm.
+   *
+   * Survives a reconnect untouched — it is just an object in a page that never reloaded — which is
+   * exactly what makes it worth rebuilding *from*. The server's half of this conversation
+   * (`creating`/`adopting` in `index.ts`'s connection handler) does not survive: it lives in a
+   * closure over the socket. `resumeChargen` reads this field on the `account` message every
+   * reconnect sends and replays whatever the server's half needs — see `chargen-resume.ts`.
    */
   private chargen:
     | {
@@ -189,9 +197,23 @@ export class LoginGate {
     });
 
     net.on('charAdopt', (message) => {
-      // The body predates identities: same cards, no name step, history kept.
       this.pending = 'none';
-      this.startChargen({ adoptName: message.name });
+      // Ordinarily the first answer to a picker click on a pre-identity save: same cards, no name
+      // step, history kept. But it is also what a reconnect's replayed `enter` gets back once the
+      // server's `adopting` is rebuilt — and by then the cards may already hold a race or class the
+      // player chose while offline (or a `charCreate` the dead connection swallowed). Only
+      // `openCards` resets the cards; the other two leave them exactly as found.
+      const action = chargenAdoptReplyAction(this.chargen, message.name);
+      switch (action.kind) {
+        case 'openCards':
+          this.startChargen({ adoptName: message.name });
+          return;
+        case 'sendCreate':
+          this.sendCreate();
+          return;
+        case 'wait':
+          return;
+      }
     });
 
     grab('login-switch').addEventListener('click', () => {
@@ -211,6 +233,14 @@ export class LoginGate {
         this.pendingEnter = undefined;
         this.chargen = undefined;
         this.enter(target, 'enter');
+        return;
+      }
+      if (this.chargen) {
+        // Reached only on a reconnect: the very first `account` a tab ever receives is what opens
+        // the picker, and `chargen` cannot be set before that has happened once. The card is still
+        // open in the DOM — nothing here touched it while the socket was down — so the fix is to
+        // rebuild the server's half of the conversation, not to show anything new.
+        this.resumeChargen();
         return;
       }
       const wanted = params().get('character') ?? readSession(CHARACTER_KEY) ?? undefined;
@@ -256,6 +286,25 @@ export class LoginGate {
           this.chargenError.textContent = message.reason;
           this.chargenError.hidden = false;
           return;
+        case 'chargenResume': {
+          // `resumeChargen`'s replayed `enter` was refused — the name was claimed while the
+          // connection was down, the account no longer owns it, whatever. Held state cannot be
+          // trusted at that point, so this is fix (b): drop the card cleanly and say why in plain
+          // terms, rather than sit on a conversation that cannot be rebuilt.
+          this.chargen = undefined;
+          this.pendingEnter = undefined;
+          const notice = 'The connection was lost — start again.';
+          const held = this.lastAccount;
+          if (held) {
+            this.showPicker(held.account, held.characters, held.max);
+            this.pickerError.textContent = notice;
+            this.pickerError.hidden = false;
+          } else {
+            this.showForm();
+            this.fail(notice);
+          }
+          return;
+        }
         default:
           this.fail(message.reason);
       }
@@ -293,6 +342,31 @@ export class LoginGate {
       return;
     }
     this.showForm();
+  }
+
+  /**
+   * Reached from the `account` handler whenever a reconnect lands while the creation card is open.
+   * The card itself needs nothing rebuilt — it never touched the dead socket — so this only
+   * replays what the server's now-empty `creating`/`adopting` needs before the card's next click
+   * can work again. `chargenResumeAction` is the pure decision; see `chargen-resume.ts`.
+   */
+  private resumeChargen(): void {
+    const held = this.chargen;
+    if (!held) return;
+    const action = chargenResumeAction(held);
+    switch (action.kind) {
+      case 'reopenAdoption':
+        // `charAdopt`'s handler recognises this as a replay (the name already matches what is
+        // held) and leaves the cards alone rather than resetting them.
+        this.pending = 'chargenResume';
+        this.net.send({ t: 'enter', name: action.name });
+        return;
+      case 'sendCreate':
+        this.sendCreate();
+        return;
+      case 'none':
+        return;
+    }
   }
 
   /** Called once the scene's handlers exist (`create()` has run). Releases any held `enter`. */
