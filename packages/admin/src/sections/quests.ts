@@ -58,12 +58,24 @@ function objectiveLine(objective: QuestObjective): string {
  *
  * `seed` is the name the list already resolved, so an editor opens with the answer rather than
  * flickering through "looking…" for a number that has not changed.
+ *
+ * `kind` says which catalogue the number is a number in, and it is not fixed at construction: the
+ * objective's is chosen by a `<select>` an operator can change with a vnum already in the box.
+ * `retarget` points the lookup at the other catalogue and asks again, because a form that does not
+ * would label a perfectly good item *"no mob 1447"* — which reads as the panel being broken rather
+ * than as its answer being one question out of date.
  */
 function vnumField(options: {
   readonly value: number | undefined;
   readonly kind: 'mob' | 'item';
   readonly seed?: string | null | undefined;
-}): { node: HTMLElement; input: HTMLInputElement; value(): number | undefined } {
+}): {
+  node: HTMLElement;
+  input: HTMLInputElement;
+  value(): number | undefined;
+  retarget(kind: 'mob' | 'item'): void;
+} {
+  let kind = options.kind;
   const input = el('input', {
     type: 'number',
     min: '0',
@@ -81,11 +93,14 @@ function vnumField(options: {
       return;
     }
     const seq = ++pending;
+    // Read once, here, rather than after the await: a retarget mid-flight must not relabel an answer
+    // the *other* catalogue gave, so the sentence names the catalogue actually asked.
+    const asked = kind;
     hint.textContent = 'looking…';
     void (async () => {
       // The sections' own searches, which match an exact vnum as a term — so this asks the same
       // question the Mobs and Items tabs ask and cannot disagree with what they show.
-      const path = options.kind === 'mob' ? `/mobs?q=${raw}&limit=5` : `/items?q=${raw}&limit=5`;
+      const path = asked === 'mob' ? `/mobs?q=${raw}&limit=5` : `/items?q=${raw}&limit=5`;
       const result = await call<{ mobs?: { vnum: number; name: string }[]; items?: { vnum: number; name: string }[] }>(
         'GET',
         path,
@@ -95,19 +110,28 @@ function vnumField(options: {
       const match = rows.find((row) => String(row.vnum) === raw);
       render(hint);
       if (match) hint.append(coloured(match.name));
-      else hint.textContent = `no ${options.kind} ${raw}`;
+      else hint.textContent = `no ${asked} ${raw}`;
     })();
   };
-  input.addEventListener('input', () => {
+  /** One timer, so a retyped digit and a changed catalogue collapse into a single question. */
+  const schedule = (): void => {
     if (debounce) clearTimeout(debounce);
     debounce = setTimeout(resolve, 200);
-  });
+  };
+  input.addEventListener('input', schedule);
   if (options.seed === undefined && options.value !== undefined) resolve();
 
   return {
     node: el('span', { class: 'row' }, input, hint),
     input,
     value: () => (input.value.trim() ? Number(input.value) : undefined),
+    retarget: (next) => {
+      if (next === kind) return;
+      kind = next;
+      // Whatever is in the box is now a number in a different catalogue, so the name beside it is an
+      // answer to a question no longer being asked — including a `seed` the list resolved.
+      schedule();
+    },
   };
 }
 
@@ -136,6 +160,11 @@ function questForm(quest: QuestRow | undefined): QuestForm {
     kind: quest?.objective.kind === 'bring' ? 'item' : 'mob',
     seed: quest?.targetName,
   });
+  // The kind picked above decides what the vnum beside it *is* — a `kill` names a mob, a `bring` names
+  // an item — so changing it re-aims the lookup at the catalogue the objective now names. Without this
+  // the create form, which opens on `kill`, greets a good item vnum with "no mob 1447" the moment an
+  // operator switches to `bring`, and an existing quest switched the other way does the same.
+  kind.addEventListener('change', () => target.retarget(kind.value === 'bring' ? 'item' : 'mob'));
   const count = el('input', {
     type: 'number', min: '1', max: '100',
     value: String(quest?.objective.count ?? 1),
