@@ -2054,10 +2054,18 @@ export class Simulation {
    *
    * Exact hit points are still not on it. `healthFraction` is what a stranger may know about you.
    */
+  /** Giver vnums for the view's `questGiver` bit — combat.ts keeps the twin that refuses harm. */
+  private questGivers = new Set<number>();
+
+  setQuestGivers(vnums: Iterable<number>): void {
+    this.questGivers = new Set(vnums);
+  }
+
   viewOf(actor: Actor): EntityView {
     return {
       id: actor.id,
       kind: actor.kind,
+      ...(isMob(actor) && this.questGivers.has(actor.vnum) ? { questGiver: true as const } : {}),
       name: actor.name,
       sprite: actor.sprite,
       x: actor.x,

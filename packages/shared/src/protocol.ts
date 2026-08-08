@@ -287,12 +287,17 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * `identity` (race, class, the six scores — the sheet shows numbers; the roll showed words) and
  * {@link CharacterSummary} gains `race`/`class`, so the picker can say what a body is.
  *
- * Is 25: other people, at last — Phase 21's channels. `LogChannel` gains `gossip` (world-wide),
+ * Is 26: the asker is marked — `EntityView` gains `questGiver`, the one bit the client needs to
+ * hang a golden question mark over a head and put *Quest* on the click menu (owner's ask,
+ * 2026-08-08). A flag rather than the quest's contents: what is offered is the server's business,
+ * learnt by asking, exactly as the shops keep their prices off the wire.
+ *
+ * Was 25: other people, at last — Phase 21's channels. `LogChannel` gains `gossip` (world-wide),
  * `tell` (person to person, anywhere) and `gsay` (the group the roster already draws). No new
  * message shape: they are lines in the log, which is what a MUD channel is, and the client styles
  * them by class exactly as it styles the six that came before.
  */
-export const PROTOCOL_VERSION = 25;
+export const PROTOCOL_VERSION = 26;
 
 /**
  * One member of your group, as the roster draws them — protocol 19.
@@ -449,6 +454,8 @@ export interface BagView {
 export interface EntityView {
   readonly id: EntityId;
   readonly kind: EntityKind;
+  /** This body offers work — protocol 26. The marker and the menu row hang off this one bit. */
+  readonly questGiver?: true;
   readonly name: string;
   /** Sprite key resolved against the client's asset atlas. */
   readonly sprite: string;

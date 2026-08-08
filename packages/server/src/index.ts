@@ -276,6 +276,8 @@ import {
 import { loadQuests, questsBy } from './quests.ts';
 import { directionFrom, peek } from './peek.ts';
 import {
+  isUntouchable,
+  setUntouchableVnums,
   advanceAssists,
   advanceCombat,
   attackersOf,
@@ -1023,6 +1025,11 @@ const MEMORIZE_SLOT_MS = 20_000;
  */
 const quests = loadQuests();
 if (quests.size > 0) console.log(`[quests] ${quests.size} authored quest(s) loaded`);
+// The giver is marked for the client and armoured against everything: the view's badge and
+// combat's untouchable registry are seeded from the same rows, so they cannot disagree.
+const giverVnums = new Set([...quests.values()].map((quest) => quest.giver));
+sim.setQuestGivers(giverVnums);
+setUntouchableVnums(giverVnums);
 
 /** Auth failures one socket may accrue before it is closed. A budget for typos, not dictionaries. */
 const AUTH_ATTEMPT_BUDGET = 5;
@@ -3674,24 +3681,30 @@ function castClassSpell(player: Player, spell: Spell, term: string): void {
   const aimed = view ? sim.get(view.id) : undefined;
   const target =
     aimed ?? (supportive ? player : player.fighting === undefined ? undefined : sim.get(player.fighting));
-  if (!target) {
+  // An area needs nobody named — the room is the target (`TAR_OFFAREA`); everything aimed wants
+  // a body or a fight to borrow one from.
+  if (!target && spell.kind !== 'area') {
     send(player.id, { t: 'log', channel: 'error', text: `Cast ${spell.name} at whom?` });
     return;
   }
-  if (!supportive && target.id === player.id) {
+  if (!supportive && target && target.id === player.id) {
     send(player.id, { t: 'log', channel: 'error', text: 'Aiming that at yourself seems unwise.' });
+    return;
+  }
+  if (!supportive && target && isUntouchable(target)) {
+    send(player.id, { t: 'log', channel: 'error', text: `${target.name}&N has no quarrel with you.` });
     return;
   }
 
   const castMs = mobCastMs(combatRng, spell, player.level);
-  faceToward(player, target.x, target.y);
+  if (target) faceToward(player, target.x, target.y);
   player.casting = {
     spell: spell.id,
     name: spell.name,
     remainingMs: castMs,
     totalMs: castMs,
     room: player.roomId,
-    target: target.id,
+    ...(target ? { target: target.id } : {}),
   };
   sim.setIntent(player.id, 0, 0);
   if (sim.clearPath(player)) send(player.id, { t: 'path', points: [] });
@@ -6117,6 +6130,12 @@ function startFight(player: Player, id: EntityId): void {
   if (!target) return;
   if (target.id === player.id) {
     send(player.id, { t: 'log', channel: 'error', text: 'You cannot attack yourself.' });
+    return;
+  }
+  // The quest giver's refusal, said out loud — the silent half lives in `canBeAttacked` and
+  // `landBlow`, where the areas already ask.
+  if (isUntouchable(target)) {
+    send(player.id, { t: 'log', channel: 'error', text: `${target.name}&N has no quarrel with you.` });
     return;
   }
   // **The PvP gate, and it closes a hole rather than adding a rule.** Nothing refused this before: the

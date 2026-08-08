@@ -912,6 +912,8 @@ interface Entity {
   health: Phaser.GameObjects.Rectangle | undefined;
   /** The bar's dark backing. Shown and hidden with the fill, or an untouched mob wears an empty trough. */
   healthTrough: Phaser.GameObjects.Rectangle | undefined;
+  /** The golden question mark over a quest giver. Only bodies flagged by the view carry one. */
+  quest: Phaser.GameObjects.Text | undefined;
   /**
    * The idle animation, held so it can be stopped when the entity is destroyed.
    *
@@ -2094,6 +2096,10 @@ export class WorldScene extends Phaser.Scene {
         verbs.push({ label: 'Look inside', run: () => this.net.send({ t: 'look', target: view.id, inside: true }) });
       }
       verbs.push({ label: 'Get', run: () => this.net.send({ t: 'get', target: view.id }) });
+    } else if (view.questGiver) {
+      // A giver's menu offers work, never war — the server refuses the attack anyway; the menu
+      // simply does not pretend otherwise. `quest` resolves the giver standing in the room.
+      verbs.push({ label: 'Quest', run: () => this.net.send({ t: 'command', text: 'quest' }) });
     } else {
       verbs.push({
         label: 'Attack',
@@ -3197,6 +3203,21 @@ export class WorldScene extends Phaser.Scene {
     const health = isItem || isSelf ? undefined : this.add.rectangle(
       -HEALTH_BAR_WIDTH / 2, HEALTH_BAR_Y, HEALTH_BAR_WIDTH, HEALTH_BAR_HEIGHT, HEALTH_FULL,
     ).setOrigin(0, 0.5);
+    // The giver's mark — owner's ask, 2026-08-08: *"a ? would be best if it possible"*. Above the
+    // health bar's line so the two never collide, gold like every "this is worth your attention"
+    // accent, and toggled by the view's own bit in `refreshHealthBar`'s pass.
+    const questMark = isItem || isSelf
+      ? undefined
+      : this.add
+          .text(0, HEALTH_BAR_Y - 4, '?', {
+            fontFamily: 'Iosevka, Consolas, monospace',
+            fontSize: '14px',
+            color: '#f0d99a',
+            stroke: '#0b0d0a',
+            strokeThickness: 3,
+          })
+          .setOrigin(0.5, 1)
+          .setVisible(false);
     // **Bodies are named on screen; things on the floor are not** — owner's call, 2026-08-05:
     // *"maybe not show the name of the object. just the graphic. people can look at it to see what it
     // is."*
@@ -3256,6 +3277,7 @@ export class WorldScene extends Phaser.Scene {
       footprint,
       health,
       healthTrough: trough,
+      quest: questMark,
       idle,
       x: view.x,
       y: view.y,
@@ -3263,6 +3285,7 @@ export class WorldScene extends Phaser.Scene {
       serverX: view.x,
       serverY: view.y,
     };
+    if (questMark) container.add(questMark);
     this.faceEntity(entity, view.facing);
     this.refreshHealthBar(entity);
     this.entities.set(view.id, entity);
@@ -3454,6 +3477,9 @@ export class WorldScene extends Phaser.Scene {
    * *something has happened to this one* than as a permanent badge.
    */
   private refreshHealthBar(entity: Entity): void {
+    // The giver's mark rides this pass because it has the same rhythm: set at creation, kept
+    // honest on every update, driven entirely by the view.
+    entity.quest?.setVisible(entity.view.questGiver === true);
     const bar = entity.health;
     if (!bar) return;
     const fraction = Math.max(0, Math.min(1, entity.view.healthFraction ?? 1));

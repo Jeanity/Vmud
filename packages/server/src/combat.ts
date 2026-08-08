@@ -255,7 +255,28 @@ export function canEngage(actor: Actor): boolean {
  * incapacitated, and a **mob** stops only when it is dead — at which point there is nothing left to point
  * at and Phase 13 takes the body away.
  */
+/**
+ * Mob templates no violence may touch — quest givers, seeded at boot from `quests.json` (owner's
+ * rule, 2026-08-08: *"we need to make quest mobs un-attackable and undamageable in case some
+ * caster decides to cast a room effect spell"*). A registry rather than a flag on the instance,
+ * so an admin-spawned copy of a giver is exactly as sacred as the placed one.
+ */
+const UNTOUCHABLE_VNUMS = new Set<number>();
+
+export function setUntouchableVnums(vnums: Iterable<number>): void {
+  UNTOUCHABLE_VNUMS.clear();
+  for (const vnum of vnums) UNTOUCHABLE_VNUMS.add(vnum);
+}
+
+/** Whether violence may reach this body at all. The quest giver's whole armour. */
+export function isUntouchable(target: Actor): boolean {
+  return isMob(target) && UNTOUCHABLE_VNUMS.has(target.vnum);
+}
+
 export function canBeAttacked(target: Actor): boolean {
+  // The giver gate sits here on purpose: `shouldAreaHit` already asks this question for every
+  // area victim, so earthquake and ice storm skip the untouchable with no loop knowing why.
+  if (isUntouchable(target)) return false;
   if (isPlayer(target)) return !incapacitated(target);
   return target.status !== 'dead';
 }
@@ -627,6 +648,10 @@ export function landBlow(
   damage: number,
 ): BlowResult {
   const { sim, scheduler, book, ledger } = deps;
+  // Belt under the braces: whatever path composed this blow — a targeted nuke, a stray bolt, an
+  // ability that resolved oddly — an untouchable body takes nothing from it. The gate above
+  // covers every path that *asks*; this covers the one that forgets to.
+  if (isUntouchable(target)) return { incapacitated: false, changed: [] };
   const changed: Actor[] = [];
 
   // **Not clamped at zero, and that is the whole dying window.** Phase 4's thresholds are negative in the
