@@ -247,12 +247,14 @@ export interface QuestRow {
   ask: string;
   thanks: string;
   objective: QuestObjective;
-  reward: { xp: number; copper: number };
+  reward: { xp: number; copper: number; item?: number };
   /** Null when the vnum names nothing this server loaded — a real state, not an error. */
   giverName: string | null;
   /** How many of the giver are standing right now. A patron who never spawns is a quest nobody finds. */
   giverStanding: number;
   targetName: string | null;
+  /** Null both when no item is paid and when the vnum names nothing loaded. */
+  rewardItemName: string | null;
 }
 
 export interface QuestsBody {

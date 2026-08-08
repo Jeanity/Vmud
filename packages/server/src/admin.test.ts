@@ -35,7 +35,7 @@ import { AdminApi, type AdminDeps, type AdminRequest, type AnnounceScope, type L
 import { applyItemOverride, loadItemOverrides, mergeItemOverride, type ItemOverrides } from './item-overrides.ts';
 import { draftAuthoredMob, type AuthoredMobStore } from './mob-authoring.ts';
 import { loadPlacements, type Placements } from './placements.ts';
-import { loadQuests, type QuestDef } from './quests.ts';
+import { draftQuest, loadQuests, type QuestDef } from './quests.ts';
 import { applyMobOverride, mergeMobOverride } from './mob-overrides.ts';
 import {
   draftAuthoredItem,
@@ -2165,6 +2165,48 @@ describe('authoring a quest — A7q', () => {
     assert.match((missing.body as { error: string }).error, /nothing to bring/);
   });
 
+  /**
+   * The third reward pool, which the Duris harvest made necessary: of the quest givers who stand in a
+   * loaded zone, every one whose objective is reachable pays an object and no coin at all.
+   */
+  it('pays an item beside the two numbers, and checks it against the catalogue', () => {
+    const { api } = makeRig();
+    const paid = { ...CULL, id: 'pays-a-ring', reward: { xp: 0, copper: 0, item: 100 } };
+    const created = quietly(() => api.route(req('POST', '/quests', paid)));
+    assert.equal(created.status, 201);
+    assert.deepEqual((created.body as { quest: { reward: unknown } }).quest.reward, { xp: 0, copper: 0, item: 100 });
+
+    const missing = api.route(req('POST', '/quests', { ...paid, id: 'owes-a-ghost', reward: { xp: 0, copper: 0, item: 999 } }));
+    assert.equal(missing.status, 400);
+    assert.match((missing.body as { error: string }).error, /no item 999 in the catalogue/);
+  });
+
+  it('names the reward item beside the number, as it does the giver and the target', () => {
+    const paid = { ...CULL, reward: { xp: 0, copper: 0, item: 100 } };
+    const { api } = makeRig({ quests: [paid as QuestDef] });
+    const body = api.route(req('GET', '/quests')).body as { quests: { rewardItemName: string | null }[] };
+    assert.equal(body.quests[0]?.rewardItemName, 'a silver dagger');
+    // Null rather than absent when nothing is paid — a real state the form reads, not an error.
+    const { api: plain } = makeRig({ quests: [CULL as QuestDef] });
+    const bare = plain.route(req('GET', '/quests')).body as { quests: { rewardItemName: string | null }[] };
+    assert.equal(bare.quests[0]?.rewardItemName, null);
+  });
+
+  it('treats a reward item as absent rather than zero, because vnum 0 is legal', () => {
+    // `copper: 0` means "pays no coin"; `item: 0` cannot mean "pays no item" without making item 0
+    // unpayable, so the field is either a vnum or it is not there.
+    assert.deepEqual(draftQuest({ ...CULL, reward: { xp: 1, copper: 2 } }), {
+      quest: { ...CULL, objective: CULL.objective, reward: { xp: 1, copper: 2 } } as QuestDef,
+    });
+    const cleared = draftQuest({ ...CULL, reward: { xp: 1, copper: 2, item: null } });
+    assert.ok('quest' in cleared && !('item' in cleared.quest.reward), 'null clears it, as an emptied form box does');
+    const kept = draftQuest({ ...CULL, reward: { xp: 1, copper: 2, item: 0 } });
+    assert.ok('quest' in kept && kept.quest.reward.item === 0, 'vnum 0 survives, so it is payable');
+    assert.deepEqual(draftQuest({ ...CULL, reward: { xp: 1, copper: 2, item: 'ring' } }), {
+      error: 'reward item must be a whole item vnum, or absent',
+    });
+  });
+
   it('says what is wrong with a draft rather than merely refusing', () => {
     const { api } = makeRig();
     const cases: [Record<string, unknown>, RegExp][] = [
@@ -2272,6 +2314,22 @@ describe('authoring a quest — A7q', () => {
     quietly(() => api.route(req('DELETE', '/quests/cull-the-shamans')));
     assert.equal(loadQuests(questsFile).size, 0);
     assert.equal(readFileSync(questsFile, 'utf8'), '[]\n');
+  });
+
+  it('writes the reward item only when one is paid, as it writes count only on a kill', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mygame-a7q-item-'));
+    const questsFile = join(dir, 'quests.json');
+    const { api } = makeRig({ questsFile });
+    quietly(() => api.route(req('POST', '/quests', { ...CULL, reward: { xp: 0, copper: 0, item: 100 } })));
+
+    const text = readFileSync(questsFile, 'utf8');
+    assert.match(text, /"reward": \{ "xp": 0, "copper": 0, "item": 100 \}/);
+    assert.deepEqual(loadQuests(questsFile).get('cull-the-shamans')?.reward, { xp: 0, copper: 0, item: 100 });
+
+    // Cleared through the editor, the key goes away rather than becoming a zero a reader would believe.
+    quietly(() => api.route(req('PATCH', '/quests/cull-the-shamans', { reward: { xp: 5, copper: 0, item: null } })));
+    assert.match(readFileSync(questsFile, 'utf8'), /"reward": \{ "xp": 5, "copper": 0 \}\n/);
+    assert.deepEqual(loadQuests(questsFile).get('cull-the-shamans')?.reward, { xp: 5, copper: 0 });
   });
 
   it('audits every write', () => {

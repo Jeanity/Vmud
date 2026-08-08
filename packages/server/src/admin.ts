@@ -2989,12 +2989,16 @@ export class AdminApi {
       quest.objective.kind === 'kill'
         ? this.deps.live.mobTemplateOf(quest.objective.vnum)?.name
         : this.deps.items.get(quest.objective.vnum)?.name;
+    const rewardItem = quest.reward.item === undefined ? undefined : this.deps.items.get(quest.reward.item)?.name;
     return {
       ...quest,
       giverName: giver ? stripColour(giver.name) : null,
       /** How many of the giver are standing right now — a quest whose patron never spawns is unfindable. */
       giverStanding: giver ? this.deps.live.liveCountOf(quest.giver) : 0,
       targetName: target ? stripColour(target) : null,
+      // The same hint for the third reward pool. Null both when nothing is paid and when the vnum
+      // names nothing loaded; the form seeds its lookup from it and re-resolves either way.
+      rewardItemName: rewardItem ? stripColour(rewardItem) : null,
     };
   }
 
@@ -3121,6 +3125,14 @@ export class AdminApi {
       return {
         status: 400,
         body: { error: `no item ${quest.objective.vnum} in the catalogue — nothing to bring, so the quest could never complete` },
+      };
+    }
+    // The reward item takes the `bring` target's rule exactly, and for both of its halves: it is a
+    // catalogue vnum, and the catalogue is legitimately empty on a checkout with no Duris source.
+    if (quest.reward.item !== undefined && this.deps.items.size > 0 && !this.deps.items.get(quest.reward.item)) {
+      return {
+        status: 400,
+        body: { error: `no item ${quest.reward.item} in the catalogue — the quest would owe a reward that cannot be made` },
       };
     }
     return undefined;

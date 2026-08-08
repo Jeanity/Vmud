@@ -5517,7 +5517,12 @@ function doQuest(player: Player): void {
     const complete =
       def.objective.kind === 'kill'
         ? typeof state === 'number' && state >= def.objective.count
-        : matchInventory(player.inventory, String(def.objective.vnum), wordsFor) !== -1;
+        : // **The vnum, not a word.** This asked `matchInventory` for the bare number, which matches
+          // nothing: an instance's id is `obj:<vnum>` and its keyword list is the catalogue's words
+          // unioned with its name — neither is ever the digits. Every `bring` quest was therefore
+          // uncompletable, invisibly, and it stayed invisible because the only shipped quest was a
+          // `kill`. `vnumOf` is the join the death spoils and the keyword resolver already use.
+          player.inventory.stacks.some((stack) => vnumOf(stack.item) === (def.objective as { vnum: number }).vnum);
     if (!complete) {
       if (def.objective.kind === 'kill') {
         send(player.id, {
@@ -5535,11 +5540,27 @@ function doQuest(player: Player): void {
       player.purse = addCoins(player.purse, { copper: def.reward.copper });
       send(player.id, { t: 'self', view: sim.selfViewOf(player) });
     }
-    send(player.id, {
-      t: 'log',
-      channel: 'system',
-      text: `You gain ${def.reward.xp} experience${def.reward.copper > 0 ? ` and ${def.reward.copper} copper` : ''}.`,
-    });
+    // Only when there is something to report. A quest that pays purely in an object — which is what
+    // most of the harvested Duris ones do — printed *"You gain 0 experience"* over a turn-in that had
+    // just handed over a ring, and `giveItem` announces the ring itself.
+    if (def.reward.xp > 0 || def.reward.copper > 0) {
+      send(player.id, {
+        t: 'log',
+        channel: 'system',
+        text: `You gain ${def.reward.xp} experience${def.reward.copper > 0 ? ` and ${def.reward.copper} copper` : ''}.`,
+      });
+    }
+    // **The item pays through `giveItem`**, the admin `give` route's own call, so a quest hands over
+    // an object by exactly the path an operator does: money piles convert to coin, a full bag is
+    // refused rather than dropped on the floor, and the recipient is told. A refusal is reported and
+    // the quest still closes — the giver has said their piece and taken the brought thing, and a
+    // turn-in that half-happens because a bag was full is worse than one that owes an item.
+    if (def.reward.item !== undefined) {
+      const paid = adminLive.giveItem(player, def.reward.item);
+      if ('error' in paid) {
+        send(player.id, { t: 'log', channel: 'error', text: `${giver.name}&N has something for you, but ${paid.error}.` });
+      }
+    }
     levelUpIfEarned(player);
     persistAdminEdit(player);
   }

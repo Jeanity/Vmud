@@ -49,7 +49,11 @@ export interface QuestDef {
   readonly objective:
     | { readonly kind: 'kill'; readonly vnum: number; readonly count: number; readonly what: string }
     | { readonly kind: 'bring'; readonly vnum: number; readonly what: string };
-  readonly reward: { readonly xp: number; readonly copper: number };
+  /**
+   * What it pays. `item` is an optional third pool beside the two numbers — see the header's
+   * *"a reward from pools that already exist"*, of which the catalogue is one.
+   */
+  readonly reward: { readonly xp: number; readonly copper: number; readonly item?: number };
 }
 
 /** Player-side state: kills so far, or finished. The definitions own everything else. */
@@ -156,9 +160,24 @@ export function draftQuest(draft: QuestDraft): { quest: QuestDef } | { error: st
   if (typeof copper !== 'number' || !Number.isInteger(copper) || copper < 0 || copper > QUEST_COPPER_MAX) {
     return { error: `reward copper must be a whole number from 0 to ${QUEST_COPPER_MAX}` };
   }
+  // **Absent rather than zero.** Item 0 is a legal vnum, so `0` cannot double as "pays no item" the
+  // way `copper: 0` does; the field is either a vnum or it is not there. `null` reads as an editor
+  // clearing it, which is the same thing.
+  const item = paid.item === undefined || paid.item === null ? undefined : paid.item;
+  if (item !== undefined && (typeof item !== 'number' || !Number.isInteger(item) || item < 0)) {
+    return { error: 'reward item must be a whole item vnum, or absent' };
+  }
 
   return {
-    quest: { id, giver: draft.giver, name: name.text, ask: ask.text, thanks: thanks.text, objective, reward: { xp, copper } },
+    quest: {
+      id,
+      giver: draft.giver,
+      name: name.text,
+      ask: ask.text,
+      thanks: thanks.text,
+      objective,
+      reward: { xp, copper, ...(item === undefined ? {} : { item }) },
+    },
   };
 }
 
@@ -223,7 +242,9 @@ export function saveQuests(quests: Iterable<QuestDef>, file = QUESTS_FILE): void
         `    "ask": ${JSON.stringify(quest.ask)}`,
         `    "thanks": ${JSON.stringify(quest.thanks)}`,
         `    "objective": ${inline(objective)}`,
-        `    "reward": ${inline({ xp: quest.reward.xp, copper: quest.reward.copper })}`,
+        // `item` only when it is paid, for `count`'s reason one paragraph up: a field the loader
+        // treats as absent should not be written as something a reader would believe.
+        `    "reward": ${inline({ xp: quest.reward.xp, copper: quest.reward.copper, ...(quest.reward.item === undefined ? {} : { item: quest.reward.item }) })}`,
       ];
       return `  {\n${fields.join(',\n')}\n  }`;
     });

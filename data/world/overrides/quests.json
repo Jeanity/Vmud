@@ -7,5 +7,32 @@
     "thanks": "So the surface breeds killers after all. Gwark remembers, as promised.",
     "objective": { "kind": "kill", "vnum": 1422, "count": 3, "what": "kobold youths" },
     "reward": { "xp": 500, "copper": 50 }
+  },
+  {
+    "id": "the-commanders-lost-book",
+    "giver": 97021,
+    "name": "The Commander's lost book",
+    "ask": "I've lost my book, whats it to you? This book I was borrowing from the archives has up and disappeared. Just a week ago I was reading it on my trek through the mountains east of Verzanan, and now its gone. I wonder if that shifty-eyed loon stole it.",
+    "thanks": "I knew that shifty-eyed loon stole it! Babbling like he was, he was bound to be a thief. As a token of my appreciation, take this ring. Its half of a set I picked up on an expedition to... well never mind that, just take the ring. I lost the purple one anyway.",
+    "objective": { "kind": "bring", "vnum": 97006, "what": "an ancient crumbling book" },
+    "reward": { "xp": 0, "copper": 0, "item": 97144 }
+  },
+  {
+    "id": "the-jewelers-raw-gem",
+    "giver": 66021,
+    "name": "The jeweler's cutting work",
+    "ask": "Sure, I can cut gems for ya. Provided ya find me some good ones.",
+    "thanks": "Here ya go. A real beauty, that one is!",
+    "objective": { "kind": "bring", "vnum": 66039, "what": "a raw gem" },
+    "reward": { "xp": 0, "copper": 0, "item": 66044 }
+  },
+  {
+    "id": "the-viscounts-onion",
+    "giver": 97023,
+    "name": "The Viscount's onion",
+    "ask": "All I ask is that you convince Masha to let me have one of those scrumptious onions... I have to sneak in the kitchen at night just to get one! Last time I tried, that infernal dunce, Tar, caught me in the act and ran off to Masha blathering all about it.",
+    "thanks": "Magnificent! I've been waiting quite a while for this. Here... drink this and see what happens.",
+    "objective": { "kind": "bring", "vnum": 97115, "what": "an onion" },
+    "reward": { "xp": 0, "copper": 0, "item": 97135 }
   }
 ]

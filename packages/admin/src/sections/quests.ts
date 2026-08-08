@@ -152,6 +152,10 @@ function questForm(quest: QuestRow | undefined): QuestForm {
 
   const xp = el('input', { type: 'number', min: '0', value: String(quest?.reward.xp ?? 0) }) as HTMLInputElement;
   const copper = el('input', { type: 'number', min: '0', value: String(quest?.reward.copper ?? 0) }) as HTMLInputElement;
+  // The third pool, and a box that has to exist even for an operator who never uses it: `PATCH` lays
+  // the patch over the record and re-validates the whole, so a form that read only two numbers would
+  // rewrite `reward` without the item every time somebody fixed a typo in the ask.
+  const rewardItem = vnumField({ value: quest?.reward.item, kind: 'item', seed: quest?.rewardItemName });
 
   return {
     rows: [
@@ -168,6 +172,7 @@ function questForm(quest: QuestRow | undefined): QuestForm {
         el('label', {}, 'called'), what,
       ),
       el('div', { class: 'row' }, el('label', {}, 'xp'), xp, el('label', {}, 'copper'), copper),
+      el('div', { class: 'row' }, el('label', {}, 'reward item'), rewardItem.node),
     ],
     read() {
       const giverVnum = giver.value();
@@ -185,7 +190,9 @@ function questForm(quest: QuestRow | undefined): QuestForm {
           ask: ask.value.trim(),
           thanks: thanks.value.trim(),
           objective,
-          reward: { xp: Number(xp.value || 0), copper: Number(copper.value || 0) },
+          // An empty box is `null` rather than omitted, so clearing one through `PATCH` actually
+          // clears it — a missing key would be laid over the record and leave the old vnum standing.
+          reward: { xp: Number(xp.value || 0), copper: Number(copper.value || 0), item: rewardItem.value() ?? null },
         },
       };
     },
@@ -291,7 +298,8 @@ export const questsSection = {
             'span',
             { class: 'note' },
             `${objectiveLine(quest.objective)} · ${quest.reward.xp} xp` +
-              (quest.reward.copper > 0 ? `, ${quest.reward.copper}c` : ''),
+              (quest.reward.copper > 0 ? `, ${quest.reward.copper}c` : '') +
+              (quest.reward.item === undefined ? '' : `, ${quest.rewardItemName ?? `item ${quest.reward.item}`}`),
           ),
           // The giver, named — the whole reason the list route resolves it. `standing: 0` is worth
           // showing rather than hiding: a patron nothing spawns is a quest nobody will ever be offered.

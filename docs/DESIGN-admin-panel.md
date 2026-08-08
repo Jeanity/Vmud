@@ -445,6 +445,24 @@ check against, because `deps.items` is legitimately empty on a checkout with no 
 rule that refused every `bring` quest there would be enforcing the absence of a git-ignored
 directory.
 
+### A reward has three pools, and the third one is optional
+
+`reward` began as two numbers, `xp` and `copper`. It carries an optional `item` vnum because the
+Duris harvest said it had to: of the 3,275 exchanges in `areas/qst/`, 2,517 pay an object and 2,169
+pay *nothing else* — and of the quest givers who actually stand in a loaded, populated zone, every one
+whose objective is reachable pays an item and no coin at all. See
+[REFERENCE-duris-quests.md](REFERENCE-duris-quests.md). Without the field there was not one faithful
+quest to import; with it, three shipped the day it landed.
+
+It is **absent rather than zero** when nothing is paid, because vnum 0 is a legal item and cannot
+double as "none" the way `copper: 0` does — the writer omits the key, the validator accepts a missing
+one, and `null` from a form that cleared the box reads the same as absent. The payout goes through
+`LiveOps.giveItem`, the very call `POST /players/:slug/give` makes, so a quest hands over an object by
+the path an operator already does: money piles convert to coin rather than occupying a slot, and a
+full bag is refused rather than silently emptied onto the floor. A refusal is told to the player and
+the quest still closes — a turn-in that half-happens because a bag was full is worse than one that
+owes an item.
+
 ### API
 
 ```
@@ -468,6 +486,8 @@ DELETE /quests/:id                   un-badges and un-armours the giver; reports
 | objective kind is not `kill`/`bring` | 400 | the loader has two shapes and no third |
 | count outside 1–100 | 400 | past a hundred it is a typo, not an objective |
 | xp or copper outside 0–10,000,000 | 400 | the same ceilings the mob editor keeps for the pools these pay out of |
+| `reward.item` not a whole vnum | 400 | it names a catalogue row; absent is how a quest pays no item, because vnum 0 is legal |
+| `reward.item` is not in the catalogue (when there is one) | 400 | the quest would owe a reward that cannot be made; skipped on an empty catalogue like the bring target |
 | name / ask / thanks / what empty or overlong | 400 | speech with nothing in it is a giver standing mute |
 
 Writes are audited as `quest.create`, `quest.author` and `quest.delete`, and the file is rewritten
