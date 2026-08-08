@@ -502,8 +502,31 @@ already named, which already drops through a closed door into Finn's Keep, whose
 quests pays. It is **17 rooms from the spawn point to the Feywild**, walked end to end by a client
 that discovered the route from nothing but the exits the server sent it. The whole faerie cluster is
 loaded on the owner's call — 906 rooms — and **only zone 64 has harvested population**, so
-Leuthilspar's forest and the Unseelie Court are 471 rooms of fully-described, entirely empty world.
-That is the next content job, and the mob-authoring tools already exist to do it.
+Leuthilspar's forest and the two courts were 471 rooms of fully-described, entirely empty world.
+
+**The courts are populated now** (2026-08-08, *"yes populate the courts"*), and the interesting part
+is that almost none of it had to be invented. The zMUD capture keeps each room's contents **below its
+`Exits:` line**, which means the mapper recorded the population as it walked: 12 creatures across the
+Seelie court's three inner chambers — **Tiaronn, King of the faeries** and **Sysoria, the faerie
+Princess** among them, by name — and 55 content lines across all 288 Unseelie rooms. So this is
+transcription, not authorship. Names, room descriptions and *which room each creature stood in* come
+straight off the capture; only the stat blocks are ours, and each is copied verbatim from a harvested
+template at the same level, so a created faerie is hit by the same arithmetic as a Duris one. **31
+creatures authored, 15 harvested vnums placed, 113 placements, none homeless.** Two rules kept it
+honest: a creature whose whole point is a non-humanoid silhouette was left out (the stags, ravens and
+displacer beast the capture also holds — LPC has humanoid bodies only), and a **named unique already
+standing in zone 64 was never placed a second time**, since limits are world-wide and Robin
+Goodfellow twice is one Robin Goodfellow too many. Levels rise with depth and fit each creature's
+*shallowest* room: the Seelie approach is 15 rooms of level 4–9 fae with nothing aggressive in them,
+and the one aggressive Seelie creature holds the gate rather than the hall. **183 rooms of
+Leuthilspar's forest (367) are the empty ones now.**
+
+The blocker that had to move first is general, and deliberately so: a zone reached the reset clock
+only through a harvested `ZoneSpawns`, so a zone with no `.wld` behind it could never be populated at
+all, and a placement into one was silently counted homeless. `emptyZoneSpawns` in `server/src/spawns.ts`
+gives such a zone an empty table with a lifespan, which separates two facts that were tangled —
+**having a harvest** and **being populated**. `DESIGN-city.md`'s Phase 22 city zones will need exactly
+this, so it is written as *a zone can be populated without a harvest*, not as a faerie special case.
 
 **And then the fleet finished the week's backlog in one delegated evening** — eleven agent
 branches reviewed and landed serially, ~65 new tests, the suite at 1,814. Beyond the paragraphs

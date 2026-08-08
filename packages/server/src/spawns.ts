@@ -53,6 +53,55 @@ export function loadZoneSpawns(zone: ZoneId): ZoneSpawns | undefined {
 }
 
 /**
+ * How long an unharvested zone waits between repops, in zone ticks.
+ *
+ * **Measured, not chosen**: `15`/`25` is the modal lifespan across the 49 harvested zones — ten of them
+ * use exactly this pair, more than any other. A zone whose population is entirely authored has no `.zon`
+ * of its own to state a lifespan, so it borrows the one the world states most often rather than a number
+ * somebody liked. At `ZONE_TICK_MS` that is a repop every 19–31 minutes.
+ */
+export const AUTHORED_LIFESPAN_MIN = 15;
+export const AUTHORED_LIFESPAN_MAX = 25;
+
+/**
+ * A zone that is populated **without a harvest** — an empty table with a clock that runs.
+ *
+ * `loadZoneSpawns` returning `undefined` used to mean *this zone is empty*, and for the 278 zones no
+ * Duris file matched that is still true. But it also silently meant *this zone can never be populated*,
+ * because a zone only reaches `zoneClocks` by way of a `ZoneSpawns`, and authored placements are merged
+ * into a zone's reset table rather than being a table of their own. A zone with no harvested file got no
+ * entry, so a placement into it was counted homeless and never spawned — the failure looked like the
+ * placement being wrong rather than the zone being absent.
+ *
+ * The shell separates the two questions. **Whether a zone has a harvest** and **whether a zone is
+ * populated** are different facts: the first is about `data/world/spawns/`, the second is `world.config.json`'s
+ * `populate` list, and this is what lets the second stand on its own. A zone listed to populate gets a
+ * clock either way; what fills it is the harvest, the authored placements, or both.
+ *
+ * That generality is the point rather than a side effect. The two Faerie Courts are the first zones to
+ * need it — neither has a Duris `.wld` behind it, so neither was ever harvested — but `docs/DESIGN-city.md`'s
+ * Phase 22 city zones are authored from nothing at all and will have no harvested file either. The rule
+ * this encodes is *a zone can be populated without a harvest*, not *the faerie zones are special*.
+ *
+ * `templates` is empty because a template is world-wide (see {@link indexTemplates}) — an authored
+ * placement names a vnum that some other zone's harvest or `mobs-authored.json` already defines, so there
+ * is nothing for this zone to contribute. `resets` is empty for the same reason: everything that fills
+ * this zone arrives later, appended by `placementResets`.
+ */
+export function emptyZoneSpawns(zone: ZoneId): ZoneSpawns {
+  return {
+    zone,
+    // Named rather than blank so the boot log and a bad-row trace can both say where this came from,
+    // and so `authored` never collides with a `.wld` filename.
+    source: 'authored',
+    lifespanMin: AUTHORED_LIFESPAN_MIN,
+    lifespanMax: AUTHORED_LIFESPAN_MAX,
+    templates: [],
+    resets: [],
+  };
+}
+
+/**
  * Every template across every loaded zone, by vnum.
  *
  * One flat index rather than one per zone, because **instance limits are world-wide**: the reset executor

@@ -350,7 +350,7 @@ import {
 } from './perception.ts';
 import { advanceZones, newZoneClock, refitMobArmour, runReset, type ZoneClock } from './reset.ts';
 import { Simulation, isMob, isPlayer, type Actor, type AffectEvent, type Mob, type Player } from './sim.ts';
-import { indexTemplates, loadItemCatalogue, loadZoneSpawns } from './spawns.ts';
+import { emptyZoneSpawns, indexTemplates, loadItemCatalogue, loadZoneSpawns } from './spawns.ts';
 import {
   ITEMS_FILE,
   applyItemOverride,
@@ -480,8 +480,12 @@ for (const why of world.linkRefusals) {
 /**
  * The world's population, and the clock that tops it up.
  *
- * One `ZoneClock` per loaded zone that has a population file. A zone without one is simply empty — see
- * `spawns.ts` — which is the ordinary case for the 278 zones no Duris file matched.
+ * One `ZoneClock` per zone listed to populate. A zone the harvest never matched still gets one — an empty
+ * shell from `emptyZoneSpawns`, so its clock runs and authored placements have a table to be merged into.
+ * A zone that is *not* listed is simply empty, which is the ordinary case for the 278 zones no Duris file
+ * matched. **Having a harvest and being populated are separate facts**: the first is about
+ * `data/world/spawns/`, the second is `world.config.json`'s `populate` list, and only the second decides
+ * whether a zone fills. See `spawns.ts`.
  *
  * **The RNG is seeded and shared.** Every hit-point roll, every tile a mob stands on and every re-rolled
  * lifespan comes out of this one stream, so a restart reproduces the world it had. `CLAUDE.md` rule 3:
@@ -492,8 +496,15 @@ const zoneClocks: ZoneClock[] = [];
 const loadedSpawns: ZoneSpawns[] = [];
 for (const zoneId of world.populate) {
   const spawns = loadZoneSpawns(zoneId);
-  if (spawns) loadedSpawns.push(spawns);
-  else console.warn(`[pop] zone ${zoneId} is listed to populate but has no population file`);
+  if (spawns) {
+    loadedSpawns.push(spawns);
+    continue;
+  }
+  // Not a warning any more: a zone with no harvested file is now a zone whose population is authored,
+  // which is a thing this project does on purpose. It is still worth one line, because an empty shell
+  // and a zone whose placements file is missing look identical from the game.
+  loadedSpawns.push(emptyZoneSpawns(zoneId));
+  console.log(`[pop] zone ${zoneId} has no harvested population file; its inhabitants are authored`);
 }
 const mobTemplates = indexTemplates(loadedSpawns);
 

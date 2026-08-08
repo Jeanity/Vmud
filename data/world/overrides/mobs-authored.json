@@ -1,5 +1,5 @@
 {
-  "next": 9000008,
+  "next": 9000039,
   "mobs": {
     "9000005": {
       "vnum": 9000005,
@@ -127,6 +127,1345 @@
       "experience": 42000,
       "wimpyAt": 0,
       "at": "2026-08-07T08:43:14.591Z"
+    },
+    "9000008": {
+      "vnum": 9000008,
+      "keywords": [
+        "faerie",
+        "young",
+        "robes"
+      ],
+      "name": "a young faerie",
+      "room": "A young faerie flutters about carelessly dragging its robes along the ground.",
+      "level": 9,
+      "hp": "9d14+31",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 3,
+        "damage": {
+          "count": 2,
+          "sides": 3,
+          "bonus": 1
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 1166,
+      "wimpyAt": 54,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14043 a rose faerie"
+    },
+    "9000009": {
+      "vnum": 9000009,
+      "keywords": [
+        "faerie",
+        "young",
+        "wings"
+      ],
+      "name": "a young faerie",
+      "room": "A young faerie stands here clothed in robes, with small wings fluttering impatiently.",
+      "level": 10,
+      "hp": "10d19+45",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 3,
+        "damage": {
+          "count": 2,
+          "sides": 3,
+          "bonus": 1
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 1296,
+      "wimpyAt": 60,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14019 a cottage faerie"
+    },
+    "9000010": {
+      "vnum": 9000010,
+      "keywords": [
+        "half-elf",
+        "halfelf",
+        "elf",
+        "scribe"
+      ],
+      "name": "a forest clad half-elf",
+      "room": "A forest clad half-elf stands here scribbling madly onto a parchment.",
+      "level": 16,
+      "hp": "16d30+80",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 5,
+        "damage": {
+          "count": 3,
+          "sides": 4,
+          "bonus": 2
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 7776,
+      "wimpyAt": 96,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14008 a Tinker woman"
+    },
+    "9000011": {
+      "vnum": 9000011,
+      "keywords": [
+        "guard",
+        "palace",
+        "bored"
+      ],
+      "name": "a bored palace guard",
+      "room": "A bored palace guard leans against the palace wall, eyelids sagging heavily.",
+      "level": 20,
+      "hp": "20d33+120",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 7,
+        "damage": {
+          "count": 3,
+          "sides": 4,
+          "bonus": 2
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 9720,
+      "wimpyAt": 120,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14020 a faerie cook"
+    },
+    "9000012": {
+      "vnum": 9000012,
+      "keywords": [
+        "faerie",
+        "agitated",
+        "dagger"
+      ],
+      "name": "an agitated faerie",
+      "room": "An agitated faerie stands here restlessly toying with it's dagger.",
+      "level": 20,
+      "hp": "20d33+120",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "aggressive",
+        "clauses": [
+          "all"
+        ],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 7,
+        "damage": {
+          "count": 3,
+          "sides": 4,
+          "bonus": 2
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 9720,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14020 a faerie cook"
+    },
+    "9000013": {
+      "vnum": 9000013,
+      "keywords": [
+        "faerie",
+        "steward"
+      ],
+      "name": "a faerie steward",
+      "room": "A faerie steward stands here rummaging through a pile of papers.",
+      "level": 23,
+      "hp": "23d44+207",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 7,
+        "damage": {
+          "count": 3,
+          "sides": 5,
+          "bonus": 3
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 20493,
+      "wimpyAt": 138,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14007 Elizda"
+    },
+    "9000014": {
+      "vnum": 9000014,
+      "keywords": [
+        "guard",
+        "palace",
+        "attentive"
+      ],
+      "name": "an attentive palace guard",
+      "room": "An attentive palace guard flutters here, keeping the palace safe.",
+      "level": 23,
+      "hp": "23d44+207",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 7,
+        "damage": {
+          "count": 3,
+          "sides": 5,
+          "bonus": 3
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 20493,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14007 Elizda"
+    },
+    "9000015": {
+      "vnum": 9000015,
+      "keywords": [
+        "faerie",
+        "guard",
+        "chainmail",
+        "honour",
+        "honor"
+      ],
+      "name": "a faerie honour guard",
+      "room": "A faerie garbed in fine chainmail stands at attention.",
+      "level": 26,
+      "hp": "26d65+338",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 8,
+        "damage": {
+          "count": 3,
+          "sides": 6,
+          "bonus": 4
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 23166,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14067 a faerie guard of the Seelie Court"
+    },
+    "9000016": {
+      "vnum": 9000016,
+      "keywords": [
+        "emissary",
+        "king",
+        "kings"
+      ],
+      "name": "the king's emissary",
+      "room": "The king's emissary stands here perusing a legal document.",
+      "level": 34,
+      "hp": "34d83+578",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 11,
+        "damage": {
+          "count": 4,
+          "sides": 6,
+          "bonus": 7
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 44064,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14021 Vokko"
+    },
+    "9000017": {
+      "vnum": 9000017,
+      "keywords": [
+        "faerie",
+        "decrepit",
+        "robes"
+      ],
+      "name": "a decrepit faerie",
+      "room": "A decrepit faerie floats here cloaked in dark robes.",
+      "level": 35,
+      "hp": "35d56+525",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 11,
+        "damage": {
+          "count": 4,
+          "sides": 6,
+          "bonus": 7
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 45360,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14054 a traveling faerie"
+    },
+    "9000018": {
+      "vnum": 9000018,
+      "keywords": [
+        "sysoria",
+        "princess",
+        "faerie"
+      ],
+      "name": "Sysoria, the faerie Princess",
+      "room": "Sysoria, the faerie Princess lies here weeping.",
+      "level": 45,
+      "hp": "45d99+1980",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 17,
+        "damage": {
+          "count": 6,
+          "sides": 6,
+          "bonus": 12
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 109350,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14028 Celriya"
+    },
+    "9000019": {
+      "vnum": 9000019,
+      "keywords": [
+        "tiaronn",
+        "king",
+        "faerie"
+      ],
+      "name": "Tiaronn, King of the faeries",
+      "room": "Tiaronn, King of the faeries rests here lost in deep thought.",
+      "level": 55,
+      "hp": "55d131+4675",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 21,
+        "damage": {
+          "count": 7,
+          "sides": 6,
+          "bonus": 30
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 222750,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14005 Guhan, the Tinker leader"
+    },
+    "9000020": {
+      "vnum": 9000020,
+      "keywords": [
+        "brownie",
+        "colorful"
+      ],
+      "name": "a colorful brownie",
+      "room": "A colorful brownie parades about.",
+      "level": 8,
+      "hp": "8d18+28",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 3,
+        "damage": {
+          "count": 2,
+          "sides": 3,
+          "bonus": 1
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 1036,
+      "wimpyAt": 48,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14068 a lubberkin"
+    },
+    "9000021": {
+      "vnum": 9000021,
+      "keywords": [
+        "brownie",
+        "graceful"
+      ],
+      "name": "a graceful brownie",
+      "room": "A graceful looking brownie slips through the forest.",
+      "level": 10,
+      "hp": "10d19+45",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 3,
+        "damage": {
+          "count": 2,
+          "sides": 3,
+          "bonus": 1
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 1296,
+      "wimpyAt": 60,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14019 a cottage faerie"
+    },
+    "9000022": {
+      "vnum": 9000022,
+      "keywords": [
+        "gnome",
+        "redcap",
+        "cap",
+        "red"
+      ],
+      "name": "a gnome with a red cap",
+      "room": "A gnome with a red cap looks about with murderous intent.",
+      "level": 12,
+      "hp": "12d27+72",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "aggressive",
+        "clauses": [
+          "all"
+        ],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 4,
+        "damage": {
+          "count": 2,
+          "sides": 5,
+          "bonus": 2
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 5832,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v66003 a mineguard (z24)"
+    },
+    "9000023": {
+      "vnum": 9000023,
+      "keywords": [
+        "faerie",
+        "woodland"
+      ],
+      "name": "a woodland faerie",
+      "room": "A woodland faerie blends in with the scenery.",
+      "level": 14,
+      "hp": "9d14+31",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 3,
+        "damage": {
+          "count": 2,
+          "sides": 3,
+          "bonus": 1
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 1166,
+      "wimpyAt": 84,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14046 a violet faerie"
+    },
+    "9000024": {
+      "vnum": 9000024,
+      "keywords": [
+        "meenlock",
+        "grotesque"
+      ],
+      "name": "a grotesque meenlock",
+      "room": "A grotesque meenlock clacks and chitters in madness.",
+      "level": 15,
+      "hp": "15d23+60",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "aggressive",
+        "clauses": [
+          "all"
+        ],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 5,
+        "damage": {
+          "count": 2,
+          "sides": 5,
+          "bonus": 2
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 7290,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14011 a Tinker stableboy"
+    },
+    "9000025": {
+      "vnum": 9000025,
+      "keywords": [
+        "gnome",
+        "slave"
+      ],
+      "name": "a gnome slave",
+      "room": "A gnome slave searches the area for combatants.",
+      "level": 15,
+      "hp": "15d23+60",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "aggressive",
+        "clauses": [
+          "all"
+        ],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 5,
+        "damage": {
+          "count": 2,
+          "sides": 5,
+          "bonus": 2
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 7290,
+      "wimpyAt": 90,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14011 a Tinker stableboy"
+    },
+    "9000026": {
+      "vnum": 9000026,
+      "keywords": [
+        "man",
+        "old",
+        "capering"
+      ],
+      "name": "an old man",
+      "room": "An old man capers along here, crazily prancing about.",
+      "level": 16,
+      "hp": "16d30+80",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 5,
+        "damage": {
+          "count": 3,
+          "sides": 4,
+          "bonus": 2
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 7776,
+      "wimpyAt": 96,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14008 a Tinker woman"
+    },
+    "9000027": {
+      "vnum": 9000027,
+      "keywords": [
+        "faerie",
+        "oily",
+        "lanky"
+      ],
+      "name": "an oily, lanky faerie",
+      "room": "An oily, lanky faerie trundles about the forest.",
+      "level": 18,
+      "hp": "18d35+126",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 6,
+        "damage": {
+          "count": 3,
+          "sides": 4,
+          "bonus": 2
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 8748,
+      "wimpyAt": 108,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14006 a weary adventurer"
+    },
+    "9000028": {
+      "vnum": 9000028,
+      "keywords": [
+        "faerie",
+        "slick"
+      ],
+      "name": "a slick faerie",
+      "room": "A slick faerie wriggles through the forest.",
+      "level": 18,
+      "hp": "18d35+126",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 6,
+        "damage": {
+          "count": 3,
+          "sides": 4,
+          "bonus": 2
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 8748,
+      "wimpyAt": 108,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14006 a weary adventurer"
+    },
+    "9000029": {
+      "vnum": 9000029,
+      "keywords": [
+        "sprite",
+        "unseelie"
+      ],
+      "name": "an unseelie sprite",
+      "room": "An unseelie sprite floats here obediently.",
+      "level": 20,
+      "hp": "20d33+120",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 7,
+        "damage": {
+          "count": 3,
+          "sides": 4,
+          "bonus": 2
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 9720,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14020 a faerie cook"
+    },
+    "9000030": {
+      "vnum": 9000030,
+      "keywords": [
+        "woman",
+        "translucent"
+      ],
+      "name": "a translucent woman",
+      "room": "A translucent woman rests here, scanning the forest for something.",
+      "level": 20,
+      "hp": "20d33+120",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 7,
+        "damage": {
+          "count": 3,
+          "sides": 4,
+          "bonus": 2
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 9720,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14020 a faerie cook"
+    },
+    "9000031": {
+      "vnum": 9000031,
+      "keywords": [
+        "woman",
+        "sylvan"
+      ],
+      "name": "a sylvan woman",
+      "room": "A sylvan woman stands here dressed in leaves.",
+      "level": 23,
+      "hp": "23d44+207",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 7,
+        "damage": {
+          "count": 3,
+          "sides": 5,
+          "bonus": 3
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 20493,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14007 Elizda"
+    },
+    "9000032": {
+      "vnum": 9000032,
+      "keywords": [
+        "woman",
+        "shapely",
+        "green"
+      ],
+      "name": "a shapely woman dressed in green",
+      "room": "A shapely woman dressed in green waits by the water's edge.",
+      "level": 26,
+      "hp": "26d65+338",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 8,
+        "damage": {
+          "count": 3,
+          "sides": 6,
+          "bonus": 4
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 23166,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14067 a faerie guard of the Seelie Court"
+    },
+    "9000033": {
+      "vnum": 9000033,
+      "keywords": [
+        "sprite",
+        "raider",
+        "unseelie"
+      ],
+      "name": "an unseelie sprite raider",
+      "room": "An unseelie sprite raider combs the forest.",
+      "level": 26,
+      "hp": "26d65+338",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "aggressive",
+        "clauses": [
+          "all"
+        ],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 8,
+        "damage": {
+          "count": 3,
+          "sides": 6,
+          "bonus": 4
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 23166,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14067 a faerie guard of the Seelie Court"
+    },
+    "9000034": {
+      "vnum": 9000034,
+      "keywords": [
+        "faerie",
+        "spiky"
+      ],
+      "name": "a spiky faerie",
+      "room": "An spiky faerie looks about with killing intent.",
+      "level": 29,
+      "hp": "29d65+377",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "aggressive",
+        "clauses": [
+          "all"
+        ],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 9,
+        "damage": {
+          "count": 3,
+          "sides": 6,
+          "bonus": 4
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 25839,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14010 Bandor"
+    },
+    "9000035": {
+      "vnum": 9000035,
+      "keywords": [
+        "faerie",
+        "spiky",
+        "sentry"
+      ],
+      "name": "a spiky faerie sentry",
+      "room": "An spiky faerie scours the forest for intruders.",
+      "level": 29,
+      "hp": "29d65+377",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "aggressive",
+        "clauses": [
+          "all"
+        ],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 9,
+        "damage": {
+          "count": 3,
+          "sides": 6,
+          "bonus": 4
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 25839,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14010 Bandor"
+    },
+    "9000036": {
+      "vnum": 9000036,
+      "keywords": [
+        "faerie",
+        "haughty"
+      ],
+      "name": "a haughty faerie",
+      "room": "A haughty faerie glances over at you.",
+      "level": 34,
+      "hp": "34d83+578",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 11,
+        "damage": {
+          "count": 4,
+          "sides": 6,
+          "bonus": 7
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 44064,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14021 Vokko"
+    },
+    "9000037": {
+      "vnum": 9000037,
+      "keywords": [
+        "woman",
+        "ethereal",
+        "beauty"
+      ],
+      "name": "a woman of ethereal beauty",
+      "room": "A woman of ethereal beauty floats here, serenely.",
+      "level": 35,
+      "hp": "35d56+525",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 11,
+        "damage": {
+          "count": 4,
+          "sides": 6,
+          "bonus": 7
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 45360,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14054 a traveling faerie"
+    },
+    "9000038": {
+      "vnum": 9000038,
+      "keywords": [
+        "woman",
+        "unearthly",
+        "beauty"
+      ],
+      "name": "a woman of unearthly beauty",
+      "room": "A woman of unearthly beauty floats here.",
+      "level": 45,
+      "hp": "45d99+1980",
+      "sprite": "human",
+      "aggro": {
+        "disposition": "passive",
+        "clauses": [],
+        "reactionMs": 0,
+        "remembers": false,
+        "sentinel": false,
+        "assists": false
+      },
+      "pursuit": {
+        "tier": "sentinel",
+        "trackRooms": 0,
+        "giveUpMs": 0,
+        "respectsSafeRooms": true,
+        "staysInZone": true,
+        "opensDoors": false
+      },
+      "combat": {
+        "armourClass": 17,
+        "damage": {
+          "count": 6,
+          "sides": 6,
+          "bonus": 12
+        },
+        "attackBonus": 0,
+        "roundMs": 3000
+      },
+      "experience": 109350,
+      "wimpyAt": 0,
+      "at": "2026-08-08T06:47:52.226Z",
+      "by": "transcribed from the zMUD room capture; numbers copied from v14028 Celriya"
     }
   }
 }
