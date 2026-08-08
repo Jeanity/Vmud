@@ -293,22 +293,6 @@ const IDLE_SUFFIX = '-idle';
 /* -------------------------------------------------------------------------- */
 
 /**
- * The pose suffixes beside `-idle`: staged by `worldgen/src/kit-actions.ts` for the same
- * full-fidelity set the idle twins cover, guarded per layer on `textures.exists` exactly as the
- * idle swap is — a layer without the staged twin holds its walk frame, the contract indexed art
- * has lived under since 15a.
- *
- * Frame counts are **measured, not assumed** (the walk sheet's empty ninth column is this file's
- * founding trauma) — and the first measurement here was wrong in a new way. It counted columns and
- * called the set unpadded; the pack's final columns were not *empty*, they were **solid filler
- * blocks**, 100% opaque where a real frame is ~20% — invisible to an emptiness check, and played as
- * the last frame of every swing. That was the owner's square (2026-08-07/08): *"the square sits on
- * my body… the player disappears for that 1 frame"* — the body's own slash sheet, dutifully
- * showing its filler for the swing's last 90 ms while his twin-less gear held pose over it. The
- * filler columns are now cropped off the staged files (alpha-ratio measured, per sheet), and the
- * clocks below are the *real* counts: swing 6, thrust 8, magic 7, hurt 6.
- */
-/**
  * How far the body's skeleton drifts from its standing pose, per pose frame — **measured off the
  * body sheets** (head-point: centroid of the opaque mass's top rows, which tracks the skeleton
  * where a whole-body centroid gets dragged around by the swinging arm). `[dx, dy]` in sheet
@@ -344,6 +328,22 @@ const POSE_SHIFTS: Readonly<Record<string, readonly (readonly (readonly [number,
   '-hurt': [[[0, 0], [2, 1], [2, 8], [2, 12], [2, 18], [3, 13]]],
 };
 
+/**
+ * The pose suffixes beside `-idle`: staged by `worldgen/src/kit-actions.ts` for the same
+ * full-fidelity set the idle twins cover, guarded per layer on `textures.exists` exactly as the
+ * idle swap is — a layer without the staged twin holds its walk frame, the contract indexed art
+ * has lived under since 15a.
+ *
+ * Frame counts are **measured, not assumed** (the walk sheet's empty ninth column is this file's
+ * founding trauma) — and the first measurement here was wrong in a new way. It counted columns and
+ * called the set unpadded; the pack's final columns were not *empty*, they were **solid filler
+ * blocks**, 100% opaque where a real frame is ~20% — invisible to an emptiness check, and played as
+ * the last frame of every swing. That was the owner's square (2026-08-07/08): *"the square sits on
+ * my body… the player disappears for that 1 frame"* — the body's own slash sheet, dutifully
+ * showing its filler for the swing's last 90 ms while his twin-less gear held pose over it. The
+ * filler columns are now cropped off the staged files (alpha-ratio measured, per sheet), and the
+ * counts these clocks carry are the *real* ones: swing 6, thrust 8, magic 7, hurt 6.
+ */
 const ACTION_SUFFIXES = { slash: '-slash', thrust: '-thrust' } as const;
 const ACTION_COLUMNS: Readonly<Record<'-slash' | '-thrust', number>> = { '-slash': 6, '-thrust': 8 };
 /** ~90 ms a frame lands a slash at ~0.5 s — inside a 2–3 s round, so swings read as distinct events. */
@@ -433,28 +433,26 @@ const LPC_SHEETS: readonly string[] = [
 ];
 
 /**
- * Which LPC sheet each wearable item draws as. Phase 15a.
- *
- * **This table is the art direction, and it lives here on purpose.** The server sends *what* is worn
- * as item ids; that a leather tunic is a brown long-sleeve shirt from the LPC pack — and that the art
- * is LPC at all — is the client's business, the same boundary `Actor.sprite` has always had. Putting
- * sheet names on the wire would make a re-skin a protocol change.
- *
- * An item with no entry simply does not draw. That is the honest default for a slot the pack has no
- * art for: LPC ships exactly one hand garment (Gauntlets) and nothing resembling frayed wraps, so
- * hands are unlayered rather than drawn as something they are not.
- */
-/**
  * The **starter kit's** art, and nothing else's — what used to be `ITEM_LAYER`.
  *
  * A7b retired this as *the* mechanism. It was ten hardcoded rows mapping an id to a sheet, which could
  * hold neither the 16,421-entry catalogue nor anything an operator authored; art is now an item's own
- * `art` field, indexed by `artgen` into `LPC_ART`, and {@link WorldScene.sheetFor} looks there first.
+ * `art` field, indexed by `artgen` into `LPC_ART`, and {@link WorldScene.sheetsFor} looks there first.
  *
  * What is left is the nine ids `equipment.ts` invents for the authored starter kit. Those are not
  * catalogue items and have no template to carry an `art` field, so their mapping genuinely does live
  * on the client — and `shield` stays as protocol 14's art *class*, the fallback for 419 catalogue
  * shields that nobody has chosen a sheet for yet.
+ *
+ * **That any of it lives on the client is the art direction, and that boundary has not moved.** The
+ * server sends *what* is worn as item ids; that a leather tunic is a brown long-sleeve shirt from the
+ * LPC pack — and that the art is LPC at all — is the client's business, the same boundary
+ * `Actor.sprite` has always had. Putting sheet names on the wire would make a re-skin a protocol
+ * change.
+ *
+ * An id with no row here and no index entry simply does not draw. That is the honest default for a
+ * slot the pack has no art for: LPC ships exactly one hand garment (Gauntlets) and nothing resembling
+ * frayed wraps, so the kit leaves hands unlayered rather than drawing them as something they are not.
  */
 const KIT_ART: Readonly<Record<string, string>> = {
   leather_tunic: 'torso-tunic-leather',
@@ -470,26 +468,16 @@ const KIT_ART: Readonly<Record<string, string>> = {
 };
 
 /**
- * Painter's order for the body. Feet before legs before torso before head, because that is the order
- * a person dresses and the order the overlaps have to resolve: a boot cuff sits under a trouser leg,
- * a trouser waist under a shirt hem, a hood over everything.
- *
- * **`offHand` is last, because a shield is held in front of the body.** LPC ships shields as a
- * foreground layer for the walk and idle cycles — the artist has already drawn each facing correctly,
- * including the one where the arm is on the far side — so it goes over everything rather than needing
- * a per-facing rule of our own.
- *
- * `mainHand` is still absent. The pack's weapon art is **attack animations only** — Swing, Thrust and
- * Shoot sheets — with no idle-hold frame, and our characters are drawn from the walk/idle rows.
- * Drawing a dagger would need either an attack animation the combat system does not have (a swing is a
- * log line today, not a motion) or custom art. Recorded rather than bodged: see Phase 16.
- */
-/**
  * Draw order for the **starter kit**, on the same scale as ULPC's own `zPos`.
  *
  * What used to be `LAYER_ORDER`, a list of slots in painting order — feet before legs before chest
  * before head, because that is the order a person dresses and the order the overlaps have to resolve:
  * a boot cuff under a trouser leg, a trouser waist under a shirt hem, a hood over everything.
+ *
+ * **The two hands sit above all of it, because what they hold is in front of the body.** LPC ships
+ * shields as a foreground layer for the walk and idle cycles — the artist has already drawn each
+ * facing correctly, including the one where the arm is on the far side — so a held thing needs no
+ * per-facing rule of our own, only a z above the garments.
  *
  * It is a *fallback* now rather than the mechanism. Indexed art carries the z its artist gave it, so
  * this covers only the nine ids `equipment.ts` invents, which have no index entry. The numbers are
@@ -761,24 +749,17 @@ const HINT_STORAGE_KEY = 'mygame.hintCollapsed';
 const SHEET_STORAGE_KEY = 'mygame.sheetCollapsed';
 
 /**
- * The equipment slots, and the ids of the cells that draw them.
- *
- * `DESIGN-inventory.md` §6 exactly: head, neck, chest, legs, feet, hands, main hand, off hand, back and
- * two rings. That set is not arbitrary — it is the one that maps onto LPC's layered sprite system,
- * which is what will make worn gear visible *on the character* rather than merely listed here, and the
- * art direction in `CLAUDE.md` names that as a requirement.
- *
- * Note what is **not** in it: a light slot. A dedicated one would be free light forever; instead any
- * equipped item may emit light and the radius is the best among them, which is what makes a torch cost
- * you a hand and a glowing amulet a real power spike at the same radius.
- */
-/**
  * The slots the paper doll has a cell for — the body's major places, laid out around the figure.
  *
  * **Not the full list any more.** Phase 16 took the slot set to Duris' own twenty-four, and a doll with
  * twenty-four cells around a silhouette is a spreadsheet rather than a body. The rest render as a
  * compact line underneath, and only when something is actually in them: an eyepatch is a rare find and
  * should read as one, not as a permanently empty box.
+ *
+ * What kept its cell is `DESIGN-inventory.md` §6's own eleven: head, neck, chest, legs, feet, hands,
+ * main hand, off hand, back and two rings. That set is not arbitrary — it is the one that maps onto
+ * LPC's layered sprite system, which is what makes worn gear visible *on the character* rather than
+ * merely listed here, and the art direction in `CLAUDE.md` names that as a requirement.
  */
 const DOLL_SLOTS = [
   'head',
@@ -800,6 +781,11 @@ const DOLL_SLOTS = [
  * The client used to keep its own array of eleven, which was fine while the two agreed and became a
  * silent bug the moment Phase 16 added thirteen: a slot the server can fill and the sheet never reads
  * is a piece of gear that vanishes from the player's view. One list, one order.
+ *
+ * Note what is **not** in it, at twenty-four slots as at eleven: a light slot. A dedicated one would be
+ * free light forever; instead any equipped item may emit light and the radius is the best among them,
+ * which is what makes a torch cost you a hand and a glowing amulet a real power spike at the same
+ * radius.
  */
 const EQUIPMENT_SLOTS = EQUIP_SLOTS;
 
@@ -839,13 +825,6 @@ function brightnessToAlpha(percent: number): number {
 const FOG_BLUR = 1.1;
 
 /**
- * Display depths above the map.
- *
- * Items sit *below* characters so a torch lying on the floor cannot hide the creature standing over
- * it — which is exactly the moment you most need to see the creature. Both are far below the fog
- * overlay at 50, so neither is drawn through darkness.
- */
-/**
  * The health bar over another body's head.
  *
  * `EntityView.healthFraction` has been on the wire since Phase 7 and nothing read it until Phase 11 —
@@ -867,6 +846,13 @@ const HEALTH_LOW = 0xc4553f;
 const HEALTH_HURT_BELOW = 0.6;
 const HEALTH_LOW_BELOW = 0.3;
 
+/**
+ * Display depths above the map.
+ *
+ * Items sit *below* characters so a torch lying on the floor cannot hide the creature standing over
+ * it — which is exactly the moment you most need to see the creature. Both are far below the fog
+ * overlay at 50, so neither is drawn through darkness.
+ */
 const ENTITY_DEPTH = 10;
 const ITEM_DEPTH = 8;
 
@@ -1465,20 +1451,6 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
-  /**
-   * Draws what the character is carrying — protocol 15.
-   *
-   * **This replaced a stub that always said "you are carrying nothing".** 15a wired the drawer before
-   * there was anything on the wire to put in it, and said so in a comment; by 2026-08-04 the bag was
-   * real, the line was simply false, and the owner reported it as a bug. It was one.
-   *
-   * The shape matches the `inventory` command's own listing on purpose — counts, charges, a container's
-   * fullness and its contents indented — because they answer the same question and two renderings of
-   * one bag that could disagree is a bug nobody thinks to look for.
-   *
-   * Names are **painted**, never assigned: they are the builder's authored text and carry the MUD's own
-   * colour codes. The paper doll learned this the hard way when 15c's harvested items first arrived.
-   */
   /** The last bag the server sent, so opening the drawer redraws rather than waiting for a heartbeat. */
   private lastBag: BagView | undefined;
 
@@ -1635,6 +1607,20 @@ export class WorldScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Draws what the character is carrying — protocol 15.
+   *
+   * **This replaced a stub that always said "you are carrying nothing".** 15a wired the drawer before
+   * there was anything on the wire to put in it, and said so in a comment; by 2026-08-04 the bag was
+   * real, the line was simply false, and the owner reported it as a bug. It was one.
+   *
+   * The shape matches the `inventory` command's own listing on purpose — counts, charges, a container's
+   * fullness and its contents indented — because they answer the same question and two renderings of
+   * one bag that could disagree is a bug nobody thinks to look for.
+   *
+   * Names are **painted**, never assigned: they are the builder's authored text and carry the MUD's own
+   * colour codes. The paper doll learned this the hard way when 15c's harvested items first arrived.
+   */
   private renderInventory(bag?: BagView): void {
     const panel = document.getElementById('inventory');
     if (!panel) return;
@@ -1807,14 +1793,6 @@ export class WorldScene extends Phaser.Scene {
   }
 
   /**
-   * The map-brightness slider.
-   *
-   * Purely a display preference — it changes how dark remembered ground is drawn and nothing else.
-   * It cannot reveal anything: unknown tiles stay at {@link FOG_UNKNOWN} regardless of where the
-   * slider sits, and what may be walked to is gated server-side on the `seen` bitset, not on
-   * anything this touches. So it needs no authority and lives entirely in the browser.
-   */
-  /**
    * Folds the key reference away, and remembers that you did.
    *
    * A reference card has a lifecycle a HUD does not: indispensable for the first ten minutes, clutter
@@ -1856,6 +1834,14 @@ export class WorldScene extends Phaser.Scene {
     apply(collapsed, false);
   }
 
+  /**
+   * The map-brightness slider.
+   *
+   * Purely a display preference — it changes how dark remembered ground is drawn and nothing else.
+   * It cannot reveal anything: unknown tiles stay at {@link FOG_UNKNOWN} regardless of where the
+   * slider sits, and what may be walked to is gated server-side on the `seen` bitset, not on
+   * anything this touches. So it needs no authority and lives entirely in the browser.
+   */
   private wireBrightness(): void {
     const slider = document.getElementById('brightness');
     const readout = document.getElementById('brightness-value');
@@ -2055,13 +2041,6 @@ export class WorldScene extends Phaser.Scene {
 
   /* ------------------------------------------------------------ click to move */
 
-  /**
-   * Turns a click into a `moveTo` *intent* — a destination, never a route.
-   *
-   * The server owns the pathfinding because the route has to be gated on the tiles this character
-   * has *seen*, and a client that computed its own path could simply ignore that and walk through
-   * the dark. This client holds a copy of that bitset to paint with, never to decide with.
-   */
   /**
    * The body nearest a world point, within {@link CLICK_REACH}, or nothing.
    *
@@ -2435,6 +2414,10 @@ export class WorldScene extends Phaser.Scene {
   /**
    * Sends one `moveTo`, and remembers where on screen it was asked for.
    *
+   * **A destination, never a route.** The server owns the pathfinding because the route has to be
+   * gated on the tiles this character has *seen*, and a client that computed its own path could
+   * simply ignore that and walk through the dark.
+   *
    * `dragging` changes one thing: a re-path that the server is certain to refuse is **not sent at
    * all**. The server answers those with a `log` line as well as a `pathFailed`, and that line is
    * right for a click and unreadable for a drag, where a held pointer asks again eight times a
@@ -2443,10 +2426,11 @@ export class WorldScene extends Phaser.Scene {
    * This is not the client deciding where it may walk. Both halves of {@link sendableDestination}
    * are gates the server applies itself, from data it sent here — the `seen` bitset and the tilemap
    * built from the `zone` message — so declining to ask a question whose answer is already in hand
-   * cannot grant anything the server would not. Worst case the copy is one tick stale at the very
-   * edge of the torchlight and a legal destination waits {@link DRAG_REPATH_MS} for the next sweep
-   * to ask again. A plain click is never filtered, so the refusal — and the server's sentence
-   * explaining it — still happens where it is wanted.
+   * cannot grant anything the server would not. The copy of that bitset is held to paint with and to
+   * hold a question back with, never to decide where the character may go. Worst case it is one tick
+   * stale at the very edge of the torchlight and a legal destination waits {@link DRAG_REPATH_MS} for
+   * the next sweep to ask again. A plain click is never filtered, so the refusal — and the server's
+   * sentence explaining it — still happens where it is wanted.
    */
   private requestMoveTo(worldX: number, worldY: number, dragging: boolean): void {
     const grid = this.grid;
@@ -3107,12 +3091,6 @@ export class WorldScene extends Phaser.Scene {
   }
 
   /**
-   * Whether a world-pixel position is lit right now.
-   *
-   * Terrain is remembered, creatures are not: this is what keeps a mob that wandered into a room the
-   * character merely remembers off the screen until light falls on it again.
-   */
-  /**
    * The character's own posture and status, as the HUD reads them and as prediction gates on them.
    *
    * Shown only when it is *news*. Standing and normal is the whole of the game so far, and a HUD line
@@ -3201,6 +3179,12 @@ export class WorldScene extends Phaser.Scene {
     if (num) num.textContent = `${Math.round(view.experience)}/${Math.round(cost)}`;
   }
 
+  /**
+   * Whether a world-pixel position is lit right now.
+   *
+   * Terrain is remembered, creatures are not: this is what keeps a mob that wandered into a room the
+   * character merely remembers off the screen until light falls on it again.
+   */
   private litAt(x: number, y: number): boolean {
     const grid = this.grid;
     if (!grid) return false;
@@ -4093,14 +4077,6 @@ export class WorldScene extends Phaser.Scene {
   }
 
   /**
-   * Hands the keyboard to the command line, or takes it back.
-   *
-   * Held keys are released on the way in, deliberately. Focusing the prompt with a movement key down
-   * would otherwise leave the character walking with no key the player could let go of to stop them:
-   * `down` starts answering false, but the last steer the server was sent is still a push. Zeroing
-   * the intent here sends the release the player can no longer send themselves.
-   */
-  /**
    * Hands the scene V4's overlay, so <kbd>Shift</kbd>+<kbd>M</kbd> and <kbd>Escape</kbd> can reach it.
    *
    * Injected rather than imported: the overlay is DOM built in `main.ts` beside the socket that feeds
@@ -4116,6 +4092,14 @@ export class WorldScene extends Phaser.Scene {
     this.arrival = card;
   }
 
+  /**
+   * Hands the keyboard to the command line, or takes it back.
+   *
+   * Held keys are released on the way in, deliberately. Focusing the prompt with a movement key down
+   * would otherwise leave the character walking with no key the player could let go of to stop them:
+   * `down` starts answering false, but the last steer the server was sent is still a push. Zeroing
+   * the intent here sends the release the player can no longer send themselves.
+   */
   setTyping(typing: boolean): void {
     if (typing === this.typing) return;
     this.typing = typing;
@@ -4355,22 +4339,6 @@ export class WorldScene extends Phaser.Scene {
 
   /* -------------------------------------------------------------- textures */
 
-
-
-  /**
-   * Ground-item sprites, generated rather than loaded.
-   *
-   * Same reasoning as the character placeholders: this is a mechanic landing before its art, and a
-   * new art dependency would hold it up for a picture that LPC will replace anyway. What these have
-   * to do is read as *a small bright thing lying on the floor* — smaller than a character, glowing,
-   * and unmistakably not a person standing there.
-   *
-   * One per catalogue id, keyed by that id, so adding a sixth light source gives it a sprite without
-   * touching this file. The colours are the only editorial part: warm and dim for the candle, hot
-   * orange for the torch, cold and steady for the everburning one, and the beacon pale enough to
-   * look like it is lighting the floor around it — which, for thirty seconds, it is.
-   */
-
   /**
    * A portal on the wall it leaves through.
    *
@@ -4436,6 +4404,19 @@ export class WorldScene extends Phaser.Scene {
     return undefined;
   }
 
+  /**
+   * Ground-item sprites, generated rather than loaded.
+   *
+   * Same reasoning as the character placeholders: this is a mechanic landing before its art, and a
+   * new art dependency would hold it up for a picture that LPC will replace anyway. What these have
+   * to do is read as *a small bright thing lying on the floor* — smaller than a character, glowing,
+   * and unmistakably not a person standing there.
+   *
+   * One per catalogue id, keyed by that id, so adding a sixth light source gives it a sprite without
+   * touching this file. The colours are the only editorial part: warm and dim for the candle, hot
+   * orange for the torch, cold and steady for the everburning one, and the beacon pale enough to
+   * look like it is lighting the floor around it — which, for thirty seconds, it is.
+   */
   private makeItemTextures(): void {
     // Anything the server names that this build has never heard of. Deliberately drab: an unknown
     // pickup should look like a question, not like treasure.
@@ -4483,17 +4464,6 @@ export class WorldScene extends Phaser.Scene {
   }
 
   /**
-   * A corpse, drawn rather than loaded.
-   *
-   * `CLAUDE.md` requires one cohesive style and says that anything LPC lacks is **drawn to match** rather
-   * than borrowed from elsewhere — and the vendored LPC set has no bones in it. So these are generated
-   * the same way the ground-item sprites are, in the same muted bone palette, and `itemTexture` already
-   * resolves by key with a fallback so real art replaces them without touching anything else.
-   *
-   * A bone is the classic shape: a shaft with two knobs at each end. Drawn from a small helper so the
-   * pile and the single are unmistakably the same object at different counts, which is the whole signal.
-   */
-  /**
    * One 20x20 pickup: a dark haft, a flame, and two rings of halo around it.
    *
    * The halo is drawn into the texture rather than added as a light: the fog overlay is a single
@@ -4513,6 +4483,17 @@ export class WorldScene extends Phaser.Scene {
     graphics.destroy();
   }
 
+  /**
+   * A corpse, drawn rather than loaded.
+   *
+   * `CLAUDE.md` requires one cohesive style and says that anything LPC lacks is **drawn to match** rather
+   * than borrowed from elsewhere — and the vendored LPC set has no bones in it. So these are generated
+   * the same way the ground-item sprites are, in the same muted bone palette, and `itemTexture` already
+   * resolves by key with a fallback so real art replaces them without touching anything else.
+   *
+   * A bone is the classic shape: a shaft with two knobs at each end. Drawn from a small helper so the
+   * pile and the single are unmistakably the same object at different counts, which is the whole signal.
+   */
   private drawCorpseTexture(key: string, looted: boolean): void {
     const graphics = this.make.graphics({ x: 0, y: 0 }, false);
     const SIZE = 24;
@@ -4731,17 +4712,6 @@ function tileCentre(tile: number): number {
 }
 
 /**
- * The frame index for a facing and a point in the walk cycle, on whatever sheet this layer uses.
- *
- * Frames run left to right then down, so row R column C is `R * columns + C` — and the columns are read
- * from the texture rather than assumed, because sheets in the pack are not all the same width.
- * Hardcoding a stride would silently draw the west-facing body under the north-facing shirt.
- *
- * The column is **clamped to what this texture actually has**, so a layer still staged from a 2-column
- * `idle.png` degrades to standing rather than indexing off the end of its sheet into another row's
- * frames — which is the failure that would look like a character whose hat faces backwards.
- */
-/**
  * Where in the walk cycle a body currently is.
  *
  * The cycle runs 0 through 7 and *includes* the rest pose, because column 0 is a genuine frame of an
@@ -4765,6 +4735,17 @@ function sameWearing(
   return slots.every((slot) => left[slot] === right[slot]);
 }
 
+/**
+ * The frame index for a facing and a point in the walk cycle, on whatever sheet this layer uses.
+ *
+ * Frames run left to right then down, so row R column C is `R * columns + C` — and the columns are read
+ * from the texture rather than assumed, because sheets in the pack are not all the same width.
+ * Hardcoding a stride would silently draw the west-facing body under the north-facing shirt.
+ *
+ * The column is **clamped to what this texture actually has**, so a layer still staged from a 2-column
+ * `idle.png` degrades to standing rather than indexing off the end of its sheet into another row's
+ * frames — which is the failure that would look like a character whose hat faces backwards.
+ */
 function layerFrame(texture: Phaser.Textures.Texture, facing: Direction, column = WALK_STANDING_COLUMN): number {
   const source = texture.getSourceImage();
   // The stride is the texture's **own** frame width, not the 64px body grid: a 192px oversize swing
