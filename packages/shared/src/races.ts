@@ -74,6 +74,15 @@ export interface Race {
   readonly flavour: string;
 }
 
+/**
+ * How far the bare eye reaches in the dark, by blood — slice 6. The surface default is the vision
+ * system's own {@link DEFAULT_LIGHT_RADIUS} of 2; infravision adds a tile, ultravision two. A
+ * floor under the carried light, never a replacement: a torch still out-reaches drow eyes.
+ */
+export function bareRadiusFor(vision: Race['vision']): number {
+  return vision === 'ultravision' ? 4 : vision === 'infravision' ? 3 : 2;
+}
+
 /** `round((factor − 100) / 15)`; DEX is the mean of Dex and Agi. See the module note. */
 export function racialBonus(race: Race, ability: Ability): number {
   const factor =

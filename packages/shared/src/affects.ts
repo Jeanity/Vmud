@@ -211,7 +211,7 @@ export interface AffectKind {
  * error rather than a silent gap. It is also the only way to have {@link AffectKind.id} typed as an
  * affect type at all — a table that derived its own key type from itself would reference itself.
  */
-export const AFFECT_TYPE_IDS = ['light', 'settling', 'second_wind', 'notch_physical', 'notch_mental', 'off_balance', 'casting', 'armor', 'bless', 'potion_sated', 'eaten'] as const;
+export const AFFECT_TYPE_IDS = ['light', 'settling', 'second_wind', 'notch_physical', 'notch_mental', 'off_balance', 'casting', 'armor', 'bless', 'potion_sated', 'eaten', 'sun_scorched'] as const;
 
 export type AffectType = (typeof AFFECT_TYPE_IDS)[number];
 
@@ -305,6 +305,18 @@ export const AFFECT_TYPES: Readonly<Record<AffectType, AffectKind>> = {
     id: 'off_balance',
     name: 'off balance',
     wearOff: 'You recover your balance.',
+  },
+  /**
+   * The open sky, resented — **Phase 21 slice 6**, the underdark races' price for the surface. One
+   * `hit` node at −2, installed and removed by the tick's sun pass (`index.ts`) as the body moves
+   * between sun and shade, which is why it carries no duration and is never saved: where you are
+   * standing is re-derived every tick, and persisting a fact you recompute is how two copies learn
+   * to disagree. **Shown**, so the affects list explains the missing swings. The removal message
+   * is explicit (`removeAffects`), not a wear-off — the sun does not expire, you leave it.
+   */
+  sun_scorched: {
+    id: 'sun_scorched',
+    name: 'sun-scorched',
   },
   /**
    * The wind-up itself — **Phase 20 slice 2**, and the reason it is an affect at all: `SelfView`

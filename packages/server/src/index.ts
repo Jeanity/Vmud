@@ -116,6 +116,7 @@ import {
   scoreWord,
   slotsForCircle,
   spendBonus,
+  UNLIMITED_DURATION,
   parseDice,
   roundLengthFor,
   type CombatStats,
@@ -225,6 +226,8 @@ import { canWalkStraightTo, findPath, type PathFailure } from '@mygame/shared/pa
 import { bitsToBase64, bitsetToSet } from '@mygame/shared/vision.ts';
 
 import { UNSEEN_NAME, actLines } from './act.ts';
+import { roomLightsItself, underOpenSky } from '@mygame/shared/light.ts';
+
 import { AccountStore, MAX_CHARACTERS_PER_ACCOUNT, type AccountRecord, type AuthResult } from './accounts.ts';
 import { AdminApi, LOOPBACK, serveAdmin, type LiveOps } from './admin.ts';
 import { artIdFromPath, artSheetPath } from './art.ts';
@@ -9101,6 +9104,36 @@ setInterval(() => {
     if (left <= 0) player.spentSlots.delete(circle);
     else player.spentSlots.set(circle, left);
     send(player.id, { t: 'log', channel: 'system', text: `&+WYou commit a circle-${circle} spell back to memory.&N` });
+  }
+
+  // Slice 6: the sun pass. The underdark races burn under the open sky — a self-lit room in an
+  // open-sky sector is the sun, and the price is one visible `hit` node at −2, installed and
+  // removed as the body moves between sun and shade. Idempotent by construction: where you stand
+  // is re-derived every tick, so no movement path needs a hook and none can be missed.
+  for (const player of sim.allPlayers()) {
+    const race = player.identity ? RACES[player.identity.race] : undefined;
+    if (!race?.sunVulnerable) continue;
+    const room = sim.room(player.roomId);
+    const scorched = room !== undefined && underOpenSky(room.sector) && roomLightsItself(room);
+    const has = sim.affectsOf(player, 'sun_scorched').length > 0;
+    if (scorched === has) continue;
+    if (scorched) {
+      sim.addAffect(
+        player,
+        newAffect({ type: 'sun_scorched', durationMs: UNLIMITED_DURATION, apply: 'hit', modifier: -2, flags: AffectFlag.NoSave }),
+      );
+      send(player.id, {
+        t: 'log',
+        channel: 'system',
+        text: '&+rThe cursed sun of the surface world burns into your skin!&N',
+      });
+    } else {
+      sim.removeAffects(player, 'sun_scorched');
+      send(player.id, { t: 'log', channel: 'system', text: 'The shade is a mercy on your skin.' });
+    }
+    // The node changes a number the fight reads, so the profile follows in the same tick.
+    refitCombat(player);
+    send(player.id, { t: 'self', view: sim.selfViewOf(player) });
   }
 
   // Who has noticed whom. Runs over aggressive mobs only — 52 of IceCrag's 66 are passive and cost one field

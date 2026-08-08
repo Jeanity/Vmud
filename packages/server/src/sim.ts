@@ -6,7 +6,9 @@
  */
 
 import {
+  bareRadiusFor,
   CLASSES,
+  RACES,
   AffectFlag,
   HP_FLOOR,
   PLAYER_SPEED,
@@ -989,7 +991,12 @@ export class Simulation {
     const lit = brightestLight(actor.affects, (id) => this.resolveLight(id));
     const best = bestLight([...this.heldLights(actor), lit?.source]);
     actor.light = best;
-    this.setLightRadius(actor, effectiveRadius(best));
+    // Slice 6: blood puts a floor under the bare eye — ultravision reaches 4, infravision 3 — and
+    // it is a floor, never a replacement: a torch still out-reaches drow eyes. Mobs and the
+    // identity-less keep the surface default through `bareRadiusFor`'s own fallback.
+    const bare =
+      isPlayer(actor) && actor.identity ? bareRadiusFor(RACES[actor.identity.race].vision) : DEFAULT_LIGHT_RADIUS;
+    this.setLightRadius(actor, Math.max(effectiveRadius(best), bare));
     // Queued unconditionally rather than only when the radius moved, and the name of the queue is now a
     // little narrower than what it carries: `relit` is the one channel that tells a client its *own*
     // state changed, and everything hanging off it is either needed here or a cheap no-op. The `self` is
@@ -1593,6 +1600,9 @@ export class Simulation {
       // of its meaning. The exhaustive switch caught this one too, which is the third time it has paid for
       // itself.
       case 'off_balance':
+      // Slice 6: the sun pass installs and removes this explicitly; expiry is not its path — the
+      // duration is unlimited — but the wall of cases wants every member named, and rightly.
+      case 'sun_scorched':
         return [];
 
       // Phase 20's wind-up chains to nothing — the `cast` event owns both of its endings and removes

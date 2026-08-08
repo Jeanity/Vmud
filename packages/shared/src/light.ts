@@ -627,6 +627,20 @@ export function toCarriedLight(source: LightSource, remainingMs?: number): Carri
  * inferred forest zones — an open wood in daylight — and it is also the honest one: absent data must not
  * become a claim that somewhere is dark.
  */
+/**
+ * The sectors that sit under the open sky — where a self-lit room means the *sun* is what lights
+ * it. Phase 21 slice 6's sun-vulnerability reads this beside {@link roomLightsItself}; caves,
+ * interiors and the depths are shelter no matter how bright.
+ */
+const OPEN_SKY = new Set<string>([
+  'city', 'road', 'field', 'forest', 'hills', 'mountain', 'swamp', 'desert', 'arctic',
+  'shallow_water', 'deep_water', 'air',
+]);
+
+export function underOpenSky(sector: string): boolean {
+  return OPEN_SKY.has(sector);
+}
+
 export function roomLightsItself(room: { readonly flags?: readonly string[] } | undefined): boolean {
   if (!room) return false;
   return !(room.flags?.includes('dark') ?? false);
