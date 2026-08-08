@@ -1,0 +1,11 @@
+[
+  {
+    "id": "gwark-thins-the-warren",
+    "giver": 1401,
+    "name": "Thin the warren",
+    "ask": "The shaman coddles his whelps and the warren grows insolent. Cull three of the youths — quietly — and Gwark will remember it.",
+    "thanks": "So the surface breeds killers after all. Gwark remembers, as promised.",
+    "objective": { "kind": "kill", "vnum": 1422, "count": 3, "what": "kobold youths" },
+    "reward": { "xp": 500, "copper": 50 }
+  }
+]

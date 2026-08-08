@@ -273,6 +273,7 @@ import {
   type PlayerIdentity,
   type PlayerRecord,
 } from './players.ts';
+import { loadQuests, questsBy } from './quests.ts';
 import { directionFrom, peek } from './peek.ts';
 import {
   advanceAssists,
@@ -1016,6 +1017,13 @@ if (DEV_ACCOUNT) {
 /** Unbroken rest that buys one spent casting back — slice 2's memorization cadence. */
 const MEMORIZE_SLOT_MS = 20_000;
 
+/**
+ * The authored quests — slice 7. Loaded once; `data/world/overrides/quests.json` is content, and a
+ * checkout without it is a world where nobody has work for you, which is honest.
+ */
+const quests = loadQuests();
+if (quests.size > 0) console.log(`[quests] ${quests.size} authored quest(s) loaded`);
+
 /** Auth failures one socket may accrue before it is closed. A budget for typos, not dictionaries. */
 const AUTH_ATTEMPT_BUDGET = 5;
 
@@ -1545,6 +1553,7 @@ function rememberProgress(player: Player): void {
   store.setProgress(record, player.level, player.experience, player.maxHp, player.damageBonus);
   // Slice 2: the spent castings ride the same save — a relog must not be a free memorization.
   store.setSpentSlots(record, player.spentSlots);
+  store.setQuests(record, player.quests);
   store.setEquipped(record, player.equipped);
   // The bag too, since 15b. Same fact of the same kind: what a character has is theirs, and losing it
   // to a disconnect would teach players not to carry anything.
@@ -1617,6 +1626,7 @@ function restoreProgress(player: Player, record: PlayerRecord): void {
   // pool scales with it) and before `restoreVitals` runs outside, whose mana wound is subtracted
   // from the maximum this derives.
   player.spentSlots = new Map(record.spentSlots);
+  player.quests = new Map(record.quests);
   if (record.identity) {
     const spec = CLASSES[record.identity.class];
     const mod = spec.casting
@@ -2499,6 +2509,9 @@ function resolveDeath(death: Death): void {
       channel: 'system',
       text: `You gain ${experience} experience${how ? ` (${how})` : ''}.`,
     });
+    // Slice 7: the kill also answers whoever asked for it. Before the level-up, so a quest line
+    // reads in the order the deed happened; the reward itself waits at the giver.
+    if (isMob(actor)) advanceKillQuests(earner, actor.vnum);
     // **And this is where it finally buys something.** Experience has been earned and banked since
     // Phase 13 with nothing to spend it on: the number went up and never did anything. Phase 14b.
     levelUpIfEarned(earner);
@@ -5379,6 +5392,107 @@ function listExits(player: Player): void {
 }
 
 /**
+ * `quest` — the whole quest interface, slice 7: spoken in a giver's room it takes, reports, or
+ * turns in their quest, whichever the state calls for; spoken anywhere else it reports what you
+ * carry. One verb because the source's questmasters work by conversation, and ours holds the
+ * entire conversation in the states a quest can be in.
+ */
+function doQuest(player: Player): void {
+  const giver = sim
+    .actorsIn(player.roomId)
+    .find((a): a is Mob => isMob(a) && questsBy(quests, a.vnum).length > 0);
+  if (!giver) {
+    const held = [...player.quests].filter(([, v]) => v !== 'done');
+    if (held.length === 0) {
+      send(player.id, { t: 'log', channel: 'system', text: 'Nobody here has work for you.' });
+      return;
+    }
+    for (const [id, state] of held) {
+      const def = quests.get(id);
+      if (!def || def.objective.kind !== 'kill') continue;
+      send(player.id, {
+        t: 'log',
+        channel: 'system',
+        text: `Quest "${def.name}": ${state} of ${def.objective.count} ${def.objective.what}.`,
+      });
+    }
+    return;
+  }
+
+  for (const def of questsBy(quests, giver.vnum)) {
+    const state = player.quests.get(def.id);
+    if (state === 'done') {
+      send(player.id, { t: 'log', channel: 'say', text: `${giver.name}&N says, 'Our business is settled.'` });
+      continue;
+    }
+    if (state === undefined) {
+      player.quests.set(def.id, 0);
+      send(player.id, { t: 'log', channel: 'say', text: `${giver.name}&N says, '${def.ask}'` });
+      if (def.objective.kind === 'kill') {
+        send(player.id, {
+          t: 'log',
+          channel: 'system',
+          text: `Quest taken: ${def.objective.count} ${def.objective.what}. (Say "quest" here again when it is done.)`,
+        });
+      }
+      persistAdminEdit(player);
+      continue;
+    }
+    const complete =
+      def.objective.kind === 'kill'
+        ? typeof state === 'number' && state >= def.objective.count
+        : matchInventory(player.inventory, String(def.objective.vnum), wordsFor) !== -1;
+    if (!complete) {
+      if (def.objective.kind === 'kill') {
+        send(player.id, {
+          t: 'log',
+          channel: 'say',
+          text: `${giver.name}&N says, 'Not done. ${def.objective.count - (state as number)} of the ${def.objective.what} still stand.'`,
+        });
+      }
+      continue;
+    }
+    player.quests.set(def.id, 'done');
+    send(player.id, { t: 'log', channel: 'say', text: `${giver.name}&N says, '${def.thanks}'` });
+    player.experience += def.reward.xp;
+    if (def.reward.copper > 0) {
+      player.purse = addCoins(player.purse, { copper: def.reward.copper });
+      send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+    }
+    send(player.id, {
+      t: 'log',
+      channel: 'system',
+      text: `You gain ${def.reward.xp} experience${def.reward.copper > 0 ? ` and ${def.reward.copper} copper` : ''}.`,
+    });
+    levelUpIfEarned(player);
+    persistAdminEdit(player);
+  }
+}
+
+/**
+ * A kill counts toward whoever holds an open quest for that vnum — slice 7's one hook in the
+ * award path. Progress lines ride the kill's own moment; the reward waits for the giver.
+ */
+function advanceKillQuests(earner: Player, vnum: number): void {
+  for (const [id, state] of earner.quests) {
+    if (state === 'done' || typeof state !== 'number') continue;
+    const def = quests.get(id);
+    if (!def || def.objective.kind !== 'kill' || def.objective.vnum !== vnum) continue;
+    if (state >= def.objective.count) continue;
+    const next = state + 1;
+    earner.quests.set(id, next);
+    send(earner.id, {
+      t: 'log',
+      channel: 'system',
+      text:
+        next >= def.objective.count
+          ? `&+YQuest "${def.name}" complete — return to your patron.&N`
+          : `Quest "${def.name}": ${next} of ${def.objective.count} ${def.objective.what}.`,
+    });
+  }
+}
+
+/**
  * `gossip <text>` — the world-wide hum, Phase 21's first channel. Every player hears it, named,
  * ungated by rooms or sight: a channel is a voice over the world, not a sound in it, which is why
  * none of these three set `from`/`speech` — nothing should draw a bubble over a body for words
@@ -5889,6 +6003,7 @@ function runCommand(player: Player, line: string): void {
     case 'look': return lookAt(player, rest);
     case 'exits': return listExits(player);
     case 'say': return saySomething(player, rest);
+    case 'quest': return doQuest(player);
     case 'gossip': return doGossip(player, rest);
     case 'tell': return doTell(player, rest);
     case 'reply': return doReply(player, rest);

@@ -426,6 +426,8 @@ export interface Player extends Actor {
   memorizeMs: number;
   /** Who last told you something — `reply`'s target, by name. Transient; a session fact. */
   replyTo?: string;
+  /** Quest state by id — restored from the record, written back through it. Slice 7. */
+  quests: Map<string, number | 'done'>;
   /** Latest steering intent, normalised, replaced each time the client sends one. */
   intentX: number;
   intentY: number;
@@ -881,6 +883,7 @@ export class Simulation {
       identity: undefined,
       spentSlots: new Map(),
       memorizeMs: 0,
+      quests: new Map(),
       // §8 gives nothing below level 6, so a fresh character genuinely starts at zero rather than
       // starting at a number nobody rolled.
       damageBonus: 0,

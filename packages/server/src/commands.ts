@@ -50,12 +50,6 @@ export const COMMANDS = [
   'kill',
   'look',
   'say',
-  // Phase 21's channels. After `say`, `sit` and friends, so no existing abbreviation moves: `g`
-  // stays `get`, `t` was nobody's, and `gs`/`go`/`re`/`te` are the shortest paths to the four.
-  'gossip',
-  'gsay',
-  'tell',
-  'reply',
   'help',
   'who',
   'stand',
@@ -169,6 +163,17 @@ export const COMMANDS = [
   // — nothing at all, in fact — so `q` alone is quaff, which is what a Diku player's fingers reach
   // for mid-fight, spill risk and all.
   'quaff',
+  // After quaff on purpose: `q` belongs to the potion (the table's own comment says whose fingers
+  // reach for it), so the warren's errands answer to `que`.
+  'quest',
+  // Phase 21's channels, at the tail where late arrivals belong: the table order *is* the
+  // abbreviation priority, and the first draft of this comment claimed `g` stayed with `get`
+  // while sitting above it — the test wall said otherwise. Down here nothing moves: `gos`, `gs`,
+  // `te`, `rep` are the shortest paths to the four.
+  'gossip',
+  'gsay',
+  'tell',
+  'reply',
   // The meal beside the bottle, same evening. **It takes all three letters**: `e` and `ea` are
   // east — the prefix scan reaches 'east' first, and the drive that assumed otherwise walked the
   // taster two rooms up the trail — so only the exact word lands here, which is Diku's own
@@ -259,6 +264,7 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   say: { status: 'resting', posture: 'prone' },
   // Phase 21's channels share say's own gate: a resting body can talk, a sleeping one cannot.
   gossip: { status: 'resting', posture: 'prone' },
+  quest: { status: 'resting', posture: 'prone' },
   tell: { status: 'resting', posture: 'prone' },
   reply: { status: 'resting', posture: 'prone' },
   help: { status: 'dead', posture: 'prone' },

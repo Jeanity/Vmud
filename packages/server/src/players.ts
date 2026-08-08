@@ -68,6 +68,8 @@ import {
   createBitset,
 } from '@mygame/shared/vision.ts';
 
+import { decodeQuests } from './quests.ts';
+
 /**
  * Rebuilds a purse from disk, dropping anything that is not a positive number.
  *
@@ -181,6 +183,11 @@ export interface PlayerRecord {
    */
   spentSlots: Map<number, number>;
   /**
+   * Quest state by quest id — kills so far, or `done`. Slice 7. The definitions live in
+   * `quests.json`; a save holds only what this character has done about them.
+   */
+  quests: Map<string, number | 'done'>;
+  /**
    * What this character is wearing. Phase 14b's starting kit, and later whatever they have found.
    *
    * Stored for the same reason `maxHp` is: it is **rolled**, at creation, and a character who
@@ -268,6 +275,8 @@ interface StoredRecord {
   scores?: unknown;
   /** Castings spent by circle. Absent for the rested and everything before slice 2. */
   spentSlots?: Record<string, number>;
+  /** Quest progress by id. Absent for the questless and everything before slice 7. */
+  quests?: Record<string, number | string>;
   /** Base64 bitset per {@link placeKey}. */
   seen?: Record<string, string>;
   /** Ground pickup keys this character has collected. Absent in any save written before v5. */
@@ -428,6 +437,7 @@ export class PlayerStore {
       progress: undefined,
       identity: undefined,
       spentSlots: new Map(),
+      quests: new Map(),
       equipped: undefined,
       inventory: undefined,
       purse: undefined,
@@ -446,6 +456,7 @@ export class PlayerStore {
           progress: decodeProgress(stored.level, stored.experience, stored.maxHp, stored.damageBonus),
           identity: decodeIdentity(stored.race, stored.class, stored.scores),
           spentSlots: decodeSpentSlots(stored.spentSlots),
+          quests: decodeQuests(stored.quests),
         equipped: readEquipped(stored.equipped),
         inventory: stored.inventory === undefined ? undefined : readInventory(stored.inventory, readItem),
         purse: readPurse(stored.purse),
@@ -583,6 +594,15 @@ export class PlayerStore {
       return;
     }
     record.progress = value;
+    this.touch(record);
+  }
+
+  /** Quest state, replaced wholesale. Slice 7, in the family posture. */
+  setQuests(record: PlayerRecord, quests: ReadonlyMap<string, number | 'done'>): void {
+    const same =
+      record.quests.size === quests.size && [...quests].every(([id, v]) => record.quests.get(id) === v);
+    if (same) return;
+    record.quests = new Map(quests);
     this.touch(record);
   }
 
@@ -790,6 +810,7 @@ export class PlayerStore {
       ...(record.spentSlots.size === 0
         ? {}
         : { spentSlots: Object.fromEntries([...record.spentSlots].map(([c, n]) => [String(c), n])) }),
+      ...(record.quests.size === 0 ? {} : { quests: Object.fromEntries(record.quests) }),
       // Absent on a character wearing nothing, which no live character is — but a hand-edited save
       // might be, and an empty object on disk says less than no key at all.
       ...(record.equipped && Object.keys(record.equipped).length > 0 ? { equipped: record.equipped } : {}),
@@ -890,6 +911,7 @@ export class PlayerStore {
         progress: decodeProgress(stored.level, stored.experience, stored.maxHp, stored.damageBonus),
         identity: decodeIdentity(stored.race, stored.class, stored.scores),
         spentSlots: decodeSpentSlots(stored.spentSlots),
+        quests: decodeQuests(stored.quests),
         equipped: readEquipped(stored.equipped),
         inventory: stored.inventory === undefined ? undefined : readInventory(stored.inventory, readItem),
         purse: readPurse(stored.purse),
