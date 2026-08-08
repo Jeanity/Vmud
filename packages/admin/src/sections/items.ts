@@ -25,7 +25,7 @@
  * first reached a character sheet and printed their codes verbatim.
  */
 
-import { CRAFTSMANSHIP_NAMES, WEAPON_CLASS_CHOICES, parseColour } from '@mygame/shared';
+import { CRAFTSMANSHIP_NAMES, DURIS_ITEM, MISSILE_TYPE_NAMES, WEAPON_CLASS_CHOICES, parseColour } from '@mygame/shared';
 
 import { call } from '../api.ts';
 import { artPicker, artThumb } from '../artpicker.ts';
@@ -52,6 +52,15 @@ interface ItemRow {
   readonly stackLimit?: number;
   readonly uses?: number;
   readonly container?: { readonly capacity: number; readonly accepts: string };
+  /** Ranged, slice 1 — what a missile *is*, or what a quiver accepts. See `DESIGN-ranged.md` §0.1. */
+  readonly missileType?: number;
+  /** A launcher's ammunition key, its range and its rate of fire. */
+  readonly fires?: number;
+  readonly range?: number;
+  readonly rateOfFire?: number;
+  readonly canThrow?: boolean;
+  readonly throwRange?: number;
+  readonly returning?: boolean;
   readonly coins?: Readonly<Record<string, number>>;
   /** A7c: the sheet this item is drawn with, when somebody has chosen one. */
   readonly art?: string;
@@ -160,7 +169,22 @@ function traits(row: ItemRow): string[] {
   // has moved the AC beside it.
   if (row.craftsmanship !== undefined) out.push(CRAFTSMANSHIP_NAMES[row.craftsmanship] ?? `craft ${row.craftsmanship}`);
   if (row.slot) out.push(row.slot);
-  if (row.container) out.push(`holds ${row.container.capacity} (${row.container.accepts})`);
+  // **Ranged, slice 1.** Each type says the one thing it is keyed by, in words rather than in the
+  // source's number: a missile is what it *is*, a launcher is what it *takes*, a quiver is what it
+  // *holds*. Naming them through `MISSILE_TYPE_NAMES` keeps the `shot_types[]` table — which is ordered
+  // differently and would print an arrow as a bullet — out of reach.
+  const missileName = (n: number): string => MISSILE_TYPE_NAMES[n] ?? `missile type ${n}`;
+  if (row.missileType !== undefined && row.type === DURIS_ITEM.missile) out.push(missileName(row.missileType));
+  if (row.fires !== undefined) out.push(`fires ${missileName(row.fires)}s`);
+  if (row.range !== undefined) out.push(`range ${row.range}`);
+  if (row.canThrow) out.push(row.throwRange === 2 ? 'throwable, 2 rooms' : 'throwable');
+  if (row.returning) out.push('returns');
+  if (row.container) {
+    // A quiver's own key rides with its capacity rather than on a line of its own — "holds 25 (missile)"
+    // was already saying the category and could not say *which*, which is the whole compatibility rule.
+    const only = row.missileType !== undefined && row.type === DURIS_ITEM.quiver ? `, ${missileName(row.missileType)}s only` : '';
+    out.push(`holds ${row.container.capacity} (${row.container.accepts}${only})`);
+  }
   if (row.stackLimit) out.push(`stacks to ${row.stackLimit}`);
   if (row.uses !== undefined) out.push(`${row.uses} charges`);
   if (row.coins) {

@@ -63,6 +63,45 @@ export const DURIS_ITEM = {
 export const DURIS_ITEM_TYPES: readonly number[] = Object.values(DURIS_ITEM);
 
 /**
+ * `MISSILE_*` from `objmisc.h:392-399` — **the compatibility key between a launcher and its ammunition**.
+ *
+ * A fireweapon's `value[3]` is what it fires, a missile's `value[3]` is what it *is*, and a quiver's
+ * `value[2]` is what it will hold. Without this the three are unrelated numbers and every quiver accepts
+ * every missile — which shop 36439 makes visible on day one, selling a hand crossbow (type 4) next to a
+ * drow bolt (type 2). See `DESIGN-ranged.md` §0.1.
+ *
+ * **Do not display these through `shot_types[]`** (`constant.c:378`). It is a second, differently-ordered
+ * table and indexing one with the other's number prints an arrow as a bullet — the source's own trap.
+ */
+export const MISSILE_TYPE = {
+  arrow: 1,
+  lightQuarrel: 2,
+  heavyQuarrel: 3,
+  handQuarrel: 4,
+  slingBullet: 5,
+  dart: 6,
+} as const;
+
+/** The valid `MISSILE_*` range, 1..6. Five catalogue records sit outside it and are dropped, not clamped. */
+export const MISSILE_TYPE_VALUES: readonly number[] = Object.values(MISSILE_TYPE);
+
+/**
+ * How a missile type reads to a person — **ours, deliberately, and not `shot_types[]`.**
+ *
+ * The source has two display tables and they are ordered differently; indexing one with the other's
+ * number is how an arrow prints as a bullet. Writing the words here keys them to {@link MISSILE_TYPE}
+ * itself, so the wrong table cannot be reached for.
+ */
+export const MISSILE_TYPE_NAMES: Readonly<Record<number, string>> = {
+  [MISSILE_TYPE.arrow]: 'arrow',
+  [MISSILE_TYPE.lightQuarrel]: 'light quarrel',
+  [MISSILE_TYPE.heavyQuarrel]: 'heavy quarrel',
+  [MISSILE_TYPE.handQuarrel]: 'hand quarrel',
+  [MISSILE_TYPE.slingBullet]: 'sling bullet',
+  [MISSILE_TYPE.dart]: 'dart',
+};
+
+/**
  * Where **our own** item vnums start. Nothing Duris ships may ever reach here.
  *
  * A6b. An authored item needs a number, and the only number that is safe is one the source can never
@@ -493,6 +532,45 @@ export interface ItemTemplate {
    * train no skill rather than a wrong one, which is the source's own answer.
    */
   readonly weaponClass?: number;
+  /**
+   * **Ranged, slice 1 — the numbers this harvest parsed and dropped for as long as it has existed.**
+   *
+   * There is no bow in the weapon-class ladder and never was (`objmisc.h:363-384` is complete at 20
+   * rows); ranged lives in the *type* enum instead, so {@link weaponClass} is the wrong seam and must
+   * not be extended with a fake class. Measured before the fields were added: all 50 fireweapons and
+   * 58 missiles in the catalogue arrived as nameless zero-damage sticks, because four gates in
+   * `objects.ts` read `type === weapon` and nothing else. See `DESIGN-ranged.md` §0.1 and §0.3.
+   *
+   * Semantics are the source's own stat display (`actwiz.c:2050-2100`):
+   *
+   * - **fireweapon** — {@link rateOfFire} `value[0]`, {@link range} `value[1]`, {@link fires} `value[3]`
+   * - **missile** — damage is `value[1] d value[2]` and lands in {@link damage}; {@link missileType} is
+   *   its own `value[3]`
+   * - **quiver** — capacity is the container rule's; {@link missileType} is the `value[2]` it accepts
+   *
+   * {@link missileType} therefore means *"the ammunition this record is keyed to"* on both halves — what
+   * a missile is, and what a quiver takes — which is why one field carries both rather than two that
+   * could disagree.
+   */
+  readonly missileType?: number;
+  /** A launcher's ammunition key — its `value[3]`, matched against a missile's {@link missileType}. */
+  readonly fires?: number;
+  /** A launcher's harvested range, `value[1]`. Flavour until someone wants more — see `DESIGN-ranged.md` §2.5. */
+  readonly range?: number;
+  /** A launcher's rate of fire, `value[0]`. **Not** a weapon class, though it sits in the same slot. */
+  readonly rateOfFire?: number;
+  /**
+   * Throwable by hand — `ITEM_CAN_THROW1` (`1<<24`) on the extra flags. 334 objects, 295 of them
+   * ordinary type-5 weapons and 110 of those daggers, which is the whole of "rogues throw knives".
+   *
+   * {@link throwRange} is **not a second flag read as a boolean**: `ITEM_CAN_THROW2` (`1<<4`) *is* the
+   * range, two rooms rather than one (`range.c:1188`).
+   */
+  readonly canThrow?: true;
+  /** Rooms a throw crosses — 1, or 2 where `ITEM_CAN_THROW2` is set. Absent unless {@link canThrow}. */
+  readonly throwRange?: number;
+  /** Comes back to the hand that threw it — `ITEM_RETURNING` (`1<<8`), on 356 objects. */
+  readonly returning?: true;
   /**
    * Duris' `APPLY_HITROLL` / `APPLY_DAMROLL`, summed over the item's `A` blocks.
    *

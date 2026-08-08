@@ -38,6 +38,8 @@ import { join } from 'node:path';
 import {
   CRAFT_AVERAGE,
   DURIS_ITEM,
+  MISSILE_TYPE,
+  MISSILE_TYPE_VALUES,
   armourBonusFrom,
   lightFromValues,
   sizeFrom,
@@ -284,9 +286,16 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
   const light = lightFromValues(raw.type, raw.values);
 
   const isWeapon = raw.type === DURIS_ITEM.weapon;
+  const isFireweapon = raw.type === DURIS_ITEM.fireweapon;
+  const isMissile = raw.type === DURIS_ITEM.missile;
   const count = raw.values[1] ?? 0;
   const sides = raw.values[2] ?? 0;
-  const damage = isWeapon && count > 0 && sides > 0 ? { count, sides, bonus: 0 } : undefined;
+  // **A missile's damage is in the same two slots a weapon's is**, `value[1] d value[2]` — so the only
+  // thing that kept all 58 arrows at zero damage was the type test, not the arithmetic. Fireweapons are
+  // deliberately *not* included: a bow's `value[1]` is its range and `value[2]` is nothing, and reading
+  // them as dice would give every bow a damage roll it does not have. The launcher throws the missile's
+  // dice, which is `DESIGN-ranged.md` §0.3.
+  const damage = (isWeapon || isMissile) && count > 0 && sides > 0 ? { count, sides, bonus: 0 } : undefined;
 
   // **Two-handed, and the test is Duris' own disjunction rather than the flag alone.** `actobj.c`:
   //
@@ -301,11 +310,43 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
   // same bit is `ITEM_WEAR_BACK` — reading the wrong field would make every backpack a greatsword.
   const ITEM_TWOHANDS = 1 << 22;
   const WEAPON_2HANDSWORD = 13;
+  const hasTwoHandsFlag = (raw.extraFlags & ITEM_TWOHANDS) !== 0;
+  // **The disjunction is for weapons only, and extending it to bows would have been the obvious bug.**
+  // A fireweapon's `value[0]` is its rate of fire, not a weapon class — so a bow with a rate of 13 would
+  // come out a two-handed sword by coincidence of number. Bows get the *flag* half and nothing else,
+  // which is what marks the 19 two-handed ones the old `isWeapon` gate missed entirely.
   const twoHanded =
-    isWeapon && ((raw.extraFlags & ITEM_TWOHANDS) !== 0 || raw.values[0] === WEAPON_2HANDSWORD);
+    (isWeapon && (hasTwoHandsFlag || raw.values[0] === WEAPON_2HANDSWORD)) ||
+    (isFireweapon && hasTwoHandsFlag);
 
   const container = containerRule(raw.type, raw.values);
   const uses = usesFor(raw.type, raw.values);
+
+  // **Ranged, slice 1.** A missile is keyed by its own `value[3]`; a quiver by the `value[2]` it accepts.
+  //
+  // **Validated rather than clamped, because five records are broken in the source's own terms** —
+  // `178` and `179` carry missile type 0, and blowgun needles `163`/`164`/`165` are `0d0`. Duris' own
+  // validity check refuses them, so a number outside 1..6 becomes *absent* here rather than a silent 1:
+  // an arrow that claims to be type 0 would otherwise match a launcher that fires nothing.
+  const rawMissileType = isMissile ? raw.values[3] : raw.type === DURIS_ITEM.quiver ? raw.values[2] : undefined;
+  const missileType =
+    rawMissileType !== undefined && MISSILE_TYPE_VALUES.includes(rawMissileType) ? rawMissileType : undefined;
+
+  // Throwing, off the extra flags rather than off any value. **`ITEM_CAN_THROW2` is the range, not a
+  // second permission** (`range.c:1188`) — read as a boolean it would say nothing the first flag has
+  // not already said, and lose the only number that distinguishes a knife from a javelin.
+  const ITEM_CAN_THROW1 = 1 << 24;
+  const ITEM_CAN_THROW2 = 1 << 4;
+  const ITEM_RETURNING = 1 << 8;
+  const canThrow = (raw.extraFlags & ITEM_CAN_THROW1) !== 0 || (raw.extraFlags & ITEM_CAN_THROW2) !== 0;
+  const throwRange = (raw.extraFlags & ITEM_CAN_THROW2) !== 0 ? 2 : 1;
+
+  // **An arrow is carried, not worn** — owner's call, `DESIGN-ranged.md` §2.4. 29 of the 58 missiles
+  // harvest as `offHand` purely because their wear flags are `HOLD|TAKE` and `ITEM_HOLD` maps there,
+  // and an arrow equipped in your off hand is not what anyone means: the quiver is the worn thing and
+  // `CONTAINER_ACCEPTS` already takes missiles. The exception is the dart, which is thrown *from* the
+  // hand — the case `IS_DART` exists for, and exactly the 7 that arrive `mainHand` today.
+  const wearSlot = isMissile && missileType !== MISSILE_TYPE.dart ? undefined : slot;
 
   // **Duris' gear-side power curve, which was parsed and then dropped on the floor.** The `A <location>
   // <modifier>` blocks have been read into `raw.affects` since the harvest landed and nothing carried
@@ -333,7 +374,7 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
     name: raw.name,
     roomLine: raw.roomLine,
     type: raw.type,
-    ...(slot ? { slot } : {}),
+    ...(wearSlot ? { slot: wearSlot } : {}),
     ac,
     // Absent at average, which is two thirds of the world: carrying `7` on 14,322 entries would be
     // three hundred kilobytes of JSON saying "nothing unusual here".
@@ -352,6 +393,15 @@ export function toTemplate(raw: RawObject): ItemTemplate | undefined {
     // mapping gives those no skill rather than a wrong one. Writing a `0` here would put a number on
     // 13,580 non-weapons to say nothing.
     ...(isWeapon && (raw.values[0] ?? 0) > 0 ? { weaponClass: raw.values[0] } : {}),
+    // **Ranged, slice 1** — `DESIGN-ranged.md` §0.3. Each number is written only where its type gives
+    // it meaning, because the four value slots mean different things per type and a field copied across
+    // all of them is how a bow's rate of fire becomes a weapon class.
+    ...(missileType === undefined ? {} : { missileType }),
+    ...(isFireweapon && (raw.values[3] ?? 0) > 0 ? { fires: raw.values[3] } : {}),
+    ...(isFireweapon && (raw.values[1] ?? 0) > 0 ? { range: raw.values[1] } : {}),
+    ...(isFireweapon && (raw.values[0] ?? 0) > 0 ? { rateOfFire: raw.values[0] } : {}),
+    ...(canThrow ? { canThrow: true as const, throwRange } : {}),
+    ...((raw.extraFlags & ITEM_RETURNING) !== 0 ? { returning: true as const } : {}),
     ...(hitroll === 0 ? {} : { hitroll }),
     ...(damroll === 0 ? {} : { damroll }),
     size: sizeFrom(raw.weight),

@@ -3622,6 +3622,15 @@ function itemRow(template: ItemTemplate): Record<string, unknown> {
     // response can prove it took.
     ...(template.weaponClass === undefined ? {} : { weaponClass: template.weaponClass }),
     ...(template.twoHanded ? { twoHanded: true } : {}),
+    // Ranged, slice 1. On the *row* rather than only in the editor for the same reason `art` is: what
+    // the search shows is which of the 161 ranged records actually carry their numbers, and until the
+    // harvest un-gate landed every one of them was blank.
+    ...(template.missileType === undefined ? {} : { missileType: template.missileType }),
+    ...(template.fires === undefined ? {} : { fires: template.fires }),
+    ...(template.range === undefined ? {} : { range: template.range }),
+    ...(template.rateOfFire === undefined ? {} : { rateOfFire: template.rateOfFire }),
+    ...(template.canThrow ? { canThrow: true, throwRange: template.throwRange } : {}),
+    ...(template.returning ? { returning: true } : {}),
     ...(template.stackLimit > 1 ? { stackLimit: template.stackLimit } : {}),
     ...(template.uses === undefined ? {} : { uses: template.uses }),
     ...(template.container ? { container: template.container } : {}),
