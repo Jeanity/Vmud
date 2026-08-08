@@ -210,6 +210,18 @@ describe('skill ceilings by class — the nine-class re-key', () => {
     }
   });
 
+  it('arms the paladin one-handed, the deliberate deviation from skills.c', () => {
+    // `skills.c` gives CLASS_PALADIN no 1h row at all, and means it: `paladins.h:4` defines a paladin
+    // sword as a two-hander. The owner overruled it for the SRD's sword-and-board archetype. Pinned so
+    // that a later pass re-transcribing from the source cannot quietly take the shield hand away.
+    for (const skill of ['slashing-1h', 'piercing-1h', 'bludgeon-1h', 'flaying-1h'] as const) {
+      assert.equal(ceilingFor(skill, 'paladin'), 95, `a paladin must keep ${skill}`);
+    }
+    // Two-handed is untouched, and dual wield stays refused — the other half of the same ruling.
+    assert.equal(ceilingFor('slashing-2h', 'paladin'), 95);
+    assert.equal(ceilingFor('dual-wield', 'paladin'), 0);
+  });
+
   it("honours the level the class gains the skill at, and ignores it when not asked", () => {
     assert.equal(ceilingFor('reach', 'warrior', 24), 0);
     assert.equal(ceilingFor('reach', 'warrior', 25), 80);

@@ -464,15 +464,30 @@ none — so the zealot's dual wield that slice 4 folded into a flat priest 40 is
 adopted from inside its own comment**, because `skills.c:3968` comments its entire class list out and
 reading that literally would delete the skill — the third time this file has found the source's
 intent parked behind a preprocessor, after `notchChance` and `swimSurcharge`; and **rogue dual wield
-is 75, the rogue's own row**, not the assassin's 80 the fold had handed them. Two transcriptions that
-look wrong and are not: **a paladin has no one-handed weapon skill at all** (`CLASS_PALADIN` appears
-in both 2h rows and in none of the four 1h rows — a paladin here is a two-handed class who bashes),
-and **a rogue has no 1h slashing** (the source's row is commented out above the note *"Thieves get 1h
-slash skill for shortswords only. Hardcoded in fight.c"* — an exception we have not built). Both are
-flagged in the code rather than quietly corrected. `ClassGroup` and `CharClass.group` are deleted;
-`groupOf` is `classOf`. Verified beyond the suite (1,835 green) by re-deriving the whole table from
-`skills.c` and diffing it against `ceilingFor`: **144 class/skill pairs, 65 source grants, no
-discrepancies.**
+is 75, the rogue's own row**, not the assassin's 80 the fold had handed them. One transcription that
+looks wrong and is not: **a rogue has no 1h slashing** — the source's row is commented out above the
+note *"Thieves get 1h slash skill for shortswords only. Hardcoded in fight.c"*, an exception we have
+not built, so the skill is absent rather than invented. `ClassGroup` and `CharClass.group` are
+deleted; `groupOf` is `classOf`.
+
+**And then the paladin was overruled, which is the table's one sanctioned deviation.** The re-key
+surfaced that `skills.c` gives `CLASS_PALADIN` no one-handed weapon skill at all — it appears in both
+2h rows and in none of the four 1h rows — and the source means it: `paladins.h:4` defines
+`IS_PALADIN_SWORD` as `ITEM_TWOHANDS || WEAPON_2HANDSWORD`, so a paladin's sword in Duris *is* a
+two-hander by definition, which is why `bash()` pays a shieldless paladin a bonus for holding one.
+Duris' paladin is a two-handed class. Ours is not: the owner's ruling is that a paladin is a shield
+user by the SRD's description, so they get **all four 1h rows at 95** — mirroring their own 2h rows,
+which is the only weapon-skill number `skills.c` gives the class — while **dual wield stays refused**,
+which the ruling named and the source agrees with. Pinned by a test, because the danger is a later
+pass re-transcribing from the source and quietly taking the shield hand back. Note the house 95 cap
+already levels paladin with warrior here, exactly as it does in 2h; the source's 95-vs-100 gap does
+not survive `SKILL_CEILING`, and that is the cap's doing rather than this ruling's.
+
+Verified beyond the suite (**1,843 green**) by re-deriving the whole table from `skills.c` and diffing
+it against `ceilingFor`: **144 class/skill pairs, 65 source grants, 4 sanctioned deviations honoured,
+no discrepancies.** The verifier carries an allowlist rather than a blanket exemption, so a *fifth*
+disagreement with the source would still fail it.
+
 **The world became one place that night, and the measurement is the part worth keeping.** The owner
 asked whether the Faerie Realm could be walked to from the kobold zone. Measured across all 327
 harvested zones, it could not: zones **64, 190, 193, 226, 367 and 423 form a six-zone island with no

@@ -300,8 +300,15 @@ export interface SkillGrant {
 }
 
 /**
- * `skills.c`'s grants, per class, for the sixteen skills we have. Sparse and literal: a skill absent
- * from a class's row is one the source never gave it.
+ * `skills.c`'s grants, per class, for the sixteen skills we have. Sparse: a skill absent from a
+ * class's row is, with the two exceptions below, one the source never gave it.
+ *
+ * **Two departures, both named where they sit.** The paladin's four one-handed rows are an owner's
+ * ruling against the source (`skills.c` gives that class none, deliberately — see the row), and dodge
+ * is adopted from inside a comment block. Everything else is transcription, and `SPEC_SKILL_ADD` rows
+ * are excluded throughout. Keeping the count at two is the point: a table that quietly disagreed with
+ * `skills.c` in a third place could not be diffed against it, and being diffable against it is what
+ * makes the other 63 grants trustworthy.
  *
  * **Dodge is the one adopted table.** `skills.c:3968` registers dodge and then comments its entire
  * class list out — every `SKILL_ADD` for it sits inside one `/* … *\/` block, so as shipped no class
@@ -343,11 +350,31 @@ const CLASS_SKILLS: Readonly<Record<ClassId, Readonly<Partial<Record<SkillId, Sk
     swim: { level: 1, max: 90 },
     'dual-wield': { level: 1, max: 100 },
   },
-  // **No one-handed weapon skill at all**, which is the source's table and not a transcription slip:
-  // `CLASS_PALADIN` appears in `2h bludgeon` and `2h slashing` and in none of the four 1h rows. A
-  // paladin here is a two-handed class who bashes; the sword-and-board reading of the archetype is
-  // not the one `skills.c` holds. Flagged rather than quietly corrected — see the roadmap row.
+  // **The one sanctioned deviation in this table** (owner, 2026-08-08), and it is a deviation rather
+  // than a correction, because the source meant what it said. `CLASS_PALADIN` appears in `2h bludgeon`
+  // and `2h slashing` and in **none of the four 1h rows** — and `paladins.h:4` settles that this is
+  // deliberate rather than an omission: `IS_PALADIN_SWORD(obj)` is literally
+  // `IS_SET(obj->extra_flags, ITEM_TWOHANDS) || obj->value[0] == WEAPON_2HANDSWORD`. A paladin's sword
+  // in Duris *is* a two-hander by definition, which is why `bash()` hands a shieldless paladin a bonus
+  // for wielding one. Duris' paladin is a two-handed class.
+  //
+  // Ours is not. The owner's ruling: *"they need 1 handed as they are big shield users according to
+  // the official DnD description of them. so 1 handed and 2 handed but not dual wield"* — and this
+  // project's backbone is the SRD, with the MUD supplying mechanism rather than archetype. A paladin
+  // who cannot pair a sword with a shield is a paladin in name only.
+  //
+  // **95, mirroring their own 2h rows**, because that is the one weapon-skill number `skills.c` gives
+  // this class; inventing a spread across the four would be invention with nothing under it. Note the
+  // house cap already levels them with a warrior here, exactly as it does in 2h — the source's 95-vs-100
+  // gap does not survive `SKILL_CEILING`, and that is the cap's doing rather than this row's.
+  //
+  // **Dual wield stays absent**, which the ruling names explicitly and the source agrees with: no
+  // paladin row appears in `skills.c:3818-3833`. A shield hand is not a second weapon hand.
   paladin: {
+    'slashing-1h': { level: 1, max: 95 },
+    'piercing-1h': { level: 1, max: 95 },
+    'bludgeon-1h': { level: 1, max: 95 },
+    'flaying-1h': { level: 1, max: 95 },
     'slashing-2h': { level: 1, max: 95 },
     'bludgeon-2h': { level: 1, max: 95 },
     unarmed: { level: 1, max: 80 },
