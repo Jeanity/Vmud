@@ -140,6 +140,23 @@ export function revealShownIn(prev: Reveal | undefined, standingIn: RoomId): Rea
 const EMPTY_REVEAL: ReadonlySet<RoomId> = new Set();
 
 /**
+ * Of everything a character can see, the ones a verb may name — **seeing into a room is not reaching
+ * into it.**
+ *
+ * A named function for a one-line filter, because the line is a rule and the rule already broke once.
+ * Slice 2 put peeked bodies into the visible set, which every targeted verb resolves through, and for
+ * one commit `kill kobold` reached through a wall at something one room west. The pointer path had the
+ * same hole independently — two call sites, one rule, and nothing tying them together.
+ *
+ * So they are tied together here. A new reader of the visible set is now choosing, visibly, between
+ * "everything I can see" and "everything I can touch", rather than defaulting into the wrong one by
+ * writing the obvious thing. Ranged is the single verb that wants the other list, and it asks for it.
+ */
+export function nameable<T extends { readonly id: unknown; readonly revealed?: true }>(visible: readonly T[]): T[] {
+  return visible.filter((entity) => entity.revealed !== true);
+}
+
+/**
  * What lies one exit away. Pure over its lookups, so the whole gauntlet is testable without a world:
  * the caller supplies rooms, doors and occupants, and this supplies the order the rules fire in.
  */

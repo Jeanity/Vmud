@@ -277,7 +277,7 @@ import {
   type PlayerRecord,
 } from './players.ts';
 import { QUESTS_FILE, carriedForQuest, consumeBrought, loadQuests, objectivePhrase, questsBy } from './quests.ts';
-import { afterLook, directionFrom, peek, revealShownIn } from './peek.ts';
+import { afterLook, directionFrom, nameable, peek, revealShownIn } from './peek.ts';
 import {
   isUntouchable,
   setUntouchableVnums,
@@ -5303,7 +5303,10 @@ function targetsFor(observer: Player): EntityView[] {
   // feeds `kill`, `get`, `look <keyword>` and the rest — so without this filter `kill kobold` would
   // reach through a wall at something in the next room, which is a bug the reveal introduced and not a
   // feature it earned. Ranged is the one verb allowed to name them, and it asks for them by name.
-  const entities = visibleEntities(observer).filter((e) => e.revealed !== true);
+  //
+  // The filter is {@link nameable} rather than a predicate written here, so the rule has one home
+  // and a second reader of the visible set has to choose between seeing and touching on purpose.
+  const entities = nameable(visibleEntities(observer));
   const people = entities.filter((e) => e.kind !== 'item');
   const things = entities.filter((e) => e.kind === 'item');
   return [...people, ...things];

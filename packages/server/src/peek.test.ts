@@ -12,7 +12,7 @@ import { describe, it } from 'node:test';
 
 import type { Room } from '@mygame/shared';
 
-import { afterLook, directionFrom, peek, revealShownIn } from './peek.ts';
+import { afterLook, directionFrom, nameable, peek, revealShownIn } from './peek.ts';
 
 function room(id: number, over: Partial<Room> = {}): Room {
   return { id, zone: 400, name: `Room ${id}`, sector: 'inside', pos: { x: 0, y: 0, z: 0 }, exits: {}, ...over } as Room;
@@ -167,5 +167,41 @@ describe('what a peek leaves behind', () => {
 
   it('reads as nothing when no direction has been looked at', () => {
     assert.equal(revealShownIn(undefined, 1).size, 0);
+  });
+});
+
+/**
+ * Seeing is not reaching — the rule that broke once already.
+ *
+ * Slice 2 added peeked bodies to the visible set, and every targeted verb resolves through it, so for
+ * one commit `kill kobold` reached a body one room west and a click did the same by a second route.
+ * **No test caught it and none would have**: every other test in this repo targets something standing
+ * in the same room, where this filter changes nothing. These exist precisely because the happy path is
+ * blind to it.
+ */
+describe('what a verb may name', () => {
+  const here = { id: 1, name: 'the kobold shaman' };
+  const away = { id: 2, name: 'a kobold youth', revealed: true as const };
+
+  it('keeps a body in your own room', () => {
+    assert.deepEqual(nameable([here]), [here]);
+  });
+
+  it('drops a body you have only peeked at, so `kill` cannot reach through a wall', () => {
+    assert.deepEqual(nameable([away]), []);
+  });
+
+  it('keeps the one and drops the other when both are visible', () => {
+    assert.deepEqual(nameable([here, away]), [here]);
+  });
+
+  it('lets everything through when nothing has been peeked at', () => {
+    const second = { id: 3, name: 'a rat' };
+    assert.deepEqual(nameable([here, second]), [here, second]);
+  });
+
+  it('preserves order, because the ordinal in `2.kobold` counts down this list', () => {
+    const second = { id: 4, name: 'a kobold youth' };
+    assert.deepEqual(nameable([here, away, second]), [here, second]);
   });
 });
