@@ -35,7 +35,7 @@
 import { UNLIMITED_DURATION, affectsFor, type Affect } from './affects.ts';
 import type { CarriedLight } from './protocol.ts';
 import type { Rng } from './rules.ts';
-import { ROOM_GAP, ROOM_STRIDE, ROOM_TILES, Tile, tileAt, type TileGrid } from './tilemap.ts';
+import { ROOM_STRIDE, ROOM_TILES, Tile, tileAt, type TileGrid } from './tilemap.ts';
 import { DEFAULT_LIGHT_RADIUS } from './vision.ts';
 import { DIRECTIONS, DIRECTION_DELTA, type Room, type RoomId, type Zone } from './world.ts';
 
@@ -509,18 +509,21 @@ function addGapTiles(
 ): void {
   if (dx === 0 && dy === 0) return;
 
+  // The grid's own gap, not the constant: a seamless zone's band is one tile wide, and scanning a
+  // two-tile band there would read a strip of the *neighbour's floor* as doorway spill.
+  const gap = grid.gap;
   let x0: number;
   let x1: number;
   let y0: number;
   let y1: number;
   if (dx !== 0) {
-    x0 = dx > 0 ? origin.tx + ROOM_TILES : origin.tx - ROOM_GAP;
-    x1 = x0 + ROOM_GAP - 1;
+    x0 = dx > 0 ? origin.tx + ROOM_TILES : origin.tx - gap;
+    x1 = x0 + gap - 1;
     y0 = origin.ty;
     y1 = origin.ty + ROOM_TILES - 1;
   } else {
-    y0 = dy > 0 ? origin.ty + ROOM_TILES : origin.ty - ROOM_GAP;
-    y1 = y0 + ROOM_GAP - 1;
+    y0 = dy > 0 ? origin.ty + ROOM_TILES : origin.ty - gap;
+    y1 = y0 + gap - 1;
     x0 = origin.tx;
     x1 = origin.tx + ROOM_TILES - 1;
   }

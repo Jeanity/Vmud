@@ -565,3 +565,144 @@ describe('where you land when you enter a room', () => {
     assert.ok(far.tx >= 91);
   });
 });
+
+/**
+ * V8a — the seamless projection. The suite that matters most here is the last one: the flood-fill
+ * validator is DESIGN-open-world.md §2's whole safety story, the proof that the open-looking world
+ * is still exactly the room graph's world.
+ */
+describe('buildZoneTilemap, seamless', () => {
+  const seamlessZone = (rooms: readonly Partial<Room>[]): Zone => ({
+    ...makeZone(rooms),
+    seamless: true,
+  });
+
+  /** A courtyard pair: two city rooms side by side, linked both ways. */
+  const pair = (): Zone =>
+    seamlessZone([
+      { id: 1, sector: 'city', pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 2 } } },
+      { id: 2, sector: 'city', pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 1 } } },
+    ]);
+
+  it('lays blocks on the seam stride, not the corridor stride', () => {
+    const grid = buildZoneTilemap(pair());
+    assert.equal(grid.width, 2 * (ROOM_TILES + 1));
+    assert.equal(grid.gap, 1);
+    assert.equal(grid.roomOrigins.get(2)!.tx, ROOM_TILES + 1);
+  });
+
+  it('fills the whole shared edge of an open exit with walkable floor', () => {
+    const grid = buildZoneTilemap(pair());
+    const seamX = ROOM_TILES;
+    for (let ty = 0; ty < ROOM_TILES; ty++) {
+      assert.equal(tileAt(grid, seamX, ty), Tile.Floor, `seam tile at ty=${ty} is plaza floor`);
+    }
+  });
+
+  it('leaves the whole seam solid between adjacent rooms with no exit', () => {
+    const grid = buildZoneTilemap(
+      seamlessZone([
+        { id: 1, sector: 'city', pos: { x: 0, y: 0, z: 0 } },
+        { id: 2, sector: 'city', pos: { x: 1, y: 0, z: 0 } },
+      ]),
+    );
+    const seamX = ROOM_TILES;
+    for (let ty = 0; ty < ROOM_TILES; ty++) {
+      assert.equal(tileAt(grid, seamX, ty), Tile.Void, `blocked seam at ty=${ty} refuses passage`);
+    }
+  });
+
+  it('narrows a door exit to a gate in a wall, on the cells the runtime derives', () => {
+    const door: Door = { name: 'a stout door', closed: true, locked: false };
+    const grid = buildZoneTilemap(
+      seamlessZone([
+        { id: 1, sector: 'city', pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 2, door } } },
+        { id: 2, sector: 'inside', pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 1, door } } },
+      ]),
+    );
+    const seamX = ROOM_TILES;
+    const doorCells = [];
+    for (let ty = 0; ty < ROOM_TILES; ty++) {
+      const tile = tileAt(grid, seamX, ty);
+      if (tile === Tile.Door) doorCells.push(ty);
+      else assert.equal(tile, Tile.Void, `wall beside the gate at ty=${ty}`);
+    }
+    assert.equal(doorCells.length, CONNECTOR_WIDTH, 'the gate is exactly connector-wide');
+    // Both rooms derive the same cells — the open/shut invariant.
+    const fromWest = doorwayTiles(grid, 1, 'east');
+    const fromEast = doorwayTiles(grid, 2, 'west');
+    assert.deepEqual(fromWest, fromEast);
+    assert.equal(fromWest.length, CONNECTOR_WIDTH);
+    // And the door opens through the same machinery every corridor door uses.
+    const changed = setDoorTiles(grid, 1, 'east', false);
+    assert.equal(changed.length, CONNECTOR_WIDTH);
+    assert.ok(fromWest.every((index) => grid.tiles[index] === Tile.DoorOpen));
+  });
+
+  it('keeps seam tiles roomless, so crossing announces the arrival room and nothing else', () => {
+    const grid = buildZoneTilemap(pair());
+    assert.equal(roomAtTile(grid, ROOM_TILES, 4), -1, 'the seam belongs to no room');
+    assert.equal(roomAtTile(grid, ROOM_TILES - 1, 4), 1);
+    assert.equal(roomAtTile(grid, ROOM_TILES + 1, 4), 2);
+  });
+
+  it('floors a corner only when all four rooms around it stand open to each other', () => {
+    const quad = (linked: boolean): Zone =>
+      seamlessZone([
+        { id: 1, sector: 'city', pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 2 }, south: { to: 3 } } },
+        { id: 2, sector: 'city', pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 1 }, ...(linked ? { south: { to: 4 } } : {}) } },
+        { id: 3, sector: 'city', pos: { x: 0, y: 1, z: 0 }, exits: { north: { to: 1 }, east: { to: 4 } } },
+        { id: 4, sector: 'city', pos: { x: 1, y: 1, z: 0 }, exits: { west: { to: 3 }, ...(linked ? { north: { to: 2 } } : {}) } },
+      ]);
+    const open = buildZoneTilemap(quad(true));
+    assert.equal(tileAt(open, ROOM_TILES, ROOM_TILES), Tile.Floor, 'a plaza corner is plaza');
+    const walled = buildZoneTilemap(quad(false));
+    assert.equal(tileAt(walled, ROOM_TILES, ROOM_TILES), Tile.Void, 'a corner beside any shut seam is a post');
+  });
+
+  it('flood-fill equals the room graph — the open world is still the MUD world', () => {
+    // Velen Square's own shape: a plus of streets, an inn behind a door, and one deliberate
+    // wall — the inn and the north street are adjacent with no exit between them.
+    const door: Door = { name: 'the inn door', closed: false, locked: false };
+    const zone = seamlessZone([
+      { id: 1, sector: 'city', pos: { x: 0, y: 0, z: 0 }, exits: { north: { to: 2 }, south: { to: 3 }, west: { to: 4 }, east: { to: 5 } } },
+      { id: 2, sector: 'city', pos: { x: 0, y: -1, z: 0 }, exits: { south: { to: 1 } } },
+      { id: 3, sector: 'city', pos: { x: 0, y: 1, z: 0 }, exits: { north: { to: 1 } } },
+      { id: 4, sector: 'city', pos: { x: -1, y: 0, z: 0 }, exits: { east: { to: 1 }, north: { to: 6, door } } },
+      { id: 5, sector: 'city', pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 1 } } },
+      { id: 6, sector: 'inside', pos: { x: -1, y: -1, z: 0 }, exits: { south: { to: 4, door } } },
+    ]);
+    const grid = buildZoneTilemap(zone);
+
+    const roomsReached = (): number[] => {
+      const start = roomCentre(grid.roomOrigins.get(1)!);
+      const seen = new Set<number>([start.ty * grid.width + start.tx]);
+      const queue = [start];
+      while (queue.length > 0) {
+        const { tx, ty } = queue.pop()!;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = tx + dx;
+          const ny = ty + dy;
+          const index = ny * grid.width + nx;
+          if (nx < 0 || ny < 0 || nx >= grid.width || ny >= grid.height || seen.has(index)) continue;
+          if (!isWalkable(tileAt(grid, nx, ny))) continue;
+          seen.add(index);
+          queue.push({ tx: nx, ty: ny });
+        }
+      }
+      const reached = new Set<number>();
+      for (const index of seen) {
+        const room = grid.rooms[index] ?? -1;
+        if (room !== -1) reached.add(room);
+      }
+      return [...reached].sort();
+    };
+
+    // The graph reaches all six rooms (the inn through its open door), and the tiles agree.
+    assert.deepEqual(roomsReached(), [1, 2, 3, 4, 5, 6]);
+
+    // Shut the door: the tiles must seal exactly what the graph would — the inn, and nothing else.
+    setDoorTiles(grid, 4, 'north', true);
+    assert.deepEqual(roomsReached(), [1, 2, 3, 4, 5], 'the shut door seals the inn and nothing else');
+  });
+});

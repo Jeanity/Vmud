@@ -90,7 +90,8 @@ function isInteger(value: unknown): value is number {
  */
 export function validateAuthoredZone(raw: unknown, file: string): Zone {
   if (!isRecord(raw)) refuse(file, 'not a JSON object');
-  const { id, name, entryRoom, rooms } = raw;
+  const { id, name, entryRoom, rooms, seamless } = raw;
+  if (seamless !== undefined && typeof seamless !== 'boolean') refuse(file, 'seamless must be a boolean when present');
   if (!isInteger(id) || id < AUTHORED_ZONE_BASE) {
     refuse(file, `zone id must be an integer >= ${AUTHORED_ZONE_BASE} (got ${JSON.stringify(id)})`);
   }
@@ -153,6 +154,9 @@ export function validateAuthoredZone(raw: unknown, file: string): Zone {
         if (!isRecord(door) || typeof door.closed !== 'boolean' || typeof door.locked !== 'boolean') {
           refuse(file, `room ${rid}: exit ${dir}: door must carry closed and locked booleans`);
         }
+        if (typeof door.name !== 'string' || door.name.trim().length === 0) {
+          refuse(file, `room ${rid}: exit ${dir}: door must carry a display name — "The door seems to be closed" has to name something`);
+        }
       }
     }
     validated.push(entry as unknown as Room);
@@ -185,6 +189,7 @@ export function validateAuthoredZone(raw: unknown, file: string): Zone {
     rooms: validated,
     bounds: boundsOf(validated),
     entryRoom: entryRoom as RoomId,
+    ...(seamless === true ? { seamless: true } : {}),
   };
 }
 

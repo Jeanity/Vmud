@@ -2,6 +2,7 @@
   "$comment": "Velen - The Square, Phase 22's courtyard seed. The first committed first-party zone: the great crossing of the city's two streets, laid to TorilMUD Waterdeep's plan (owner, 2026-08-09) - a north-south spine, one great east-west cross street, and the square where they meet. Phase 23 grows the noticeboard, the shops and the gate guards from here. Room ids are zone x 1000 + n by the Phase 22 law; prose is ours and ships.",
   "id": 100001,
   "name": "Velen - The Square",
+  "seamless": true,
   "entryRoom": 100001000,
   "rooms": [
     {
@@ -59,7 +60,7 @@
       "description": "The Cross Street runs west toward the water, and the water makes itself known long before it could be seen: gull-cry, tar, wet rope, and the particular shout of people loading things onto other things. On the north side stands the Anchor & Anvil, its sign a ship's anchor laid across a smith's anvil, its door in the habit of being open.",
       "exits": {
         "east": { "to": 100001000 },
-        "north": { "to": 100001005, "door": { "closed": false, "locked": false } }
+        "north": { "to": 100001005, "door": { "name": "the inn door", "closed": false, "locked": false } }
       }
     },
     {
@@ -82,7 +83,7 @@
       "flags": ["indoors"],
       "description": "Low beams, long tables, and a fire that has opinions about the weather. The Anchor & Anvil serves the crossing's traffic - sailors up from the docks, smiths down from their forges, and travellers who cannot yet tell the two apart. The boards of the floor are scrubbed pale, and the landlord's chalkboard promises beds upstairs in a hand that brooks no argument.",
       "exits": {
-        "south": { "to": 100001003, "door": { "closed": false, "locked": false } }
+        "south": { "to": 100001003, "door": { "name": "the inn door", "closed": false, "locked": false } }
       },
       "extras": [
         {

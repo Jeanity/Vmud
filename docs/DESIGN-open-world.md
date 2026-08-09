@@ -85,7 +85,7 @@ a bandwidth decision to measure, not assume, and the one item here that touches 
 Track V work throughout — presentation of things that already exist — sliced so every step is
 visible and reversible, and Velen is deliberately the testbed: authored, six rooms, ours.
 
-1. **V8a — the seam.** Velen Square rendered seamless: adjacent blocks fused, open borders where
+1. **V8a — the seam.** ✅ **Built 2026-08-09, the evening this document was written.** Velen Square rendered seamless: adjacent blocks fused, open borders where
    its exits are, the inn door as a gate in a wall line. Smallest possible proof; the square is
    all connected rooms, so no blockers are even needed yet.
 2. **V8b — the law.** Blocker lines by sector pair, and **the validator**: flood-fill equals

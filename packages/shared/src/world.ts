@@ -281,6 +281,14 @@ export interface Zone {
   readonly bounds: Bounds;
   /** Where a player arrives when entering the zone without a specific destination. */
   readonly entryRoom?: RoomId;
+  /**
+   * Rendered seamless — the open world's first dial (V8a, DESIGN-open-world.md). Room blocks lie
+   * flush with a one-tile seam line instead of the void gap: an open exit fills its whole shared
+   * edge with floor, a door narrows it to a gate in a wall, and no exit leaves the seam solid.
+   * Declared by authored zone files and carried through worldgen; the harvest never sets it, so
+   * absent means the classic block-and-corridor projection unchanged.
+   */
+  readonly seamless?: boolean;
 }
 
 export interface World {

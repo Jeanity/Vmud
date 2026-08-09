@@ -45,6 +45,15 @@ export const ROOM_GAP = 2;
 
 export const ROOM_STRIDE = ROOM_TILES + ROOM_GAP;
 
+/**
+ * The seam between flush blocks in a **seamless** zone — V8a. One tile, not zero, and the width is
+ * load-bearing twice over: a door needs cells to stand in (`connectorCells` derives door geometry
+ * identically at build time and at open/shut time, and zero-width would leave it nowhere), and a
+ * blocked border needs cells to be solid in. An open seam is filled with floor, so at the classic
+ * zoom the line does not exist to the eye — the plaza just continues.
+ */
+export const SEAM_GAP = 1;
+
 /** Width of the opening carved between two linked rooms. Odd, to centre on the room. */
 export const CONNECTOR_WIDTH = 3;
 
@@ -109,6 +118,13 @@ export interface TileGrid {
   readonly rooms: Int32Array;
   /** Tile-space origin of each room block on this level. */
   readonly roomOrigins: ReadonlyMap<RoomId, { readonly tx: number; readonly ty: number }>;
+  /**
+   * Tiles between adjacent room blocks on this grid — {@link ROOM_GAP} for the classic projection,
+   * {@link SEAM_GAP} for a seamless zone. Carried on the grid because door geometry is *derived*,
+   * not stored: `doorwayTiles` recomputes the cells a door was carved into, and it must recompute
+   * them against the projection that carved them.
+   */
+  readonly gap: number;
 }
 
 /*
@@ -252,6 +268,9 @@ export function stairPlacement(
  */
 export function buildZoneTilemap(zone: Zone, level = 0): TileGrid {
   const rooms = zone.rooms.filter((r) => r.pos.z === level);
+  const seamless = zone.seamless === true;
+  const gap = seamless ? SEAM_GAP : ROOM_GAP;
+  const stride = ROOM_TILES + gap;
 
   // Sized to the rooms on *this* level, not to `zone.bounds` — which is the union over every level
   // and so describes a Place that does not exist. Zone 260's four-room ground level shares its
@@ -264,8 +283,8 @@ export function buildZoneTilemap(zone: Zone, level = 0): TileGrid {
   const bounds = boundsOf(rooms);
   const cellsWide = bounds.maxX - bounds.minX + 1;
   const cellsHigh = bounds.maxY - bounds.minY + 1;
-  const width = cellsWide * ROOM_STRIDE;
-  const height = cellsHigh * ROOM_STRIDE;
+  const width = cellsWide * stride;
+  const height = cellsHigh * stride;
 
   const tiles = new Uint8Array(width * height);
   const sectors = new Uint8Array(width * height);
@@ -273,8 +292,8 @@ export function buildZoneTilemap(zone: Zone, level = 0): TileGrid {
   const roomOrigins = new Map<RoomId, { tx: number; ty: number }>();
 
   const originOf = (room: Room) => ({
-    tx: (room.pos.x - bounds.minX) * ROOM_STRIDE,
-    ty: (room.pos.y - bounds.minY) * ROOM_STRIDE,
+    tx: (room.pos.x - bounds.minX) * stride,
+    ty: (room.pos.y - bounds.minY) * stride,
   });
 
   const byId = new Map<RoomId, Room>();
@@ -327,14 +346,117 @@ export function buildZoneTilemap(zone: Zone, level = 0): TileGrid {
       const target = byId.get(exit.to);
       if (!target) continue;
 
+      // A seamless zone's horizontal edges are stamped as *pairs* below, not carved per side —
+      // carving would fight the full-edge fill through CARVE_RANK (floor beats door, so a doorway
+      // whose far side opened first would dissolve into plaza).
+      if (seamless) continue;
+
       const delta = DIRECTION_DELTA[dir];
       const kind = exit.door ? doorTile(exit.door) : Tile.Connector;
       carve(tiles, sectors, width, height, origin, delta[0], delta[1], kind, sector);
     }
   }
 
-  return { width, height, level, tiles, sectors, rooms: roomsAt, roomOrigins };
+  if (seamless) stampSeams(rooms, roomOrigins, tiles, sectors, width, height);
+
+  return { width, height, level, tiles, sectors, rooms: roomsAt, roomOrigins, gap };
 }
+
+/**
+ * The seamless projection's seams — V8a, DESIGN-open-world.md §3.
+ *
+ * Every pair of adjacent rooms is decided **once**, from both exits together, and stamps exactly one
+ * of three seam shapes: an exit with no door fills the whole shared edge with floor, so the two
+ * rooms read as one continuous ground; an exit with a door narrows to a {@link CONNECTOR_WIDTH}
+ * gate — placed on the same cells `doorwayTiles` derives at run time, which is the invariant that
+ * lets the door open and shut — with the rest of the seam left solid as the wall the door lives in;
+ * and no exit leaves the whole seam solid, the void doing quietly what a tree line or a house wall
+ * will do in paint once V8b dresses it. Seam tiles belong to no room (`-1`), exactly as corridors
+ * always have: you are in the room you left until you stand somewhere real.
+ *
+ * The corner cells where four blocks meet belong to no pair, so they get their own rule: floor only
+ * when all four rooms exist and all four seams around the corner are open floor — an open plaza's
+ * centre pillar would be a hole in the claim that this is one ground — and solid otherwise, which
+ * at a walled building's corner is its corner post.
+ */
+function stampSeams(
+  rooms: readonly Room[],
+  roomOrigins: ReadonlyMap<RoomId, { tx: number; ty: number }>,
+  tiles: Uint8Array,
+  sectors: Uint8Array,
+  width: number,
+  height: number,
+): void {
+  const at = new Map<string, Room>();
+  for (const room of rooms) at.set(`${room.pos.x},${room.pos.y}`, room);
+  const stamp = (tx: number, ty: number, kind: number, sector: number): void => {
+    if (tx < 0 || ty < 0 || tx >= width || ty >= height) return;
+    const index = ty * width + tx;
+    tiles[index] = kind;
+    sectors[index] = sector;
+  };
+
+  /** The open seam between a pair leans on the outdoor side's ground; `inside` never spills out. */
+  const seamSector = (a: Room, b: Room): number =>
+    sectorIndex(a.sector === 'inside' ? b.sector : a.sector);
+
+  // Right-hand and downward neighbours only: every adjacent pair exactly once.
+  const openSeams = new Set<string>();
+  for (const room of rooms) {
+    const origin = roomOrigins.get(room.id)!;
+    for (const [dir, dx, dy] of [
+      ['east', 1, 0],
+      ['south', 0, 1],
+    ] as const) {
+      const neighbour = at.get(`${room.pos.x + dx},${room.pos.y + dy}`);
+      if (!neighbour) continue;
+      const out = room.exits[dir];
+      const back = neighbour.exits[REVERSE_DIR[dir]];
+      const exit = out && !out.portal && out.to === neighbour.id ? out : undefined;
+      const ret = back && !back.portal && back.to === room.id ? back : undefined;
+      const door = exit?.door ?? ret?.door;
+      const open = (exit ?? ret) !== undefined;
+
+      const cells: { tx: number; ty: number }[] = [];
+      for (let span = 0; span < ROOM_TILES; span++) {
+        cells.push(
+          dx === 1
+            ? { tx: origin.tx + ROOM_TILES, ty: origin.ty + span }
+            : { tx: origin.tx + span, ty: origin.ty + ROOM_TILES },
+        );
+      }
+
+      if (!open) continue; // the seam is already solid — the blocker V8b will dress
+      const sector = seamSector(room, neighbour);
+      if (door) {
+        // The gate on the derived cells; the rest of the seam stays wall.
+        for (const { tx, ty } of connectorCells(origin, dx, dy, SEAM_GAP)) {
+          stamp(tx, ty, doorTile(door), sector);
+        }
+      } else {
+        for (const { tx, ty } of cells) stamp(tx, ty, Tile.Floor, sector);
+        openSeams.add(`${room.pos.x},${room.pos.y},${dir}`);
+      }
+    }
+  }
+
+  // Corners, after every seam has declared itself.
+  for (const room of rooms) {
+    const { x, y } = room.pos;
+    const quad = [at.get(`${x},${y}`), at.get(`${x + 1},${y}`), at.get(`${x},${y + 1}`), at.get(`${x + 1},${y + 1}`)];
+    if (quad.some((r) => r === undefined)) continue;
+    const allOpen =
+      openSeams.has(`${x},${y},east`) &&
+      openSeams.has(`${x},${y},south`) &&
+      openSeams.has(`${x + 1},${y},south`) &&
+      openSeams.has(`${x},${y + 1},east`);
+    if (!allOpen) continue;
+    const origin = roomOrigins.get(room.id)!;
+    stamp(origin.tx + ROOM_TILES, origin.ty + ROOM_TILES, Tile.Floor, seamSector(quad[0]!, quad[1]!));
+  }
+}
+
+const REVERSE_DIR: Readonly<Record<'east' | 'south', Direction>> = { east: 'west', south: 'north' };
 
 /**
  * The gap cells the opening between a room block and its neighbour occupies, in tile space.
@@ -351,12 +473,13 @@ function connectorCells(
   origin: { tx: number; ty: number },
   dx: number,
   dy: number,
+  gap = ROOM_GAP,
 ): { tx: number; ty: number }[] {
   if (dx === 0 && dy === 0) return [];
   const offset = (ROOM_TILES - CONNECTOR_WIDTH) / 2;
   const cells: { tx: number; ty: number }[] = [];
 
-  for (let step = 0; step < ROOM_GAP; step++) {
+  for (let step = 0; step < gap; step++) {
     for (let span = 0; span < CONNECTOR_WIDTH; span++) {
       if (dx !== 0) {
         cells.push({
@@ -464,7 +587,7 @@ export function doorwayTiles(grid: TileGrid, roomId: RoomId, dir: Direction): nu
   const [dx, dy] = DIRECTION_DELTA[dir];
 
   const found: number[] = [];
-  for (const { tx, ty } of connectorCells(origin, dx, dy)) {
+  for (const { tx, ty } of connectorCells(origin, dx, dy, grid.gap)) {
     if (tx < 0 || ty < 0 || tx >= grid.width || ty >= grid.height) continue;
     const index = ty * grid.width + tx;
     if (isDoorTile(grid.tiles[index] ?? Tile.Void)) found.push(index);
