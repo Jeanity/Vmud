@@ -31,7 +31,7 @@ import {
   type Zone,
 } from '@mygame/shared';
 
-import { PROVOKED_LEASH_ROOMS, PROVOKED_PATIENCE_MS, advanceHunts, beginHomewardHunt, beginHunt, effectivePursuit, firstStepToward, forgetQuarry, provokedLeash, type Hunt } from './hunt.ts';
+import { PROVOKED_LEASH_ROOMS, PROVOKED_PATIENCE_MS, advanceHunts, beginHunt, beginWalkTo, effectivePursuit, firstStepToward, forgetQuarry, provokedLeash, wanderRoll, type Hunt } from './hunt.ts';
 import { Simulation, type Mob, type Player } from './sim.ts';
 import { GameWorld } from './world.ts';
 
@@ -549,10 +549,46 @@ describe('a provoked sentinel', () => {
   it('walks home without arriving at anybody — coming home engages nothing', () => {
     const fixture = makeFixture(noPursuit());
     fixture.place(fixture.mob, 9001);
-    beginHomewardHunt(fixture.hunts, fixture.mob, 9000);
+    beginWalkTo(fixture.hunts, fixture.mob, 9000);
     const events = fixture.run(60);
     assert.ok(events.some((e) => e.kind === 'entered' && e.to === 9000), 'the walk back is watchable');
     assert.ok(!events.some((e) => e.kind === 'arrived'), 'and silent: no arrival event, so nothing engages');
     assert.equal(fixture.hunts.size, 0, 'home ends the hunt');
+  });
+});
+
+
+/* -------------------------------------------------------------------------- */
+/* The wander — Phase 8¾                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `mobact.c:7530-7551`, held still. The roll is injected, so every face is testable without
+ * statistics; the memory is the caller's, so the anti-backtrack contract is explicit.
+ */
+describe('the wander roll', () => {
+  it('takes an existing door', () => {
+    const fixture = makeFixture(noPursuit());
+    const step = wanderRoll(fixture.world, fixture.mob, 1, undefined); // face 1 = east
+    assert.deepEqual(step, { dir: 'east', room: 9001 });
+  });
+
+  it('stays put on the seventh face and on a door that does not exist', () => {
+    const fixture = makeFixture(noPursuit());
+    assert.equal(wanderRoll(fixture.world, fixture.mob, 6, undefined), undefined);
+    assert.equal(wanderRoll(fixture.world, fixture.mob, 3, undefined), undefined); // no west from 9000
+  });
+
+  it('refuses the door it took last pulse — the anti-backtrack', () => {
+    const fixture = makeFixture(noPursuit());
+    assert.equal(wanderRoll(fixture.world, fixture.mob, 1, 'east'), undefined);
+    // And the caller clears the memory on a refusal, so the same door works the pulse after.
+    assert.ok(wanderRoll(fixture.world, fixture.mob, 1, undefined));
+  });
+
+  it('refuses a no_mob destination — the same wall the hunts respect', () => {
+    const zone = corridor({ 9001: ['no_mob'] });
+    const fixture = makeFixture(noPursuit(), zone);
+    assert.equal(wanderRoll(fixture.world, fixture.mob, 1, undefined), undefined);
   });
 });

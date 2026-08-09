@@ -64,12 +64,13 @@ export interface Hunt {
   nextRoom: RoomId | undefined;
   heading: Direction | undefined;
   /**
-   * Set when this is not a chase but the walk back from one — ranged slice 5. The destination is a
-   * *room* rather than a body, `quarry` is ignored, and arrival ends the hunt silently: nothing gets
-   * engaged by coming home. Tick-paced through the same walker as every chase, which is the design's
-   * own sub-decision — a guard trudging back to his post is readable, and a teleporting one is not.
+   * Set when this is not a chase but a walk to a *room* — slice 5's trudge home, and Phase 8¾'s idle
+   * wander, which turned out to be the same primitive with a different reason. `quarry` is ignored,
+   * and arrival ends the hunt silently: nothing gets engaged by arriving somewhere on your own feet.
+   * Tick-paced through the same walker as every chase — a guard trudging back to his post is
+   * readable, and a teleporting one is not; a kobold drifting between fields doubly so.
    */
-  homeward?: RoomId;
+  walkTo?: RoomId;
   /**
    * The rooms this hunt may stand in, when the pull is what started it — ranged slice 5 as re-ruled
    * by the owner (2026-08-09): *"no out of zone and no more than 5 rooms sort of thing."* Computed
@@ -367,37 +368,85 @@ export function beginHunt(hunts: Map<number, Hunt>, mob: Mob, quarry: Player, le
   return hunt;
 }
 
-/** Ends every hunt for a quarry that has left the world. A walk home has no quarry and keeps going. */
+/** Ends every hunt for a quarry that has left the world. A walk to a room has no quarry and keeps going. */
 export function forgetQuarry(hunts: Map<number, Hunt>, quarryId: number): void {
-  for (const [id, hunt] of hunts) if (hunt.homeward === undefined && hunt.quarry === quarryId) hunts.delete(id);
+  for (const [id, hunt] of hunts) if (hunt.walkTo === undefined && hunt.quarry === quarryId) hunts.delete(id);
 }
 
 /**
- * Starts the walk back to where a provocation happened — the tail of the pull, on the affect's expiry.
+ * Starts a walk to a room — the pull's trudge home on the affect's expiry, and the wander pass's
+ * stroll to a neighbouring field.
  *
- * Replaces whatever hunt the mob still had: its anger has cooled, and a mob that kept chasing after
- * the state that permitted the chase expired would make the one-room cap a suggestion.
+ * Replaces whatever hunt the mob still had: for the homeward case its anger has cooled, and a mob
+ * that kept chasing after the state that permitted the chase expired would make the leash a
+ * suggestion. (The wander pass never reaches here with a live hunt — it checks first — so the
+ * replacement is the homeward case's rule, not an accident waiting for it.)
  */
-export function beginHomewardHunt(hunts: Map<number, Hunt>, mob: Mob, home: RoomId): void {
-  if (mob.roomId === home) {
+export function beginWalkTo(hunts: Map<number, Hunt>, mob: Mob, room: RoomId): void {
+  if (mob.roomId === room) {
     hunts.delete(mob.id);
     return;
   }
-  hunts.set(mob.id, { mob, quarry: -1, lostForMs: 0, nextRoom: undefined, heading: undefined, homeward: home });
+  hunts.set(mob.id, { mob, quarry: -1, lostForMs: 0, nextRoom: undefined, heading: undefined, walkTo: room });
 }
 
 /**
- * The rule a homeward walk paths under. Its own thing rather than {@link effectivePursuit}, because by
+ * The rule a room-walk paths under. Its own thing rather than {@link effectivePursuit}, because by
  * the time a mob walks home the provocation has expired and its own rule may say `sentinel` — which
  * would strand it one room off its post for ever. Reach of two covers a fight that drifted; the
  * give-up keeps a walled-off mob from pathing at a shut door until the heat death of the zone.
  */
-function homewardRule(mob: Mob): PursuitRule {
-  return { ...mob.pursuit, tier: mob.pursuit.tier === 'sentinel' ? 'zone' : mob.pursuit.tier, trackRooms: Math.max(PROVOKED_LEASH_ROOMS + 1, mob.pursuit.trackRooms), giveUpMs: HOMEWARD_GIVE_UP_MS };
+function walkRule(mob: Mob): PursuitRule {
+  return { ...mob.pursuit, tier: mob.pursuit.tier === 'sentinel' ? 'zone' : mob.pursuit.tier, trackRooms: Math.max(PROVOKED_LEASH_ROOMS + 1, mob.pursuit.trackRooms), giveUpMs: WALK_GIVE_UP_MS };
 }
 
-/** How long a mob keeps trying to get home before accepting where it stands. */
-const HOMEWARD_GIVE_UP_MS = 30_000;
+/** How long a mob keeps trying to reach a room before accepting where it stands. */
+const WALK_GIVE_UP_MS = 30_000;
+
+/* -------------------------------------------------------------------------- */
+/* The wander — Phase 8¾                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The idle drift's cadence — `PULSE_MOBILE`'s own ten seconds (`config.h:85`).
+ */
+export const WANDER_PULSE_MS = 10_000;
+
+/**
+ * One wander decision, transcribed from `mobact.c:7530-7551` and pure over the graph.
+ *
+ * The source rolls `number(0, NUM_EXITS)` — seven faces for six doors, so one face in seven is
+ * "stay put", and a rolled door that does not exist is also a quiet pulse. What a rolled door then
+ * refuses, in the source's own order: a destination the walker may not stand in (`ROOM_NO_MOB` —
+ * ours also refuses another Place, since no mob walks stairs), a zone edge when the mob is leashed
+ * (`ACT_STAY_ZONE`), and **the door it took last time** — `last_direction`, the anti-backtrack that
+ * stops a wanderer metronoming between two rooms. On that last refusal the source clears the memory,
+ * so the same door is allowed again the pulse after; the caller owns that clear, because this is
+ * pure and the memory lives on the mob.
+ */
+export function wanderRoll(
+  world: GameWorld,
+  mob: Mob,
+  roll: number,
+  last: Direction | undefined,
+): { readonly dir: Direction; readonly room: RoomId } | undefined {
+  const dir = DIRECTIONS_BY_ROLL[roll];
+  if (!dir) return undefined;
+  if (dir === last) return undefined;
+  const here = world.locate(mob.roomId);
+  if (!here) return undefined;
+  const exit = here.room.exits[dir];
+  if (!exit) return undefined;
+  const there = world.locate(exit.to);
+  if (!there) return undefined;
+  if (!samePlace(there.place, here.place)) return undefined;
+  if (there.room.flags?.includes('no_mob')) return undefined;
+  if (mob.pursuit.staysInZone && there.room.zone !== here.room.zone) return undefined;
+  return { dir, room: exit.to };
+}
+
+/** The six doors by die face; face six is "stay put", exactly the seventh face the source rolls. */
+const DIRECTIONS_BY_ROLL: readonly (Direction | undefined)[] = ['north', 'east', 'south', 'west', 'up', 'down', undefined];
 
 /** One tick's worth of hunting: what to announce, and whose position moved. */
 export interface HuntTick {
@@ -428,14 +477,15 @@ export function advanceHunts(
     let rule: PursuitRule;
     let destination: RoomId;
 
-    if (hunt.homeward !== undefined) {
-      // The walk back — ranged slice 5. Arrival is silent on purpose: coming home engages nobody.
-      if (mob.roomId === hunt.homeward) {
+    if (hunt.walkTo !== undefined) {
+      // A walk to a room — home after a pull, or a wanderer's stroll. Arrival is silent on purpose:
+      // arriving somewhere on your own feet engages nobody.
+      if (mob.roomId === hunt.walkTo) {
         hunts.delete(id);
         continue;
       }
-      rule = homewardRule(mob);
-      destination = hunt.homeward;
+      rule = walkRule(mob);
+      destination = hunt.walkTo;
     } else {
       // The rule is read fresh each tick because it can *change under the hunt*: a provoked sentinel
       // pursues while the affect holds and stops being able to the moment it wears off. A hunt whose

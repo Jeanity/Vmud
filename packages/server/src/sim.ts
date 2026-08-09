@@ -574,6 +574,12 @@ export interface Mob extends Actor {
    */
   readonly aggro: AggroRule;
   /**
+   * The door this mob wandered through last pulse — `last_direction`, the source's anti-backtrack
+   * (`mobact.c:7536`). Transient and unsaved: a restart forgetting which way a kobold drifted is not
+   * a fact anyone can miss.
+   */
+  lastWander?: Direction;
+  /**
    * Whether it follows you out of the room, how far, and what turns it back. From its template — see
    * `pursuit.ts`. Beside {@link aggro} rather than inside it because noticing and chasing are different
    * decisions read by different passes.
@@ -2084,6 +2090,11 @@ export class Simulation {
 
   /** Giver vnums for the view's `questGiver` bit — combat.ts keeps the twin that refuses harm. */
   private questGivers = new Set<number>();
+
+  /** Whether a mob vnum offers work — the wander pass reads it, because a giver findable is a quest playable. */
+  isQuestGiver(vnum: number): boolean {
+    return this.questGivers.has(vnum);
+  }
 
   setQuestGivers(vnums: Iterable<number>): void {
     this.questGivers = new Set(vnums);

@@ -558,7 +558,7 @@ and they would all render as men. It switches on the day there is creature art.
 and the boot loop that read it are gone, replaced by templates and reset tables. The hand-placed sentry was
 superseded by IceCrag's own.
 
-#### Phase 8¾ — It goes somewhere on its own *(intake 2026-08-09, unscheduled within the act)*
+#### Phase 8¾ — It goes somewhere on its own ✅ **done** *(intake and build 2026-08-09)*
 
 - **Mechanic.** A wander pass: mobs not flagged sentinel drift between rooms on a slow clock —
   `mobile_activity`'s idle walk, the one piece of Diku mob life we never transcribed. Announced with
@@ -573,6 +573,13 @@ superseded by IceCrag's own.
 - **Why not now.** Filed mid-ranged rather than built: every idle mob in the world starting to move
   is a population-wide behaviour change, and the ranged slices are open. It belongs beside the rest
   of mob life, not bolted onto an archery evening.
+- **Built the same afternoon ranged finished**, and the measurement warning above earned its keep:
+  the wander bit is `aggro.sentinel` (880 of 1,503; 623 wander), not the pursuit tier. `mobact.c:7530`
+  transcribed — seven faces for six doors, ten-second pulse, `no_mob` and the zone leash refused at
+  the roll, and `last_direction`'s anti-backtrack with the source's own clear-on-refusal. The walk
+  itself is slice 5's room-walker generalised (`walkTo`), so the arrival lines, the tile motion and
+  the give-up were inherited, not rebuilt. Two exclusions are ours, both about findability:
+  shopkeepers and quest givers stand their posts.
 
 #### Phase 9 — It notices you ✅ **done**
 

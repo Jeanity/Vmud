@@ -339,10 +339,12 @@ import { attemptFlee, type FleeOutcome } from './flee.ts';
 import { markPursuers, pursuitTarget } from './pursue.ts';
 import {
   advanceHunts,
-  beginHomewardHunt,
   beginHunt,
+  beginWalkTo,
   PROVOKED_PATIENCE_MS,
   provokedLeash,
+  WANDER_PULSE_MS,
+  wanderRoll,
   forgetQuarry,
   type Hunt,
   type HuntEvent,
@@ -794,6 +796,8 @@ const awareness = new Map<number, MobAwareness>();
  * — only 34 of IceCrag's 66 can hunt at all, and only after something has noticed you.
  */
 const hunts = new Map<number, Hunt>();
+/** Phase 8¾'s clock. Starts one pulse out, so a freshly booted world stands still for ten seconds. */
+let wanderCountdownMs = WANDER_PULSE_MS;
 
 /**
  * A light handed to every character on join, for testing. Off unless `GAME_DEV_LIGHT` is set.
@@ -10204,7 +10208,7 @@ setInterval(() => {
     const mob = event.actor;
     if (!isMob(mob) || mob.fighting !== undefined) continue;
     const home = event.affect.context === undefined ? Number.NaN : Number(event.affect.context);
-    if (Number.isInteger(home)) beginHomewardHunt(hunts, mob, home);
+    if (Number.isInteger(home)) beginWalkTo(hunts, mob, home);
   }
 
   // Light travels with the character: fold whatever it now falls on into `seen` and ship only the
@@ -10339,6 +10343,37 @@ setInterval(() => {
   // `watching` does not contain the mob until `syncEntities` has run for this tick. Announcing here caught
   // every observer one tick too early and printed nothing at all; the chase was visible on screen and
   // silent in the log.
+  // **Phase 8¾: the world drifts.** Every `PULSE_MOBILE` (the source's own ten seconds), each idle
+  // non-sentinel rolls one of seven doors and strolls through the walker the hunts already use — so
+  // the announce lines, the `no_mob` refusals and the tile-by-tile motion are all inherited rather
+  // than rebuilt. The exclusions are the source's (fighting, casting, not standing) plus two of ours,
+  // both about findability: a shopkeeper's post is the shop, and a quest giver who wanders is a
+  // quest that cannot be started. `spawnRng`, because a stroll is the world's colour, not a fight's
+  // arithmetic — and the two streams must not perturb each other.
+  wanderCountdownMs -= TICK_MS;
+  if (wanderCountdownMs <= 0) {
+    wanderCountdownMs = WANDER_PULSE_MS;
+    for (const actor of sim.allActors()) {
+      if (!isMob(actor)) continue;
+      const mob = actor;
+      if (mob.aggro.sentinel) continue; // ACT_SENTINEL is the wander bit, not the pursuit tier — §0.4's own warning
+      if (mob.fighting !== undefined || mob.casting) continue;
+      if (mob.posture !== 'standing' || mob.status !== 'normal') continue;
+      if (hunts.has(mob.id)) continue; // mid-chase or mid-stroll already
+      if (sim.affectsOf(mob, 'provoked').length > 0) continue;
+      if (shopsByKeeper.has(mob.vnum)) continue;
+      if (sim.isQuestGiver(mob.vnum)) continue;
+      const step = wanderRoll(world, mob, randomInt(spawnRng, 0, 6), mob.lastWander);
+      if (!step) {
+        // The source's own memory clear: a refused pulse forgets the last door, so it is legal again.
+        delete mob.lastWander;
+        continue;
+      }
+      mob.lastWander = step.dir;
+      beginWalkTo(hunts, mob, step.room);
+    }
+  }
+
   const hunt = advanceHunts(sim, world, hunts, TICK_MS);
   // A hunter that has caught up starts swinging. This is the seam Phase 10 left open on purpose and the
   // exact point `mobact.c` calls `MobStartFight` — the hunt's job ends at the doorway.
