@@ -47,6 +47,7 @@ import {
   pick,
   randomInt,
   resolveAttack,
+  ROOM_TILES,
   rollDamage,
   rollDice,
   HP_DEAD_BELOW,
@@ -344,6 +345,7 @@ import {
   PROVOKED_PATIENCE_MS,
   provokedLeash,
   WANDER_PULSE_MS,
+  beginDrift,
   wanderRoll,
   forgetQuarry,
   type Hunt,
@@ -10356,21 +10358,49 @@ setInterval(() => {
     for (const actor of sim.allActors()) {
       if (!isMob(actor)) continue;
       const mob = actor;
-      if (mob.aggro.sentinel) continue; // ACT_SENTINEL is the wander bit, not the pursuit tier — §0.4's own warning
       if (mob.fighting !== undefined || mob.casting) continue;
       if (mob.posture !== 'standing' || mob.status !== 'normal') continue;
-      if (hunts.has(mob.id)) continue; // mid-chase or mid-stroll already
+      if (hunts.has(mob.id)) continue; // mid-chase, mid-stroll, or mid-shuffle already
       if (sim.affectsOf(mob, 'provoked').length > 0) continue;
-      if (shopsByKeeper.has(mob.vnum)) continue;
-      if (sim.isQuestGiver(mob.vnum)) continue;
-      const step = wanderRoll(world, mob, randomInt(spawnRng, 0, 6), mob.lastWander);
-      if (!step) {
-        // The source's own memory clear: a refused pulse forgets the last door, so it is legal again.
-        delete mob.lastWander;
+      // Roaming between rooms is for the unanchored only: ACT_SENTINEL is the wander bit (not the
+      // pursuit tier — §0.4's own warning), and two exclusions are ours, both about findability — a
+      // shopkeeper's post is the shop, and a quest giver who wanders is a quest that cannot be
+      // started. The in-room shuffle below is open to all of them: no post is left by shifting your
+      // weight beside it.
+      const roams = !mob.aggro.sentinel && !shopsByKeeper.has(mob.vnum) && !sim.isQuestGiver(mob.vnum);
+      // The door lookup is `CAN_GO`'s closed-door half — see `wanderRoll` for the youths it freed.
+      const step = roams
+        ? wanderRoll(world, mob, randomInt(spawnRng, 0, 6), mob.lastWander, (room, dir) => {
+            const doorway = world.doorway(room, dir);
+            return doorway !== undefined && doorway.near.door.closed;
+          })
+        : undefined;
+      if (step) {
+        mob.lastWander = step.dir;
+        beginWalkTo(hunts, mob, step.room);
         continue;
       }
-      mob.lastWander = step.dir;
-      beginWalkTo(hunts, mob, step.room);
+      // The source's own memory clear: a refused pulse forgets the last door, so it is legal again.
+      delete mob.lastWander;
+
+      // **The in-room shuffle** — the owner's ask, on the pulses the die said "stay": one standing
+      // mob in three ambles to a random walkable tile of its own room. Three candidate tiles, first
+      // walkable wins; a room too cramped to offer one simply keeps its statue this pulse.
+      if (randomInt(spawnRng, 1, 3) !== 1) continue;
+      const grid = world.grid(mob.place);
+      const origin = grid?.roomOrigins.get(mob.roomId);
+      if (!grid || !origin) continue;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const tx = origin.tx + randomInt(spawnRng, 0, ROOM_TILES - 1);
+        const ty = origin.ty + randomInt(spawnRng, 0, ROOM_TILES - 1);
+        const x = tileCentre(tx);
+        const y = tileCentre(ty);
+        if (!isWalkableAt(grid, x, y) || roomAtTile(grid, tx, ty) !== mob.roomId) continue;
+        // Far enough to read as a walk, not a twitch.
+        if (Math.hypot(x - mob.x, y - mob.y) < TILE_SIZE * 1.5) continue;
+        beginDrift(hunts, mob, { x, y });
+        break;
+      }
     }
   }
 

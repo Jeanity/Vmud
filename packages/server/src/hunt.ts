@@ -79,6 +79,14 @@ export interface Hunt {
    * but never move the anchor, which is what separates a kite from a tow.
    */
   leash?: ReadonlySet<RoomId>;
+  /**
+   * A shuffle inside the current room — the owner's ask (2026-08-09): *"have mobs randomly move
+   * around the room they are in... to make it feel more alive."* A pixel point rather than a room:
+   * no pathing, no announcements, no room change — just the same tile walker ambling a few steps.
+   * Unlike the stroll this is open to the anchored too, because a blacksmith shifting his weight at
+   * the forge leaves no post.
+   */
+  driftTo?: { readonly x: number; readonly y: number };
 }
 
 /** What happened to one hunter this tick, for the caller to announce and sync. */
@@ -368,9 +376,11 @@ export function beginHunt(hunts: Map<number, Hunt>, mob: Mob, quarry: Player, le
   return hunt;
 }
 
-/** Ends every hunt for a quarry that has left the world. A walk to a room has no quarry and keeps going. */
+/** Ends every hunt for a quarry that has left the world. Walks and shuffles have no quarry and keep going. */
 export function forgetQuarry(hunts: Map<number, Hunt>, quarryId: number): void {
-  for (const [id, hunt] of hunts) if (hunt.walkTo === undefined && hunt.quarry === quarryId) hunts.delete(id);
+  for (const [id, hunt] of hunts) {
+    if (hunt.walkTo === undefined && hunt.driftTo === undefined && hunt.quarry === quarryId) hunts.delete(id);
+  }
 }
 
 /**
@@ -403,6 +413,18 @@ function walkRule(mob: Mob): PursuitRule {
 /** How long a mob keeps trying to reach a room before accepting where it stands. */
 const WALK_GIVE_UP_MS = 30_000;
 
+/** A shuffle that gets stuck is abandoned quickly — it was going nowhere in particular anyway. */
+const DRIFT_GIVE_UP_MS = 3_000;
+
+/**
+ * Starts a shuffle to a point in the mob's own room. The caller picks the point (it holds the grid);
+ * this only refuses to interrupt something real — a chase, a stroll, or an existing shuffle.
+ */
+export function beginDrift(hunts: Map<number, Hunt>, mob: Mob, to: { readonly x: number; readonly y: number }): void {
+  if (hunts.has(mob.id)) return;
+  hunts.set(mob.id, { mob, quarry: -1, lostForMs: 0, nextRoom: undefined, heading: undefined, driftTo: to });
+}
+
 /* -------------------------------------------------------------------------- */
 /* The wander — Phase 8¾                                                       */
 /* -------------------------------------------------------------------------- */
@@ -429,6 +451,14 @@ export function wanderRoll(
   mob: Mob,
   roll: number,
   last: Direction | undefined,
+  /**
+   * Whether a door shuts this exit — the caller's lookup, injected the way `peek` takes its. This is
+   * `CAN_GO`'s other half: the source's wander gate refuses a closed door at the roll, and skipping
+   * that check is how the first build wedged three kobold youths behind the shaman's mound door —
+   * the graph said "exit", the walker aimed at the doorway, and the door's solid tiles blocked the
+   * step for ever.
+   */
+  doorClosed: (room: RoomId, dir: Direction) => boolean,
 ): { readonly dir: Direction; readonly room: RoomId } | undefined {
   const dir = DIRECTIONS_BY_ROLL[roll];
   if (!dir) return undefined;
@@ -437,6 +467,7 @@ export function wanderRoll(
   if (!here) return undefined;
   const exit = here.room.exits[dir];
   if (!exit) return undefined;
+  if (doorClosed(mob.roomId, dir)) return undefined;
   const there = world.locate(exit.to);
   if (!there) return undefined;
   if (!samePlace(there.place, here.place)) return undefined;
@@ -476,6 +507,38 @@ export function advanceHunts(
     const mob = hunt.mob;
     let rule: PursuitRule;
     let destination: RoomId;
+
+    if (hunt.driftTo !== undefined) {
+      // The shuffle: no policy at all, just motion toward a point in this room, at an amble — half
+      // the chase's pace, because nobody hurries to stand somewhere else. Arrival is within half a
+      // tile; the stall-heal below covers a shuffle aimed somewhere the slide cannot round.
+      const grid = world.grid(mob.place);
+      if (!grid) {
+        hunts.delete(id);
+        continue;
+      }
+      const dx = hunt.driftTo.x - mob.x;
+      const dy = hunt.driftTo.y - mob.y;
+      if (Math.hypot(dx, dy) < TILE_SIZE / 2) {
+        hunts.delete(id);
+        continue;
+      }
+      const intent = normaliseIntent(dx, dy);
+      const distance = Math.min(((HUNT_SPEED / 2) * elapsedMs) / 1000, Math.hypot(dx, dy));
+      const startX = mob.x;
+      const startY = mob.y;
+      const next = stepMovement(grid, mob.x, mob.y, intent.x, intent.y, distance);
+      mob.x = next.x;
+      mob.y = next.y;
+      if (mob.x === startX && mob.y === startY) {
+        hunt.lostForMs += elapsedMs;
+        if (hunt.lostForMs >= DRIFT_GIVE_UP_MS) hunts.delete(id);
+        continue;
+      }
+      mob.facing = headingOf(intent.x, intent.y, mob.facing);
+      moved.push(mob);
+      continue;
+    }
 
     if (hunt.walkTo !== undefined) {
       // A walk to a room — home after a pull, or a wanderer's stroll. Arrival is silent on purpose:
@@ -564,7 +627,19 @@ export function advanceHunts(
     const next = stepMovement(grid, mob.x, mob.y, intent.x, intent.y, distance);
     mob.x = next.x;
     mob.y = next.y;
-    if (mob.x === startX && mob.y === startY) continue;
+    if (mob.x === startX && mob.y === startY) {
+      // **Routed but not moving — the give-up clock must run, or this hunt is wedged for ever.**
+      // The graph can say "exit" while the tiles say no: a closed door's solid tiles, a doorway aim
+      // the slide cannot round. The no-route branch above always aged the hunt; this branch used to
+      // be free, and the first wander build proved what that costs — walks pinned behind the
+      // shaman's mound door, alive and motionless, eating their mob's every pulse.
+      hunt.lostForMs += elapsedMs;
+      if (rule.giveUpMs !== null && hunt.lostForMs >= rule.giveUpMs) {
+        hunts.delete(id);
+        if (hunt.walkTo === undefined) events.push({ mob, kind: 'gaveUp' });
+      }
+      continue;
+    }
     mob.facing = headingOf(intent.x, intent.y, mob.facing);
     moved.push(mob);
 
