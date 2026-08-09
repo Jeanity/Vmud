@@ -126,6 +126,19 @@ export interface Item {
    * lucky one starts several points harder to hit than an unlucky one, and both are viable.
    */
   readonly ac: number;
+  /**
+   * The ranged fields, following the object for `weaponClass`'s own reason — the bow in your save
+   * file has to still be a bow after a restart and a catalogue edit — plus one more this family
+   * alone has: **the client reads them off `SelfView.equipped` to decide which verbs the click menu
+   * may offer**, and the client has no catalogue to heal a missing field from. A launcher `fires` a
+   * missile type; a missile *is* one ({@link missileType}); a throwable says so and how far, and a
+   * returning one comes back to the hand. See `DESIGN-ranged.md`.
+   */
+  readonly fires?: number;
+  readonly missileType?: number;
+  readonly canThrow?: true;
+  readonly throwRange?: number;
+  readonly returning?: true;
   /** What it hits for, on a weapon. Absent on everything worn rather than wielded. */
   readonly damage?: Dice;
   /**
@@ -689,6 +702,14 @@ export function readItem(raw: unknown, slot?: EquipSlot): Item | undefined {
     // Phase 19, and the same rule again: without this line a sword reloaded from disk would train no
     // skill and lose its to-hit bonus, silently, and only for characters who had logged out.
     ...(typeof item.weaponClass === 'number' && item.weaponClass > 0 ? { weaponClass: item.weaponClass } : {}),
+    // Ranged, the same rule a fifth time: a bow that forgot what it fires over a restart would refuse
+    // every arrow in the quiver, and the click menu would stop offering Fire — silently, and only for
+    // characters who had logged out.
+    ...(typeof item.fires === 'number' && item.fires > 0 ? { fires: item.fires } : {}),
+    ...(typeof item.missileType === 'number' && item.missileType > 0 ? { missileType: item.missileType } : {}),
+    ...(item.canThrow === true ? { canThrow: true as const } : {}),
+    ...(typeof item.throwRange === 'number' && item.throwRange > 0 ? { throwRange: item.throwRange } : {}),
+    ...(item.returning === true ? { returning: true as const } : {}),
     // Read back, or a lantern in a save file comes home as a stick. The radius is required and the burn
     // is not: an unlimited light simply has none, which is 32 of the catalogue's 64.
     ...(typeof (item.light as { radius?: unknown } | undefined)?.radius === 'number'

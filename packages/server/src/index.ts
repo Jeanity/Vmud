@@ -3658,20 +3658,117 @@ function useAbility(player: Player, id: CombatAbilityId, rest: string): void {
  */
 function rangedCommand(player: Player, rest: string, thrown: boolean): void {
   const verb = thrown ? 'throw' : 'fire';
+  // Grammar: `<keyword> [direction]`, either half optional. The trailing word is a direction only if
+  // it reads as one — `directionFrom` is a prefix match over the six, so `shoot kobold e` aims east
+  // while `shoot dog` stays a keyword ("down" does not start with "dog").
+  const words = rest.split(/\s+/).filter(Boolean);
+  const dir = words.length > 0 ? directionFrom(words[words.length - 1]!) : undefined;
+  const keyword = (dir ? words.slice(0, -1) : words).join(' ');
+
+  // **Resolution only.** Every gate — from "is that a bow" to the door that shut since you looked —
+  // lives in {@link shootAt}, which the click's `rangedAttack` intent enters without coming here.
+  // The typed path's one privilege is words: keywords, ordinals, and the bare verb mid-fight.
+  let target: Actor | undefined;
+  if (dir) {
+    const room = sim.room(player.roomId);
+    if (!room) return;
+    const outcome = peek(room, dir, peekDeps());
+    if (outcome.t !== 'view') {
+      send(player.id, { t: 'log', channel: 'error', text: shotBlockedBy(outcome) });
+      return;
+    }
+    // Slice 2's gate, spent for real: you aim at what you have made out, and nothing else. This is
+    // what "gated on the revealed set" means — the reveal is the aim.
+    if (!revealedRooms(player).has(outcome.room.id)) {
+      send(player.id, { t: 'log', channel: 'error', text: `You cannot make out what stands there — look ${dir} first.` });
+      return;
+    }
+    const bodies = sim.actorsIn(outcome.room.id);
+    if (keyword) {
+      const ref = parseTargetRef(keyword);
+      if (!ref) {
+        send(player.id, { t: 'log', channel: 'error', text: `"${keyword}" is not something you can aim at.` });
+        return;
+      }
+      target = findTarget(ref, bodies, (b) => namelistFor(sim.viewOf(b)));
+      if (!target) {
+        send(player.id, { t: 'log', channel: 'error', text: `You see no ${ref.keyword} to the ${dir}.` });
+        return;
+      }
+    } else {
+      // The owner's original form — *"fire east"*, no name. The first fair body there is the mark,
+      // which is what firing blind into a room means.
+      target = bodies.filter((b) => canBeAttacked(b) && (settings.pvp || !isPlayer(b)))[0];
+      if (!target) {
+        send(player.id, { t: 'log', channel: 'error', text: 'Nobody is standing there.' });
+        return;
+      }
+    }
+  } else if (!keyword) {
+    // Mid-fight, the verb alone aims at your opponent — `bash`'s own convenience, same reason.
+    target = player.fighting === undefined ? undefined : sim.get(player.fighting);
+    if (!target) {
+      send(player.id, { t: 'log', channel: 'error', text: `${capitalise(verb)} at what?` });
+      return;
+    }
+  } else {
+    const view = resolveTarget(player, keyword);
+    if (!view) return;
+    const resolved = sim.get(view.id);
+    if (!resolved) {
+      send(player.id, { t: 'log', channel: 'error', text: `You cannot ${verb} at that.` });
+      return;
+    }
+    target = resolved;
+  }
+  shootAt(player, thrown, target, dir);
+}
+
+/** The peek lookups the shot shares with `lookDirection` — one construction, so they cannot drift. */
+function peekDeps() {
+  return {
+    roomOf: (id: RoomId) => sim.room(id),
+    occupantsOf: (id: RoomId) => [...sim.actorsIn(id)].map((a) => ({ name: a.name, lightRadius: a.lightRadius ?? 0 })),
+    doorAt: (id: RoomId, d: Direction) => {
+      const doorway = world.doorway(id, d);
+      return doorway ? { name: doorway.near.door.name, closed: doorway.near.door.closed } : undefined;
+    },
+  };
+}
+
+/** Why a peek outcome refuses a shot, in the shot's own words. */
+function shotBlockedBy(outcome: { readonly t: 'no-exit' | 'closed-door' | 'nowhere' | 'one-way' | 'dark'; readonly door?: string }): string {
+  return outcome.t === 'closed-door' && outcome.door !== undefined ? `${capitalise(outcome.door)} is closed.`
+    : outcome.t === 'dark' ? "&+LIt's much too dark there to aim at anything!&N"
+    : outcome.t === 'no-exit' ? 'There is no exit that way.'
+    : 'Something blocks your shot.';
+}
+
+/**
+ * The shot itself, however it was asked for — typed words or a click on a body. One gauntlet for
+ * both, so the pointer can never loose a shot the keyboard would have refused: the weapon, the
+ * training, the round's clock, the fresh peek, the reveal, and the fairness gates all live here and
+ * only here.
+ */
+function shootAt(player: Player, thrown: boolean, target: Actor, dir: Direction | undefined): void {
+  const verb = thrown ? 'throw' : 'fire';
   const weapon = player.equipped.mainHand;
   const weaponTemplate = weapon ? templateOf(weapon) : undefined;
+  // Instance first, template healed under it — `attackTypeOf`'s own pattern, so a weapon minted
+  // before slice 1 copied the ranged fields onto instances still shoots after a restart.
+  const fires = weapon?.fires ?? weaponTemplate?.fires;
+  const throwable = (weapon?.canThrow ?? weaponTemplate?.canThrow) === true;
 
-  // The weapon first, before any parsing: "Fire at what?" is a silly answer to somebody holding no bow.
   if (thrown) {
     if (!weapon) {
       send(player.id, { t: 'log', channel: 'error', text: 'Your main hand is empty — wield something worth throwing first.' });
       return;
     }
-    if (weaponTemplate?.canThrow !== true) {
+    if (!throwable) {
       send(player.id, { t: 'log', channel: 'error', text: `${capitalise(weapon.name)}&N is not balanced for throwing.` });
       return;
     }
-  } else if (weaponTemplate?.fires === undefined) {
+  } else if (fires === undefined) {
     // `fires` doubles as the launcher test: every fireweapon in the catalogue carries it, and nothing
     // else does — so one field answers "is this a launcher" and "what does it take" together.
     send(player.id, { t: 'log', channel: 'error', text: `You need a launcher in your main hand to ${verb} — a bow, a crossbow, a sling.` });
@@ -3691,88 +3788,29 @@ function rangedCommand(player: Player, rest: string, thrown: boolean): void {
     return;
   }
 
-  // Grammar: `<keyword> [direction]`, either half optional. The trailing word is a direction only if
-  // it reads as one — `directionFrom` is a prefix match over the six, so `shoot kobold e` aims east
-  // while `shoot dog` stays a keyword ("down" does not start with "dog").
-  const words = rest.split(/\s+/).filter(Boolean);
-  const dir = words.length > 0 ? directionFrom(words[words.length - 1]!) : undefined;
-  const keyword = (dir ? words.slice(0, -1) : words).join(' ');
-
-  let target: Actor | undefined;
-  let bystanders: Actor[];
   const crossRoom = dir !== undefined;
-
   if (dir) {
+    // The gauntlet again, fresh, however the target was resolved — a door shut since you looked is a
+    // door your arrow meets, and a click re-walks it exactly as a re-typed word would.
     const room = sim.room(player.roomId);
     if (!room) return;
-    // The peek gauntlet again, fresh — a door shut since you looked is a door your arrow meets.
-    const outcome = peek(room, dir, {
-      roomOf: (id) => sim.room(id),
-      occupantsOf: (id) => [...sim.actorsIn(id)].map((a) => ({ name: a.name, lightRadius: a.lightRadius ?? 0 })),
-      doorAt: (id, d) => {
-        const doorway = world.doorway(id, d);
-        return doorway ? { name: doorway.near.door.name, closed: doorway.near.door.closed } : undefined;
-      },
-    });
+    const outcome = peek(room, dir, peekDeps());
     if (outcome.t !== 'view') {
-      const refusal =
-        outcome.t === 'closed-door' ? `${capitalise(outcome.door)} is closed.`
-        : outcome.t === 'dark' ? "&+LIt's much too dark there to aim at anything!&N"
-        : outcome.t === 'no-exit' ? 'There is no exit that way.'
-        : 'Something blocks your shot.';
-      send(player.id, { t: 'log', channel: 'error', text: refusal });
+      send(player.id, { t: 'log', channel: 'error', text: shotBlockedBy(outcome) });
       return;
     }
-    // Slice 2's gate, spent for real: you aim at what you have made out, and nothing else. This is
-    // what "gated on the revealed set" means — the reveal is the aim.
     if (!revealedRooms(player).has(outcome.room.id)) {
       send(player.id, { t: 'log', channel: 'error', text: `You cannot make out what stands there — look ${dir} first.` });
       return;
     }
-    const bodies = sim.actorsIn(outcome.room.id);
-    const fair = bodies.filter((b) => canBeAttacked(b) && (settings.pvp || !isPlayer(b)));
-    if (keyword) {
-      const ref = parseTargetRef(keyword);
-      if (!ref) {
-        send(player.id, { t: 'log', channel: 'error', text: `"${keyword}" is not something you can aim at.` });
-        return;
-      }
-      target = findTarget(ref, bodies, (b) => namelistFor(sim.viewOf(b)));
-      if (!target) {
-        send(player.id, { t: 'log', channel: 'error', text: `You see no ${ref.keyword} to the ${dir}.` });
-        return;
-      }
-    } else {
-      // The owner's original form — *"fire east"*, no name. The first fair body there is the mark,
-      // which is what firing blind into a room means.
-      target = fair[0];
-      if (!target) {
-        send(player.id, { t: 'log', channel: 'error', text: 'Nobody is standing there.' });
-        return;
-      }
+    if (target.roomId !== outcome.room.id) {
+      // Resolved a moment ago, gone now — the reveal is a memory, and the world kept moving under it.
+      send(player.id, { t: 'log', channel: 'error', text: `${target.name}&N is no longer there.` });
+      return;
     }
-    bystanders = fair.filter((b) => b.id !== target!.id);
-  } else {
-    if (!keyword) {
-      // Mid-fight, the verb alone aims at your opponent — `bash`'s own convenience, same reason.
-      target = player.fighting === undefined ? undefined : sim.get(player.fighting);
-      if (!target) {
-        send(player.id, { t: 'log', channel: 'error', text: `${capitalise(verb)} at what?` });
-        return;
-      }
-    } else {
-      const view = resolveTarget(player, keyword);
-      if (!view) return;
-      const resolved = sim.get(view.id);
-      if (!resolved) {
-        send(player.id, { t: 'log', channel: 'error', text: `You cannot ${verb} at that.` });
-        return;
-      }
-      target = resolved;
-    }
-    bystanders = sim
-      .actorsIn(player.roomId)
-      .filter((b) => b.id !== target!.id && b.id !== player.id && canBeAttacked(b) && (settings.pvp || !isPlayer(b)));
+  } else if (target.roomId !== player.roomId) {
+    send(player.id, { t: 'log', channel: 'error', text: `${target.name}&N is not here.` });
+    return;
   }
 
   if (target.id === player.id) {
@@ -3792,16 +3830,21 @@ function rangedCommand(player: Player, rest: string, thrown: boolean): void {
     return;
   }
 
+  // Who else is standing beside the mark, for the wrong-target roll. Recomputed here rather than
+  // carried from resolution, because the click path never resolved a room's worth of bodies at all.
+  const bystanders = sim
+    .actorsIn(target.roomId)
+    .filter((b) => b.id !== target.id && b.id !== player.id && canBeAttacked(b) && (settings.pvp || !isPlayer(b)));
+
   // The projectile, found now and committed below — a refusal above this line costs nothing.
   let missile: Item;
   let spentBag: Inventory | undefined;
   if (thrown) {
     missile = weapon!;
   } else {
-    const fires = weaponTemplate!.fires!;
-    const taken = takeMissile(player.inventory, fires, (item) => templateOf(item)?.missileType);
+    const taken = takeMissile(player.inventory, fires!, (item) => item.missileType ?? templateOf(item)?.missileType);
     if (!taken) {
-      send(player.id, { t: 'log', channel: 'error', text: `You are out of ${MISSILE_TYPE_NAMES[fires] ?? 'missile'}s.` });
+      send(player.id, { t: 'log', channel: 'error', text: `You are out of ${MISSILE_TYPE_NAMES[fires!] ?? 'missile'}s.` });
       return;
     }
     missile = taken.missile;
@@ -3817,7 +3860,7 @@ function rangedCommand(player: Player, rest: string, thrown: boolean): void {
   // The projectile leaves. A returning weapon never does — it is enchanted to come back, and the same
   // enchantment is why it skips the breakage roll: 339 of these are the rarest things a rogue will
   // ever own, and a 5% chance of deleting one per throw would make the enchantment a trap.
-  const returning = thrown && weaponTemplate?.returning === true;
+  const returning = thrown && (weapon?.returning ?? weaponTemplate?.returning) === true;
   if (spentBag) {
     sim.setInventory(player, spentBag);
     send(player.id, { t: 'self', view: sim.selfViewOf(player) });
@@ -8932,6 +8975,35 @@ function handle(player: Player, message: ClientMessage): void {
       // Through the visible set, so a click can name only what a word could have named.
       const view = targetById(player, message.target);
       if (view) startFight(player, view.id);
+      break;
+    }
+
+    case 'rangedAttack': {
+      if (!permits(player, message.thrown === true ? 'throw' : 'fire')) break;
+      // Deliberately **not** through `targetById`: ranged is the one verb allowed to name a revealed
+      // body, which is exactly what `nameable` strips for every other verb. `visibleEntities` is
+      // still the gate — the pointer reaches what the eye can see, and nothing more, and `shootAt`
+      // re-walks the whole gauntlet behind it.
+      const view = visibleEntities(player).find((e) => e.id === message.target && e.kind !== 'item');
+      const target = view ? sim.get(view.id) : undefined;
+      if (!target) {
+        send(player.id, { t: 'log', channel: 'error', text: 'You cannot make that out any more.' });
+        break;
+      }
+      // The click supplies no words, so the direction is derived: the exit of this room that leads
+      // to the target's. One room of derivation only, which is the reveal's own reach.
+      let dir: Direction | undefined;
+      if (target.roomId !== player.roomId) {
+        const here = sim.room(player.roomId);
+        dir = here
+          ? (Object.entries(here.exits).find(([, exit]) => exit?.to === target.roomId)?.[0] as Direction | undefined)
+          : undefined;
+        if (!dir) {
+          send(player.id, { t: 'log', channel: 'error', text: 'You have no clear line to them.' });
+          break;
+        }
+      }
+      shootAt(player, message.thrown === true, target, dir);
       break;
     }
 

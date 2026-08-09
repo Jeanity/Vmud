@@ -756,6 +756,15 @@ export function instantiate(template: ItemTemplate): Item {
     // reads it back for the reason it reads `twoHanded`: a field with no line in its reader is
     // deleted at the next login, silently.
     ...(handednessFor(template) === 'either' ? { handedness: 'either' as const } : {}),
+    // Ranged slices 3+4: the launcher's key, the missile's own, and the throwing facts all follow the
+    // object — partly for the restart argument every field here makes, and partly because the *client*
+    // reads them off the worn kit to decide whether the click menu offers Fire or Throw, and the
+    // client has no catalogue to consult.
+    ...(template.fires === undefined ? {} : { fires: template.fires }),
+    ...(template.missileType === undefined ? {} : { missileType: template.missileType }),
+    ...(template.canThrow ? { canThrow: true as const } : {}),
+    ...(template.throwRange === undefined ? {} : { throwRange: template.throwRange }),
+    ...(template.returning ? { returning: true as const } : {}),
     // Phase 19: which skill this trains follows the object, not the catalogue — the same argument the
     // line above makes, and `readItem` reads it back for the same reason.
     ...(template.weaponClass === undefined ? {} : { weaponClass: template.weaponClass }),

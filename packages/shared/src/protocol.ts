@@ -713,6 +713,13 @@ export type ClientMessage =
   /** Abandon any active path. Sent when the player takes manual control. */
   | { readonly t: 'stop' }
   | { readonly t: 'attack'; readonly target: EntityId }
+  /**
+   * The click menu's Fire and Throw — ranged, by pointer. An intent like every other: the id names a
+   * body the client can currently see (which, uniquely for this verb, includes a *revealed* one a
+   * room away), and the server re-derives the direction and re-walks the whole shot gauntlet, so the
+   * pointer can never loose a shot the keyboard would have refused.
+   */
+  | { readonly t: 'rangedAttack'; readonly target: EntityId; readonly thrown?: true }
   | { readonly t: 'flee' }
   /**
    * Work the door in a direction. Omitting `dir` means "the one I am facing" — the server holds the

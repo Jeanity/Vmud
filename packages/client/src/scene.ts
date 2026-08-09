@@ -1465,6 +1465,13 @@ export class WorldScene extends Phaser.Scene {
    * character created before protocol 24 gave anyone an identity at all.
    */
   private selfClass: ClassId | undefined;
+  /**
+   * The worn kit off the last `self`, kept for the click menu: whether Fire or Throw is offered is a
+   * fact about the main hand, and the menu opens on a click rather than a heartbeat — {@link lastBag}'s
+   * argument, one panel over. The ranged fields ride the item instances since slice 1 copied them down,
+   * which is what makes this readable without a catalogue.
+   */
+  private selfEquipped: Equipped | undefined;
   private selfLevel = 1;
 
   /** Indexed sheets wanted but not yet asked for — drained by `pumpSheetQueue` from `update`. */
@@ -1739,6 +1746,7 @@ export class WorldScene extends Phaser.Scene {
    * occupies nothing glows nowhere — which is what it is. It has had its own HUD line since Phase 1.
    */
   private applyEquipment(light: CarriedLight | undefined, equipped: Equipped | undefined): void {
+    this.selfEquipped = equipped;
     const worn: Partial<Record<string, { readonly name: string; readonly lit?: boolean; readonly ac?: number }>> = {};
     for (const [slot, item] of Object.entries(equipped ?? {})) {
       // `lit` by identity rather than by slot: the id is what the server matched to derive the radius,
@@ -2092,6 +2100,23 @@ export class WorldScene extends Phaser.Scene {
    */
   private openTargetMenu(pointer: Phaser.Input.Pointer, entity: Entity): void {
     const view = entity.view;
+    // **A revealed body's menu is ranged or nothing** — owner's ask, 2026-08-09: *"add a fire/throw
+    // option to the menu when I click a mob."* Everything else on this menu resolves through reach,
+    // and seeing is not reaching: Attack, Look at, the openers would every one be refused for a body
+    // a room away. Ranged is the single verb allowed to name it, so the menu offers exactly what the
+    // main hand makes possible and otherwise does not open at all.
+    if (view.revealed) {
+      const main = this.selfEquipped?.mainHand;
+      const ranged: TargetVerb[] = [];
+      if (main?.fires !== undefined) {
+        ranged.push({ label: 'Fire', danger: true, run: () => this.net.send({ t: 'rangedAttack', target: view.id }) });
+      }
+      if (main?.canThrow === true) {
+        ranged.push({ label: 'Throw', danger: true, run: () => this.net.send({ t: 'rangedAttack', target: view.id, thrown: true }) });
+      }
+      if (ranged.length > 0) this.targetMenu.show(pointer.x, pointer.y, stripColour(view.name), ranged);
+      return;
+    }
     const verbs: TargetVerb[] = [
       { label: 'Look at', run: () => this.net.send({ t: 'look', target: view.id }) },
     ];
@@ -2123,6 +2148,16 @@ export class WorldScene extends Phaser.Scene {
       }
       if (!view.untouchable) {
         verbs.push(...this.openersFor(view));
+        // The ranged rows, same gate the revealed menu uses: offered only when the main hand can.
+        // Point-blank fire is legal — the step-back-and-shoot group tactic — so the room makes no
+        // difference to whether the row appears.
+        const main = this.selfEquipped?.mainHand;
+        if (main?.fires !== undefined) {
+          verbs.push({ label: 'Fire', danger: true, run: () => this.net.send({ t: 'rangedAttack', target: view.id }) });
+        }
+        if (main?.canThrow === true) {
+          verbs.push({ label: 'Throw', danger: true, run: () => this.net.send({ t: 'rangedAttack', target: view.id, thrown: true }) });
+        }
         verbs.push({
           label: 'Attack',
           danger: true,

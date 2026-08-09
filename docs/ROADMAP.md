@@ -558,6 +558,22 @@ and they would all render as men. It switches on the day there is creature art.
 and the boot loop that read it are gone, replaced by templates and reset tables. The hand-placed sentry was
 superseded by IceCrag's own.
 
+#### Phase 8¾ — It goes somewhere on its own *(intake 2026-08-09, unscheduled within the act)*
+
+- **Mechanic.** A wander pass: mobs not flagged sentinel drift between rooms on a slow clock —
+  `mobile_activity`'s idle walk, the one piece of Diku mob life we never transcribed. Announced with
+  the same arrival line hunts already print, which is the owner's actual ask: *"it should show 'mob'
+  enters from the west when a mob enters the room you are in. works for roaming mobs and kited
+  mobs."* Kited mobs already say it; roaming mobs do not exist yet, which the ask surfaced.
+- **Constraints already known.** Never out of zone (`staysInZone` is harvested), never into `no_mob`
+  or sanctuary, never while fighting, provoked, or hunting; the pursuit tiers are the wrong gate —
+  83% are `sentinel` in *pursuit* terms, but Duris' wander bit is `ACT_SENTINEL` itself, which the
+  harvest carries via `aggro.sentinel` (880 mobs, 59%) — measure before wiring, the two flags are
+  different facts (`DESIGN-ranged.md` §0.4's own warning).
+- **Why not now.** Filed mid-ranged rather than built: every idle mob in the world starting to move
+  is a population-wide behaviour change, and the ranged slices are open. It belongs beside the rest
+  of mob life, not bolted onto an archery evening.
+
 #### Phase 9 — It notices you ✅ **done**
 
 - **Mechanic.** Aggression as a **predicate**, not a boolean — three dispositions. Delayed reaction
