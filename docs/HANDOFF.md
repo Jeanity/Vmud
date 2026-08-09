@@ -471,9 +471,19 @@ that would have provoked 83% of the world for zero milliseconds is the commit me
 **Also new: `quit`/`logout`** (back to the character picker — forgets the character, keeps the account
 resume), and the admin `give`/`PATCH level` endpoints got their first real workout arming the owner.
 
-**Still open in ranged:** slice 6, the art (crossbow and sling sheets are staged; the bow needs
-re-slicing and `swing` a third value — `DESIGN-ranged.md` §0.5); slice 7, the self-supplying magic bow
-(deliberately last; its hard half is acquisition, since ranged gear is placed nowhere). Two smaller
+**Slice 6 landed the same evening: the ranger draws a bow on screen.** All of it from the *kit* pack —
+ULPC's bows were measured against our body and refused (74% of bytes differ; a bow drawn for one body
+sits wrong on the other). The kit pack ships shoot.png beside every walk, three bows drawn for this
+body, and the arrow; the filler-block trauma struck twice more and was measured away (782 shoot sheets
+cropped 14→13, then 3,170 pack action sheets cropped in place after the first staging run resurrected
+the old bug from raw originals). The bow is two walkless sheets — hand-encoded transparent walk under a
+real `-shoot` twin — reaching bodies as protocol 14's art-*class* fallback (`'bow'`, keyed on `fires`,
+beside `'shield'`); the nocked arrow is KIT_ART's first layered row. The flight is a client tween
+(arrow holds its line, thrown blade tumbles; spell bolts are the same function with a glow, later).
+Short bow only: greatbow/recurve are 128px-cell and wait for a kit-sheet geometry channel.
+
+**Still open in ranged:** slice 7, the self-supplying magic bow (deliberately last; its hard half is
+acquisition, since ranged gear is placed nowhere). Two smaller
 threads: pre-slice-1 item *instances* in saves lack the copied-down ranged fields (the server heals
 from the catalogue, the client menu cannot — a fresh bow works, an old saved one shows no Fire row
 until re-minted), and mob *wandering* does not exist at all — filed as Phase 8¾ in the roadmap when
