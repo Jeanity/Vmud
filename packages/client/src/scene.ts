@@ -119,14 +119,14 @@ export const TILE_SHEETS = [
 /** Indexed by `SECTOR_INDEX` order. */
 const SECTOR_ART: readonly TileArt[] = [
   { sheet: 'dirt2', frames: [10, 10, 17] },                    // inside — flagstones
-  // City streets are real flagstone — owner, 2026-08-09, standing in Velen: *"brown makes it look
-  // like a dirt road."* The old row tinted the dirt sheet grey, and a multiplicative tint over brown
-  // pixels only ever makes darker brown. `cobbles.png` is HughSpectrum's outside castle flags (the
-  // sage colourway, four fills, one worn smooth); the tint suppresses their green cast to a
-  // weathered grey the art itself never shipped.
-  // 0xcabad4 lands the sage flags at a neutral mid-grey (~135) — matched by eye against the owner's
-  // reference atlas, which is also the first draft (0xffebff) getting corrected for running warm.
-  { sheet: 'cobbles', frames: [0, 1, 2, 0, 1, 3], tint: 0xcabad4 }, // city — grey flagstone
+  // City streets are real cobblestone — owner, 2026-08-09, standing in Velen: *"brown makes it
+  // look like a dirt road."* Three drafts in one evening, each honester than the last: dirt tinted
+  // grey (multiplying brown only makes darker brown), castle flags tinted toward a reference atlas
+  // the owner pasted — and then the owner named where the atlas lives, so `cobbles.png` is now
+  // that art itself: four grey cobble fills from bluecarrot16's terrain-v7 (one carrying grass
+  // sprigs, which is what keeps a street from looking laid yesterday), untinted, because the grey
+  // the owner pointed at is the grey the artist mixed.
+  { sheet: 'cobbles', frames: [0, 1, 2, 0, 1, 3] }, // city — grey cobblestone
   { sheet: 'dirt', frames: [17, 17, 10] },                     // road
   { sheet: 'grass', frames: [10, 10, 10, 16, 17] },            // field
   { sheet: 'grass', frames: [10, 10, 16, 17, 15], tint: 0x8fb88f }, // forest — denser, darker

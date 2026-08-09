@@ -34,7 +34,10 @@ with the images in any build that ships them.
 
 No changes have been made to the source images; tiles are selected by frame index at run time.
 
-`cobbles.png` is four 32px tiles extracted unmodified from **Hugh Spectrum**'s
-`castlefloors_outside.png` (the sage flagstone colourway) in the LPC base assets vendored at
-`assets/lpc-opengameart/` — CC-BY-SA 3.0 / GPL 3.0, the same terms as everything above. The grey
-cast the game shows is a run-time tint; the pixels on disk are the artist's own.
+`cobbles.png` is four 32px grey cobblestone fills extracted unmodified from `terrain-v7.png` in
+**"[LPC] Terrains"** — bluecarrot16, Lanea Zimmerman (Sharm), Daniel Eddeland (Daneeklu), Richard
+Kettering (Jetrel), Zachariah Husiar (Zabin), Hyptosis, Casper Nilsson, Buko Studios, Nushio,
+ZaPaper, billknye, William Thompson, caeles, Redshrike, Bertram, and Rayane Félix (RayaneFLX) —
+CC-BY-SA 3.0 / GPL 3.0. The atlas is vendored at `assets/love2d-lpc-tiles/` (untracked, from
+<https://github.com/DrJamgo/love2d-lpc-tiles>), whose `CREDITS-terrain-v7.txt` is the authoritative
+per-source record. Drawn untinted.
