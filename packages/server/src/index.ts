@@ -42,6 +42,7 @@ import {
   type SkillId,
   MIN_ROUND_MS,
   MS_PER_DURIS_HOUR,
+  MISSILE_TYPE,
   MISSILE_TYPE_NAMES,
   pick,
   randomInt,
@@ -3901,6 +3902,33 @@ function shootAt(player: Player, thrown: boolean, target: Actor, dir: Direction 
 
   // One breakage roll per shot, higher across the boundary, and the only destruction in the system.
   const broken = returning ? false : rollChance(combatRng, breakChance(crossRoom));
+
+  // Protocol 22, at last for the bow — deferred from slices 3+4 because the pose vocabulary only
+  // knew `slash` and `thrust`, and a bow animating as a sword swing would have been worse than the
+  // log line. Both rooms' watchers are told: the shooter's room sees the draw, and a far-room
+  // observer who can see the victim watches the arrival (their copy plays no pose — they cannot see
+  // the archer — but the strike lands on the body they are looking at).
+  {
+    const audience = new Set([...sim.playersIn(player.roomId), ...sim.playersIn(target.roomId)]);
+    for (const observer of audience) {
+      const seesAttacker = observer.id === player.id || (watching.get(observer.id)?.has(player.id) ?? false);
+      const seesTarget = observer.id === target.id || (watching.get(observer.id)?.has(target.id) ?? false);
+      if (!seesAttacker && !seesTarget) continue;
+      send(observer.id, {
+        t: 'attackResolved',
+        attacker: player.id,
+        target: target.id,
+        hit: result.hit,
+        critical: result.critical,
+        damage,
+        natural: result.natural,
+        outcome: result.hit ? 'hit' : 'miss',
+        // The throwing arm is the thrust the pack drew; the bow has its own sheet family.
+        swing: thrown ? 'thrust' : 'shoot',
+        projectile: thrown ? 'blade' : 'arrow',
+      });
+    }
+  }
 
   announceShot(player, target, {
     missileName: missile.name,
@@ -9664,7 +9692,19 @@ const adminLive: LiveOps = {
 // the obvious heuristic dresses 177 pairs of sleeves as shields.
 sim.artClassOf = (item) => {
   const template = templateOf(item);
-  return template?.art ?? (template?.type === DURIS_ITEM.shield ? 'shield' : undefined);
+  return (
+    template?.art ??
+    (template?.type === DURIS_ITEM.shield
+      ? 'shield'
+      // Ranged slice 6, the shield's own argument one row down: 50 launchers are in the catalogue
+      // and none has authored art, so every arrow-firing one draws as the staged short bow until an
+      // operator chooses better. Keyed on what it *fires* rather than its type alone, because the
+      // one staged sheet is a bow and a crossbow drawn as one would be a lie with a string — the
+      // quarrel-firers stay undrawn, the documented degradation, until their sheets are staged.
+      : template?.type === DURIS_ITEM.fireweapon && template.fires === MISSILE_TYPE.arrow
+        ? 'bow'
+        : undefined)
+  );
 };
 
 // Phase 16. The catalogue's 64 light sources, resolved by item id — `sim.ts` has no business owning

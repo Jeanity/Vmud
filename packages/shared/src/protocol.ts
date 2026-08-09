@@ -1021,7 +1021,14 @@ export type ServerMessage =
        * on misses too — you swing and miss; the verb describes the landing, the motion the attempt.
        * Absent means the client animates nothing, which is every message from before this field.
        */
-      readonly swing?: 'slash' | 'thrust';
+      readonly swing?: 'slash' | 'thrust' | 'shoot';
+      /**
+       * A missile crossed the room — ranged slice 6. The client draws the flight (a shaft for an
+       * arrow, a spinning blade for a throw) from attacker to target when both are on its screen;
+       * the pose above animates the *body*, this animates the thing that left it. Absent on every
+       * melee blow, so a thrust that is just a thrust tweens nothing.
+       */
+      readonly projectile?: 'arrow' | 'blade';
     }
   | { readonly t: 'died'; readonly id: EntityId; readonly killer?: EntityId }
   /**

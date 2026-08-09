@@ -324,6 +324,16 @@ const POSE_SHIFTS: Readonly<Record<string, readonly (readonly (readonly [number,
     [[0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1]],
   ],
   '-hurt': [[[0, 0], [2, 1], [2, 8], [2, 12], [2, 18], [3, 13]]],
+  // Ranged slice 6, measured 2026-08-09 by the same head-point method: the archer stands planted.
+  // North leans a pixel into the draw, west and east settle one up, south does not move at all —
+  // which is exactly what a body bracing a bow should read as, and why twin-less indexed garments
+  // ride these thirteen columns almost invisibly.
+  '-shoot': [
+    [[-1, 0], [-1, 1], [0, 0], [-1, 0], [-1, 0], [-1, 0], [-1, 0], [-1, 0], [-1, 0], [-1, 0], [-1, 0], [-1, 0], [-1, 0]],
+    [[0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1]],
+    [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]],
+    [[0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1], [0, -1]],
+  ],
 };
 
 /**
@@ -342,8 +352,8 @@ const POSE_SHIFTS: Readonly<Record<string, readonly (readonly (readonly [number,
  * filler columns are now cropped off the staged files (alpha-ratio measured, per sheet), and the
  * counts these clocks carry are the *real* ones: swing 6, thrust 8, magic 7, hurt 6.
  */
-const ACTION_SUFFIXES = { slash: '-slash', thrust: '-thrust' } as const;
-const ACTION_COLUMNS: Readonly<Record<'-slash' | '-thrust', number>> = { '-slash': 6, '-thrust': 8 };
+const ACTION_SUFFIXES = { slash: '-slash', thrust: '-thrust', shoot: '-shoot' } as const;
+const ACTION_COLUMNS: Readonly<Record<'-slash' | '-thrust' | '-shoot', number>> = { '-slash': 6, '-thrust': 8, '-shoot': 13 };
 /** ~90 ms a frame lands a slash at ~0.5 s — inside a 2–3 s round, so swings read as distinct events. */
 const ACTION_FRAME_MS = 90;
 /** The held wind-up loop. Slower than a swing on purpose: a chant is effort, not violence. */
@@ -406,6 +416,15 @@ const LPC_WALK_ONLY_SHEETS: readonly string[] = [
 ];
 
 /**
+ * Sheets that exist only in the draw — ranged slice 6. Each pair is a hand-encoded transparent walk
+ * under a real `-shoot` twin, so the bow is invisible on a walking body and in the hands the instant
+ * the pose swaps: the truthful staging of a weapon the pack renders only in its action, exactly as
+ * it renders swords only in the swing. The ammo sheet is the nocked arrow, its own layer at the
+ * pack's own separation, riding one z above the bow.
+ */
+const LPC_SHOOT_ONLY_SHEETS: readonly string[] = ['weapon-bow-short', 'weapon-bow-ammo'];
+
+/**
  * The action twins protocol 22 poses from — swing, chant, down. **These were staged and never
  * loaded**: the animations slice put 56 PNGs in `public/lpc/` and grew no load list, so
  * `poseLayers`' `textures.exists` guard was false forever and every pose silently held the walk
@@ -419,7 +438,7 @@ const LPC_WALK_ONLY_SHEETS: readonly string[] = [
  * × 4, byte-counted on disk); `offhand-shield` carries none — the pack draws no shield motion —
  * and stays walk-only, its held frame being the documented degradation.
  */
-const LPC_ACTION_SUFFIXES = ['-slash', '-thrust', '-spellcast', '-hurt'] as const;
+const LPC_ACTION_SUFFIXES = ['-slash', '-thrust', '-spellcast', '-hurt', '-shoot'] as const;
 
 const LPC_SHEETS: readonly string[] = [
   ...LPC_IDLE_SHEETS.flatMap((sheet) => [
@@ -428,6 +447,7 @@ const LPC_SHEETS: readonly string[] = [
     ...LPC_ACTION_SUFFIXES.map((suffix) => sheet + suffix),
   ]),
   ...LPC_WALK_ONLY_SHEETS,
+  ...LPC_SHOOT_ONLY_SHEETS.flatMap((sheet) => [sheet, sheet + '-shoot']),
 ];
 
 /**
@@ -452,7 +472,7 @@ const LPC_SHEETS: readonly string[] = [
  * slot the pack has no art for: LPC ships exactly one hand garment (Gauntlets) and nothing resembling
  * frayed wraps, so the kit leaves hands unlayered rather than drawing them as something they are not.
  */
-const KIT_ART: Readonly<Record<string, string>> = {
+const KIT_ART: Readonly<Record<string, string | readonly { readonly sheet: string; readonly z: number }[]>> = {
   leather_tunic: 'torso-tunic-leather',
   padded_jerkin: 'torso-jerkin-padded',
   quilted_vest: 'torso-vest-quilted',
@@ -936,7 +956,7 @@ interface Entity {
    * rederives the pose from what remains true (casting, posture, walking) — there is no transition
    * to manage because pose was always rederived, never stored.
    */
-  action?: { readonly suffix: '-slash' | '-thrust'; readonly startedAt: number };
+  action?: { readonly suffix: '-slash' | '-thrust' | '-shoot'; readonly startedAt: number };
 }
 
 export class WorldScene extends Phaser.Scene {
@@ -2022,6 +2042,7 @@ export class WorldScene extends Phaser.Scene {
     // room view) animates nothing, which is the same sight gate every other per-entity visual keeps.
     this.net.on('attackResolved', (message) => {
       if (message.swing) this.playSwing(message.attacker, message.swing);
+      if (message.projectile) this.flightEffect(message.attacker, message.target, message.projectile);
     });
 
     this.net.on('path', (message) => {
@@ -3520,11 +3541,43 @@ export class WorldScene extends Phaser.Scene {
    * three attacks read as three restarts, which loses frames but never truth: every swing that
    * happened moved the body that made it. Queuing would still be playing round one during round two.
    */
-  private playSwing(id: EntityId, swing: 'slash' | 'thrust'): void {
+  private playSwing(id: EntityId, swing: 'slash' | 'thrust' | 'shoot'): void {
     const entity = this.entities.get(id);
     if (!entity) return;
     entity.action = { suffix: ACTION_SUFFIXES[swing], startedAt: this.time.now };
     this.faceEntity(entity, entity.view.facing);
+  }
+
+  /**
+   * A missile crossing the screen — ranged slice 6, and the half of the shot the pose cannot show.
+   *
+   * The pose sheets animate the *body*: the draw, the throwing arm. The thing that left the hand is
+   * this — a shaft tweened from shooter to victim, rotated along its path, gone on arrival. Drawn
+   * only when both ends are on screen, which the shot's own rules already arrange: a cross-room
+   * target had to be *revealed* to be shot at, and a revealed body is drawn. An arrow flies
+   * straight; a thrown blade spins, which is one extra tween property and the whole difference the
+   * owner asked for. Spell bolts will be this function with a glow — `DESIGN-ranged.md`.
+   */
+  private flightEffect(from: EntityId, to: EntityId, kind: 'arrow' | 'blade'): void {
+    const shooter = this.entities.get(from);
+    const victim = this.entities.get(to);
+    if (!shooter || !victim) return;
+    const angle = Math.atan2(victim.y - shooter.y, victim.x - shooter.x);
+    const shaft = this.add
+      .rectangle(shooter.x, shooter.y - LPC_FOOT_OFFSET, kind === 'arrow' ? 14 : 9, 2, kind === 'arrow' ? 0xd8c28a : 0xc8cbd0)
+      .setDepth(ENTITY_DEPTH + 1)
+      .setRotation(angle);
+    this.tweens.add({
+      targets: shaft,
+      x: victim.x,
+      y: victim.y - LPC_FOOT_OFFSET,
+      // A blade tumbles end over end; an arrow holds its line. Duration by distance, clamped so a
+      // point-blank throw still reads and a cross-room shot does not dawdle.
+      ...(kind === 'blade' ? { rotation: angle + Math.PI * 6 } : {}),
+      duration: Math.max(120, Math.min(320, Math.hypot(victim.x - shooter.x, victim.y - shooter.y) * 0.9)),
+      ease: 'Quad.easeIn',
+      onComplete: () => shaft.destroy(),
+    });
   }
 
   /**
@@ -3650,7 +3703,10 @@ export class WorldScene extends Phaser.Scene {
       return [];
     }
     const kit = KIT_ART[id];
-    return kit ? [{ sheet: kit, z: fallbackZ }] : [];
+    if (!kit) return [];
+    // A layered kit row carries its own z per sheet; a plain one takes the slot's. The bow is why
+    // the shape exists — see the row itself.
+    return typeof kit === 'string' ? [{ sheet: kit, z: fallbackZ }] : [...kit];
   }
 
   /**
