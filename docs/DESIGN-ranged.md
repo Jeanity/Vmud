@@ -484,6 +484,15 @@ for it would put our content in their number space.
 **Deliberately last.** It is the reward at the end of the mechanic, and building it before the mechanic
 means the rare bow is the thing being debugged.
 
+**Closed 2026-08-09, both halves.** The mechanism is the `conjures` field — the conjured missile's
+display name, which is also the flag; the shot path simply never has a missile object, so the spend,
+the landing, the corpse and the breakage all skip themselves. The acquisition is the owner's ruling,
+*"loot on a named boss"*: **the Whisperwind (vnum 9000001, 3d6+2, +3, conjures a shimmering arrow)
+is wielded by Malice, the half-breed son of Strife** — level 60, 60d143+6600 hit points, forty rooms
+deep in IceCrag, the same mob the aggression system was verified against. Wielded rather than carried,
+so the bow is visible on the body of the thing you have to kill for it, and the corpse fold already
+takes worn gear. Instances standing before the ruling carry nothing; the next repop arms him.
+
 ### Already answered by slice 1 — do not build these
 
 Three of the owner's follow-ups (2026-08-08) turned out to be requests for data the harvest was already

@@ -268,11 +268,6 @@
     "at": "2026-08-06T23:13:56.186Z",
     "by": "artsweep"
   },
-  "180": {
-    "art": "weapon-ranged-slingshot-slingshot",
-    "at": "2026-08-06T23:13:57.282Z",
-    "by": "artsweep"
-  },
   "181": {
     "art": "quiver-quiver",
     "at": "2026-08-06T11:22:59.761Z",
@@ -296,11 +291,6 @@
   "189": {
     "art": "shield-round-brown",
     "at": "2026-08-06T23:14:02.400Z",
-    "by": "artsweep"
-  },
-  "190": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-06T23:14:03.378Z",
     "by": "artsweep"
   },
   "191": {
@@ -1323,11 +1313,6 @@
     "at": "2026-08-06T23:18:15.753Z",
     "by": "artsweep"
   },
-  "592": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-06T23:18:17.740Z",
-    "by": "artsweep"
-  },
   "593": {
     "art": "quiver-quiver",
     "at": "2026-08-06T11:22:59.761Z",
@@ -2246,11 +2231,6 @@
   "1117": {
     "art": "shield-heater-revised-pattern-bendy",
     "at": "2026-08-06T23:22:28.213Z",
-    "by": "artsweep"
-  },
-  "1118": {
-    "art": "weapon-ranged-slingshot-slingshot",
-    "at": "2026-08-06T23:22:29.970Z",
     "by": "artsweep"
   },
   "1119": {
@@ -3364,9 +3344,9 @@
   },
   "1754": {
     "art": "arms-hands-ring-stud",
+    "slot": "ring2",
     "at": "2026-08-07T13:13:26.540Z",
-    "by": "artassign",
-    "slot": "ring2"
+    "by": "artassign"
   },
   "1800": {
     "art": "hat-headband-kerchief#all_lpcr.silver",
@@ -5912,11 +5892,6 @@
     "art": "weapon-magic-simple-simple",
     "at": "2026-08-06T11:22:59.762Z",
     "by": "artassign"
-  },
-  "4915": {
-    "art": "weapon-ranged-slingshot-slingshot",
-    "at": "2026-08-06T23:36:41.369Z",
-    "by": "artsweep"
   },
   "4916": {
     "art": "backpack-black",
@@ -8917,11 +8892,6 @@
     "art": "quiver-quiver",
     "at": "2026-08-06T11:22:59.762Z",
     "by": "artassign"
-  },
-  "8732": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T00:05:13.174Z",
-    "by": "artsweep"
   },
   "8733": {
     "art": "weapon-blunt-waraxe-waraxe",
@@ -12528,11 +12498,6 @@
     "at": "2026-08-07T00:12:10.002Z",
     "by": "artsweep"
   },
-  "13320": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T00:12:10.922Z",
-    "by": "artsweep"
-  },
   "13324": {
     "art": "dress-bodice-black",
     "at": "2026-08-06T11:22:59.763Z",
@@ -13241,11 +13206,6 @@
   "14108": {
     "art": "torso-armour-plate",
     "at": "2026-08-07T00:13:46.873Z",
-    "by": "artsweep"
-  },
-  "14110": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T00:13:47.801Z",
     "by": "artsweep"
   },
   "14111": {
@@ -16898,11 +16858,6 @@
     "at": "2026-08-06T11:22:59.763Z",
     "by": "artassign"
   },
-  "17092": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T00:20:54.163Z",
-    "by": "artsweep"
-  },
   "17095": {
     "art": "quiver-quiver",
     "at": "2026-08-06T11:22:59.763Z",
@@ -19298,11 +19253,6 @@
     "at": "2026-08-06T11:22:59.764Z",
     "by": "artassign"
   },
-  "21519": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T00:25:58.127Z",
-    "by": "artsweep"
-  },
   "21520": {
     "art": "weapon-sword-rapier-rapier",
     "at": "2026-08-06T11:22:59.764Z",
@@ -19981,11 +19931,6 @@
   "22047": {
     "art": "shield-heater-revised-wood",
     "at": "2026-08-07T00:27:29.470Z",
-    "by": "artsweep"
-  },
-  "22048": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T00:27:30.447Z",
     "by": "artsweep"
   },
   "22049": {
@@ -21768,11 +21713,6 @@
     "at": "2026-08-06T11:22:59.764Z",
     "by": "artassign"
   },
-  "25753": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T00:31:42.295Z",
-    "by": "artsweep"
-  },
   "25754": {
     "art": "shield-heater-revised-wood",
     "at": "2026-08-07T00:31:43.638Z",
@@ -22718,11 +22658,6 @@
     "at": "2026-08-06T11:22:59.764Z",
     "by": "artassign"
   },
-  "28521": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T00:33:52.734Z",
-    "by": "artsweep"
-  },
   "28522": {
     "art": "quiver-quiver",
     "at": "2026-08-06T11:22:59.764Z",
@@ -23393,11 +23328,6 @@
     "at": "2026-08-07T00:35:46.845Z",
     "by": "artsweep"
   },
-  "29209": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T00:35:47.842Z",
-    "by": "artsweep"
-  },
   "29210": {
     "art": "shield-heater-revised-pattern-barry",
     "at": "2026-08-07T00:35:49.255Z",
@@ -23523,11 +23453,6 @@
     "at": "2026-08-07T00:36:08.702Z",
     "by": "artsweep"
   },
-  "29246": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T00:36:09.673Z",
-    "by": "artsweep"
-  },
   "29248": {
     "art": "cape-solid",
     "at": "2026-08-07T00:36:10.164Z",
@@ -23597,11 +23522,6 @@
     "art": "weapon-sword-arming-brass",
     "at": "2026-08-06T11:22:59.764Z",
     "by": "artassign"
-  },
-  "29273": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T00:36:19.839Z",
-    "by": "artsweep"
   },
   "29274": {
     "art": "shield-heater-revised-pattern-bordure",
@@ -26511,11 +26431,6 @@
   "35808": {
     "art": "quiver-quiver",
     "at": "2026-08-07T00:43:05.276Z",
-    "by": "artsweep"
-  },
-  "35809": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T00:43:06.249Z",
     "by": "artsweep"
   },
   "35811": {
@@ -31383,11 +31298,6 @@
     "at": "2026-08-07T00:53:54.342Z",
     "by": "artsweep"
   },
-  "42285": {
-    "art": "weapon-ranged-slingshot-slingshot",
-    "at": "2026-08-07T00:53:55.395Z",
-    "by": "artsweep"
-  },
   "42286": {
     "art": "shield-heater-pattern-bend",
     "at": "2026-08-07T00:53:56.584Z",
@@ -34228,16 +34138,6 @@
     "at": "2026-08-07T01:00:47.456Z",
     "by": "artsweep"
   },
-  "45020": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T01:00:48.418Z",
-    "by": "artsweep"
-  },
-  "45021": {
-    "art": "weapon-magic-crystal-blue",
-    "at": "2026-08-06T11:22:59.766Z",
-    "by": "artassign"
-  },
   "45022": {
     "art": "weapon-sword-longsword-longsword",
     "at": "2026-08-06T11:22:59.766Z",
@@ -34832,11 +34732,6 @@
     "art": "neck-necklace-beaded-large-steel",
     "at": "2026-08-06T11:22:59.766Z",
     "by": "artassign"
-  },
-  "49041": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T01:02:24.847Z",
-    "by": "artsweep"
   },
   "49042": {
     "art": "neck-amulet-dangle-brass-blue",
@@ -38073,11 +37968,6 @@
     "at": "2026-08-06T11:22:59.767Z",
     "by": "artassign"
   },
-  "59303": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T01:09:32.879Z",
-    "by": "artsweep"
-  },
   "59304": {
     "art": "shield-heater-revised-wood",
     "at": "2026-08-07T01:09:34.171Z",
@@ -39553,11 +39443,6 @@
     "at": "2026-08-07T01:12:57.125Z",
     "by": "artsweep"
   },
-  "67212": {
-    "art": "weapon-ranged-slingshot-slingshot",
-    "at": "2026-08-07T01:12:58.211Z",
-    "by": "artsweep"
-  },
   "67215": {
     "art": "belt-belly-brown",
     "at": "2026-08-06T11:22:59.767Z",
@@ -40397,11 +40282,6 @@
   "69065": {
     "art": "weapon-polearm-scythe-scythe",
     "at": "2026-08-07T01:14:54.326Z",
-    "by": "artsweep"
-  },
-  "69066": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T01:14:55.272Z",
     "by": "artsweep"
   },
   "69067": {
@@ -45894,11 +45774,6 @@
     "at": "2026-08-07T01:27:59.259Z",
     "by": "artsweep"
   },
-  "78458": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T01:28:00.262Z",
-    "by": "artsweep"
-  },
   "78459": {
     "art": "shield-heater-revised-wood",
     "at": "2026-08-07T01:28:01.650Z",
@@ -46609,11 +46484,6 @@
     "at": "2026-08-06T11:22:59.768Z",
     "by": "artassign"
   },
-  "80006": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T01:29:36.025Z",
-    "by": "artsweep"
-  },
   "80007": {
     "art": "quiver-quiver",
     "at": "2026-08-06T11:22:59.768Z",
@@ -47299,11 +47169,6 @@
     "at": "2026-08-07T01:31:30.167Z",
     "by": "artsweep"
   },
-  "80179": {
-    "art": "weapon-ranged-slingshot-slingshot",
-    "at": "2026-08-07T01:31:31.283Z",
-    "by": "artsweep"
-  },
   "80180": {
     "art": "shield-heater-revised-wood",
     "at": "2026-08-06T11:22:59.768Z",
@@ -47383,11 +47248,6 @@
     "art": "shield-heater-revised-pattern-bend",
     "at": "2026-08-07T01:31:44.451Z",
     "by": "artsweep"
-  },
-  "80196": {
-    "art": "weapon-magic-crystal-blue",
-    "at": "2026-08-06T11:22:59.768Z",
-    "by": "artassign"
   },
   "80197": {
     "art": "torso-aprons-apron-leather",
@@ -48834,11 +48694,6 @@
     "at": "2026-08-06T11:22:59.768Z",
     "by": "artassign"
   },
-  "82504": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T01:35:25.173Z",
-    "by": "artsweep"
-  },
   "82507": {
     "art": "torso-clothes-robe-black",
     "at": "2026-08-07T01:35:26.562Z",
@@ -48997,11 +48852,6 @@
   "82558": {
     "art": "shield-heater-revised-pattern-cross",
     "at": "2026-08-07T01:35:51.088Z",
-    "by": "artsweep"
-  },
-  "82559": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T01:35:52.090Z",
     "by": "artsweep"
   },
   "82560": {
@@ -51473,11 +51323,6 @@
     "at": "2026-08-07T01:41:12.896Z",
     "by": "artsweep"
   },
-  "85706": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T01:41:13.838Z",
-    "by": "artsweep"
-  },
   "85710": {
     "art": "weapon-sword-dagger-dagger",
     "at": "2026-08-06T11:22:59.769Z",
@@ -53128,16 +52973,6 @@
     "at": "2026-08-06T11:22:59.769Z",
     "by": "artassign"
   },
-  "89102": {
-    "art": "weapon-ranged-slingshot-slingshot",
-    "at": "2026-08-07T01:44:25.801Z",
-    "by": "artsweep"
-  },
-  "89103": {
-    "art": "weapon-ranged-slingshot-slingshot",
-    "at": "2026-08-07T01:44:26.859Z",
-    "by": "artsweep"
-  },
   "89104": {
     "art": "weapon-ranged-slingshot-slingshot",
     "at": "2026-08-07T01:44:27.902Z",
@@ -54671,11 +54506,6 @@
   "93707": {
     "art": "cape-tattered",
     "at": "2026-08-07T01:47:29.185Z",
-    "by": "artsweep"
-  },
-  "93710": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T01:47:30.069Z",
     "by": "artsweep"
   },
   "93716": {
@@ -59856,16 +59686,6 @@
   "132610": {
     "art": "shield-heater-revised-pattern-per-bend",
     "at": "2026-08-07T01:57:26.122Z",
-    "by": "artsweep"
-  },
-  "132611": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T01:57:27.033Z",
-    "by": "artsweep"
-  },
-  "132612": {
-    "art": "weapon-ranged-crossbow-crossbow",
-    "at": "2026-08-07T01:57:27.927Z",
     "by": "artsweep"
   },
   "132613": {

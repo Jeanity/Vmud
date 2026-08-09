@@ -1,5 +1,5 @@
 {
-  "next": 9000001,
+  "next": 9000002,
   "items": {
     "9000000": {
       "vnum": 9000000,
@@ -22,14 +22,39 @@
         "sides": 6,
         "bonus": 2
       },
-      "art": "weapon-sword-saber-saber",
       "weaponClass": 5,
+      "art": "weapon-sword-saber-saber",
       "proc": {
         "t": "special",
         "id": "windsong"
       },
       "at": "2026-08-07T10:00:06.580Z",
       "by": "panel"
+    },
+    "9000001": {
+      "vnum": 9000001,
+      "keywords": [
+        "whisperwind",
+        "bow"
+      ],
+      "name": "&+Cthe &+WWhisperwind&N",
+      "roomLine": "&+Cthe Whisperwind lies here, humming faintly.&N",
+      "type": 6,
+      "ac": 0,
+      "size": 1,
+      "cost": 0,
+      "stackLimit": 1,
+      "slot": "mainHand",
+      "damage": {
+        "count": 3,
+        "sides": 6,
+        "bonus": 2
+      },
+      "fires": 1,
+      "conjures": "&+Ca shimmering arrow&N",
+      "hitroll": 3,
+      "at": "2026-08-09T05:22:46.793Z",
+      "by": "fable, slice 7"
     }
   }
 }
