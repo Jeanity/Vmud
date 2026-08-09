@@ -3571,7 +3571,10 @@ export class WorldScene extends Phaser.Scene {
     const victim = this.entities.get(to);
     if (!shooter || !victim) return;
     const startX = shooter.x;
-    const startY = shooter.y - LPC_FOOT_OFFSET;
+    // ADDED, not subtracted: `LPC_FOOT_OFFSET` is negative — it is where the art hangs above the
+    // container origin, so adding it lands mid-torso, where the hands are. The first draft
+    // subtracted it and every shot left from the caster's boots.
+    const startY = shooter.y + LPC_FOOT_OFFSET;
     const angle = Math.atan2(victim.y - shooter.y, victim.x - shooter.x);
     const shaft =
       kind === 'bolt'
@@ -3580,7 +3583,7 @@ export class WorldScene extends Phaser.Scene {
             .rectangle(startX, startY, kind === 'arrow' ? 14 : 9, 2, kind === 'arrow' ? 0xd8c28a : 0xc8cbd0)
             .setDepth(ENTITY_DEPTH + 1)
             .setRotation(angle);
-    const distance = Math.hypot(victim.x - startX, victim.y - LPC_FOOT_OFFSET - startY);
+    const distance = Math.hypot(victim.x - startX, victim.y + LPC_FOOT_OFFSET - startY);
     const duration = Math.max(120, Math.min(320, distance * 0.9));
 
     if (hit) {
@@ -3591,7 +3594,7 @@ export class WorldScene extends Phaser.Scene {
       // much as the flight. If the victim vanishes mid-flight (death, a room change), the last known
       // point serves — the world already told that story elsewhere.
       let lastX = victim.x;
-      let lastY = victim.y - LPC_FOOT_OFFSET;
+      let lastY = victim.y + LPC_FOOT_OFFSET;
       this.tweens.addCounter({
         from: 0,
         to: 1,
@@ -3602,7 +3605,7 @@ export class WorldScene extends Phaser.Scene {
           const live = this.entities.get(to);
           if (live) {
             lastX = live.x;
-            lastY = live.y - LPC_FOOT_OFFSET;
+            lastY = live.y + LPC_FOOT_OFFSET;
           }
           shaft.x = startX + (lastX - startX) * t;
           shaft.y = startY + (lastY - startY) * t;
@@ -3625,7 +3628,7 @@ export class WorldScene extends Phaser.Scene {
     // Magic has nothing to land, so it dissipates short: fading to nothing about a body-length shy of
     // the target it never quite reached.
     const missX = kind === 'bolt' ? startX + (victim.x - startX) * 0.8 : victim.x + Math.cos(angle) * TILE_SIZE * 1.6;
-    const missY = kind === 'bolt' ? startY + (victim.y - LPC_FOOT_OFFSET - startY) * 0.8 : victim.y - LPC_FOOT_OFFSET + Math.sin(angle) * TILE_SIZE * 1.6;
+    const missY = kind === 'bolt' ? startY + (victim.y + LPC_FOOT_OFFSET - startY) * 0.8 : victim.y + LPC_FOOT_OFFSET + Math.sin(angle) * TILE_SIZE * 1.6;
     this.tweens.add({
       targets: shaft,
       x: missX,
