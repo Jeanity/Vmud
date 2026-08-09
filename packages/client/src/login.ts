@@ -216,6 +216,20 @@ export class LoginGate {
       }
     });
 
+    net.on('loggedOut', () => {
+      // A deliberate quit, not a drop: forget which body this tab was in — that is the entire
+      // difference from an ordinary reconnect, which would walk straight back into it — and keep the
+      // account resume, so the picker needs no retyped password. The socket is about to close; the
+      // reconnect's `account` message will refresh the list this shows.
+      clearSession(CHARACTER_KEY);
+      this.handsFree = false;
+      if (this.lastAccount) {
+        this.showPicker(this.lastAccount.account, this.lastAccount.characters, this.lastAccount.max);
+      } else {
+        this.showForm();
+      }
+    });
+
     grab('login-switch').addEventListener('click', () => {
       // "Not you?" — forget everything this tab knew and start at the form.
       clearSession(RESUME_KEY);

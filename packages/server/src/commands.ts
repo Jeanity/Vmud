@@ -191,6 +191,12 @@ export const COMMANDS = [
   'fire',
   'shoot',
   'throw',
+  // The way out, in both spellings. `quit` is Diku's own word and deliberately takes all four
+  // letters — `q`, `qu` and `qua` are quaff and `que` is quest, all above, which is also the
+  // classic protection against quitting by typo. `log` is the shortest path to logout: `l` and
+  // `lo` are look, and nothing above reaches a third letter.
+  'quit',
+  'logout',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -457,6 +463,10 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // refusal guards code that never worked. Ours is built on `do_fire`'s shape and takes `fire`'s own
   // registration: a knife leaves the hand as readily as an arrow leaves the string.
   throw: { status: 'normal', posture: 'standing' },
+  // `CMD_Y(CMD_QUIT, STAT_RESTING + POS_PRONE, ...)` in spirit: you may leave the world from your
+  // bedroll, and never mid-fight — quitting out of a losing exchange would make every death optional.
+  quit: { status: 'resting', posture: 'prone', inCombat: false },
+  logout: { status: 'resting', posture: 'prone', inCombat: false },
 };
 
 /* -------------------------------------------------------------------------- */

@@ -3921,6 +3921,23 @@ function rangedCommand(player: Player, rest: string, thrown: boolean): void {
 }
 
 /**
+ * `quit` / `logout` — leave the world on purpose, back to the character picker.
+ *
+ * All of the actual leaving — the save, the removal, the forgetting by every mob and group and
+ * hunt — is the socket-close handler's, which has been the single authority on departure since
+ * Phase 23 and must stay it: a second copy of that list here would be the drift the close handler's
+ * own comments warn about. This says the goodbyes, tells the client to forget the *character* while
+ * keeping the *account* (so the reconnect lands on the picker, not back in the body that just quit),
+ * and closes the socket to let the one true cleanup path run.
+ */
+function quitCommand(player: Player): void {
+  send(player.id, { t: 'log', channel: 'system', text: 'Farewell — the world will keep your place.' });
+  actToRoom(player, 'room', (who) => `${who} leaves the world.`);
+  send(player.id, { t: 'loggedOut' });
+  sockets.get(player.id)?.close();
+}
+
+/**
  * The pull — ranged slice 5, `DESIGN-ranged.md` §2.1 as decided: **being shot provokes you; it does
  * not change what kind of creature you are.** The affect lifts the mob's reach to exactly one room
  * (`effectivePursuit`), lasts its own harvested `giveUpMs`, and stores the room it was standing in so
@@ -6762,6 +6779,10 @@ function runCommand(player: Player, line: string): void {
       return rangedCommand(player, rest, false);
     case 'throw':
       return rangedCommand(player, rest, true);
+    // Owner, 2026-08-09: "I logged in the wrong character." Both spellings, one farewell.
+    case 'quit':
+    case 'logout':
+      return quitCommand(player);
     // Phase 19 slice 4. Not routed through `useAbility`: a rescue rolls no dice against a body — it
     // moves a fight, and its notch runs backwards. See `doRescue`.
     case 'rescue': return doRescue(player, rest);

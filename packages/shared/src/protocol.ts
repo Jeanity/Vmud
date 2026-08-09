@@ -844,6 +844,14 @@ export type ServerMessage =
     }
   | { readonly t: 'rejected'; readonly reason: string }
   /**
+   * The server's half of `quit` — the character has been saved and is about to leave the world, and
+   * the socket closes right behind this. The client's job on hearing it: forget the *character* this
+   * tab remembered and keep the *account* resume, so the reconnect lands on the picker rather than
+   * re-entering the body that just quit — which is the whole point, because the command exists for
+   * "I logged in the wrong character" (owner, 2026-08-09).
+   */
+  | { readonly t: 'loggedOut' }
+  /**
    * An `auth` or `enter` that did not work, and why. Apart from `rejected` on purpose: `rejected`
    * closes the socket, which is right for a protocol mismatch and wrong for a mistyped password —
    * the login form gets to try again on the same connection.
