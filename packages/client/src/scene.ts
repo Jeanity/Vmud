@@ -2050,7 +2050,7 @@ export class WorldScene extends Phaser.Scene {
     // room view) animates nothing, which is the same sight gate every other per-entity visual keeps.
     this.net.on('attackResolved', (message) => {
       if (message.swing) this.playSwing(message.attacker, message.swing);
-      if (message.projectile) this.flightEffect(message.attacker, message.target, message.projectile);
+      if (message.projectile) this.flightEffect(message.attacker, message.target, message.projectile, message.hit);
     });
 
     this.net.on('path', (message) => {
@@ -3566,29 +3566,73 @@ export class WorldScene extends Phaser.Scene {
    * straight; a thrown blade spins, which is one extra tween property and the whole difference the
    * owner asked for. Spell bolts will be this function with a glow — `DESIGN-ranged.md`.
    */
-  private flightEffect(from: EntityId, to: EntityId, kind: 'arrow' | 'blade' | 'bolt'): void {
+  private flightEffect(from: EntityId, to: EntityId, kind: 'arrow' | 'blade' | 'bolt', hit: boolean): void {
     const shooter = this.entities.get(from);
     const victim = this.entities.get(to);
     if (!shooter || !victim) return;
+    const startX = shooter.x;
+    const startY = shooter.y - LPC_FOOT_OFFSET;
     const angle = Math.atan2(victim.y - shooter.y, victim.x - shooter.x);
-    // A bolt is light, not a thing: a bright core that fades as it flies, where the shaft holds its
-    // shape to the end. Same path, same clock — what differs is only what the eye is told it saw.
     const shaft =
       kind === 'bolt'
-        ? this.add.circle(shooter.x, shooter.y - LPC_FOOT_OFFSET, 3, 0x9fd8ff).setDepth(ENTITY_DEPTH + 1)
+        ? this.add.circle(startX, startY, 3, 0x9fd8ff).setDepth(ENTITY_DEPTH + 1)
         : this.add
-            .rectangle(shooter.x, shooter.y - LPC_FOOT_OFFSET, kind === 'arrow' ? 14 : 9, 2, kind === 'arrow' ? 0xd8c28a : 0xc8cbd0)
+            .rectangle(startX, startY, kind === 'arrow' ? 14 : 9, 2, kind === 'arrow' ? 0xd8c28a : 0xc8cbd0)
             .setDepth(ENTITY_DEPTH + 1)
             .setRotation(angle);
+    const distance = Math.hypot(victim.x - startX, victim.y - LPC_FOOT_OFFSET - startY);
+    const duration = Math.max(120, Math.min(320, distance * 0.9));
+
+    if (hit) {
+      // **A hit makes contact** — the owner's correction of the first draft, which faded bolts
+      // mid-air and let a moving target walk out from under the shaft's landing spot. The projectile
+      // chases the body's live position and ends *on* it: full brightness the whole way for a bolt,
+      // then a small flash at the point of impact, because the eye needs the moment of arrival as
+      // much as the flight. If the victim vanishes mid-flight (death, a room change), the last known
+      // point serves — the world already told that story elsewhere.
+      let lastX = victim.x;
+      let lastY = victim.y - LPC_FOOT_OFFSET;
+      this.tweens.addCounter({
+        from: 0,
+        to: 1,
+        duration,
+        ease: 'Quad.easeIn',
+        onUpdate: (tween) => {
+          const t = tween.getValue() ?? 0;
+          const live = this.entities.get(to);
+          if (live) {
+            lastX = live.x;
+            lastY = live.y - LPC_FOOT_OFFSET;
+          }
+          shaft.x = startX + (lastX - startX) * t;
+          shaft.y = startY + (lastY - startY) * t;
+          if (kind === 'blade') shaft.rotation = angle + t * Math.PI * 6;
+          else if (kind === 'arrow') shaft.rotation = Math.atan2(lastY - startY, lastX - startX);
+        },
+        onComplete: () => {
+          shaft.destroy();
+          if (kind === 'bolt') {
+            const flash = this.add.circle(lastX, lastY, 5, 0xcfeaff, 0.9).setDepth(ENTITY_DEPTH + 2);
+            this.tweens.add({ targets: flash, scale: 1.8, alpha: 0, duration: 110, onComplete: () => flash.destroy() });
+          }
+        },
+      });
+      return;
+    }
+
+    // **A miss tells the truth by kind.** The physical overshoot — an arrow that misses flies past
+    // into the grass, which is exactly where the server just put the arrow object; a blade the same.
+    // Magic has nothing to land, so it dissipates short: fading to nothing about a body-length shy of
+    // the target it never quite reached.
+    const missX = kind === 'bolt' ? startX + (victim.x - startX) * 0.8 : victim.x + Math.cos(angle) * TILE_SIZE * 1.6;
+    const missY = kind === 'bolt' ? startY + (victim.y - LPC_FOOT_OFFSET - startY) * 0.8 : victim.y - LPC_FOOT_OFFSET + Math.sin(angle) * TILE_SIZE * 1.6;
     this.tweens.add({
       targets: shaft,
-      x: victim.x,
-      y: victim.y - LPC_FOOT_OFFSET,
-      // A blade tumbles end over end; an arrow holds its line. Duration by distance, clamped so a
-      // point-blank throw still reads and a cross-room shot does not dawdle.
+      x: missX,
+      y: missY,
       ...(kind === 'blade' ? { rotation: angle + Math.PI * 6 } : {}),
-      ...(kind === 'bolt' ? { alpha: 0.4 } : {}),
-      duration: Math.max(120, Math.min(320, Math.hypot(victim.x - shooter.x, victim.y - shooter.y) * 0.9)),
+      ...(kind === 'bolt' ? { alpha: 0 } : { alpha: 0.5 }),
+      duration,
       ease: 'Quad.easeIn',
       onComplete: () => shaft.destroy(),
     });
