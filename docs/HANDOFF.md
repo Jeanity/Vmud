@@ -445,9 +445,45 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-### Start here — where 2026-08-08 ended: the numbered schedule is complete
+### Start here — where 2026-08-09 ended: ranged combat is playable
 
-**Waiting to be picked up: ranged combat, planned but not built.** The owner asked for a plan rather
+**Ranged is built through slice 5 and live-verified in play, with the owner at the bow.** One skill
+(`ranged`, ranger 95 / rogue 75) covers both delivery methods; `fire`/`shoot <target> [direction]` and
+`throw` share one gauntlet in `shootAt` (`index.ts`), which the click menu's new `rangedAttack` intent
+enters too — a revealed body's menu is Fire/Throw or nothing, because seeing is not reaching
+(`nameable`, and the reach regression it exists to prevent, is `peek.ts`'s own test suite). Arrows are
+never consumed: a miss lands on the far floor, a hit rides in `carrying` into the corpse, and only the
+breakage roll (5%, 10% across a boundary) destroys one — returning weapons neither leave the hand nor
+roll it. The wrong-target veer, the half-threat same-room shot and the no-retaliation cross-room shot
+all work as designed and were all seen on the wire; the veer was watched hitting the shaman standing
+beside the mark.
+
+**The pull was re-ruled in play (2026-08-09) from a one-room cap to a five-room leash** — the owner
+wanted the caster-kite: drag a dangerous caster to a `no_magic` room and it becomes a melee fight. So:
+`provoked` lifts a mob's pursuit while it holds; the leash (`provokedLeash`) is a ball of rooms computed
+once around the *post*, never out of zone; re-shots re-light the patience but never move the anchor —
+kite, not tow. Both casting gates for `no_magic` exist now (311 harvested rooms carry it; nothing read
+it before): mobs fall through to their swing, players are refused symmetrically. `recite` still ignores
+the flag, deliberately undecided. The wounded-and-wimpy flee instead of coming, through `wimpyAt`.
+Sentinels harvest `giveUpMs: 0`, so both provocation clocks share `PROVOKED_PATIENCE_MS` — the `??`
+that would have provoked 83% of the world for zero milliseconds is the commit message to read.
+
+**Also new: `quit`/`logout`** (back to the character picker — forgets the character, keeps the account
+resume), and the admin `give`/`PATCH level` endpoints got their first real workout arming the owner.
+
+**Still open in ranged:** slice 6, the art (crossbow and sling sheets are staged; the bow needs
+re-slicing and `swing` a third value — `DESIGN-ranged.md` §0.5); slice 7, the self-supplying magic bow
+(deliberately last; its hard half is acquisition, since ranged gear is placed nowhere). Two smaller
+threads: pre-slice-1 item *instances* in saves lack the copied-down ranged fields (the server heals
+from the catalogue, the client menu cannot — a fresh bow works, an old saved one shows no Fire row
+until re-minted), and mob *wandering* does not exist at all — filed as Phase 8¾ in the roadmap when
+the owner asked for roaming arrival lines and the grep came back empty.
+
+---
+
+**The paragraph below is the state this session started from, kept for its findings' sake.**
+
+**Ranged combat as planned:** The owner asked for a plan rather
 than an implementation — *"tomorrow I get back my fable usage and will put fable in charge but if you can
 create the plan it would be a good start"* — so [DESIGN-ranged.md](DESIGN-ranged.md) is six slices written
 cold-readable, and **§0 is the part to read before estimating anything**. Two findings reshape the feature:
