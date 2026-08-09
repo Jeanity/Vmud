@@ -3838,10 +3838,20 @@ function shootAt(player: Player, thrown: boolean, target: Actor, dir: Direction 
     .filter((b) => b.id !== target.id && b.id !== player.id && canBeAttacked(b) && (settings.pvp || !isPlayer(b)));
 
   // The projectile, found now and committed below — a refusal above this line costs nothing.
-  let missile: Item;
+  //
+  // **Slice 7: a conjured shot has no projectile object at all.** `missile` stays undefined, and every
+  // downstream rule that moves an arrow — the spend, the landing, the corpse, the breakage roll —
+  // simply never sees one. A conjured arrow exists only in flight, which is the owner's "its own
+  // arrows that never run out" taken at its word.
+  const conjures = thrown ? undefined : (weapon?.conjures ?? weaponTemplate?.conjures);
+  let missile: Item | undefined;
+  let missileName: string;
   let spentBag: Inventory | undefined;
   if (thrown) {
     missile = weapon!;
+    missileName = weapon!.name;
+  } else if (conjures !== undefined) {
+    missileName = conjures;
   } else {
     const taken = takeMissile(player.inventory, fires!, (item) => item.missileType ?? templateOf(item)?.missileType);
     if (!taken) {
@@ -3849,6 +3859,7 @@ function shootAt(player: Player, thrown: boolean, target: Actor, dir: Direction 
       return;
     }
     missile = taken.missile;
+    missileName = taken.missile.name;
     spentBag = taken.inventory;
   }
 
@@ -3894,14 +3905,23 @@ function shootAt(player: Player, thrown: boolean, target: Actor, dir: Direction 
     playerCombatStats(player.level).attackBonus + toHitFrom(learned) + mod + sumApply(player.affects, 'hit') + (weaponTemplate?.hitroll ?? 0);
   const result = resolveAttack(combatRng, { attackBonus, targetAc: target.combat.armourClass });
 
-  // The missile's own dice — the launcher contributes aim, the arrow contributes the wound. The 1d2
-  // floor is for the record with a key and no dice, which the harvest guards say should not exist;
-  // a needle that pricks for a point beats a crash.
-  const dice = (thrown ? weapon!.damage ?? weaponTemplate?.damage : templateOf(missile)?.damage) ?? { count: 1, sides: 2, bonus: 0 };
+  // The missile's own dice — the launcher contributes aim, the arrow contributes the wound. A
+  // conjured arrow is the one exception and the one honest place for it: the magic launcher's **own**
+  // dice are the arrow, since a bow otherwise carries none. The 1d2 floor is for the record with a
+  // key and no dice, which the harvest guards say should not exist; a needle that pricks for a point
+  // beats a crash.
+  const dice =
+    (thrown
+      ? weapon!.damage ?? weaponTemplate?.damage
+      : conjures !== undefined
+        ? weapon?.damage ?? weaponTemplate?.damage
+        : templateOf(missile!)?.damage) ?? { count: 1, sides: 2, bonus: 0 };
   const damage = result.hit ? Math.max(1, rollDice(combatRng, dice) + (result.critical ? rollDice(combatRng, dice) : 0) + mod) : 0;
 
   // One breakage roll per shot, higher across the boundary, and the only destruction in the system.
-  const broken = returning ? false : rollChance(combatRng, breakChance(crossRoom));
+  // A conjured arrow skips it with the returning weapon, for the same shape of reason: there is
+  // nothing in the world to destroy.
+  const broken = returning || conjures !== undefined ? false : rollChance(combatRng, breakChance(crossRoom));
 
   // Protocol 22, at last for the bow — deferred from slices 3+4 because the pose vocabulary only
   // knew `slash` and `thrust`, and a bow animating as a sword swing would have been worse than the
@@ -3931,7 +3951,7 @@ function shootAt(player: Player, thrown: boolean, target: Actor, dir: Direction 
   }
 
   announceShot(player, target, {
-    missileName: missile.name,
+    missileName,
     thrown,
     dir,
     hit: result.hit,
@@ -3945,7 +3965,7 @@ function shootAt(player: Player, thrown: boolean, target: Actor, dir: Direction 
   // **The arrow lands before the blow resolves**, so a killing shot leaves it in the body the corpse
   // is about to be made from — `resolveDeath` reads `carrying`, and the loot rule is the owner's:
   // *"the ones that hit the mob should remain in their corpse for looting once they die."*
-  if (!broken && !returning) {
+  if (missile && !broken && !returning) {
     if (result.hit && isMob(target)) {
       target.carrying.push(missile);
     } else {

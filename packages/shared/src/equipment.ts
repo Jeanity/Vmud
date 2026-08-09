@@ -139,6 +139,8 @@ export interface Item {
   readonly canThrow?: true;
   readonly throwRange?: number;
   readonly returning?: true;
+  /** Slice 7's magic launcher: the conjured missile's name. See the template field for the rules. */
+  readonly conjures?: string;
   /** What it hits for, on a weapon. Absent on everything worn rather than wielded. */
   readonly damage?: Dice;
   /**
@@ -710,6 +712,9 @@ export function readItem(raw: unknown, slot?: EquipSlot): Item | undefined {
     ...(item.canThrow === true ? { canThrow: true as const } : {}),
     ...(typeof item.throwRange === 'number' && item.throwRange > 0 ? { throwRange: item.throwRange } : {}),
     ...(item.returning === true ? { returning: true as const } : {}),
+    // Slice 7, the same rule once more: a magic bow that forgot its own arrows over a restart would
+    // wake up demanding a quiver.
+    ...(typeof item.conjures === 'string' && item.conjures.length > 0 ? { conjures: item.conjures } : {}),
     // Read back, or a lantern in a save file comes home as a stick. The radius is required and the burn
     // is not: an unlimited light simply has none, which is 32 of the catalogue's 64.
     ...(typeof (item.light as { radius?: unknown } | undefined)?.radius === 'number'

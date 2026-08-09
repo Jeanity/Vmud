@@ -116,6 +116,9 @@ export interface ItemDraft {
   readonly container?: unknown;
   readonly art?: unknown;
   readonly proc?: unknown;
+  /** Ranged slice 7: the authored launcher's ammunition key and, for the magic bow, its conjured arrow. */
+  readonly fires?: unknown;
+  readonly conjures?: unknown;
 }
 
 /** A whole number in range, or nothing. The shape every numeric field here is checked against. */
@@ -220,6 +223,28 @@ export function draftAuthoredItem(vnum: number, draft: ItemDraft): { item: ItemT
     if (type !== DURIS_ITEM.weapon) return { error: 'only a weapon (type 5) carries a weapon class' };
   }
 
+  // Ranged slice 7: an authored launcher. `fires` is the ammunition key (`MISSILE_TYPE`, 1-6) and
+  // `conjures` is the magic bow's whole mechanism — the conjured missile's display name, which is
+  // also the flag. Both are launcher-only, and conjuring requires the key: the art class and the
+  // click menu's Fire row hang off `fires`, and a magic bow that lost them would draw as nothing
+  // and offer nothing.
+  let fires: number | undefined;
+  if (draft.fires !== undefined && draft.fires !== null) {
+    fires = readInt(draft.fires, 1, 6);
+    if (fires === undefined) return { error: 'fires must be a missile type, 1-6' };
+    if (type !== DURIS_ITEM.fireweapon) return { error: 'only a launcher (type 6) fires missiles' };
+  }
+  let conjures: string | undefined;
+  if (draft.conjures !== undefined && draft.conjures !== null && draft.conjures !== '') {
+    if (typeof draft.conjures !== 'string' || draft.conjures.trim().length === 0) {
+      return { error: 'conjures must be the conjured missile\'s display name' };
+    }
+    if (draft.conjures.length > 80) return { error: 'conjures must be 80 characters or fewer' };
+    if (type !== DURIS_ITEM.fireweapon) return { error: 'only a launcher (type 6) conjures ammunition' };
+    if (fires === undefined) return { error: 'a conjuring launcher still declares what it fires — set fires too' };
+    conjures = draft.conjures.trim();
+  }
+
   // **The exception mechanism for the off hand** (Phase 21). `handednessFor` knows about daggers and
   // short swords and will never know that a particular elven scimitar was made for the weaker hand —
   // Windsong is `weaponClass` 5, a longsword, so the automatic rule refuses her and this is how an
@@ -303,6 +328,8 @@ export function draftAuthoredItem(vnum: number, draft: ItemDraft): { item: ItemT
       ...(slot ? { slot } : {}),
       ...(damage ? { damage } : {}),
       ...(weaponClass !== undefined ? { weaponClass } : {}),
+      ...(fires !== undefined ? { fires } : {}),
+      ...(conjures !== undefined ? { conjures } : {}),
       ...(draft.twoHanded === true ? { twoHanded: true as const } : {}),
       ...(handedness ? { handedness } : {}),
       ...(hitroll ? { hitroll } : {}),

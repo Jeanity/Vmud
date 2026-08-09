@@ -572,6 +572,20 @@ export interface ItemTemplate {
   /** Comes back to the hand that threw it — `ITEM_RETURNING` (`1<<8`), on 356 objects. */
   readonly returning?: true;
   /**
+   * **This launcher supplies its own ammunition** — ranged slice 7, and the catalogue's first field
+   * with no Duris ancestor at all: the source ships no such object, so this exists only at or above
+   * {@link AUTHORED_VNUM_BASE}. The string is the conjured missile's display name — one field
+   * carrying the behaviour and the flavour, because a flag plus a separate name would be two fields
+   * that could disagree about whether the bow is magic.
+   *
+   * What it changes is written where the shot is: no quiver search, no spend, nothing lands on the
+   * floor or in the corpse, and nothing rolls breakage — a conjured arrow exists only in flight. The
+   * launcher's **own** {@link damage} dice become the arrow's, which is the one honest place to put
+   * them, since bows otherwise carry none. Requires {@link fires} — a conjuring launcher still
+   * declares what it fires, because the art class and the click menu key off that.
+   */
+  readonly conjures?: string;
+  /**
    * Duris' `APPLY_HITROLL` / `APPLY_DAMROLL`, summed over the item's `A` blocks.
    *
    * **This is the gear-side power curve §8 leaves room for**, and it was parsed and discarded until
@@ -765,6 +779,7 @@ export function instantiate(template: ItemTemplate): Item {
     ...(template.canThrow ? { canThrow: true as const } : {}),
     ...(template.throwRange === undefined ? {} : { throwRange: template.throwRange }),
     ...(template.returning ? { returning: true as const } : {}),
+    ...(template.conjures === undefined ? {} : { conjures: template.conjures }),
     // Phase 19: which skill this trains follows the object, not the catalogue — the same argument the
     // line above makes, and `readItem` reads it back for the same reason.
     ...(template.weaponClass === undefined ? {} : { weaponClass: template.weaponClass }),
