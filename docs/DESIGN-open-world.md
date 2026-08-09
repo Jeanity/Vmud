@@ -98,7 +98,12 @@ visible and reversible, and Velen is deliberately the testbed: authored, six roo
 4. **V8d — the dressing.** Sector transition tiles, scatter (the existing rock/tree decoration
    grows into copses and hedgerows), rivers with bridges, and the city's walls and house fronts —
    which is where this plan meets DESIGN-city.md: Velen's districts are drawn as streets between
-   buildings rather than blocks beside blocks.
+   buildings rather than blocks beside blocks. **And plaza furniture** — owner, 2026-08-09, on
+   first walking the open square: *"some scenery... a fountain or pothole or something like that,
+   just for atmosphere."* The square's prose already promises the fountain and the plinth; drawing
+   them makes the text true on screen, and the terrain-v7 pack's decoration sheets are the obvious
+   source. Atmosphere props are per-room authored content (a `scenery` field on authored rooms,
+   perhaps), so the fountain stands where its `read fountain` text says it does.
 
 ## 6. Open questions for the owner
 
