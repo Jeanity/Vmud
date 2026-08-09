@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 import type { ExtraDescription, ItemTemplate, RoomId, Zone, ZoneSpawns } from '@mygame/shared';
 
+import { loadAuthoredZoneDir, mergeAuthoredZones } from './authored.ts';
 import { diffuseSectors, type DiffusionResult } from './diffuse.ts';
 import { harvest, harvestCompatible, loadDurisRooms, type DurisRoom, type HarvestResult } from './duris.ts';
 import {
@@ -410,6 +411,29 @@ function main(): void {
     zones = zoneList;
     reportSpawns(spawns, spawnStats);
     if (args.descriptions) console.log('     %s room extra descriptions attached', String(extrasAttached));
+  }
+
+  // **Phase 22 — the authored world merges beside the harvest**, and only on full builds: a
+  // `--zone` build cannot see every side of a cross-source edge, and a merge that can only
+  // half-look would have to guess. The skip is announced rather than silent, because a filtered
+  // rebuild that quietly dropped Velen would look exactly like a working build until somebody
+  // walked at the missing gate.
+  const authoredDir = join(REPO_ROOT, 'data', 'authored', 'zones');
+  if (args.zones === undefined) {
+    const authored = loadAuthoredZoneDir(authoredDir);
+    if (authored.length > 0) {
+      const merged = mergeAuthoredZones([...zones], authored);
+      zones = merged.zones;
+      console.log(
+        '\n  authored world\n     %d zone(s), %d room(s) — %d cross-source edge(s) stitched, %d cross-authored',
+        merged.report.zones,
+        merged.report.rooms,
+        merged.report.crossSource,
+        merged.report.crossAuthored,
+      );
+    }
+  } else if (loadAuthoredZoneDir(authoredDir).length > 0) {
+    console.log('\n  authored world skipped (--zone build); run a full worldgen before shipping');
   }
 
   if (args.statsOnly) {

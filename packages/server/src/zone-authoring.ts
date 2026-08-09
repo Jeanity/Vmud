@@ -27,7 +27,7 @@
  * is a building site, not a destination.
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -102,6 +102,20 @@ export function loadAuthoredZones(file = AUTHORED_ZONES_FILE): AuthoredZoneStore
 
   if (typeof parsed.next === 'number' && Number.isInteger(parsed.next) && parsed.next > next) {
     next = parsed.next;
+  }
+  // **Committed zones claim their ids too** — Phase 22. `data/authored/` zones share this band and
+  // declare their ids by hand, so the counter must vault past any the built world already holds, or
+  // the panel's next created zone would silently *become* a Velen district across three files.
+  // Read from the built zones directory beside this overlay rather than from `data/authored/`,
+  // because this module's survival posture is importing nothing and trusting only what the server
+  // already boots from; a missing directory is a world not yet generated, which allocates nothing.
+  try {
+    for (const entry of readdirSync(join(dirname(file), '..', 'zones'))) {
+      const id = Number(entry.replace(/\.json$/, ''));
+      if (Number.isInteger(id) && id >= AUTHORED_ZONE_BASE && id >= next) next = id + 1;
+    }
+  } catch {
+    /* no built world, nothing to skip */
   }
   return { zones, next: next as ZoneId };
 }

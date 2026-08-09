@@ -1,0 +1,95 @@
+{
+  "$comment": "Velen - The Square, Phase 22's courtyard seed. The first committed first-party zone: the great crossing of the city's two streets, laid to TorilMUD Waterdeep's plan (owner, 2026-08-09) - a north-south spine, one great east-west cross street, and the square where they meet. Phase 23 grows the noticeboard, the shops and the gate guards from here. Room ids are zone x 1000 + n by the Phase 22 law; prose is ours and ships.",
+  "id": 100001,
+  "name": "Velen - The Square",
+  "entryRoom": 100001000,
+  "rooms": [
+    {
+      "id": 100001000,
+      "zone": 100001,
+      "name": "The Great Crossing",
+      "sector": "city",
+      "pos": { "x": 0, "y": 0, "z": 0 },
+      "description": "Two streets meet here and neither yields: the Spine runs gate to gate through the city's long axis, and the Cross Street cuts away toward the eastern wall. At the heart of the crossing an old stone fountain mutters to itself, and beside it stands an empty plinth of grey granite, waiting for whatever the city decides to say. The flagstones are worn into shallow troughs by feet that had somewhere to be.",
+      "exits": {
+        "north": { "to": 100001001 },
+        "south": { "to": 100001002 },
+        "west": { "to": 100001003 },
+        "east": { "to": 100001004 }
+      },
+      "extras": [
+        {
+          "keywords": "fountain stone",
+          "text": "Salt has crusted the fountain's rim in white scales - the basin is filled from the harbour wells, and the harbour never quite leaves the water. A copper coin glints at the bottom, green with years. Somebody wished for something once."
+        },
+        {
+          "keywords": "plinth granite",
+          "text": "Waist-high, squared, and bare. Four bolt-holes in the top face say something stood here before, or will."
+        }
+      ]
+    },
+    {
+      "id": 100001001,
+      "zone": 100001,
+      "name": "The Spine, North of the Crossing",
+      "sector": "city",
+      "pos": { "x": 0, "y": -1, "z": 0 },
+      "description": "The city's long street runs north from the crossing, wide enough for two carts and argued over by more. The buildings lean in politely - shopfronts below, shuttered rooms above - and far ahead the street narrows toward where the North Gate will stand watch. The smell of the harbour arrives from behind you in gusts, as if it too were headed somewhere.",
+      "exits": {
+        "south": { "to": 100001000 }
+      }
+    },
+    {
+      "id": 100001002,
+      "zone": 100001,
+      "name": "The Spine, South of the Crossing",
+      "sector": "city",
+      "pos": { "x": 0, "y": 1, "z": 0 },
+      "description": "South of the crossing the Spine loses a little of its polish with every stride - the flagstones sit less evenly, and the gutters run with more opinion. Temple Row lies somewhere down this way, and past it the South Gate; the street seems in no hurry to reach either.",
+      "exits": {
+        "north": { "to": 100001000 }
+      }
+    },
+    {
+      "id": 100001003,
+      "zone": 100001,
+      "name": "The Cross Street, West of the Crossing",
+      "sector": "city",
+      "pos": { "x": -1, "y": 0, "z": 0 },
+      "description": "The Cross Street runs west toward the water, and the water makes itself known long before it could be seen: gull-cry, tar, wet rope, and the particular shout of people loading things onto other things. On the north side stands the Anchor & Anvil, its sign a ship's anchor laid across a smith's anvil, its door in the habit of being open.",
+      "exits": {
+        "east": { "to": 100001000 },
+        "north": { "to": 100001005, "door": { "closed": false, "locked": false } }
+      }
+    },
+    {
+      "id": 100001004,
+      "zone": 100001,
+      "name": "The Cross Street, East of the Crossing",
+      "sector": "city",
+      "pos": { "x": 1, "y": 0, "z": 0 },
+      "description": "East of the crossing the street straightens its back and heads for the wall with visible purpose - this is the road the caravans use, and the ruts in the stone are theirs. Market stalls will crowd this stretch one day; for now the street holds its breath, and the East Gate waits somewhere beyond.",
+      "exits": {
+        "west": { "to": 100001000 }
+      }
+    },
+    {
+      "id": 100001005,
+      "zone": 100001,
+      "name": "The Anchor & Anvil, Common Room",
+      "sector": "inside",
+      "pos": { "x": -1, "y": -1, "z": 0 },
+      "flags": ["indoors"],
+      "description": "Low beams, long tables, and a fire that has opinions about the weather. The Anchor & Anvil serves the crossing's traffic - sailors up from the docks, smiths down from their forges, and travellers who cannot yet tell the two apart. The boards of the floor are scrubbed pale, and the landlord's chalkboard promises beds upstairs in a hand that brooks no argument.",
+      "exits": {
+        "south": { "to": 100001003, "door": { "closed": false, "locked": false } }
+      },
+      "extras": [
+        {
+          "keywords": "chalkboard board",
+          "text": "BEDS ABOVE - CLEAN - COPPER A NIGHT. STEW UNTIL THE POT SAYS OTHERWISE. NO SINGING BEFORE DARK."
+        }
+      ]
+    }
+  ]
+}

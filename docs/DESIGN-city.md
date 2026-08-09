@@ -1,4 +1,4 @@
-# Ironquay — the capital
+# Velen — the capital
 
 *Written 2026-08-08, the day the numbered schedule closed and the owner commissioned a city. This
 is the plan for the game's first great settlement: what it is, what it is made of, which pieces
@@ -18,11 +18,18 @@ reward.
 
 ## 1. The three decisions (owner, 2026-08-08)
 
-1. **The name is Ironquay.** Named for its docks — a quay is a wharf, said *"key"* — a trade port
-   with an industrial spine and a rough underbelly. Not Waterdeep, not Baldur's Gate, not any city
-   with a game named after it: Ironquay is ours. The name joins `names.ts`'s reserved list the day
-   this document lands, so no player may claim it.
-2. **The geometry is authored, not harvested.** Ironquay is the first zone that is fully *ours* —
+1. **The name is Velen** — owner, 2026-08-09, superseding Ironquay (2026-08-08), from the Realms
+   map itself: the port on the Dragon's Head peninsula in Tethyr's Duchy of Velen. The first
+   naming avoided famous cities so as not to borrow a setting; this one chooses a *minor canon
+   town* for the opposite virtue — the famous cities stay on the map as **destinations**. Velen
+   sits north of Calimport and south of Candlekeep and Waterdeep, so the roads someday lead to
+   names a Toril veteran knows; the ocean is west and the great forest east, exactly the compass
+   §2 already drew; and the Nelanther Pirate Isles and the Tusks lie offshore, which gives the
+   docks somewhere to sail and the rough underbelly its business. Ironquay's dock-and-industry
+   character survives the rename whole — Velen is still a quay town — and so does the Underquay,
+   which never contained the old name. `velen` joins `names.ts`'s reserved list beside `ironquay`
+   (history knows the old name; no player gets either).
+2. **The geometry is authored, not harvested.** Velen is the first zone that is fully *ours* —
    committable to git, shippable, shaped exactly to the district plan. This is the other half of
    architectural rule 5: the rule keeps third-party content *out* of the engine, and an authored
    pipeline is what first-party content *in* looks like. We still transcribe Duris **mechanisms**
@@ -31,6 +38,18 @@ reward.
    outward. Phase 23 is that milestone; everything in it exercises a new system at small scale.
 
 ## 2. The shape of the city
+
+**The street plan is an homage to TorilMUD's Waterdeep** — owner, 2026-08-09, from the zMUD map:
+*"I would like some of this layout for familiarity and nostalgia reasons."* Decision 2 stands —
+the geometry is authored, ours, hand-built — but its shape borrows the city the owner actually
+lived in: a long north–south spine from gate to gate, one great east–west cross street to the
+East Gate, the ship berths strung down the western dock edge, guilds scattered through the wards
+rather than walled into one (cleric north of the crossing, mage west, warrior east, rogue south),
+the graveyard off the east side, and the square itself at the great crossing where Waterdeep keeps
+its central fountain and board. The map's legend even confirms the furniture: inns, boards,
+fountains, a bank, shops along the streets — every one already in §4's ledger. What is *not*
+borrowed is data: no room of Waterdeep's is imported, transcribed or renumbered; the homage is a
+street plan held up beside a drafting table.
 
 The ocean is **west** (the docks front it; the roads leave by the other three walls). Streets are
 z = 0; the **Underquay** — sewers, smugglers' tunnels, things worse than smugglers — is z = −1;
@@ -115,7 +134,7 @@ anchors are files under `data/zones-source/duris/src/`.
 1. **Phase 22 — The authored world.** `data/authored/` (committed), worldgen merges it beside the
    harvest, ids 900001+, identical validation plus the cross-source edge rule. *Seen when:* a
    hand-written courtyard renders, walks, and fails validation as loudly as a harvested zone does.
-2. **Phase 23 — Ironquay Square.** The milestone: the square, the noticeboard (mechanism), the
+2. **Phase 23 — Velen Square.** The milestone: the square, the noticeboard (mechanism), the
    Anchor & Anvil (inn flag), four anchor shops, static gate guards, the name reserved. *Seen
    when:* a player reads the gods' news on the board, buys bread, and wakes rested at the inn.
 3. **Phase 24 — The guilds.** Trainers (mechanism), the Guild Ward, the Mages' Tower interior.
@@ -135,8 +154,8 @@ anchors are files under `data/zones-source/duris/src/`.
 1. **Do inns bind?** A `recall`/home-point at the inn you last slept in is the classic reason
    inns matter. Cheap once the flag exists — but it changes death's geography, so it is a choice.
 2. **Does the watch enforce law?** Guards who attack players who attack citizens make Safe mean
-   something. The aggression system can express it; whether Ironquay does is a design choice.
+   something. The aggression system can express it; whether Velen does is a design choice.
 3. **Boards: may players write?** `boards.c` allows it. Phase 23 ships gods-post-players-read;
    player writes are one flag away when wanted.
-4. **The second city.** Ironquay is built as *the* capital, but the pipeline is generic — when a
+4. **The second city.** Velen is built as *the* capital, but the pipeline is generic — when a
    dark-race or far-shore settlement is wanted, Phase 22 already paid for it.

@@ -37,7 +37,7 @@ const RESERVED = new Set([
   'shadow', 'northeast', 'southeast', 'northwest', 'southwest', 'nw', 'ne', 'sw', 'se', 'guide',
   'he', 'she', 'it', 'him', 'his', 'her', 'boy', 'girl', 'man', 'woman', 'mail', 'male', 'female',
   // The source blocks its own game's name; we block ours, its world's, and our capital's.
-  'mygame', 'toril', 'faerun', 'ironquay',
+  'mygame', 'toril', 'faerun', 'ironquay', 'velen',
 ]);
 
 /**

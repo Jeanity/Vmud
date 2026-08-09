@@ -12,7 +12,7 @@
  * is the whole of "installing" a zone.
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -143,6 +143,11 @@ export interface WorldConfig {
 /** Where a room sits: its zone, and the level of that zone its coordinates are normalised against. */
 export function placeOf(room: Room): Place {
   return { zone: room.zone, level: room.pos.z };
+}
+
+/** Whether worldgen has built a zone file for this id — the routing fact `GameWorld.load` needs. */
+export function builtZoneFileExists(id: ZoneId): boolean {
+  return existsSync(join(WORLD_DIR, 'zones', `${id}.json`));
 }
 
 export function loadZone(id: ZoneId): Zone {
@@ -538,7 +543,14 @@ export class GameWorld {
     const config = loadWorldConfig(configPath);
     const authoredZones = loadAuthoredZones();
     return new GameWorld(
-      config.zones.map((id) => (id >= AUTHORED_ZONE_BASE ? authoredZoneShell(id, authoredZones) : loadZone(id))),
+      // An authored id resolves **file first** — Phase 22: a committed zone that worldgen built
+      // (`data/authored/` merged into `data/world/zones/`) loads exactly as a harvested one does,
+      // and only an id with no built file falls back to A8d's shell-and-overlay. The order matters:
+      // the shell throws on ids it does not hold, and a committed zone is legitimately absent from
+      // the runtime overlay for ever.
+      config.zones.map((id) =>
+        id >= AUTHORED_ZONE_BASE && !builtZoneFileExists(id) ? authoredZoneShell(id, authoredZones) : loadZone(id),
+      ),
       config.spawn,
       config.populate,
       loadRoomOverrides(),
