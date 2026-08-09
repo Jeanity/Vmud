@@ -31,7 +31,7 @@ import {
   type Zone,
 } from '@mygame/shared';
 
-import { PROVOKED_PATIENCE_MS, advanceHunts, beginHomewardHunt, beginHunt, effectivePursuit, firstStepToward, forgetQuarry, type Hunt } from './hunt.ts';
+import { PROVOKED_LEASH_ROOMS, PROVOKED_PATIENCE_MS, advanceHunts, beginHomewardHunt, beginHunt, effectivePursuit, firstStepToward, forgetQuarry, provokedLeash, type Hunt } from './hunt.ts';
 import { Simulation, type Mob, type Player } from './sim.ts';
 import { GameWorld } from './world.ts';
 
@@ -478,14 +478,55 @@ describe('a provoked sentinel', () => {
     assert.ok(events.some((e) => e.kind === 'arrived'), 'and arrives, which is what the tick engages off');
   });
 
-  it('**never crosses two** — the shot from two rooms away is answered by nobody arriving', () => {
+  it('can be kited down the corridor — the owner\'s caster-to-the-no-magic-room tactic', () => {
+    // Re-ruled 2026-08-09: the one-room cap became a five-room leash. The kite: the player stays one
+    // room ahead and the provoked sentinel keeps coming, because the leash is measured from its post
+    // and the whole corridor is inside it.
     const fixture = makeFixture(noPursuit());
-    fixture.place(fixture.player, 9002);
     provoke(fixture.mob);
-    beginHunt(fixture.hunts, fixture.mob, fixture.player);
-    const events = fixture.run(120);
-    assert.ok(!events.some((e) => e.kind === 'arrived'), 'the one-room cap is the whole safety property');
-    assert.equal(fixture.mob.roomId, 9000, 'it does not even set out — no route exists inside its reach');
+    beginHunt(fixture.hunts, fixture.mob, fixture.player, provokedLeash(fixture.world, 9000));
+    for (const room of [9001, 9002, 9003, 9004]) {
+      fixture.place(fixture.player, room);
+      const events = fixture.run(60);
+      assert.ok(events.some((e) => e.kind === 'arrived'), `it keeps coming: room ${room} is inside the leash`);
+    }
+    assert.equal(fixture.mob.roomId, 9004, 'four rooms from its post, still on the leash');
+  });
+
+  it('**stops at the leash** — the sixth room from its post might as well be another world', () => {
+    // A corridor two rooms longer than the leash, so the fence itself is testable.
+    // The fixture spawns at zone 900, room 9000 — so the line lives there, two rooms longer than
+    // the leash so the fence itself is testable.
+    const room = (id: number, x: number, exits: Room['exits']): Room => ({
+      id, zone: 900, name: `Line ${id}`, sector: 'inside', pos: { x, y: 0, z: 0 }, exits,
+    });
+    const rooms: Room[] = [];
+    for (let i = 0; i <= PROVOKED_LEASH_ROOMS + 1; i++) {
+      rooms.push(room(9000 + i, i, {
+        ...(i > 0 ? { west: { to: 9000 + i - 1 } } : {}),
+        ...(i < PROVOKED_LEASH_ROOMS + 1 ? { east: { to: 9000 + i + 1 } } : {}),
+      }));
+    }
+    const zone: Zone = { id: 900, name: 'The Long Line', rooms, bounds: boundsOf(rooms), entryRoom: 9000 };
+    const fixture = makeFixture(noPursuit(), zone);
+    const leash = provokedLeash(fixture.world, 9000);
+
+    // The fence itself: exactly the ball of radius five, and not the room beyond.
+    assert.ok(leash.has(9000 + PROVOKED_LEASH_ROOMS), 'the fifth room is reachable');
+    assert.ok(!leash.has(9000 + PROVOKED_LEASH_ROOMS + 1), 'the sixth is not — a kite is not a tow');
+
+    // And the walk honours it: kite to the edge, then one room further finds nobody following.
+    provoke(fixture.mob);
+    beginHunt(fixture.hunts, fixture.mob, fixture.player, leash);
+    for (let i = 1; i <= PROVOKED_LEASH_ROOMS; i++) {
+      fixture.place(fixture.player, 9000 + i);
+      fixture.run(60);
+    }
+    assert.equal(fixture.mob.roomId, 9000 + PROVOKED_LEASH_ROOMS, 'kited to the edge of the leash');
+    fixture.place(fixture.player, 9000 + PROVOKED_LEASH_ROOMS + 1);
+    const beyond = fixture.run(120);
+    assert.ok(!beyond.some((e) => e.kind === 'arrived'), 'the room past the leash is never arrived in');
+    assert.equal(fixture.mob.roomId, 9000 + PROVOKED_LEASH_ROOMS, 'it stands at the fence');
   });
 
   it('keeps a real tracker at its own reach — max, not plus one', () => {

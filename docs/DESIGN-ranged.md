@@ -234,6 +234,29 @@ by shooting it repeatedly, and it means a pull is a pull rather than a tow. Writ
 the feature: shoot a sentinel from two rooms away through an intermediate room and assert it does not
 arrive.
 
+#### Re-ruled 2026-08-09: the cap becomes a leash, because kiting is a tactic worth having
+
+> "sometimes being able to kite a mob a couple rooms is required. if for example there is a no magic room
+> 5 rooms away from a very dangerous caster it would be good if players could kite the mob there and stop
+> the mob casting and turn it into a melee fight instead" … "maybe set a max move. no out of zone and no
+> more than 5 rooms sort of thing"
+
+The owner weighed the tow risk against the kite tactic after playing the one-room version, and the ruling
+is a **leash**: a provoked mob may be drawn up to **five rooms from the room it was provoked in**, and
+never out of its zone. The distinction that keeps this from becoming the tow the original cap refused is
+the **anchor**: the leash is a ball computed once, at provocation, around the mob's *post* — a re-shot
+re-lights the anger (the duration refreshes, which is what makes a five-room kite sustainable at all) but
+never moves the anchor, so five minutes of sustained archery still measures five rooms from where the
+creature stood. `provokedLeash` in `hunt.ts` is the fence; the two-room test became the sixth-room test.
+
+The tactic's other half turned out to be unbuilt: **311 harvested rooms carry `no_magic` and nothing read
+the flag** — not the mob's cast, not the player's. Both gates exist now, symmetric on purpose: a caster
+dragged into the smothered room falls through to its swing, and so does the ranger who dragged it there.
+(`recite` and wands still ignore the flag; decide deliberately when scrolls matter.)
+
+Kiting a *tracker* never needed any of this: `effectivePursuit` lifts by `max`, so the 17% that pursue
+keep their own forty-room reach and always could be led anywhere their harvested rule allows.
+
 **Sub-decision left open, deliberately:** whether walking back is instant, tick-paced, or interruptible.
 Tick-paced is right — a guard trudging back to his post is readable and a teleporting one is not — but it
 needs `DESIGN-mobs-and-movement.md`'s vocabulary and can be settled in slice 5 rather than now.

@@ -341,6 +341,7 @@ import {
   beginHomewardHunt,
   beginHunt,
   PROVOKED_PATIENCE_MS,
+  provokedLeash,
   forgetQuarry,
   type Hunt,
   type HuntEvent,
@@ -3936,18 +3937,22 @@ function provokeMob(mob: Mob, shooter: Player): void {
     runFlee(mob);
     return;
   }
-  if (sim.affectsOf(mob, 'provoked').length === 0) {
-    sim.addAffect(mob, newAffect({
-      type: 'provoked',
-      // The harvested patience decides where there is any, exactly as the design table says. The
-      // fallback covers **both** degenerate harvests, and one of them is the common case: a sentinel's
-      // `giveUpMs` is zero — it never chased, so it never learned patience — and `??` alone would have
-      // provoked 83% of the world for zero milliseconds. `null` (the relentless) is the other.
-      durationMs: mob.pursuit.giveUpMs || PROVOKED_PATIENCE_MS,
-      context: String(mob.roomId),
-    }));
-  }
-  beginHunt(hunts, mob, shooter);
+  // **A re-shot re-lights the anger and never moves the anchor** — the owner's kite, distinguished
+  // from the tow it must not become. The original affect's context is the room it was provoked *in*;
+  // refreshing re-reads it, so five minutes of sustained archery still measures the leash from the
+  // post. The harvested patience decides the duration where there is any; the fallback covers both
+  // degenerate harvests, and one is the common case — a sentinel's `giveUpMs` is zero (it never
+  // chased, so it never learned patience), and `??` alone would have provoked 83% of the world for
+  // zero milliseconds. `null` (the relentless) is the other.
+  const standing = sim.affectsOf(mob, 'provoked')[0];
+  const home = standing?.context ?? String(mob.roomId);
+  if (standing) sim.removeAffects(mob, 'provoked');
+  sim.addAffect(mob, newAffect({
+    type: 'provoked',
+    durationMs: mob.pursuit.giveUpMs || PROVOKED_PATIENCE_MS,
+    context: home,
+  }));
+  beginHunt(hunts, mob, shooter, provokedLeash(world, Number(home)));
 }
 
 /** The shot's sentences, in one place so the six shapes (hit/miss × here/there, veered, snapped) stay one voice. */
@@ -4233,6 +4238,13 @@ function doCast(player: Player, rest: string): void {
   }
   if (sim.affectsOf(player, 'off_balance').length > 0) {
     send(player.id, { t: 'log', channel: 'error', text: 'You have not recovered your balance yet.' });
+    return;
+  }
+  // **A `no_magic` room refuses the weave before any spell is looked up** — 311 harvested rooms carry
+  // the flag, and until the ranged kite made them a destination worth dragging a caster to, nothing
+  // read it. The refusal is symmetric on purpose: the same silence that stops the shaman stops you.
+  if (sim.room(player.roomId)?.flags?.includes('no_magic')) {
+    send(player.id, { t: 'log', channel: 'error', text: '&+LSomething here smothers the weave — your magic will not answer.&N' });
     return;
   }
   // Phase 21 slice 2: what your class knows, gated by the circle your level has opened. Longest
@@ -5265,6 +5277,11 @@ function resumeSwing(caster: Actor): void {
 function mobStartCast(mob: Mob, target: Actor): boolean {
   const known = mobTemplates.get(mob.vnum)?.spells;
   if (!known || known.length === 0) return false;
+  // **The kite's payoff** — ranged slice 5's re-ruling. A caster dragged into one of the 311
+  // `no_magic` rooms finds nothing to draw on and falls through to its swing: the fight the player
+  // engineered is the fight they get. Checked per round rather than cached, because the fight can
+  // drift back out of the room and the weave comes back.
+  if (sim.room(mob.roomId)?.flags?.includes('no_magic')) return false;
   if (randomInt(combatRng, 1, 100) > MOB_CAST_CHANCE) return false;
 
   // Slice 5: what of its list this round can *use*. A heal aims inward and a whole mob wastes no

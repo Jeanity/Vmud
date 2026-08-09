@@ -35,6 +35,7 @@ import {
   roomAtTile,
   normaliseIntent,
   pursues,
+  samePlace,
   stepMovement,
   tileCentre,
   type Direction,
@@ -69,6 +70,14 @@ export interface Hunt {
    * own sub-decision — a guard trudging back to his post is readable, and a teleporting one is not.
    */
   homeward?: RoomId;
+  /**
+   * The rooms this hunt may stand in, when the pull is what started it — ranged slice 5 as re-ruled
+   * by the owner (2026-08-09): *"no out of zone and no more than 5 rooms sort of thing."* Computed
+   * once at provocation, anchored on the room the mob was provoked **in**, so it is a leash from the
+   * post rather than a radius from wherever the mob has been kited to — re-shots re-light the anger
+   * but never move the anchor, which is what separates a kite from a tow.
+   */
+  leash?: ReadonlySet<RoomId>;
 }
 
 /** What happened to one hunter this tick, for the caller to announce and sync. */
@@ -123,9 +132,10 @@ export function firstStepToward(
   rule: PursuitRule,
   from: RoomId,
   to: RoomId,
+  within?: ReadonlySet<RoomId>,
 ): { readonly dir: Direction; readonly room: RoomId; readonly rooms: number } | undefined {
   if (from === to) return undefined;
-  return firstStepWhere(world, rule, from, (room) => room === to);
+  return firstStepWhere(world, rule, from, (room) => room === to, rule.trackRooms, within);
 }
 
 /**
@@ -145,6 +155,8 @@ export function firstStepWhere(
   from: RoomId,
   goal: (room: RoomId) => boolean,
   maxRooms: number = rule.trackRooms,
+  /** The provoked leash: rooms outside it are cut from the search exactly as `no_mob` rooms are. */
+  within?: ReadonlySet<RoomId>,
 ): { readonly dir: Direction; readonly room: RoomId; readonly rooms: number } | undefined {
   const origin = world.locate(from);
   if (!origin) return undefined;
@@ -182,6 +194,9 @@ export function firstStepWhere(
       const there = world.locate(next);
       if (!there || there.place.zone !== place.zone || there.place.level !== place.level) continue;
       if (!huntMayEnter(world, rule, next, home)) continue;
+      // The provoked leash — a room outside the fence is cut from the search exactly as a `no_mob`
+      // room is, so the path routes inside it or does not exist. See {@link provokedLeash}.
+      if (within !== undefined && !within.has(next)) continue;
       seen.add(next);
       const step = first ?? { dir: dir as Direction, next };
       queue.push({ room: next, dir: step.dir, next: step.next, depth });
@@ -262,11 +277,16 @@ function stillOnIt(mob: Mob, quarry: Player): boolean {
  * The rule this mob hunts under **right now** — ranged slice 5, `DESIGN-ranged.md` §2.1.
  *
  * The harvested `pursuit` on the mob's record, unless a `provoked` affect is riding it: then a copy
- * with the tier and reach lifted just far enough to cross **one room**. Both halves of the lift are
- * needed because {@link pursues} tests both — a sentinel is refused by its tier before its zero
- * `trackRooms` is ever consulted — and the cap at one is the whole safety property: `max` rather than
- * `+1`, so a second shot cannot buy a second room, and a zone-tier mob that could already track forty
- * keeps its forty rather than being clipped.
+ * with the tier and reach lifted far enough to answer the shot. Both halves of the lift are needed
+ * because {@link pursues} tests both — a sentinel is refused by its tier before its zero `trackRooms`
+ * is ever consulted. The reach is `max` rather than an addition, so a zone-tier mob that could
+ * already track forty keeps its forty rather than being clipped to five.
+ *
+ * **The real bound on a provoked sentinel is not this radius but the leash** ({@link provokedLeash}):
+ * the radius says how far it can see a path, the leash says which rooms it may ever stand in. The
+ * owner re-ruled the one-room cap into the leash (2026-08-09) for kiting — five rooms is enough to
+ * drag a caster to a `no_magic` room and turn it into a melee fight, and the zone edge is a wall
+ * however close.
  *
  * A computed copy, never a write: the 1,248 sentinels are still sentinels on their sheet, which is
  * the design's own reason this is an affect and not a fourth tier.
@@ -276,7 +296,7 @@ export function effectivePursuit(mob: Mob): PursuitRule {
   return {
     ...mob.pursuit,
     tier: mob.pursuit.tier === 'sentinel' ? 'zone' : mob.pursuit.tier,
-    trackRooms: Math.max(1, mob.pursuit.trackRooms),
+    trackRooms: Math.max(PROVOKED_LEASH_ROOMS, mob.pursuit.trackRooms),
     // A sentinel's harvested patience is **zero** — it never chased, so it never learned any — and
     // `null` never gives up at all. Both would break the pull: zero ends the hunt on its first
     // blocked tick, null keeps a wall-stuck mob pathing for ever. While provoked, patience is real
@@ -291,15 +311,58 @@ export function effectivePursuit(mob: Mob): PursuitRule {
  */
 export const PROVOKED_PATIENCE_MS = 30_000;
 
-export function beginHunt(hunts: Map<number, Hunt>, mob: Mob, quarry: Player): Hunt | undefined {
+/** How far from its post a provoked mob may be drawn. The owner's number: *"no more than 5 rooms."* */
+export const PROVOKED_LEASH_ROOMS = 5;
+
+/**
+ * Every room a provocation at `home` permits the mob to stand in — the kite's whole playing field.
+ *
+ * A plain breadth-first ball around the post: same Place, same **zone** (the owner's other clause,
+ * *"no out of zone"*, enforced geometrically rather than through the mob's own `staysInZone`, which a
+ * wandering tracker may not carry), and at most {@link PROVOKED_LEASH_ROOMS} exits deep. Door state
+ * and room flags are deliberately not consulted here — they are the walk's business, re-checked every
+ * step by the same gauntlet every hunt walks; this is only the fence.
+ *
+ * Computed once, at provocation, anchored on where the mob **stood**. Chasing the set from the mob's
+ * current room instead would be the tow the design refused: each shot would buy five more rooms from
+ * wherever the last five ended.
+ */
+export function provokedLeash(world: GameWorld, home: RoomId): ReadonlySet<RoomId> {
+  const origin = world.locate(home);
+  const allowed = new Set<RoomId>([home]);
+  if (!origin) return allowed;
+
+  let frontier: RoomId[] = [home];
+  for (let depth = 0; depth < PROVOKED_LEASH_ROOMS; depth++) {
+    const next: RoomId[] = [];
+    for (const roomId of frontier) {
+      const here = world.locate(roomId);
+      if (!here) continue;
+      for (const exit of Object.values(here.room.exits)) {
+        if (exit === undefined || allowed.has(exit.to)) continue;
+        const far = world.locate(exit.to);
+        if (!far) continue;
+        if (far.room.zone !== origin.room.zone) continue;
+        if (!samePlace(far.place, origin.place)) continue;
+        allowed.add(exit.to);
+        next.push(exit.to);
+      }
+    }
+    frontier = next;
+  }
+  return allowed;
+}
+
+export function beginHunt(hunts: Map<number, Hunt>, mob: Mob, quarry: Player, leash?: ReadonlySet<RoomId>): Hunt | undefined {
   if (!pursues(effectivePursuit(mob))) return undefined;
   const existing = hunts.get(mob.id);
   if (existing) {
     // Already chasing someone. Switching target on a fresh notice would make the last person through the
-    // door always the victim, which is a threat rule and belongs to Phase 12.
+    // door always the victim, which is a threat rule and belongs to Phase 12. The first leash holds, for
+    // the same reason a re-shot cannot move the anchor.
     return existing;
   }
-  const hunt: Hunt = { mob, quarry: quarry.id, lostForMs: 0, nextRoom: undefined, heading: undefined };
+  const hunt: Hunt = { mob, quarry: quarry.id, lostForMs: 0, nextRoom: undefined, heading: undefined, ...(leash ? { leash } : {}) };
   hunts.set(mob.id, hunt);
   return hunt;
 }
@@ -330,7 +393,7 @@ export function beginHomewardHunt(hunts: Map<number, Hunt>, mob: Mob, home: Room
  * give-up keeps a walled-off mob from pathing at a shut door until the heat death of the zone.
  */
 function homewardRule(mob: Mob): PursuitRule {
-  return { ...mob.pursuit, tier: mob.pursuit.tier === 'sentinel' ? 'zone' : mob.pursuit.tier, trackRooms: Math.max(2, mob.pursuit.trackRooms), giveUpMs: HOMEWARD_GIVE_UP_MS };
+  return { ...mob.pursuit, tier: mob.pursuit.tier === 'sentinel' ? 'zone' : mob.pursuit.tier, trackRooms: Math.max(PROVOKED_LEASH_ROOMS + 1, mob.pursuit.trackRooms), giveUpMs: HOMEWARD_GIVE_UP_MS };
 }
 
 /** How long a mob keeps trying to get home before accepting where it stands. */
@@ -417,7 +480,7 @@ export function advanceHunts(
       destination = quarry.roomId;
     }
 
-    const step = firstStepToward(world, rule, mob.roomId, destination);
+    const step = firstStepToward(world, rule, mob.roomId, destination, hunt.leash);
     if (!step) {
       // No route within `trackRooms` — too far, or walled off by sanctuary and `no_mob`. Not an immediate
       // give-up: the quarry may come back into range, and the timer is what decides.
