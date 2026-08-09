@@ -1028,7 +1028,7 @@ export type ServerMessage =
        * the pose above animates the *body*, this animates the thing that left it. Absent on every
        * melee blow, so a thrust that is just a thrust tweens nothing.
        */
-      readonly projectile?: 'arrow' | 'blade';
+      readonly projectile?: 'arrow' | 'blade' | 'bolt';
     }
   | { readonly t: 'died'; readonly id: EntityId; readonly killer?: EntityId }
   /**

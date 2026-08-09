@@ -4942,6 +4942,8 @@ function completeSpellStrike(caster: Actor, spell: Spell, target: Actor, atLevel
     if (result.incapacitated) break;
   }
 
+  emitSpellBolt(caster, target, struck);
+
   const spellName = `&+C${spell.name}&N`;
   if (shrugged > 0 && struck === 0) {
     if (isPlayer(caster)) send(caster.id, { t: 'log', channel: 'combat', text: `${capitalise(target.name)}&N shrugs off your ${spellName}!` });
@@ -4958,6 +4960,35 @@ function completeSpellStrike(caster: Actor, spell: Spell, target: Actor, atLevel
   }
 
   settleStrike(caster, target, changed, death);
+}
+
+/**
+ * A spell's bolt crosses the screen — the owner's ask beside the arrow's flight: *"we are going to
+ * need attack animations for spells also."* The wind-up already animates (protocol 22's spellcast
+ * pose); this is the strike's half, riding the same `attackResolved` channel the arrow rides, with
+ * no `swing` — the caster's arms finished their work seconds ago — and `projectile: 'bolt'` for the
+ * client's tween. Sent whether the target saves or shrugs: the bolt travelled either way, and a
+ * spell that visibly lands for nothing is exactly what a shrug should look like. Mob casts ride it
+ * for free, so the shaman's magic missile finally looks like one.
+ */
+function emitSpellBolt(caster: Actor, target: Actor, struck: number): void {
+  const audience = new Set([...sim.playersIn(caster.roomId), ...sim.playersIn(target.roomId)]);
+  for (const observer of audience) {
+    const seesCaster = observer.id === caster.id || (watching.get(observer.id)?.has(caster.id) ?? false);
+    const seesTarget = observer.id === target.id || (watching.get(observer.id)?.has(target.id) ?? false);
+    if (!seesCaster && !seesTarget) continue;
+    send(observer.id, {
+      t: 'attackResolved',
+      attacker: caster.id,
+      target: target.id,
+      hit: struck > 0,
+      critical: false,
+      damage: struck,
+      natural: 0,
+      outcome: struck > 0 ? 'hit' : 'miss',
+      projectile: 'bolt',
+    });
+  }
 }
 
 /**
@@ -5131,6 +5162,9 @@ function completeSpellArea(caster: Actor, spell: Spell, atLevel: number, named?:
   for (const body of reached) {
     if (skipped.has(body.id)) continue;
     if (!canBeAttacked(body) || body.roomId !== caster.roomId) continue;
+    // One bolt per victim, so a storm visibly fans out from the caster. The earthquake above sends
+    // none, deliberately: the ground does its work, and a quake that shot beams would be a lie.
+    emitSpellBolt(caster, body, 1);
     const armour = raceCodeOf(body);
     for (const blow of rollSpellBlows(combatRng, spell.id, atLevel)) {
       // Routed through the same pair as every other delivery, and an ice storm is `SPLDAM_COLD`, so

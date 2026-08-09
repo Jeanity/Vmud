@@ -3566,15 +3566,20 @@ export class WorldScene extends Phaser.Scene {
    * straight; a thrown blade spins, which is one extra tween property and the whole difference the
    * owner asked for. Spell bolts will be this function with a glow — `DESIGN-ranged.md`.
    */
-  private flightEffect(from: EntityId, to: EntityId, kind: 'arrow' | 'blade'): void {
+  private flightEffect(from: EntityId, to: EntityId, kind: 'arrow' | 'blade' | 'bolt'): void {
     const shooter = this.entities.get(from);
     const victim = this.entities.get(to);
     if (!shooter || !victim) return;
     const angle = Math.atan2(victim.y - shooter.y, victim.x - shooter.x);
-    const shaft = this.add
-      .rectangle(shooter.x, shooter.y - LPC_FOOT_OFFSET, kind === 'arrow' ? 14 : 9, 2, kind === 'arrow' ? 0xd8c28a : 0xc8cbd0)
-      .setDepth(ENTITY_DEPTH + 1)
-      .setRotation(angle);
+    // A bolt is light, not a thing: a bright core that fades as it flies, where the shaft holds its
+    // shape to the end. Same path, same clock — what differs is only what the eye is told it saw.
+    const shaft =
+      kind === 'bolt'
+        ? this.add.circle(shooter.x, shooter.y - LPC_FOOT_OFFSET, 3, 0x9fd8ff).setDepth(ENTITY_DEPTH + 1)
+        : this.add
+            .rectangle(shooter.x, shooter.y - LPC_FOOT_OFFSET, kind === 'arrow' ? 14 : 9, 2, kind === 'arrow' ? 0xd8c28a : 0xc8cbd0)
+            .setDepth(ENTITY_DEPTH + 1)
+            .setRotation(angle);
     this.tweens.add({
       targets: shaft,
       x: victim.x,
@@ -3582,6 +3587,7 @@ export class WorldScene extends Phaser.Scene {
       // A blade tumbles end over end; an arrow holds its line. Duration by distance, clamped so a
       // point-blank throw still reads and a cross-room shot does not dawdle.
       ...(kind === 'blade' ? { rotation: angle + Math.PI * 6 } : {}),
+      ...(kind === 'bolt' ? { alpha: 0.4 } : {}),
       duration: Math.max(120, Math.min(320, Math.hypot(victim.x - shooter.x, victim.y - shooter.y) * 0.9)),
       ease: 'Quad.easeIn',
       onComplete: () => shaft.destroy(),
