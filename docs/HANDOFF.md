@@ -486,8 +486,10 @@ Short bow only: greatbow/recurve are 128px-cell and wait for a kit-sheet geometr
 acquisition, since ranged gear is placed nowhere). Two smaller
 threads: pre-slice-1 item *instances* in saves lack the copied-down ranged fields (the server heals
 from the catalogue, the client menu cannot — a fresh bow works, an old saved one shows no Fire row
-until re-minted), and mob *wandering* does not exist at all — filed as Phase 8¾ in the roadmap when
-the owner asked for roaming arrival lines and the grep came back empty.
+until re-minted), and mob *wandering* landed the same afternoon — Phase 8¾, mobact.c:7530 transcribed
+onto slice 5'''s room-walker (homeward generalised to walkTo): ten-second pulse, seven faces for six
+doors, anti-backtrack, no_mob and zone leashes at the roll; shopkeepers and quest givers stand their
+posts. Verified with no player online: kobold guards walked their rounds between two admin snapshots.
 
 ---
 
