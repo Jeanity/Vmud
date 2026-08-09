@@ -455,7 +455,10 @@ command mid-fight — `wear` armour is refused in combat, weapons are not), whic
 owner asked for, already built. **What we currently get wrong in the other direction:** melee with a
 bow wielded uses the full trained unarmed skill — the owner punched a level-23 shaman to death around
 his bow at 89 a blow, which Duris would have made a flailing, parryless embarrassment. The transcription
-(swing skill zeroed and parry gutted while a fireweapon is wielded) is the open row.
+(swing skill zeroed and parry gutted while a fireweapon is wielded) landed the same day:
+`defenceOf` divides parry by ten when the main hand carries a launcher — the swing half was already
+true by construction, since a launcher trains no weapon class and so folds no to-hit and no `weapon`
+half into the parry chance. Dodge is untouched, exactly as the source leaves it.
 
 ### Slice 7 — the bow that needs no arrows
 

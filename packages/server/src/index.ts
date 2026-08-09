@@ -7475,10 +7475,22 @@ function defenceOf(defender: Actor): DefenceSkills {
   if (!isPlayer(defender)) {
     return { dodge: mobDefenceSkill(defender.level), parry: 0, weapon: 0, armed: false };
   }
-  const weaponSkill = weaponSkillFor(defender.equipped.mainHand);
+  const mainHand = defender.equipped.mainHand;
+  const weaponSkill = weaponSkillFor(mainHand);
+  // **The bow-tank penalty — `fight.c:8763`, transcribed on the owner's ask (2026-08-09).** *"Much
+  // harder to parry with fireweapons like a bow, but not impossible"*: the source divides the whole
+  // parry value by ten when the wielded thing is a fireweapon, and that is most of what makes
+  // standing in melee with a bow a decision rather than a loadout. The other half of the source's
+  // punishment — swings at skill zero — we already have by construction: a launcher has no weapon
+  // class, so `weaponSkill` below is undefined and both the to-hit fold and the `weapon` half of the
+  // parry chance are already nothing. `wield <sword>` is combat-legal, which is the one-command way
+  // out the penalty exists to make worth taking. Instance first, template healed under it — the same
+  // launcher test `shootAt` uses.
+  const wieldingFireweapon = (mainHand?.fires ?? (mainHand ? templateOf(mainHand)?.fires : undefined)) !== undefined;
+  const parry = learnedAt(defender.skills.get('parry'), defender.level, 'parry', classOf(defender));
   return {
     dodge: learnedAt(defender.skills.get('dodge'), defender.level, 'dodge', classOf(defender)),
-    parry: learnedAt(defender.skills.get('parry'), defender.level, 'parry', classOf(defender)),
+    parry: wieldingFireweapon ? Math.floor(parry / 10) : parry,
     weapon: weaponSkill === undefined ? 0 : learnedAt(defender.skills.get(weaponSkill), defender.level, weaponSkill, classOf(defender)),
     // **`unarmed` is a weapon skill but not a weapon.** `weaponSkillFor` answers `unarmed` for an empty
     // hand by design — that is the skill you swing *with* — but `getCharParryVal` refuses outright
