@@ -46,7 +46,9 @@ reorder:
 
 32 phases. **Twenty-five done** — the original numbered schedule closed 2026-08-08 with Phase 21,
 save Phase 15's one visible tail (weapons and shields *drawn on the body*, an art problem wearing
-a code problem's clothes, waiting on the drawing pipeline) — **and the evening of the same day the
+a code problem's clothes, waiting on the drawing pipeline — **the launcher half landed 2026-08-09**:
+the carried bow and worn quiver draw from ULPC's walk rows, and what remains of the tail is melee
+hold-frames) — **and the evening of the same day the
 owner commissioned the capital**: Act VII, Phases 22–27, designed in
 [DESIGN-city.md](DESIGN-city.md). Beyond it: the parking lot's agreed follow-ons, Track A's
 operator rows, and art.

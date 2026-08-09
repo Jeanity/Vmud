@@ -356,6 +356,14 @@ const ACTION_SUFFIXES = { slash: '-slash', thrust: '-thrust', shoot: '-shoot' } 
 const ACTION_COLUMNS: Readonly<Record<'-slash' | '-thrust' | '-shoot', number>> = { '-slash': 6, '-thrust': 8, '-shoot': 13 };
 /** ~90 ms a frame lands a slash at ~0.5 s — inside a 2–3 s round, so swings read as distinct events. */
 const ACTION_FRAME_MS = 90;
+/**
+ * Which frame of a shot's pose the projectile leaves on. The draw is nock–pull–hold–loose across
+ * its thirteen frames with the string let go around the tenth; a thrown blade leaves a thrust's
+ * eight frames at full extension, near the fourth. Frames rather than milliseconds so a change to
+ * the frame clock moves the release with it.
+ */
+const SHOOT_LOOSE_FRAME = 10;
+const THROW_RELEASE_FRAME = 4;
 /** The held wind-up loop. Slower than a swing on purpose: a chant is effort, not violence. */
 const CAST_SUFFIX = '-spellcast';
 const CAST_COLUMNS = 7;
@@ -425,6 +433,35 @@ const LPC_WALK_ONLY_SHEETS: readonly string[] = [
 const LPC_SHOOT_ONLY_SHEETS: readonly string[] = ['weapon-bow-short', 'weapon-bow-ammo'];
 
 /**
+ * The carried bow — Phase 15's drawn-gear tail reaching the launcher, and the exact inverse of the
+ * pair above: a real walk cycle under a hand-staged **blank** `-shoot` twin, so the slung bow rides
+ * the body everywhere and vanishes the instant the draw pose puts the kit bow in its hands — without
+ * the blank, the pose system's hold-the-walk-frame degradation would show two bows on one archer.
+ *
+ * From the ULPC generator's `weapon/ranged/bow/normal/walk` (Johannes Sjölund (wulax), bluecarrot16
+ * — CC-BY-SA 3.0 / GPL 3.0, see ATTRIBUTION.md), which draws the walk on a **128px grid**: a slung
+ * bow overhangs a 64px cell (measured: 27px past it at the worst frame), so these two load at their
+ * own frame size and centre on the body for free — origin 0.5 does not care how big the frame is.
+ * Two layers because the artist split it that way: the bow itself behind the body, and a south-only
+ * foreground strip for the limb that crosses the chest when the camera can see it. The walk row
+ * order, grip alignment and empty-vs-filler columns were all measured against our staged body
+ * before adoption (cols 9–12 are true padding, cropped; no filler blocks).
+ */
+const LPC_CARRY_SHEETS: readonly string[] = ['weapon-bow-carry', 'weapon-bow-carry-front'];
+
+/**
+ * Frame sizes for the hand-listed sheets that are not on the 64px body grid. The indexed
+ * catalogue's oversize sheets carry theirs in `LPC_SHEET_GEOMETRY`; these four are staged by hand
+ * and listed by hand, so their geometry is too.
+ */
+const LPC_STATIC_GEOMETRY: Readonly<Record<string, number>> = {
+  'weapon-bow-carry': 128,
+  'weapon-bow-carry-shoot': 128,
+  'weapon-bow-carry-front': 128,
+  'weapon-bow-carry-front-shoot': 128,
+};
+
+/**
  * The action twins protocol 22 poses from — swing, chant, down. **These were staged and never
  * loaded**: the animations slice put 56 PNGs in `public/lpc/` and grew no load list, so
  * `poseLayers`' `textures.exists` guard was false forever and every pose silently held the walk
@@ -448,6 +485,7 @@ const LPC_SHEETS: readonly string[] = [
   ]),
   ...LPC_WALK_ONLY_SHEETS,
   ...LPC_SHOOT_ONLY_SHEETS.flatMap((sheet) => [sheet, sheet + '-shoot']),
+  ...LPC_CARRY_SHEETS.flatMap((sheet) => [sheet, sheet + '-shoot']),
 ];
 
 /**
@@ -495,7 +533,15 @@ const KIT_ART: Readonly<Record<string, string | readonly { readonly sheet: strin
   bow: [
     { sheet: 'weapon-bow-short', z: 140 },
     { sheet: 'weapon-bow-ammo', z: 150 },
+    // The carried half of the same weapon: real in the walk where the two above are blank, blank in
+    // the draw where they are real. The artist's own z for each — the bow behind the body, the
+    // south-facing chest strip in front of everything but the nocked arrow.
+    { sheet: 'weapon-bow-carry', z: -1 },
+    { sheet: 'weapon-bow-carry-front', z: 141 },
   ],
+  // Worn on the back, drawn from the sheet artgen already staged for the catalogue's quivers —
+  // this row is the art-*class* fallback for the ones nobody has chosen art for, same as `bow`.
+  quiver: [{ sheet: 'quiver-quiver', z: 8 }],
 };
 
 /**
@@ -528,6 +574,14 @@ const KIT_Z: Readonly<Record<string, number>> = {
   offHand: 135,
   mainHand: 140,
 };
+
+/**
+ * Where the body itself sits on that scale — ULPC's own plane for it, so the artists' numbers keep
+ * meaning what they meant: the quiver they drew at 8 hangs behind the shoulder, the slung bow they
+ * put at −1 crosses the back, and every garment above 10 dresses the front. Until the first
+ * behind-body layer arrived the body could simply be painted first; now it competes like the rest.
+ */
+const BODY_Z = 10;
 
 const SPRITE_LAYERS: Readonly<Record<string, readonly string[]>> = {
   /** Every player. Phase 15 derives this list from what they are wearing instead of naming it here. */
@@ -1267,9 +1321,10 @@ export class WorldScene extends Phaser.Scene {
     // and every one of these sheets is one column wide except the bodies, which is why the frame is
     // computed from the sheet's own width in `layerFrame` rather than assumed.
     for (const sheet of LPC_SHEETS) {
+      const frame = LPC_STATIC_GEOMETRY[sheet] ?? LPC_FRAME;
       this.load.spritesheet(sheet, `lpc/${sheet}.png`, {
-        frameWidth: LPC_FRAME,
-        frameHeight: LPC_FRAME,
+        frameWidth: frame,
+        frameHeight: frame,
       });
     }
     // A missing tilesheet otherwise shows up as Phaser's magenta placeholder with no explanation.
@@ -2050,7 +2105,19 @@ export class WorldScene extends Phaser.Scene {
     // room view) animates nothing, which is the same sight gate every other per-entity visual keeps.
     this.net.on('attackResolved', (message) => {
       if (message.swing) this.playSwing(message.attacker, message.swing);
-      if (message.projectile) this.flightEffect(message.attacker, message.target, message.projectile, message.hit);
+      if (message.projectile) {
+        // The projectile waits for the hand to let go — owner-reported: *"it shots the arrow before
+        // I raise the bow."* Swing and flight arrive as one message because the server resolved the
+        // shot in one instant; the draw is thirteen 90 ms frames with the loose near the end, so an
+        // arrow launched at frame 0 flew a full second before the arms came up. Held until the
+        // pose's own release frame — the draw's loose, the throw's extension. A bolt has no swing
+        // (the chant finished seconds ago) and flies at once.
+        const release =
+          message.swing === 'shoot' ? SHOOT_LOOSE_FRAME * ACTION_FRAME_MS : message.swing === 'thrust' ? THROW_RELEASE_FRAME * ACTION_FRAME_MS : 0;
+        const loose = (): void => this.flightEffect(message.attacker, message.target, message.projectile!, message.hit);
+        if (release > 0) this.time.delayedCall(release, loose);
+        else loose();
+      }
     });
 
     this.net.on('path', (message) => {
@@ -3955,14 +4022,16 @@ export class WorldScene extends Phaser.Scene {
     // forget a slot from again.
     const stack = dressed
       ? [
-          base[0] ?? 'body-human-male',
-          // Indexed art brings its own z, one per layer. The starter kit predates the index, so it
-          // keeps the painter's order 15a chose, expressed as z values on the same scale.
-          ...Object.entries(wearing)
-            .flatMap(([slot, id]) => this.sheetsFor(id, KIT_Z[slot] ?? 50))
-            .sort((a, b) => a.z - b.z)
-            .map((layer) => layer.sheet),
+          // The body competes in the z sort at ULPC's own plane rather than being painted first
+          // unconditionally — first ever to sort below it: the slung bow (−1) and the quiver (8),
+          // which until then could not exist. Indexed art brings its own z, one per layer. The
+          // starter kit predates the index, so it keeps the painter's order 15a chose, expressed
+          // as z values on the same scale.
+          { sheet: base[0] ?? 'body-human-male', z: BODY_Z },
+          ...Object.entries(wearing).flatMap(([slot, id]) => this.sheetsFor(id, KIT_Z[slot] ?? 50)),
         ]
+          .sort((a, b) => a.z - b.z)
+          .map((layer) => layer.sheet)
       : base;
 
     // **The base stack passes the same gate the worn stack always has.** `sheetsFor` refuses to

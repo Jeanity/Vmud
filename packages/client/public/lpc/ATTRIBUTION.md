@@ -96,3 +96,21 @@ second shield look is ever wanted. The `fg`/`bg` split in those directories is L
 draw order: `fg` is the half drawn over the body, and it is the only half the walk and idle cycles
 need.
 
+
+## Carried bow and worn quiver (Phase 15's drawn-gear tail)
+
+`weapon-bow-carry.png` and `weapon-bow-carry-front.png` are the **normal bow, walk animation**
+(background and foreground layers, `medium` wood) from the same Universal LPC generator, at
+`spritesheets/weapon/ranged/bow/normal/walk/{background,foreground}/medium.png` — cropped from 13 to
+the 9 real columns (the last four are empty padding, measured) and staged at the sheets' own
+**128 px** frame, because a slung bow overhangs a 64 px cell. Credited there to **Johannes Sjölund
+(wulax)** with walk animations by **Pierre Vigier (pvigier)**, split into layers by **bluecarrot16**;
+licensed **OGA-BY 3.0+ / GPL 3.0 / CC-BY 4.0**
+(<https://opengameart.org/content/lpc-walk-animations-for-bows>). The `-shoot` twins beside them are
+hand-staged transparent blanks — the swap that hands the archer over to the kit pack's draw
+animation without ever showing two bows.
+
+`quiver-quiver.png` and its action twins were already staged by `artgen` from the generator's
+`spritesheets/quiver/` — **Johannes Sjölund (wulax)**, **CC-BY-SA 3.0 / GPL 3.0 / OGA-BY 3.0**
+(<https://opengameart.org/content/lpc-medieval-fantasy-character-sprites>) — and are now also the
+art-class fallback for every catalogue quiver without chosen art.

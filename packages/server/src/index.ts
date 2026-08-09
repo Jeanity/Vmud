@@ -9775,7 +9775,11 @@ sim.artClassOf = (item) => {
       // quarrel-firers stay undrawn, the documented degradation, until their sheets are staged.
       : template?.type === DURIS_ITEM.fireweapon && template.fires === MISSILE_TYPE.arrow
         ? 'bow'
-        : undefined)
+        // The worn quiver, same argument once more: the catalogue's quivers have no authored art,
+        // and the sheet artgen staged for them draws any of them until an operator chooses better.
+        : template?.type === DURIS_ITEM.quiver
+          ? 'quiver'
+          : undefined)
   );
 };
 
