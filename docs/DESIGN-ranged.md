@@ -427,6 +427,36 @@ ship first.
 
 **Seen when:** a ranger on screen draws a bow and an arrow crosses the room.
 
+### Melee with a bow in hand — the source's answer, grepped 2026-08-09
+
+The owner asked how Duris runs a fight when the tank or a solo fighter is wielding a bow, whether fire
+is a per-round act, and whether the bow should fire unwielded, the way a spell casts around the dagger
+in your hand. The source is unambiguous on all three:
+
+- **The bow is wielded, full stop.** `do_fire` reads `ch->equipment[WIELD]` (`range.c:408`) — the main
+  hand, exactly the slot ours uses. Nothing fires from the bag or the belt.
+- **Fire is an act you take, not a round that happens.** One `fire` command looses *up to several*
+  arrows — `speed = min(bow's rof, dex × 1.5, 2 × archery skill)`, plus haste and the rogue's
+  sharpshooter spec, **minus 60 while fighting** — divided by `speedPerShot` (30), then a wait-state.
+  Our one-arrow-per-`off_balance`-round is the same rhythm at low speed; the multi-shot ceiling and the
+  in-combat penalty are recorded here as future fidelity, not built.
+- **Standing in melee with a bow wielded is permitted and punished.** A non-weapon wield reads as
+  **skill zero** in the swing path (`fight.c:6903`) — you flail, untrained — and parry is **divided by
+  ten** (`fight.c:8763`, *"much harder to parry with fireweapons like a bow"*). Duris' archers stand in
+  the back ranks; the bow-tank is a tank who cannot parry.
+
+So the mage analogy fails on the source's own terms, and on ours: casting needs no free hand here
+either (consistent), but an arrow comes from arms, and the hands are the price that makes the ranger's
+choice a choice. Firing from the bag would hand every sword-and-board tank a free pull and make the
+catalogue's 22 two-handed bows meaningless.
+
+**What we take from it:** wield-to-fire stays; `wield <sword>` is already combat-legal here (one
+command mid-fight — `wear` armour is refused in combat, weapons are not), which is the switch the
+owner asked for, already built. **What we currently get wrong in the other direction:** melee with a
+bow wielded uses the full trained unarmed skill — the owner punched a level-23 shaman to death around
+his bow at 89 a blow, which Duris would have made a flailing, parryless embarrassment. The transcription
+(swing skill zeroed and parry gutted while a fireweapon is wielded) is the open row.
+
 ### Slice 7 — the bow that needs no arrows
 
 The one request here the world cannot already answer. Owner, 2026-08-08:

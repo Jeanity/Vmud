@@ -488,6 +488,14 @@ const KIT_ART: Readonly<Record<string, string | readonly { readonly sheet: strin
   // an empty layer list), so a chest piece added to `equipment.ts` without a line added here is
   // invisible on the body — which would have quietly defeated the whole point of asking for one.
   mail_shirt: 'torso-chainmail',
+  // Ranged slice 6, and the first layered row: protocol 14's art-*class* fallback again, for the 50
+  // launchers nobody has chosen a sheet for. Two layers because the nocked arrow is the pack's own
+  // separate sheet, one z above the bow — both blank outside the draw, so a walking archer shows
+  // neither and a drawing one shows both.
+  bow: [
+    { sheet: 'weapon-bow-short', z: 140 },
+    { sheet: 'weapon-bow-ammo', z: 150 },
+  ],
 };
 
 /**
