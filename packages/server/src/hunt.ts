@@ -413,7 +413,11 @@ function walkRule(mob: Mob): PursuitRule {
 /** How long a mob keeps trying to reach a room before accepting where it stands. */
 const WALK_GIVE_UP_MS = 30_000;
 
-/** A shuffle that gets stuck is abandoned quickly — it was going nowhere in particular anyway. */
+/**
+ * A shuffle that gets stuck is abandoned quickly — it was going nowhere in particular anyway. A
+ * *stroll* pinned by the tiles borrows the same patience, and for the same reason: the wander pass
+ * dresses the world, and three motionless seconds against a wall is the tiles' whole answer.
+ */
 const DRIFT_GIVE_UP_MS = 3_000;
 
 /**
@@ -605,7 +609,6 @@ export function advanceHunts(
       continue;
     }
 
-    hunt.lostForMs = 0;
     hunt.nextRoom = step.room;
     hunt.heading = step.dir;
 
@@ -629,17 +632,27 @@ export function advanceHunts(
     mob.y = next.y;
     if (mob.x === startX && mob.y === startY) {
       // **Routed but not moving — the give-up clock must run, or this hunt is wedged for ever.**
-      // The graph can say "exit" while the tiles say no: a closed door's solid tiles, a doorway aim
-      // the slide cannot round. The no-route branch above always aged the hunt; this branch used to
-      // be free, and the first wander build proved what that costs — walks pinned behind the
-      // shaman's mound door, alive and motionless, eating their mob's every pulse.
+      // The graph can say "exit" while the tiles say no: a closed door's solid tiles, an `exitAim`
+      // fallback pointing at a neighbour's centre through two walls. And for one whole build the
+      // clock here was decoration: the route-found path above reset `lostForMs` every tick before
+      // this branch could accrue it, so a wedged walk oscillated between 0 and one tick's worth and
+      // never died. The kobold youths proved what that costs — every east or west stroll out of the
+      // overgrown field slid its walker along the south wall into a corner tile and pinned it there
+      // *permanently*, pulse-starved by its own immortal hunt, until the room's corners each held a
+      // small crowd. The reset now lives on the far side of this branch, where motion is a fact.
+      //
+      // A stroll gets the shuffle's patience rather than its rule's: three seconds against a wall is
+      // enough to know the tiles said no, and it was going nowhere in particular anyway. A chase
+      // keeps its rule — the quarry may move, and with it the route.
       hunt.lostForMs += elapsedMs;
-      if (rule.giveUpMs !== null && hunt.lostForMs >= rule.giveUpMs) {
+      const patience = hunt.walkTo !== undefined ? DRIFT_GIVE_UP_MS : rule.giveUpMs;
+      if (patience !== null && hunt.lostForMs >= patience) {
         hunts.delete(id);
         if (hunt.walkTo === undefined) events.push({ mob, kind: 'gaveUp' });
       }
       continue;
     }
+    hunt.lostForMs = 0;
     mob.facing = headingOf(intent.x, intent.y, mob.facing);
     moved.push(mob);
 

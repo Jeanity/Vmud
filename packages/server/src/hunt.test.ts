@@ -18,12 +18,14 @@ import {
   TILE_SIZE,
   boundsOf,
   huntRule,
+  isWalkableAt,
   makeRng,
   noPursuit,
   passiveRule,
   newAffect,
   readCombatStats,
   pursues,
+  tileCentre,
   type MobTemplate,
   type PursuitRule,
   type Room,
@@ -554,6 +556,71 @@ describe('a provoked sentinel', () => {
     assert.ok(events.some((e) => e.kind === 'entered' && e.to === 9000), 'the walk back is watchable');
     assert.ok(!events.some((e) => e.kind === 'arrived'), 'and silent: no arrival event, so nothing engages');
     assert.equal(fixture.hunts.size, 0, 'home ends the hunt');
+  });
+});
+
+/**
+ * The wedge: routed by the graph, refused by the tiles. The regression here held a room's worth of
+ * kobold youths — the stall clock below the route step was reset by the route step, every tick, so a
+ * walker pinned against a wall never aged and never died, and the overgrown field's corners each
+ * collected a permanent crowd. The clock now resets only on motion, and these hold that shape.
+ */
+describe('the wedged walker', () => {
+  /** Parks the mob's pixels in the solid tile north of its room, where `stepMovement` refuses all. */
+  const wedge = (fixture: Fixture): void => {
+    const grid = fixture.world.grid(fixture.mob.place);
+    assert.ok(grid, 'the fixture zone has a grid');
+    const origin = grid.roomOrigins.get(9000);
+    assert.ok(origin, 'room 9000 has an origin');
+    const x = tileCentre(origin.tx);
+    const y = tileCentre(origin.ty - 1);
+    assert.equal(isWalkableAt(grid, x, y), false, 'the tile north of the room is wall, or this test tests nothing');
+    fixture.mob.x = x;
+    fixture.mob.y = y;
+  };
+
+  it('a stroll pinned by the tiles gives up in three seconds, not thirty', () => {
+    const fixture = makeFixture(noPursuit());
+    wedge(fixture);
+    beginWalkTo(fixture.hunts, fixture.mob, 9001);
+    fixture.run(29);
+    assert.equal(fixture.hunts.size, 1, 'still leaning on the wall at 2.9s');
+    const events = fixture.run(2);
+    assert.equal(fixture.hunts.size, 0, 'gone at 3.1s — a stroll was going nowhere in particular anyway');
+    assert.equal(events.filter((e) => e.kind === 'gaveUp').length, 0, 'and silently: strolls announce nothing');
+  });
+
+  it('a wedged chase ages to its own give-up instead of living for ever', () => {
+    // The immortality regression itself: the route east exists every single tick, so the old reset
+    // wiped the stall clock every single tick, and this hunt outlived the heat death of the zone.
+    const fixture = makeFixture(hunter({ giveUpMs: 5_000 }));
+    fixture.place(fixture.player, 9002);
+    beginHunt(fixture.hunts, fixture.mob, fixture.player);
+    wedge(fixture);
+    fixture.run(49);
+    assert.equal(fixture.hunts.size, 1, 'patient to 4.9s — a chase keeps its rule');
+    const events = fixture.run(2);
+    assert.equal(fixture.hunts.size, 0, 'dead at 5.1s, not immortal');
+    assert.equal(events.filter((e) => e.kind === 'gaveUp').length, 1, 'and it says so');
+  });
+
+  it('motion resets the clock, so a stall survived is not a stall accrued', () => {
+    const fixture = makeFixture(noPursuit());
+    const grid = fixture.world.grid(fixture.mob.place);
+    assert.ok(grid);
+    const origin = grid.roomOrigins.get(9000);
+    assert.ok(origin);
+    const freeX = tileCentre(origin.tx + Math.floor(ROOM_TILES / 2));
+    const freeY = tileCentre(origin.ty + Math.floor(ROOM_TILES / 2));
+    wedge(fixture);
+    beginWalkTo(fixture.hunts, fixture.mob, 9001);
+    fixture.run(20);
+    assert.equal(fixture.hunts.size, 1, 'two seconds of wall is under the patience');
+    fixture.mob.x = freeX;
+    fixture.mob.y = freeY;
+    const events = fixture.run(200);
+    assert.ok(events.some((e) => e.kind === 'entered' && e.to === 9001), 'freed, the walk finishes — the old stall did not linger on the clock');
+    assert.equal(fixture.hunts.size, 0);
   });
 });
 
