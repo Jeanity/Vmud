@@ -124,7 +124,9 @@ const SECTOR_ART: readonly TileArt[] = [
   // pixels only ever makes darker brown. `cobbles.png` is HughSpectrum's outside castle flags (the
   // sage colourway, four fills, one worn smooth); the tint suppresses their green cast to a
   // weathered grey the art itself never shipped.
-  { sheet: 'cobbles', frames: [0, 1, 2, 0, 1, 3], tint: 0xffebff }, // city — grey flagstone
+  // 0xcabad4 lands the sage flags at a neutral mid-grey (~135) — matched by eye against the owner's
+  // reference atlas, which is also the first draft (0xffebff) getting corrected for running warm.
+  { sheet: 'cobbles', frames: [0, 1, 2, 0, 1, 3], tint: 0xcabad4 }, // city — grey flagstone
   { sheet: 'dirt', frames: [17, 17, 10] },                     // road
   { sheet: 'grass', frames: [10, 10, 10, 16, 17] },            // field
   { sheet: 'grass', frames: [10, 10, 16, 17, 15], tint: 0x8fb88f }, // forest — denser, darker
