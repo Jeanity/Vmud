@@ -338,7 +338,9 @@ import { attemptFlee, type FleeOutcome } from './flee.ts';
 import { markPursuers, pursuitTarget } from './pursue.ts';
 import {
   advanceHunts,
+  beginHomewardHunt,
   beginHunt,
+  PROVOKED_PATIENCE_MS,
   forgetQuarry,
   type Hunt,
   type HuntEvent,
@@ -3900,6 +3902,9 @@ function rangedCommand(player: Player, rest: string, thrown: boolean): void {
     for (const actor of blow.changed) syncEntityState(actor);
     if (blow.death) resolveDeath(blow.death);
     else syncEntityState(target);
+    // Slice 5: the survivor answers. Only a cross-room hit provokes — a same-room shot already
+    // retaliated through `landBlow`, and provoking the dead would walk a corpse.
+    if (crossRoom && !blow.death && isMob(target)) provokeMob(target, player);
     // The landed blow teaches, under `notchFromSwing`'s own gates: nothing is learned from the
     // helpless or in sanctuary.
     if (target.level >= 2 && !sim.room(player.roomId)?.flags?.includes('safe')) {
@@ -3912,6 +3917,37 @@ function rangedCommand(player: Player, rest: string, thrown: boolean): void {
     const blow = landBlow({ sim, scheduler, book: threat, ledger }, player, target, 0, { threatFactor: RANGED_THREAT_FACTOR });
     for (const actor of blow.changed) syncEntityState(actor);
   }
+}
+
+/**
+ * The pull — ranged slice 5, `DESIGN-ranged.md` §2.1 as decided: **being shot provokes you; it does
+ * not change what kind of creature you are.** The affect lifts the mob's reach to exactly one room
+ * (`effectivePursuit`), lasts its own harvested `giveUpMs`, and stores the room it was standing in so
+ * expiry can walk it back. A mob already provoked is not re-provoked: no stacking, no chaining, and a
+ * second shot buys no second room.
+ *
+ * **The wounded and the wimpy run instead** — the owner's clause (*"come to my room or flee depending
+ * on its flee setting … it adds an element of danger"*), answered by the same `wimpyAt` threshold
+ * morale reads mid-fight, consulted at the moment the arrow lands. Zero is a mob that never runs,
+ * which is most of them.
+ */
+function provokeMob(mob: Mob, shooter: Player): void {
+  if (mob.wimpyAt > 0 && mob.hp <= mob.wimpyAt) {
+    runFlee(mob);
+    return;
+  }
+  if (sim.affectsOf(mob, 'provoked').length === 0) {
+    sim.addAffect(mob, newAffect({
+      type: 'provoked',
+      // The harvested patience decides where there is any, exactly as the design table says. The
+      // fallback covers **both** degenerate harvests, and one of them is the common case: a sentinel's
+      // `giveUpMs` is zero — it never chased, so it never learned patience — and `??` alone would have
+      // provoked 83% of the world for zero milliseconds. `null` (the relentless) is the other.
+      durationMs: mob.pursuit.giveUpMs || PROVOKED_PATIENCE_MS,
+      context: String(mob.roomId),
+    }));
+  }
+  beginHunt(hunts, mob, shooter);
 }
 
 /** The shot's sentences, in one place so the six shapes (hit/miss × here/there, veered, snapped) stay one voice. */
@@ -3932,7 +3968,11 @@ function announceShot(
 ): void {
   const flies = shot.thrown ? 'spins' : 'streaks';
   const whereTo = shot.dir ? ` ${shot.dir}` : '';
-  const veer = shot.intended ? `${shot.missileName}&N ${flies} past ${shot.intended}&N — and` : `Your ${shot.missileName}&N`;
+  // "Your arrow", never "Your an arrow" — the possessive supplies its own article, so the item's
+  // leading one is stripped from behind the colour code it arrives wrapped in.
+  const veer = shot.intended
+    ? `${capitalise(shot.missileName)}&N ${flies} past ${shot.intended}&N — and`
+    : `Your ${stripLeadingArticle(shot.missileName)}&N`;
 
   // The shooter reads the roll, exactly as a melee swing prints it — the fight stays auditable.
   const outcome = shot.hit
@@ -9973,6 +10013,17 @@ setInterval(() => {
   // afterwards. Expiry is server-authoritative and this line is the whole of its being a mechanic
   // rather than a glitch.
   for (const event of affectEvents) announceAffect(event);
+
+  // Ranged slice 5's tail: anger lapsing starts the walk home. Here rather than in the expiry pass
+  // because a walk is the hunt pass's business — `chainFrom`'s own comment sends the duty here. A mob
+  // still fighting stays put: the fight it picked up owns it now, and home can wait for the victor.
+  for (const event of affectEvents) {
+    if (event.kind !== 'expired' || event.affect.type !== 'provoked') continue;
+    const mob = event.actor;
+    if (!isMob(mob) || mob.fighting !== undefined) continue;
+    const home = event.affect.context === undefined ? Number.NaN : Number(event.affect.context);
+    if (Number.isInteger(home)) beginHomewardHunt(hunts, mob, home);
+  }
 
   // Light travels with the character: fold whatever it now falls on into `seen` and ship only the
   // difference, batched with this tick. `foldSeen` is free for a mover who stayed in the same tile,

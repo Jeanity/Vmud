@@ -796,6 +796,11 @@ export function advanceCombat(
       continue;
     }
     if (mob.fighting !== undefined || !canEngage(mob)) continue;
+    // **A provoked mob's grudge is walking to it** — ranged slice 5, and the exemption the design
+    // called for by name. The shooter is one room away, so nothing in this table is reachable and the
+    // wipe below would delete the very threat the arrow seeded; by the time the hunt arrives, the mob
+    // would have nobody to be angry at. The affect's own expiry bounds how long the exemption lasts.
+    if (sim.affectsOf(mob, 'provoked').length > 0) continue;
     // No margin to clear: there is no current target to defend. And `pickByThreat` will only ever name
     // somebody who actually hurt it, which is what keeps a bar fight from spilling onto the other
     // drinkers — see `threat.ts`.

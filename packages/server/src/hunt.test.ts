@@ -21,6 +21,7 @@ import {
   makeRng,
   noPursuit,
   passiveRule,
+  newAffect,
   readCombatStats,
   pursues,
   type MobTemplate,
@@ -30,7 +31,7 @@ import {
   type Zone,
 } from '@mygame/shared';
 
-import { advanceHunts, beginHunt, firstStepToward, forgetQuarry, type Hunt } from './hunt.ts';
+import { PROVOKED_PATIENCE_MS, advanceHunts, beginHomewardHunt, beginHunt, effectivePursuit, firstStepToward, forgetQuarry, type Hunt } from './hunt.ts';
 import { Simulation, type Mob, type Player } from './sim.ts';
 import { GameWorld } from './world.ts';
 
@@ -445,5 +446,72 @@ describe('the mob stays on the map', () => {
     assert.equal(fixture.mob.roomId, 9005, 'round the corner and down the side passage');
     // Sanity that the fixture geometry is what the test thinks: a room is ROOM_TILES across.
     assert.equal(ROOM_TILES, 9);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Provocation — ranged slice 5                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The pull's two safety properties, which `DESIGN-ranged.md` demands tests for **before** the feature:
+ * both are restrictions, and a restriction is invisible on the happy path. A sentinel that answers a
+ * shot from two rooms away looks exactly like one answering from one room — until a player walks a
+ * shopkeeper across a zone by shooting it rhythmically.
+ */
+describe('a provoked sentinel', () => {
+  const provoke = (mob: Mob) =>
+    mob.affects.push(newAffect({ type: 'provoked', durationMs: PROVOKED_PATIENCE_MS, context: String(mob.roomId) }));
+
+  it('cannot be hunted into existence while unprovoked — the harvested rule still refuses', () => {
+    const fixture = makeFixture(noPursuit());
+    assert.equal(beginHunt(fixture.hunts, fixture.mob, fixture.player), undefined);
+  });
+
+  it('crosses one room to answer the shot, and arrival is what engagement hangs off', () => {
+    const fixture = makeFixture(noPursuit());
+    fixture.place(fixture.player, 9001);
+    provoke(fixture.mob);
+    assert.ok(beginHunt(fixture.hunts, fixture.mob, fixture.player), 'provocation must open the gate beginHunt refused above');
+    const events = fixture.run(60);
+    assert.ok(events.some((e) => e.kind === 'entered' && e.to === 9001), 'it walks the one room');
+    assert.ok(events.some((e) => e.kind === 'arrived'), 'and arrives, which is what the tick engages off');
+  });
+
+  it('**never crosses two** — the shot from two rooms away is answered by nobody arriving', () => {
+    const fixture = makeFixture(noPursuit());
+    fixture.place(fixture.player, 9002);
+    provoke(fixture.mob);
+    beginHunt(fixture.hunts, fixture.mob, fixture.player);
+    const events = fixture.run(120);
+    assert.ok(!events.some((e) => e.kind === 'arrived'), 'the one-room cap is the whole safety property');
+    assert.equal(fixture.mob.roomId, 9000, 'it does not even set out — no route exists inside its reach');
+  });
+
+  it('keeps a real tracker at its own reach — max, not plus one', () => {
+    const fixture = makeFixture(hunter({ trackRooms: 10 }));
+    provoke(fixture.mob);
+    assert.equal(effectivePursuit(fixture.mob).trackRooms, 10);
+  });
+
+  it('stops the moment the anger lapses, whatever its own giveUpMs says', () => {
+    const fixture = makeFixture(noPursuit());
+    fixture.place(fixture.player, 9001);
+    provoke(fixture.mob);
+    beginHunt(fixture.hunts, fixture.mob, fixture.player);
+    fixture.mob.affects.splice(0); // the expiry pass, abbreviated
+    const events = fixture.run(10);
+    assert.ok(events.some((e) => e.kind === 'gaveUp'), 'a hunt whose permission expired is over');
+    assert.equal(fixture.hunts.size, 0);
+  });
+
+  it('walks home without arriving at anybody — coming home engages nothing', () => {
+    const fixture = makeFixture(noPursuit());
+    fixture.place(fixture.mob, 9001);
+    beginHomewardHunt(fixture.hunts, fixture.mob, 9000);
+    const events = fixture.run(60);
+    assert.ok(events.some((e) => e.kind === 'entered' && e.to === 9000), 'the walk back is watchable');
+    assert.ok(!events.some((e) => e.kind === 'arrived'), 'and silent: no arrival event, so nothing engages');
+    assert.equal(fixture.hunts.size, 0, 'home ends the hunt');
   });
 });

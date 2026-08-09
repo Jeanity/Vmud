@@ -62,6 +62,13 @@ export interface Hunt {
   /** The room this mob is currently walking toward, and the exit it is taking to get there. */
   nextRoom: RoomId | undefined;
   heading: Direction | undefined;
+  /**
+   * Set when this is not a chase but the walk back from one — ranged slice 5. The destination is a
+   * *room* rather than a body, `quarry` is ignored, and arrival ends the hunt silently: nothing gets
+   * engaged by coming home. Tick-paced through the same walker as every chase, which is the design's
+   * own sub-decision — a guard trudging back to his post is readable, and a teleporting one is not.
+   */
+  homeward?: RoomId;
 }
 
 /** What happened to one hunter this tick, for the caller to announce and sync. */
@@ -251,8 +258,41 @@ function stillOnIt(mob: Mob, quarry: Player): boolean {
  * Called from the notice event, which is the only thing that produces a quarry — so hunting is downstream
  * of Phase 9's predicate and delay rather than a second way of deciding to care about somebody.
  */
+/**
+ * The rule this mob hunts under **right now** — ranged slice 5, `DESIGN-ranged.md` §2.1.
+ *
+ * The harvested `pursuit` on the mob's record, unless a `provoked` affect is riding it: then a copy
+ * with the tier and reach lifted just far enough to cross **one room**. Both halves of the lift are
+ * needed because {@link pursues} tests both — a sentinel is refused by its tier before its zero
+ * `trackRooms` is ever consulted — and the cap at one is the whole safety property: `max` rather than
+ * `+1`, so a second shot cannot buy a second room, and a zone-tier mob that could already track forty
+ * keeps its forty rather than being clipped.
+ *
+ * A computed copy, never a write: the 1,248 sentinels are still sentinels on their sheet, which is
+ * the design's own reason this is an affect and not a fourth tier.
+ */
+export function effectivePursuit(mob: Mob): PursuitRule {
+  if (!mob.affects.some((affect) => affect.type === 'provoked')) return mob.pursuit;
+  return {
+    ...mob.pursuit,
+    tier: mob.pursuit.tier === 'sentinel' ? 'zone' : mob.pursuit.tier,
+    trackRooms: Math.max(1, mob.pursuit.trackRooms),
+    // A sentinel's harvested patience is **zero** — it never chased, so it never learned any — and
+    // `null` never gives up at all. Both would break the pull: zero ends the hunt on its first
+    // blocked tick, null keeps a wall-stuck mob pathing for ever. While provoked, patience is real
+    // and bounded.
+    giveUpMs: mob.pursuit.giveUpMs || PROVOKED_PATIENCE_MS,
+  };
+}
+
+/**
+ * The patience of a mob whose harvested `giveUpMs` is 0 or `null`, while provoked. Exported for the
+ * affect's own duration in `index.ts` — the two clocks must agree, or the hunt outlives the anger.
+ */
+export const PROVOKED_PATIENCE_MS = 30_000;
+
 export function beginHunt(hunts: Map<number, Hunt>, mob: Mob, quarry: Player): Hunt | undefined {
-  if (!pursues(mob.pursuit)) return undefined;
+  if (!pursues(effectivePursuit(mob))) return undefined;
   const existing = hunts.get(mob.id);
   if (existing) {
     // Already chasing someone. Switching target on a fresh notice would make the last person through the
@@ -264,10 +304,37 @@ export function beginHunt(hunts: Map<number, Hunt>, mob: Mob, quarry: Player): H
   return hunt;
 }
 
-/** Ends every hunt for a quarry that has left the world. */
+/** Ends every hunt for a quarry that has left the world. A walk home has no quarry and keeps going. */
 export function forgetQuarry(hunts: Map<number, Hunt>, quarryId: number): void {
-  for (const [id, hunt] of hunts) if (hunt.quarry === quarryId) hunts.delete(id);
+  for (const [id, hunt] of hunts) if (hunt.homeward === undefined && hunt.quarry === quarryId) hunts.delete(id);
 }
+
+/**
+ * Starts the walk back to where a provocation happened — the tail of the pull, on the affect's expiry.
+ *
+ * Replaces whatever hunt the mob still had: its anger has cooled, and a mob that kept chasing after
+ * the state that permitted the chase expired would make the one-room cap a suggestion.
+ */
+export function beginHomewardHunt(hunts: Map<number, Hunt>, mob: Mob, home: RoomId): void {
+  if (mob.roomId === home) {
+    hunts.delete(mob.id);
+    return;
+  }
+  hunts.set(mob.id, { mob, quarry: -1, lostForMs: 0, nextRoom: undefined, heading: undefined, homeward: home });
+}
+
+/**
+ * The rule a homeward walk paths under. Its own thing rather than {@link effectivePursuit}, because by
+ * the time a mob walks home the provocation has expired and its own rule may say `sentinel` — which
+ * would strand it one room off its post for ever. Reach of two covers a fight that drifted; the
+ * give-up keeps a walled-off mob from pathing at a shut door until the heat death of the zone.
+ */
+function homewardRule(mob: Mob): PursuitRule {
+  return { ...mob.pursuit, tier: mob.pursuit.tier === 'sentinel' ? 'zone' : mob.pursuit.tier, trackRooms: Math.max(2, mob.pursuit.trackRooms), giveUpMs: HOMEWARD_GIVE_UP_MS };
+}
+
+/** How long a mob keeps trying to get home before accepting where it stands. */
+const HOMEWARD_GIVE_UP_MS = 30_000;
 
 /** One tick's worth of hunting: what to announce, and whose position moved. */
 export interface HuntTick {
@@ -295,38 +362,62 @@ export function advanceHunts(
 
   for (const [id, hunt] of [...hunts]) {
     const mob = hunt.mob;
-    const quarry = sim.player(hunt.quarry);
-    const rule = mob.pursuit;
+    let rule: PursuitRule;
+    let destination: RoomId;
 
-    // Gone from the world entirely.
-    if (!quarry) {
-      hunts.delete(id);
-      events.push({ mob, kind: 'gaveUp' });
-      continue;
-    }
-
-    // Caught up: same room. The hunt has done its job and stops here — engagement is Phase 11's, and
-    // `MobStartFight` is exactly where the source goes next.
-    if (mob.roomId === quarry.roomId) {
-      hunt.lostForMs = 0;
-      hunt.nextRoom = undefined;
-      hunt.heading = undefined;
-      events.push({ mob, kind: 'arrived' });
-      continue;
-    }
-
-    // Off this Place: pursuit stops at the boundary, settled in Phase 6. The timer runs while it waits,
-    // so a quarry who goes upstairs and stays there is eventually forgotten.
-    if (!stillOnIt(mob, quarry)) {
-      hunt.lostForMs += elapsedMs;
-      if (rule.giveUpMs !== null && hunt.lostForMs >= rule.giveUpMs) {
+    if (hunt.homeward !== undefined) {
+      // The walk back — ranged slice 5. Arrival is silent on purpose: coming home engages nobody.
+      if (mob.roomId === hunt.homeward) {
+        hunts.delete(id);
+        continue;
+      }
+      rule = homewardRule(mob);
+      destination = hunt.homeward;
+    } else {
+      // The rule is read fresh each tick because it can *change under the hunt*: a provoked sentinel
+      // pursues while the affect holds and stops being able to the moment it wears off. A hunt whose
+      // mob can no longer pursue is over — without this bail, expiry would leave the hunt pathing
+      // with a zero reach and the timer as the only way out, which a `giveUpMs: null` mob never takes.
+      rule = effectivePursuit(mob);
+      if (!pursues(rule)) {
         hunts.delete(id);
         events.push({ mob, kind: 'gaveUp' });
+        continue;
       }
-      continue;
+
+      const quarry = sim.player(hunt.quarry);
+      // Gone from the world entirely.
+      if (!quarry) {
+        hunts.delete(id);
+        events.push({ mob, kind: 'gaveUp' });
+        continue;
+      }
+
+      // Caught up: same room. The hunt has done its job and stops here — engagement is Phase 11's, and
+      // `MobStartFight` is exactly where the source goes next.
+      if (mob.roomId === quarry.roomId) {
+        hunt.lostForMs = 0;
+        hunt.nextRoom = undefined;
+        hunt.heading = undefined;
+        events.push({ mob, kind: 'arrived' });
+        continue;
+      }
+
+      // Off this Place: pursuit stops at the boundary, settled in Phase 6. The timer runs while it waits,
+      // so a quarry who goes upstairs and stays there is eventually forgotten.
+      if (!stillOnIt(mob, quarry)) {
+        hunt.lostForMs += elapsedMs;
+        if (rule.giveUpMs !== null && hunt.lostForMs >= rule.giveUpMs) {
+          hunts.delete(id);
+          events.push({ mob, kind: 'gaveUp' });
+        }
+        continue;
+      }
+
+      destination = quarry.roomId;
     }
 
-    const step = firstStepToward(world, rule, mob.roomId, quarry.roomId);
+    const step = firstStepToward(world, rule, mob.roomId, destination);
     if (!step) {
       // No route within `trackRooms` — too far, or walled off by sanctuary and `no_mob`. Not an immediate
       // give-up: the quarry may come back into range, and the timer is what decides.

@@ -1657,6 +1657,12 @@ export class Simulation {
       case 'potion_sated':
         return [];
 
+      // Ranged slice 5's provocation chains to nothing *here* — what its expiry causes is a walk, not
+      // an affect, and walks belong to the hunt pass. index.ts sees the expiry event and starts the mob
+      // home; this pass only lets the anger lapse. Seventh payment from the wall of cases.
+      case 'provoked':
+        return [];
+
       // A meal ending chains to nothing: the regeneration nodes lapse with it, and the vitals fold
       // simply stops seeing them — second wind's own shape. Seventh payment.
       case 'eaten':

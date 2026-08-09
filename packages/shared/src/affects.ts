@@ -211,7 +211,7 @@ export interface AffectKind {
  * error rather than a silent gap. It is also the only way to have {@link AffectKind.id} typed as an
  * affect type at all — a table that derived its own key type from itself would reference itself.
  */
-export const AFFECT_TYPE_IDS = ['light', 'settling', 'second_wind', 'notch_physical', 'notch_mental', 'off_balance', 'casting', 'armor', 'bless', 'potion_sated', 'eaten', 'sun_scorched'] as const;
+export const AFFECT_TYPE_IDS = ['light', 'settling', 'second_wind', 'notch_physical', 'notch_mental', 'off_balance', 'casting', 'armor', 'bless', 'potion_sated', 'eaten', 'sun_scorched', 'provoked'] as const;
 
 export type AffectType = (typeof AFFECT_TYPE_IDS)[number];
 
@@ -305,6 +305,21 @@ export const AFFECT_TYPES: Readonly<Record<AffectType, AffectKind>> = {
     id: 'off_balance',
     name: 'off balance',
     wearOff: 'You recover your balance.',
+  },
+  /**
+   * Shot from a room away, and answering it — ranged slice 5, `DESIGN-ranged.md` §2.1.
+   *
+   * **A temporary state, deliberately not a fourth `pursuit.tier`**: a tier is a harvested trait and
+   * true of the creature for ever, where this is a fact about the last few seconds. While it holds,
+   * `effectivePursuit` lifts the mob's rule far enough to cross exactly one room; the harvested rule
+   * on the mob's own record is never touched, so a shopkeeper is still a shopkeeper on its sheet.
+   * `context` carries the room it was provoked in, which is where it walks back to when this wears
+   * off. Duration is the mob's own `giveUpMs` — the harvested patience is still what decides.
+   */
+  provoked: {
+    id: 'provoked',
+    name: 'provoked',
+    wearOff: 'Your anger cools.',
   },
   /**
    * The open sky, resented — **Phase 21 slice 6**, the underdark races' price for the surface. One
