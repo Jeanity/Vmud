@@ -42,6 +42,8 @@ import {
   type SkillId,
   MIN_ROUND_MS,
   MS_PER_DURIS_HOUR,
+  MISSILE_TYPE_NAMES,
+  pick,
   randomInt,
   resolveAttack,
   rollDamage,
@@ -184,6 +186,7 @@ import {
   slotsFree,
   slotsUsed,
   type EquipSlot,
+  type Inventory,
   type Item,
   type Stack,
   resolveWearSlot,
@@ -277,7 +280,8 @@ import {
   type PlayerRecord,
 } from './players.ts';
 import { QUESTS_FILE, carriedForQuest, consumeBrought, loadQuests, objectivePhrase, questsBy } from './quests.ts';
-import { afterLook, directionFrom, nameable, peek, revealShownIn } from './peek.ts';
+import { afterLook, directionFrom, nameable, peek, revealShownIn, REVERSE } from './peek.ts';
+import { RANGED_THREAT_FACTOR, breakChance, rollChance, takeMissile, wrongTargetChance } from './ranged.ts';
 import {
   isUntouchable,
   setUntouchableVnums,
@@ -3624,6 +3628,360 @@ function useAbility(player: Player, id: CombatAbilityId, rest: string): void {
 }
 
 /**
+ * `fire` / `shoot <target> [direction]` and `throw <target> [direction]` — ranged slices 3+4,
+ * `DESIGN-ranged.md`, built on `do_fire`'s shape because `do_throw` is the source's unfinished stub
+ * (§0.2). One handler for both delivery methods, one skill between them, and the grammar is the
+ * owner's own sentences: *"shoot kobold west"*, *"fire east"*, *"throw dagger west"* — a trailing
+ * direction aims into the next room, no direction aims into your own.
+ *
+ * The order of the gauntlet is `useAbility`'s where they share a rule, and three things are its own:
+ *
+ * - **Cross-room shots re-run the peek and then demand the reveal.** The gauntlet is re-walked
+ *   because a door may have shut since you looked; the reveal is demanded because aiming at a room
+ *   you have not looked into is the thing slice 2 exists to gate. Both refusals teach the sequence:
+ *   look, then shoot.
+ * - **The wrong-target roll happens before the to-hit**, so a veered shot resolves against the body
+ *   it veered to — one clean roll against one armour class, not a hit transplanted between targets.
+ * - **The projectile is found before the round is charged and committed after**, so a refusal
+ *   anywhere in the gauntlet costs nothing, and a shot that happens always costs exactly one arrow —
+ *   which then *lands somewhere* (the victim, or the floor of their room) unless the breakage roll
+ *   destroys it. Never consumed, per the owner's rule; the roll is the only destruction there is.
+ *
+ * What deliberately is not here: `attackResolved` (the pose vocabulary knows `slash` and `thrust`,
+ * and a bow animating as a sword swing would be worse than the log line — slice 6's business), any
+ * engagement of the *shooter* (firing does not draw your sword; the target's retaliation is what
+ * makes the fight mutual, exactly as being swung at is), and the pull (slice 5 — a cross-room victim
+ * takes the damage, holds the grudge, and stands there until `provoked` exists).
+ */
+function rangedCommand(player: Player, rest: string, thrown: boolean): void {
+  const verb = thrown ? 'throw' : 'fire';
+  const weapon = player.equipped.mainHand;
+  const weaponTemplate = weapon ? templateOf(weapon) : undefined;
+
+  // The weapon first, before any parsing: "Fire at what?" is a silly answer to somebody holding no bow.
+  if (thrown) {
+    if (!weapon) {
+      send(player.id, { t: 'log', channel: 'error', text: 'Your main hand is empty — wield something worth throwing first.' });
+      return;
+    }
+    if (weaponTemplate?.canThrow !== true) {
+      send(player.id, { t: 'log', channel: 'error', text: `${capitalise(weapon.name)}&N is not balanced for throwing.` });
+      return;
+    }
+  } else if (weaponTemplate?.fires === undefined) {
+    // `fires` doubles as the launcher test: every fireweapon in the catalogue carries it, and nothing
+    // else does — so one field answers "is this a launcher" and "what does it take" together.
+    send(player.id, { t: 'log', channel: 'error', text: `You need a launcher in your main hand to ${verb} — a bow, a crossbow, a sling.` });
+    return;
+  }
+
+  // A ceiling of zero is "the training never happened", exactly as it is for bash — a wizard does not
+  // shoot badly, a wizard does not shoot. Free, unlike a failed attempt.
+  if (ceilingFor('ranged', classOf(player), player.level) === 0) {
+    send(player.id, { t: 'log', channel: 'error', text: 'Your training never covered ranged weapons.' });
+    return;
+  }
+
+  // The same clock every combat ability answers to, so shot-bash-shot cannot beat the round.
+  if (sim.affectsOf(player, 'off_balance').length > 0) {
+    send(player.id, { t: 'log', channel: 'error', text: 'You have not recovered your balance yet.' });
+    return;
+  }
+
+  // Grammar: `<keyword> [direction]`, either half optional. The trailing word is a direction only if
+  // it reads as one — `directionFrom` is a prefix match over the six, so `shoot kobold e` aims east
+  // while `shoot dog` stays a keyword ("down" does not start with "dog").
+  const words = rest.split(/\s+/).filter(Boolean);
+  const dir = words.length > 0 ? directionFrom(words[words.length - 1]!) : undefined;
+  const keyword = (dir ? words.slice(0, -1) : words).join(' ');
+
+  let target: Actor | undefined;
+  let bystanders: Actor[];
+  const crossRoom = dir !== undefined;
+
+  if (dir) {
+    const room = sim.room(player.roomId);
+    if (!room) return;
+    // The peek gauntlet again, fresh — a door shut since you looked is a door your arrow meets.
+    const outcome = peek(room, dir, {
+      roomOf: (id) => sim.room(id),
+      occupantsOf: (id) => [...sim.actorsIn(id)].map((a) => ({ name: a.name, lightRadius: a.lightRadius ?? 0 })),
+      doorAt: (id, d) => {
+        const doorway = world.doorway(id, d);
+        return doorway ? { name: doorway.near.door.name, closed: doorway.near.door.closed } : undefined;
+      },
+    });
+    if (outcome.t !== 'view') {
+      const refusal =
+        outcome.t === 'closed-door' ? `${capitalise(outcome.door)} is closed.`
+        : outcome.t === 'dark' ? "&+LIt's much too dark there to aim at anything!&N"
+        : outcome.t === 'no-exit' ? 'There is no exit that way.'
+        : 'Something blocks your shot.';
+      send(player.id, { t: 'log', channel: 'error', text: refusal });
+      return;
+    }
+    // Slice 2's gate, spent for real: you aim at what you have made out, and nothing else. This is
+    // what "gated on the revealed set" means — the reveal is the aim.
+    if (!revealedRooms(player).has(outcome.room.id)) {
+      send(player.id, { t: 'log', channel: 'error', text: `You cannot make out what stands there — look ${dir} first.` });
+      return;
+    }
+    const bodies = sim.actorsIn(outcome.room.id);
+    const fair = bodies.filter((b) => canBeAttacked(b) && (settings.pvp || !isPlayer(b)));
+    if (keyword) {
+      const ref = parseTargetRef(keyword);
+      if (!ref) {
+        send(player.id, { t: 'log', channel: 'error', text: `"${keyword}" is not something you can aim at.` });
+        return;
+      }
+      target = findTarget(ref, bodies, (b) => namelistFor(sim.viewOf(b)));
+      if (!target) {
+        send(player.id, { t: 'log', channel: 'error', text: `You see no ${ref.keyword} to the ${dir}.` });
+        return;
+      }
+    } else {
+      // The owner's original form — *"fire east"*, no name. The first fair body there is the mark,
+      // which is what firing blind into a room means.
+      target = fair[0];
+      if (!target) {
+        send(player.id, { t: 'log', channel: 'error', text: 'Nobody is standing there.' });
+        return;
+      }
+    }
+    bystanders = fair.filter((b) => b.id !== target!.id);
+  } else {
+    if (!keyword) {
+      // Mid-fight, the verb alone aims at your opponent — `bash`'s own convenience, same reason.
+      target = player.fighting === undefined ? undefined : sim.get(player.fighting);
+      if (!target) {
+        send(player.id, { t: 'log', channel: 'error', text: `${capitalise(verb)} at what?` });
+        return;
+      }
+    } else {
+      const view = resolveTarget(player, keyword);
+      if (!view) return;
+      const resolved = sim.get(view.id);
+      if (!resolved) {
+        send(player.id, { t: 'log', channel: 'error', text: `You cannot ${verb} at that.` });
+        return;
+      }
+      target = resolved;
+    }
+    bystanders = sim
+      .actorsIn(player.roomId)
+      .filter((b) => b.id !== target!.id && b.id !== player.id && canBeAttacked(b) && (settings.pvp || !isPlayer(b)));
+  }
+
+  if (target.id === player.id) {
+    send(player.id, { t: 'log', channel: 'error', text: `You cannot ${verb} at yourself.` });
+    return;
+  }
+  if (isUntouchable(target)) {
+    send(player.id, { t: 'log', channel: 'error', text: `${target.name}&N has no quarrel with you.` });
+    return;
+  }
+  if (!settings.pvp && isPlayer(target)) {
+    send(player.id, { t: 'log', channel: 'error', text: `You cannot attack ${target.name}. Player killing is switched off.` });
+    return;
+  }
+  if (!canBeAttacked(target)) {
+    send(player.id, { t: 'log', channel: 'error', text: `${target.name}&N is in no state to fight.` });
+    return;
+  }
+
+  // The projectile, found now and committed below — a refusal above this line costs nothing.
+  let missile: Item;
+  let spentBag: Inventory | undefined;
+  if (thrown) {
+    missile = weapon!;
+  } else {
+    const fires = weaponTemplate!.fires!;
+    const taken = takeMissile(player.inventory, fires, (item) => templateOf(item)?.missileType);
+    if (!taken) {
+      send(player.id, { t: 'log', channel: 'error', text: `You are out of ${MISSILE_TYPE_NAMES[fires] ?? 'missile'}s.` });
+      return;
+    }
+    missile = taken.missile;
+    spentBag = taken.inventory;
+  }
+
+  // From here the shot happens. The round is charged first, `useAbility`'s own order — nothing below
+  // this line refuses, so nothing below it can leave a free shot behind.
+  sim.addAffect(player, newAffect({ type: 'off_balance', durationMs: ROUND_MS, flags: AffectFlag.NoSave }));
+  scheduler.cancel(player.id, 'swing');
+  scheduler.schedule('swing', player.id, Math.max(ROUND_MS, player.roundMs));
+
+  // The projectile leaves. A returning weapon never does — it is enchanted to come back, and the same
+  // enchantment is why it skips the breakage roll: 339 of these are the rarest things a rogue will
+  // ever own, and a 5% chance of deleting one per throw would make the enchantment a trap.
+  const returning = thrown && weaponTemplate?.returning === true;
+  if (spentBag) {
+    sim.setInventory(player, spentBag);
+    send(player.id, { t: 'self', view: sim.selfViewOf(player) });
+    rememberProgress(player);
+  } else if (thrown && !returning) {
+    const next = { ...player.equipped };
+    delete next.mainHand;
+    player.equipped = next;
+    afterKitChange(player);
+  }
+
+  // **The wrong-target roll comes first**, so the to-hit resolves once, against the body the shot
+  // actually went at. Only into a crowd: alone with your mark there is no wrong body to find.
+  const learned = learnedAt(player.skills.get('ranged'), player.level, 'ranged', classOf(player));
+  let intended: Actor | undefined;
+  if (bystanders.length > 0 && rollChance(combatRng, wrongTargetChance(learned))) {
+    const veered = pick(combatRng, bystanders);
+    if (veered) {
+      intended = target;
+      target = veered;
+    }
+  }
+
+  // The bow is not the sword: the base and the spells are the same ones melee folds, the skill is
+  // `ranged` rather than the wielded blade's, and the ability is the SRD's own for each delivery —
+  // DEX behind a string, STR behind a thrown blade. `player.combat.attackBonus` would smuggle in the
+  // melee weapon skill and the strength bonus a bow does not earn, so it is rebuilt from parts.
+  const mod = player.identity ? abilityMod(thrown ? player.identity.scores.str : player.identity.scores.dex) : 0;
+  const attackBonus =
+    playerCombatStats(player.level).attackBonus + toHitFrom(learned) + mod + sumApply(player.affects, 'hit') + (weaponTemplate?.hitroll ?? 0);
+  const result = resolveAttack(combatRng, { attackBonus, targetAc: target.combat.armourClass });
+
+  // The missile's own dice — the launcher contributes aim, the arrow contributes the wound. The 1d2
+  // floor is for the record with a key and no dice, which the harvest guards say should not exist;
+  // a needle that pricks for a point beats a crash.
+  const dice = (thrown ? weapon!.damage ?? weaponTemplate?.damage : templateOf(missile)?.damage) ?? { count: 1, sides: 2, bonus: 0 };
+  const damage = result.hit ? Math.max(1, rollDice(combatRng, dice) + (result.critical ? rollDice(combatRng, dice) : 0) + mod) : 0;
+
+  // One breakage roll per shot, higher across the boundary, and the only destruction in the system.
+  const broken = returning ? false : rollChance(combatRng, breakChance(crossRoom));
+
+  announceShot(player, target, {
+    missileName: missile.name,
+    thrown,
+    dir,
+    hit: result.hit,
+    damage,
+    broken,
+    returning,
+    intended: intended?.name,
+    rollText: `[d20 ${result.natural}${result.natural === result.total ? '' : ` → ${result.total}`} vs AC ${target.combat.armourClass}]`,
+  });
+
+  // **The arrow lands before the blow resolves**, so a killing shot leaves it in the body the corpse
+  // is about to be made from — `resolveDeath` reads `carrying`, and the loot rule is the owner's:
+  // *"the ones that hit the mob should remain in their corpse for looting once they die."*
+  if (!broken && !returning) {
+    if (result.hit && isMob(target)) {
+      target.carrying.push(missile);
+    } else {
+      // A miss lands on the far floor for collection; a hit on a *player* lands at their feet too,
+      // because a bag is not something an arrow can force its way into.
+      const spot = dropSpotNear(ground, target.roomId, target.x, target.y, spawnRng, (px, py) => {
+        const grid = world.grid(target!.place);
+        return !grid || (isWalkableAt(grid, px, py) && roomAtTile(grid, Math.floor(px / TILE_SIZE), Math.floor(py / TILE_SIZE)) === target!.roomId);
+      });
+      dropItem(ground, missile, { roomId: target.roomId, place: target.place, x: spot.x, y: spot.y }, undefined, DEV_DECAY_MS);
+      syncEntitiesIn(target.roomId);
+    }
+  }
+
+  if (result.hit) {
+    const blow = landBlow(
+      { sim, scheduler, book: threat, ledger },
+      player,
+      target,
+      damage,
+      // The two dials, and they are never both turned: a cross-room victim must not acquire a target
+      // it cannot reach (the pull is slice 5's), and a same-room shot earns the discounted grudge
+      // that lets a ranger fire from the back of the group without out-threatening the tank.
+      crossRoom ? { retaliate: false } : { threatFactor: RANGED_THREAT_FACTOR },
+    );
+    for (const actor of blow.changed) syncEntityState(actor);
+    if (blow.death) resolveDeath(blow.death);
+    else syncEntityState(target);
+    // The landed blow teaches, under `notchFromSwing`'s own gates: nothing is learned from the
+    // helpless or in sanctuary.
+    if (target.level >= 2 && !sim.room(player.roomId)?.flags?.includes('safe')) {
+      notchSkill(player, 'ranged', WEAPON_NOTCH_CHANCE);
+    }
+  } else if (!crossRoom) {
+    // A point-blank miss is still noticed — melee's own zero-damage retaliation, unchanged. A
+    // cross-room miss is an arrow clattering in from nowhere; until slice 5 gives the victim a way
+    // to answer it, it does not pretend to.
+    const blow = landBlow({ sim, scheduler, book: threat, ledger }, player, target, 0, { threatFactor: RANGED_THREAT_FACTOR });
+    for (const actor of blow.changed) syncEntityState(actor);
+  }
+}
+
+/** The shot's sentences, in one place so the six shapes (hit/miss × here/there, veered, snapped) stay one voice. */
+function announceShot(
+  player: Player,
+  target: Actor,
+  shot: {
+    readonly missileName: string;
+    readonly thrown: boolean;
+    readonly dir: Direction | undefined;
+    readonly hit: boolean;
+    readonly damage: number;
+    readonly broken: boolean;
+    readonly returning: boolean;
+    readonly intended: string | undefined;
+    readonly rollText: string;
+  },
+): void {
+  const flies = shot.thrown ? 'spins' : 'streaks';
+  const whereTo = shot.dir ? ` ${shot.dir}` : '';
+  const veer = shot.intended ? `${shot.missileName}&N ${flies} past ${shot.intended}&N — and` : `Your ${shot.missileName}&N`;
+
+  // The shooter reads the roll, exactly as a melee swing prints it — the fight stays auditable.
+  const outcome = shot.hit
+    ? `${veer} strikes ${target.name}&N for ${shot.damage} damage. ${shot.rollText}`
+    : `${veer} flies wide of ${target.name}&N. ${shot.rollText}`;
+  send(player.id, { t: 'log', channel: 'combat', text: `&+G-=[&N ${capitalise(outcome)} &+G]=-&N` });
+  if (shot.broken) {
+    send(player.id, { t: 'log', channel: 'combat', text: `&+yThe ${stripLeadingArticle(shot.missileName)}&N&+y snaps${shot.hit ? ' on impact' : ''}!&N` });
+  } else if (shot.returning) {
+    send(player.id, { t: 'log', channel: 'combat', text: `${capitalise(shot.missileName)}&N spins back into your hand.` });
+  }
+
+  // Your own room watches the loosing; the far room watches the arrival. Same fact, each side's view.
+  const act = shot.thrown ? 'hurls' : 'fires';
+  actToRoom(player, 'combat', (who) =>
+    shot.dir
+      ? `${who} ${act} ${shot.missileName}&N${whereTo}.`
+      : `${who} ${act} ${shot.missileName}&N at ${target.name}&N.`,
+  );
+  if (shot.dir) {
+    const from = ` from the ${REVERSE[shot.dir]}`;
+    actAround(
+      target,
+      'combat',
+      (who) =>
+        shot.hit
+          ? `${capitalise(shot.missileName)}&N ${flies} in${from} and strikes ${who}!`
+          : `${capitalise(shot.missileName)}&N ${flies} in${from} and ${shot.broken ? 'snaps against the ground' : 'clatters to the ground'}.`,
+      // The victim gets the second-person line below instead of hearing about themselves.
+      shot.hit ? target.id : undefined,
+    );
+  }
+  if (isPlayer(target)) {
+    send(target.id, {
+      t: 'log',
+      channel: 'combat',
+      text: shot.hit
+        ? `&+R-=[&N ${capitalise(shot.missileName)}&N from ${player.name} strikes you for ${shot.damage} damage! &+R]=-&N`
+        : `${capitalise(shot.missileName)}&N from ${player.name} flies wide of you.`,
+    });
+  }
+}
+
+/** `"a throwing dagger"` → `"throwing dagger"`, for sentences that supply their own article. */
+function stripLeadingArticle(name: string): string {
+  return name.replace(/^(?:&\+?[A-Za-z]+)?(?:an?|the|some)\s+/i, (m) => m.replace(/(?:an?|the|some)\s+$/i, ''));
+}
+
+/**
  * `rescue <ally>` — **Phase 19 slice 4**, and the first ability that makes grouping mean something
  * mechanically: taking a blow meant for somebody else. `rescue()` (`actoff.c:7261`), transcribed;
  * the mechanism is `rescueFrom` in `combat.ts` and the threat-standing decision is documented there.
@@ -6340,6 +6698,13 @@ function runCommand(player: Player, line: string): void {
     case 'bash':
     case 'kick':
       return isCombatAbility(command) ? useAbility(player, command, rest) : undefined;
+    // Ranged slices 3+4 — `DESIGN-ranged.md`. Two spellings for the launcher because the owner asked
+    // for both by name, and one handler for all three verbs: an arrow and a knife differ in data.
+    case 'fire':
+    case 'shoot':
+      return rangedCommand(player, rest, false);
+    case 'throw':
+      return rangedCommand(player, rest, true);
     // Phase 19 slice 4. Not routed through `useAbility`: a rescue rolls no dice against a body — it
     // moves a fight, and its notch runs backwards. See `doRescue`.
     case 'rescue': return doRescue(player, rest);

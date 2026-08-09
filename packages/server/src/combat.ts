@@ -664,6 +664,20 @@ export function landBlow(
   attacker: Actor,
   target: Actor,
   damage: number,
+  /**
+   * Ranged slice 3's two dials, absent for every melee blow — see `DESIGN-ranged.md`.
+   *
+   * `retaliate: false` is the **cross-room** shot: the victim must not acquire a `fighting` target it
+   * cannot reach, because the retarget pass wipes an unreachable-only threat table within a tick and a
+   * mob pointed at a wall is a bug, not a pull. The pull is slice 5's `provoked` affect; until then a
+   * shot from the next room deals its damage, seeds its threat, and the mob stands there.
+   *
+   * `threatFactor` scales the threat only — damage and the ledger are untouched. The **same-room**
+   * shot in a group passes 0.5, the healing precedent's own number (§2.7 credits healing at half),
+   * so a ranger firing from the back of the room stays below the tank without dealing less. Owner:
+   * *"less chance of a mob switching to you"*.
+   */
+  opts?: { readonly retaliate?: boolean; readonly threatFactor?: number },
 ): BlowResult {
   const { sim, scheduler, book, ledger } = deps;
   // Belt under the braces: whatever path composed this blow — a targeted nuke, a stray bolt, an
@@ -680,9 +694,11 @@ export function landBlow(
   if (damage > 0) target.hp = Math.max(HP_DEAD_BELOW - 1, target.hp - damage);
 
   // Threat, credited to whoever dealt it. Damage only for now — §2.7's other source is healing an
-  // engaged ally at half the amount, and there is no healing until Phase 20.
+  // engaged ally at half the amount, and there is no healing until Phase 20. `threatFactor` scales
+  // this line and nothing else: the ledger below records what actually happened to the body, and an
+  // arrow that dealt 6 dealt 6 — it is only the mob's *grudge* that a ranged blow earns less of.
   if (isMob(target) && damage > 0) {
-    addThreat(threatTableFor(book, target), attacker.id, damage * THREAT_PER_DAMAGE);
+    addThreat(threatTableFor(book, target), attacker.id, damage * THREAT_PER_DAMAGE * (opts?.threatFactor ?? 1));
     credit(ledger, target.id, attacker.id, { dealt: damage });
   }
   // And the other half of the phase's rule: **damage taken counts too.** A tank standing in front of
@@ -693,8 +709,10 @@ export function landBlow(
   }
 
   // Being hit is what makes a fight mutual — and it happens whether or not the blow connected, because
-  // being swung at is enough to notice. `retaliate` refuses if the victim is already busy.
-  if (retaliate(scheduler, target, attacker)) changed.push(target);
+  // being swung at is enough to notice. `retaliate` refuses if the victim is already busy. A cross-room
+  // shot opts out entirely: noticing is not the problem, *reaching* is, and `set_fighting` at a body in
+  // another room points the victim at a wall.
+  if (opts?.retaliate !== false && retaliate(scheduler, target, attacker)) changed.push(target);
 
   // Vitals may have moved the target down the status ladder. Recomputed here rather than waited for,
   // because the mercy rule below has to see the *result* of this blow, not the previous tick's.

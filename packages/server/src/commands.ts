@@ -184,6 +184,13 @@ export const COMMANDS = [
   // that reaches this. In the source `read` is one line: `do_look(ch, "at <arg>")` — reading IS
   // looking at an extra description, and ours transcribes the same search order.
   'read',
+  // Ranged slices 3+4, and the owner asked for both spellings by name: *"wire both fire and shoot"*.
+  // Three appends, three free prefixes, checked against everything above: `fi` reaches fire (`f` and
+  // `fl` are flee, `fo` is follow), `sh` reaches shoot (`s` is south, `se` is sell, `si` is sit, `sk`
+  // is skills, `sl` is sleep, `sp` is spells, `st` is stand), and `th` reaches throw (`t` is tell).
+  'fire',
+  'shoot',
+  'throw',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -440,6 +447,16 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // sword. `look` beside it needs only `prone` and stays combat-legal; the difference is the
   // source's own, and it reads right — a glance is free, reading is attention.
   read: { status: 'resting', posture: 'prone', inCombat: false },
+  // `CMD_Y(CMD_FIRE, STAT_NORMAL + POS_STANDING, ...)` — standing, and legal in combat, which is what
+  // makes the ranger's step-back-and-fire a fighting move rather than a between-fights one. `shoot` is
+  // the same registration under the owner's other spelling.
+  fire: { status: 'normal', posture: 'standing' },
+  shoot: { status: 'normal', posture: 'standing' },
+  // **A deliberate divergence, recorded as `DESIGN-ranged.md` §5.2 asks.** The source registers throw
+  // `CMD_N` — refused in combat — but its whole throwing system is an unfinished stub (§0.2), so the
+  // refusal guards code that never worked. Ours is built on `do_fire`'s shape and takes `fire`'s own
+  // registration: a knife leaves the hand as readily as an arrow leaves the string.
+  throw: { status: 'normal', posture: 'standing' },
 };
 
 /* -------------------------------------------------------------------------- */

@@ -57,8 +57,9 @@ import type { Direction, Room, RoomId } from '@mygame/shared';
 /** The six, in `interp.c`'s own order — which makes `d` down and not something else, by table order. */
 const DIRECTIONS: readonly Direction[] = ['north', 'east', 'south', 'west', 'up', 'down'];
 
-/** `rev_dir`, transcribed rather than derived — six entries do not earn arithmetic. */
-const REVERSE: Readonly<Record<Direction, Direction>> = {
+/** `rev_dir`, transcribed rather than derived — six entries do not earn arithmetic. Exported for the
+ * arrow's arrival line: a shot fired *west* streaks into the far room *from the east*. */
+export const REVERSE: Readonly<Record<Direction, Direction>> = {
   north: 'south',
   south: 'north',
   east: 'west',
