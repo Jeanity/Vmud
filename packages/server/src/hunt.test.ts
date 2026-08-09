@@ -557,6 +557,29 @@ describe('a provoked sentinel', () => {
     assert.ok(!events.some((e) => e.kind === 'arrived'), 'and silent: no arrival event, so nothing engages');
     assert.equal(fixture.hunts.size, 0, 'home ends the hunt');
   });
+
+  it('settles a few steps inside the room instead of standing in the doorway', () => {
+    // Owner-reported: walks that ended the tick the room id flipped left every wanderer parked on
+    // the border it came through, and a field of them read as through-traffic. The walk now hands
+    // over to a short settle-shuffle along its own heading.
+    const fixture = makeFixture(noPursuit());
+    fixture.place(fixture.mob, 9001);
+    beginWalkTo(fixture.hunts, fixture.mob, 9000);
+    const grid = fixture.world.grid(fixture.mob.place);
+    assert.ok(grid);
+    const origin = grid.roomOrigins.get(9000);
+    assert.ok(origin, 'room 9000 has an origin');
+    fixture.run(120);
+    assert.equal(fixture.hunts.size, 0, 'the settle itself also ends');
+    assert.equal(fixture.mob.roomId, 9000, 'and ends where the walk was going');
+    // Walking west out of 9001, the border crossed is 9000's east edge; settled means measurably
+    // clear of it, not flush against it.
+    const eastEdge = tileCentre(origin.tx + ROOM_TILES - 1);
+    assert.ok(
+      fixture.mob.x < eastEdge - TILE_SIZE,
+      `settled ${eastEdge - fixture.mob.x}px inside — more than a tile clear of the doorway`,
+    );
+  });
 });
 
 /**

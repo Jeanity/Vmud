@@ -10407,7 +10407,11 @@ setInterval(() => {
       // weight beside it.
       const roams = !mob.aggro.sentinel && !shopsByKeeper.has(mob.vnum) && !sim.isQuestGiver(mob.vnum);
       // The door lookup is `CAN_GO`'s closed-door half — see `wanderRoll` for the youths it freed.
-      const step = roams
+      // The 1-in-3 gate in front of the roll is the owner's tone-down (2026-08-09): our field rooms
+      // are exit-rich, so the source's bare seven-face die had half the youths on the move every
+      // pulse and the field read as through-traffic. A pulse the gate refuses falls through to the
+      // in-room shuffle below, so the world stays alive at the ankles while the doors calm down.
+      const step = roams && randomInt(spawnRng, 1, 3) === 1
         ? wanderRoll(world, mob, randomInt(spawnRng, 0, 6), mob.lastWander, (room, dir) => {
             const doorway = world.doorway(room, dir);
             return doorway !== undefined && doorway.near.door.closed;

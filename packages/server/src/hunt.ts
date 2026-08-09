@@ -32,6 +32,7 @@ import {
   TILE_SIZE,
   doorwayTiles,
   huntBlockedBy,
+  isWalkableAt,
   roomAtTile,
   normaliseIntent,
   pursues,
@@ -421,6 +422,18 @@ const WALK_GIVE_UP_MS = 30_000;
 const DRIFT_GIVE_UP_MS = 3_000;
 
 /**
+ * A heading as motion, for the arrival settle: the few steps a walker takes onward into the room it
+ * just entered. The two verticals are absent on purpose — a stairwell is a Place change, and there
+ * is no "onward" to amble.
+ */
+const HEADING_DELTA: Partial<Record<Direction, { readonly x: number; readonly y: number }>> = {
+  north: { x: 0, y: -1 },
+  south: { x: 0, y: 1 },
+  east: { x: 1, y: 0 },
+  west: { x: -1, y: 0 },
+};
+
+/**
  * Starts a shuffle to a point in the mob's own room. The caller picks the point (it holds the grid);
  * this only refuses to interrupt something real — a chase, a stroll, or an existing shuffle.
  */
@@ -548,7 +561,26 @@ export function advanceHunts(
       // A walk to a room — home after a pull, or a wanderer's stroll. Arrival is silent on purpose:
       // arriving somewhere on your own feet engages nobody.
       if (mob.roomId === hunt.walkTo) {
+        // **Arrived, but not settled** — owner-reported: a walk that ended the tick the room id
+        // flipped left every wanderer standing in the doorway it came through, and a field of them
+        // read as through-traffic, each one a room-crossing waiting to happen. The walk hands over
+        // to the shuffle it already knows: a few steps further along the heading it entered by, at
+        // the shuffle's amble, settling the body *inside* the room. Clamped to this room's own
+        // walkable tiles — a settle that crossed the next border would recreate the traffic — and
+        // skipped entirely when the doorway opens onto a wall, where stopping short was already right.
+        const grid = world.grid(mob.place);
+        const delta = hunt.heading !== undefined ? HEADING_DELTA[hunt.heading] : undefined;
         hunts.delete(id);
+        if (grid && delta) {
+          for (const tiles of [2.5, 1.5]) {
+            const x = mob.x + delta.x * TILE_SIZE * tiles;
+            const y = mob.y + delta.y * TILE_SIZE * tiles;
+            if (!isWalkableAt(grid, x, y)) continue;
+            if (roomAtTile(grid, Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE)) !== mob.roomId) continue;
+            hunts.set(id, { mob, quarry: -1, lostForMs: 0, nextRoom: undefined, heading: undefined, driftTo: { x, y } });
+            break;
+          }
+        }
         continue;
       }
       rule = walkRule(mob);
