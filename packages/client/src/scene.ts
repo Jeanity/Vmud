@@ -113,13 +113,18 @@ interface TileArt {
 }
 
 export const TILE_SHEETS = [
-  'grass', 'grassalt', 'dirt', 'dirt2', 'water', 'watergrass', 'hole', 'rock',
+  'grass', 'grassalt', 'dirt', 'dirt2', 'water', 'watergrass', 'hole', 'rock', 'cobbles',
 ] as const;
 
 /** Indexed by `SECTOR_INDEX` order. */
 const SECTOR_ART: readonly TileArt[] = [
   { sheet: 'dirt2', frames: [10, 10, 17] },                    // inside — flagstones
-  { sheet: 'dirt', frames: [10, 10, 17], tint: 0xb8b8b8 },     // city — cobbles, greyed
+  // City streets are real flagstone — owner, 2026-08-09, standing in Velen: *"brown makes it look
+  // like a dirt road."* The old row tinted the dirt sheet grey, and a multiplicative tint over brown
+  // pixels only ever makes darker brown. `cobbles.png` is HughSpectrum's outside castle flags (the
+  // sage colourway, four fills, one worn smooth); the tint suppresses their green cast to a
+  // weathered grey the art itself never shipped.
+  { sheet: 'cobbles', frames: [0, 1, 2, 0, 1, 3], tint: 0xffebff }, // city — grey flagstone
   { sheet: 'dirt', frames: [17, 17, 10] },                     // road
   { sheet: 'grass', frames: [10, 10, 10, 16, 17] },            // field
   { sheet: 'grass', frames: [10, 10, 16, 17, 15], tint: 0x8fb88f }, // forest — denser, darker
