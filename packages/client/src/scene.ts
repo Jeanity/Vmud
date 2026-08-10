@@ -998,6 +998,8 @@ interface Entity {
   healthTrough: Phaser.GameObjects.Rectangle | undefined;
   /** The golden question mark over a quest giver. Only bodies flagged by the view carry one. */
   quest: Phaser.GameObjects.Text | undefined;
+  /** The gold `$` over a shopkeeper — protocol 28, the owner's ask for an indicator. */
+  merchant: Phaser.GameObjects.Text | undefined;
   /**
    * The idle animation, held so it can be stopped when the entity is destroyed.
    *
@@ -2249,6 +2251,11 @@ export class WorldScene extends Phaser.Scene {
       if (view.questGiver) {
         verbs.push({ label: 'Quest', run: () => this.net.send({ t: 'command', text: 'quest' }) });
       }
+      // The trade row — protocol 28's bit, the owner's ask beside the badge. `list` resolves the
+      // keeper standing in your room exactly as `quest` resolves the giver, hence a command.
+      if (view.keeper) {
+        verbs.push({ label: 'List wares', run: () => this.net.send({ t: 'command', text: 'list' }) });
+      }
       if (!view.untouchable) {
         verbs.push(...this.openersFor(view));
         // The ranged rows, same gate the revealed menu uses: offered only when the main hand can.
@@ -3435,6 +3442,21 @@ export class WorldScene extends Phaser.Scene {
           })
           .setOrigin(0.5, 1)
           .setVisible(false);
+    // The merchant's mark, the giver's twin: same perch, same gold family, toggled by the view's
+    // own bit in `refreshHealthBar`. A body that is both (a keeper with a quest) shows the pair
+    // side by side — the refresh pass slides this one right when the `?` is up.
+    const merchantMark = isItem || isSelf
+      ? undefined
+      : this.add
+          .text(0, HEALTH_BAR_Y - 4, '$', {
+            fontFamily: 'Iosevka, Consolas, monospace',
+            fontSize: '14px',
+            color: '#e8c86a',
+            stroke: '#0b0d0a',
+            strokeThickness: 3,
+          })
+          .setOrigin(0.5, 1)
+          .setVisible(false);
     // **Bodies are named on screen; things on the floor are not** — owner's call, 2026-08-05:
     // *"maybe not show the name of the object. just the graphic. people can look at it to see what it
     // is."*
@@ -3468,6 +3490,7 @@ export class WorldScene extends Phaser.Scene {
     const parts: Phaser.GameObjects.GameObject[] = footprint ? [footprint, ...layers] : [...layers];
     if (trough && health) parts.push(trough, health);
     if (questMark) parts.push(questMark);
+    if (merchantMark) parts.push(merchantMark);
     if (label) parts.push(label);
     const container = this.add
       .container(view.x, view.y, parts)
@@ -3496,6 +3519,7 @@ export class WorldScene extends Phaser.Scene {
       health,
       healthTrough: trough,
       quest: questMark,
+      merchant: merchantMark,
       idle,
       x: view.x,
       y: view.y,
@@ -3775,6 +3799,8 @@ export class WorldScene extends Phaser.Scene {
     // The giver's mark rides this pass because it has the same rhythm: set at creation, kept
     // honest on every update, driven entirely by the view.
     entity.quest?.setVisible(entity.view.questGiver === true);
+    entity.merchant?.setVisible(entity.view.keeper === true);
+    entity.merchant?.setX(entity.view.questGiver === true ? 10 : 0);
     const bar = entity.health;
     if (!bar) return;
     const fraction = Math.max(0, Math.min(1, entity.view.healthFraction ?? 1));

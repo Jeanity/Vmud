@@ -2120,6 +2120,17 @@ export class Simulation {
   }
 
   /**
+   * Keeper vnums, for the view's `$` badge and *List wares* row — protocol 28. Set once at boot
+   * from the shop map's own keys, and folded into the view's `untouchable` below because the owner's
+   * rule is absolute: a merchant cannot be harmed, whatever quest rows say about them.
+   */
+  private keepers = new Set<number>();
+
+  setKeepers(vnums: Iterable<number>): void {
+    this.keepers = new Set(vnums);
+  }
+
+  /**
    * How one actor appears to somebody else — players and mobs through the same function.
    *
    * There is no branch on `kind` here beyond passing it along, and that is the whole return on the
@@ -2133,7 +2144,10 @@ export class Simulation {
       id: actor.id,
       kind: actor.kind,
       ...(isMob(actor) && this.questGivers.has(actor.vnum) ? { questGiver: true as const } : {}),
-      ...(isMob(actor) && this.protectedGivers.has(actor.vnum) ? { untouchable: true as const } : {}),
+      ...(isMob(actor) && this.keepers.has(actor.vnum) ? { keeper: true as const } : {}),
+      ...(isMob(actor) && (this.protectedGivers.has(actor.vnum) || this.keepers.has(actor.vnum))
+        ? { untouchable: true as const }
+        : {}),
       name: actor.name,
       sprite: actor.sprite,
       x: actor.x,

@@ -114,6 +114,33 @@ export function priceToBuy(template: ItemTemplate, shop: Shop, chaMod = 0): numb
  * tilt: a face good enough to be paid more than the shelf price would be a money printer with
  * dimples.
  */
+/**
+ * The window a keeper's offer rolls in, as fractions of the catalogue cost — Phase 23's economy
+ * correction, owner-reported from the shop floor (2026-08-10): a mottled brown cloak carrying the
+ * harvest's raw 18,000-copper cost sold at the flat spread for ten platinum — *"I could retire
+ * from that one sale."* The harvested `buyPercent` was tuned for Duris' economy, not ours; ours
+ * has no sinks yet, so a keeper pays **scrap value**: somewhere between a twentieth and roughly a
+ * seventh of the book price, rolled fresh per offer so selling feels like haggling rather than
+ * arithmetic. The same cloak now fetches nine silver to two gold seven.
+ */
+export const SELL_OFFER_FLOOR = 0.05;
+export const SELL_OFFER_CEILING = 0.15;
+
+/**
+ * What the keeper offers for one of these, in copper — a roll, not a rate.
+ *
+ * `roll01` is the haggling die, 0..1 from the caller's seeded stream, mapped across the window
+ * above. Charisma keeps its two-percent-a-point tilt on the rolled result, and the whole thing
+ * stays **clamped strictly below what the keeper would charge** — the anti-arbitrage law survives
+ * every roll, because a lucky face who could buy low and sell high would be a money printer with
+ * dice. Zero is an honest answer: an offer of nothing is the keeper declining politely.
+ */
+export function sellOffer(template: ItemTemplate, shop: Shop, roll01: number, chaMod = 0): number {
+  const fraction = SELL_OFFER_FLOOR + (SELL_OFFER_CEILING - SELL_OFFER_FLOOR) * Math.min(1, Math.max(0, roll01));
+  const offered = Math.floor(template.cost * fraction * (1 + chaMod * 0.02));
+  return Math.max(0, Math.min(offered, priceToBuy(template, shop, chaMod) - 1));
+}
+
 export function priceToSell(template: ItemTemplate, shop: Shop, chaMod = 0): number {
   const paid = Math.floor(template.cost * shop.buyPercent * (1 + chaMod * 0.02));
   if (chaMod <= 0) return Math.max(0, paid); // untinted, the harvest's own clamp is the guarantee

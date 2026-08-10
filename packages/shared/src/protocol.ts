@@ -287,7 +287,14 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * `identity` (race, class, the six scores — the sheet shows numbers; the roll showed words) and
  * {@link CharacterSummary} gains `race`/`class`, so the picker can say what a body is.
  *
- * Is 27: **the armour comes off the badge.** `EntityView` gains `untouchable` beside `questGiver`,
+ * Is 28: **the merchant's mark.** `EntityView` gains `keeper` beside `questGiver` — the client's
+ * one bit for the `$` over a shopkeeper's head and the *List wares* menu row. Keepers are also
+ * always `untouchable` (owner, 2026-08-10: *"they are immortal and can't be harmed"* — Duris'
+ * `.shp` even carries a per-shop `shop_killable`; the ruling sets every one to N), but the two
+ * bits stay separate on the wire because they answer different questions: one draws a badge, the
+ * other suppresses the fighting rows.
+ *
+ * Was 27: **the armour comes off the badge.** `EntityView` gains `untouchable` beside `questGiver`,
  * because the owner corrected the rule the day after asking for it (2026-08-08): *"the viscount for
  * example should be killable… add the can't kill/damage flag to quest mobs that we don't want to
  * die and leave it off when it doesn't matter."* Protocol 26 hung both facts on one bit, so marking
@@ -308,7 +315,7 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * is `paint`'s existing colour-code renderer that tells them apart on screen, not a `.ch-*` rule
  * like the six before them carry.
  */
-export const PROTOCOL_VERSION = 27;
+export const PROTOCOL_VERSION = 28;
 
 /**
  * One member of your group, as the roster draws them — protocol 19.
@@ -467,6 +474,8 @@ export interface EntityView {
   readonly kind: EntityKind;
   /** This body offers work — protocol 26. The golden `?` and the *Quest* menu row hang off this bit. */
   readonly questGiver?: true;
+  /** This body trades — protocol 28. The gold `$` and the *List wares* menu row hang off this bit. */
+  readonly keeper?: true;
   /**
    * This body cannot be harmed — protocol 27, and **independent of {@link questGiver}**.
    *

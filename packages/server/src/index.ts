@@ -243,7 +243,7 @@ import { AUTHORED_SHOPS_FILE,
   findInStock,
   loadShops,
   priceToBuy,
-  priceToSell,
+  sellOffer,
   stockOf,
   willBuy,
   type Shop,
@@ -621,6 +621,20 @@ const authoredMobs = loadAuthoredMobs();
 for (const [vnum, authored] of authoredMobs.mobs) mobTemplates.set(vnum, authored.mob);
 if (authoredMobs.mobs.size > 0) {
   console.log(`[mobs] ${authoredMobs.mobs.size} creature(s) made here, numbered from ${AUTHORED_MOB_BASE}`);
+}
+
+// **The merchants' peace** — owner, 2026-08-10: keepers are immortal, unharmable, and never angry.
+// The armour is combat's untouchable registry (seeded in `seedQuestGivers`, unioned there so a
+// quest write cannot strip it); this is the temper — whatever the harvest gave a keeper's template,
+// it loads passive, assisting nobody, anchored to its post. Duris' `.shp` carries a per-shop
+// `shop_killable` Y/N; the owner's ruling reads every one as N, so there is no flag to consult.
+for (const keeper of shopsByKeeper.keys()) {
+  const template = mobTemplates.get(keeper);
+  if (!template) continue;
+  mobTemplates.set(keeper, {
+    ...template,
+    aggro: { ...template.aggro, disposition: 'passive', clauses: [], assists: false, sentinel: true },
+  });
 }
 
 /**
@@ -1100,10 +1114,14 @@ function seedQuestGivers(): { givers: Set<number>; protectedGivers: Set<number> 
   }
   sim.setQuestGivers(givers);
   sim.setProtectedGivers(protectedGivers);
-  setUntouchableVnums(protectedGivers);
+  // The union, not the giver set alone — the keepers' armour (owner, 2026-08-10) lives in the same
+  // registry, and this function re-runs on every quest write: seeding givers alone would strip the
+  // merchants the moment an operator saved a quest.
+  setUntouchableVnums([...protectedGivers, ...shopsByKeeper.keys()]);
   return { givers, protectedGivers };
 }
 seedQuestGivers();
+sim.setKeepers(shopsByKeeper.keys());
 
 /** Auth failures one socket may accrue before it is closed. A budget for typos, not dictionaries. */
 const AUTH_ATTEMPT_BUDGET = 5;
@@ -8892,27 +8910,74 @@ function buyFromShop(player: Player, rest: string): void {
   afterKitChange(player);
 }
 
-/** `value <keyword>` — what the keeper would pay, committing to nothing. */
+/**
+ * Offers on the table — Phase 23's haggle, owner-designed from the shop floor (2026-08-10): *"the
+ * merchants should only offer a small fraction of the value... maybe they can make an offer and we
+ * can accept it or not."* One standing offer per player: `sell` (or `value`) rolls it and says the
+ * number, selling the same thing to the same keeper inside the window completes at exactly that
+ * number, and anything else — another item, another keeper, half a minute of thought — lets it
+ * lapse. Wall-clock on purpose: the window is a courtesy to a human deciding, not simulation state.
+ */
+const OFFER_TTL_MS = 30_000;
+const pendingSales = new Map<number, { keeper: number; itemName: string; price: number; expiresAt: number }>();
+
+/** Rolls a fresh offer, says it, and puts it on the table. Shared by `value` and first-`sell`. */
+function quoteOffer(player: Player, here: { mob: Mob; shop: Shop }, found: { item: Item; template: ItemTemplate }): void {
+  // The haggling die rides the colour stream: the price of a cloak in a shop is the world being
+  // itself, not a fight to audit.
+  const price = sellOffer(found.template, here.shop, randomInt(spawnRng, 0, 9999) / 9999, shopCha(player));
+  if (price <= 0) {
+    keeperSays(player, here.mob, `Keep ${stripColour(found.item.name)}. It is not worth my coin.`);
+    pendingSales.delete(player.id);
+    return;
+  }
+  pendingSales.set(player.id, {
+    keeper: here.mob.vnum,
+    itemName: found.item.name,
+    price,
+    expiresAt: Date.now() + OFFER_TTL_MS,
+  });
+  keeperSays(
+    player,
+    here.mob,
+    `${stripColour(describePurse(purseFromValue(price)))} for ${stripColour(found.item.name)}, and not a copper more. Sell it again if we have a deal.`,
+  );
+}
+
+/** `value <keyword>` — the keeper makes an offer. The same offer `sell` would make, and it stands. */
 function valueAtShop(player: Player, rest: string): void {
   const here = keeperFor(player);
   if (!here) return;
   const found = offered(player, here, rest);
   if (!found) return;
-  keeperSays(
-    player,
-    here.mob,
-    `I will give you ${stripColour(describePurse(purseFromValue(priceToSell(found.template, here.shop, shopCha(player)))))} for ${stripColour(found.item.name)}.`,
-  );
+  quoteOffer(player, here, found);
 }
 
-/** `sell <keyword>` — the item leaves the bag, the coin arrives. */
+/**
+ * `sell <keyword>` — an offer first, the deal on the second ask.
+ *
+ * The first `sell` is a quote: the keeper rolls their offer and it goes on the table. The second
+ * `sell` of the same thing to the same keeper, inside the window, completes at the quoted price —
+ * never at a fresh roll, because a deal you accepted is the deal you were offered.
+ */
 function sellToShop(player: Player, rest: string): void {
   const here = keeperFor(player);
   if (!here) return;
   const found = offered(player, here, rest);
   if (!found) return;
 
-  const paid = priceToSell(found.template, here.shop, shopCha(player));
+  const standing = pendingSales.get(player.id);
+  const accepting =
+    standing !== undefined &&
+    standing.keeper === here.mob.vnum &&
+    standing.itemName === found.item.name &&
+    standing.expiresAt > Date.now();
+  if (!accepting) {
+    quoteOffer(player, here, found);
+    return;
+  }
+
+  pendingSales.delete(player.id);
   const taken = removeAt(player.inventory, found.at);
   if (!taken) {
     // Re-read rather than trusting the resolution above, the same discipline `pickUp` keeps: two
@@ -8921,9 +8986,9 @@ function sellToShop(player: Player, rest: string): void {
     return;
   }
   sim.setInventory(player, taken.inventory);
-  player.purse = addCoins(player.purse, purseFromValue(paid));
+  player.purse = addCoins(player.purse, purseFromValue(standing.price));
 
-  keeperSays(player, here.mob, `I will give you ${stripColour(describePurse(purseFromValue(paid)))} for that.`);
+  keeperSays(player, here.mob, `Done. ${stripColour(describePurse(purseFromValue(standing.price)))}, as agreed.`);
   send(player.id, { t: 'log', channel: 'system', text: `You sell ${found.item.name}&N.` });
   afterKitChange(player);
 }
@@ -8946,6 +9011,18 @@ function offered(
   }
   const at = matchInventory(player.inventory, rest, wordsFor);
   if (at < 0) {
+    // The mistake-proofing — owner, 2026-08-10: *"we shouldn't be able to sell worn equipment so we
+    // don't sell them by mistake."* Worn gear was never sellable (the matcher above reads the bag
+    // alone), but the old refusal said "not carrying", which to somebody wearing the thing reads as
+    // a bug. Now it says what is actually true, and what to do about it.
+    const word = rest.trim().toLowerCase().split(/\s+/)[0] ?? '';
+    const wearingIt = Object.values(player.equipped).some(
+      (worn) => worn !== undefined && wordsFor(worn).includes(word),
+    );
+    if (wearingIt) {
+      keeperSays(player, here.mob, 'You are wearing that. Take it off first, if you mean it.');
+      return undefined;
+    }
     send(player.id, { t: 'log', channel: 'error', text: `You are not carrying ${rest}.` });
     return undefined;
   }

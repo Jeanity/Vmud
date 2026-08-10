@@ -10,7 +10,7 @@ import { describe, it } from 'node:test';
 
 import type { ItemTemplate } from '@mygame/shared';
 
-import { findInStock, priceToBuy, priceToSell, stockOf, willBuy, type Shop } from './shops.ts';
+import { findInStock, priceToBuy, priceToSell, sellOffer, stockOf, willBuy, type Shop } from './shops.ts';
 
 const shop = (over: Partial<Shop> = {}): Shop => ({
   vnum: 1430, keeper: 1430, room: 1443, sells: [1, 2],
@@ -77,5 +77,35 @@ describe('the shelf', () => {
     assert.equal(findInStock(stock, 'bot', words)?.vnum, 2, 'a prefix is enough');
     assert.equal(findInStock(stock, 'chicken egg', () => [])?.vnum, 1, 'and the whole name works too');
     assert.equal(findInStock(stock, '', words), undefined);
+  });
+});
+
+describe('sellOffer — the haggle, Phase 23', () => {
+  const template = { cost: 18_000 } as Parameters<typeof sellOffer>[0];
+  const shop = { buyPercent: 0.58, sellPercent: 1.15 } as Parameters<typeof sellOffer>[1];
+
+  it('rolls inside the scrap-value window — the retirement cloak now pays silver, not platinum', () => {
+    const low = sellOffer(template, shop, 0);
+    const high = sellOffer(template, shop, 1);
+    assert.equal(low, 900, 'the floor is a twentieth of the book');
+    assert.equal(high, 2700, 'the ceiling about a seventh');
+  });
+
+  it('stays strictly below what the keeper charges, whatever the roll or the face', () => {
+    const cheap = { cost: 8 } as Parameters<typeof sellOffer>[0];
+    for (const roll of [0, 0.5, 1]) {
+      for (const cha of [-3, 0, 5]) {
+        assert.ok(sellOffer(cheap, shop, roll, cha) < priceToBuy(cheap, shop, cha), `roll ${roll} cha ${cha}`);
+      }
+    }
+  });
+
+  it('offers nothing for the worthless, which is the keeper declining', () => {
+    const junk = { cost: 0 } as Parameters<typeof sellOffer>[0];
+    assert.equal(sellOffer(junk, shop, 1), 0);
+  });
+
+  it('is deterministic in the roll — an accepted deal is the deal that was offered', () => {
+    assert.equal(sellOffer(template, shop, 0.37), sellOffer(template, shop, 0.37));
   });
 });
