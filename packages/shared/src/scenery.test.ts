@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { SCENERY, SCENERY_KINDS, isSceneryKind, type RoomScenery } from './scenery.ts';
+import { SCENERY, SCENERY_KINDS, isSceneryKind, sceneryNamed, type RoomScenery } from './scenery.ts';
 import {
   ROOM_TILES,
   STAIR_TILES,
@@ -183,6 +183,64 @@ describe('scenery in the tile grid', () => {
     const bare = buildZoneTilemap(makeZone([makeRoom([])]));
     for (let ty = 0; ty < ROOM_TILES; ty++) {
       for (let tx = 0; tx < ROOM_TILES; tx++) assert.equal(tileAt(bare, tx, ty), Tile.Floor);
+    }
+  });
+});
+
+describe('naming a prop', () => {
+  const crossing: RoomScenery[] = [
+    { kind: 'fountain', tx: 2, ty: 3 },
+    { kind: 'plinth', tx: 5, ty: 3 },
+  ];
+
+  it('answers to every word in its catalogue row', () => {
+    for (const kind of SCENERY_KINDS) {
+      const standing: RoomScenery[] = [{ kind, tx: 0, ty: 0 }];
+      for (const word of SCENERY[kind].keywords) {
+        assert.equal(sceneryNamed(standing, word)?.kind, kind, `${kind} should answer to "${word}"`);
+      }
+    }
+  });
+
+  it('matches whole words only, so look s is still south', () => {
+    // A prefix match would let a statue answer to "s" and shadow the direction. `lookAt` gives
+    // directions first refusal, but a prop that grabbed single letters would still be a trap.
+    assert.equal(sceneryNamed([{ kind: 'statue', tx: 0, ty: 0 }], 's'), undefined);
+    assert.equal(sceneryNamed([{ kind: 'fountain', tx: 0, ty: 0 }], 'foun'), undefined);
+  });
+
+  it('is case-blind, the way find_ex_description is', () => {
+    assert.equal(sceneryNamed(crossing, 'FOUNTAIN')?.kind, 'fountain');
+  });
+
+  it('names nothing in a room that has none, and nothing for an empty word', () => {
+    assert.equal(sceneryNamed(undefined, 'fountain'), undefined);
+    assert.equal(sceneryNamed([], 'fountain'), undefined);
+    assert.equal(sceneryNamed(crossing, ''), undefined);
+    assert.equal(sceneryNamed(crossing, 'gazebo'), undefined);
+  });
+
+  it('marks exactly one kind as the thing a board is bolted to', () => {
+    // If a second kind ever claims it, a room with both would have two readable noticeboards and
+    // `read` would answer with whichever came first in the list - which is a coin toss, not a rule.
+    const bearers = SCENERY_KINDS.filter((kind) => SCENERY[kind].bearsBoard === true);
+    assert.deepEqual(bearers, ['plinth']);
+  });
+
+  it('lets the plinth be found by the words a player would actually type at a noticeboard', () => {
+    for (const word of ['plinth', 'noticeboard', 'board', 'notices']) {
+      assert.equal(sceneryNamed(crossing, word)?.kind, 'plinth', `"${word}"`);
+    }
+  });
+
+  it('gives every prop something to say when looked at', () => {
+    for (const kind of SCENERY_KINDS) {
+      assert.ok(SCENERY[kind].look.length > 20, `${kind} has no description`);
+      assert.ok(SCENERY[kind].keywords.length > 0, `${kind} answers to nothing`);
+      for (const word of SCENERY[kind].keywords) {
+        assert.equal(word, word.toLowerCase().trim(), `${kind}: "${word}" is not a plain lowercase word`);
+        assert.ok(!word.includes(' '), `${kind}: "${word}" is two words`);
+      }
     }
   });
 });

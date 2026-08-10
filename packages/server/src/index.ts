@@ -35,6 +35,8 @@ import {
   divideExperience,
   groupedShare,
   abilityChance,
+  SCENERY,
+  sceneryNamed,
   SHIELDLESS_BASH_LINE,
   STARTER_SHIELD_ID,
   type Shield,
@@ -4825,7 +4827,15 @@ function doRead(player: Player, rest: string): void {
   // the Anchor & Anvil's chalkboard answers to `read board` because no board stands in that room.
   if (room?.board !== undefined) {
     const posts = boards.get(room.board) ?? [];
-    if (word === 'board' || word === 'bulletin' || word === 'noticeboard') {
+    // **The thing the board is bolted to answers for it** — owner, 2026-08-10: *"maybe the plinth
+    // can be the noticeboard that should be read."* `Room.board` has carried the posts since Phase
+    // 23 and V8d stood a plinth in the same room because the prose promised one; nothing joined
+    // them, so `read plinth` fell through to the granite extra and the notices were unreachable by
+    // the name of the thing holding them. The Diku split survives it and is the reason the pair
+    // reads well: **look at it, read what is on it.**
+    const namedProp = sceneryNamed(room.scenery, word);
+    const bolted = namedProp !== undefined && SCENERY[namedProp.kind].bearsBoard === true;
+    if (bolted || word === 'board' || word === 'bulletin' || word === 'noticeboard') {
       for (const line of boardListing(posts)) prose(line);
       // `boards.c:306` — the one thing everyone in the square learns from a reader's back.
       actToRoom(player, 'room', (who) => `${capitalise(who)} studies the noticeboard.`);
@@ -6063,6 +6073,39 @@ function lookAt(player: Player, argument: string): void {
   // something called "in quiver". It answers `look quiver` too when the quiver is a container, since
   // "what is in it" is the only interesting thing to say about one.
   if (lookInside(player, argument)) return;
+
+  // **Scenery and extras, before bodies** — and until now `look` consulted neither, which is the
+  // bug the plinth exposed. `do_look` (`actinf.c:2632`) walks room extras, then equipment, then
+  // objects, through the same `find_ex_description` our `read` already uses; ours walked none of
+  // them, so `read fountain` answered and `look fountain` said *"You do not see that here"* about
+  // a fountain filling the middle of the screen. Bodies still come after, because a body is the
+  // thing you are most likely to mean and nothing fixed answers to a person's name.
+  const word = argument.trim().toLowerCase().split(/\s+/)[0] ?? '';
+  const room = sim.room(player.roomId);
+  // Authored prose outranks the catalogue: a room that wrote its own fountain gets its own words.
+  const authored = matchExtra(word, room?.extras);
+  if (authored !== undefined) {
+    send(player.id, { t: 'log', channel: 'room', text: authored });
+    return;
+  }
+  const prop = sceneryNamed(room?.scenery, word);
+  if (prop) {
+    send(player.id, { t: 'log', channel: 'room', text: SCENERY[prop.kind].look });
+    // The one thing a noticeboard has to volunteer, or nobody learns it is readable.
+    if (SCENERY[prop.kind].bearsBoard === true && room?.board !== undefined) {
+      const posts = boards.get(room.board) ?? [];
+      send(player.id, {
+        t: 'log',
+        channel: 'room',
+        text:
+          posts.length === 0
+            ? 'Nothing is posted on it at the moment. (&+Wread board&N)'
+            : `${posts.length} notice${posts.length === 1 ? ' is' : 's are'} posted on it. (&+Wread board&N)`,
+      });
+    }
+    return;
+  }
+
   const target = resolveTarget(player, argument);
   if (!target) return;
   describeEntity(player, target);

@@ -60,6 +60,31 @@ export interface SceneryProp {
    * three tiles of stacked straw is taller than the person looking at it.
    */
   readonly opaque: boolean;
+  /**
+   * What you can call it. Lowercase, whole words, matched the way `find_ex_description` matches.
+   *
+   * A prop that is drawn and cannot be named is furniture in a shop window: you can see a fountain
+   * from across the plaza and the game denies one exists the moment you type its name. These are
+   * the **default** words for the kind — a room that authors an `extras` block for its own fountain
+   * outranks them, because bespoke prose beats a catalogue line every time.
+   */
+  readonly keywords: readonly string[];
+  /** What looking at one says, when the room has not written something better. */
+  readonly look: string;
+  /**
+   * That this prop is a room's noticeboard **made visible** — the owner's ask, 2026-08-10:
+   * *"maybe the plinth can be the noticeboard that should be read."*
+   *
+   * It had been two authored facts about one object: `Room.board` has carried the posts since Phase
+   * 23 and V8d stood a plinth in the same room because the prose promised one, with nothing joining
+   * them. This is the join, and it keeps the Diku split that makes the pair read properly — **look
+   * at it, read what is on it.** `look plinth` describes the granite and the four iron bolts;
+   * `read plinth` is the notices bolted to it, the same listing `read board` gives.
+   *
+   * Only meaningful in a room that actually has a `board`. A plinth standing anywhere else is a
+   * plinth.
+   */
+  readonly bearsBoard?: true;
 }
 
 /**
@@ -72,14 +97,39 @@ export interface SceneryProp {
  */
 export const SCENERY: Readonly<Record<SceneryKind, SceneryProp>> = {
   /** Three frames of a jet rising and falling. The one prop that moves, and the one that was asked for. */
-  fountain: { width: 2, depth: 2, height: 2, frames: 3, frameMs: 220, opaque: false },
+  fountain: {
+    width: 2, depth: 2, height: 2, frames: 3, frameMs: 220, opaque: false,
+    keywords: ['fountain', 'water', 'basin', 'jet'],
+    look: 'A stone fountain, worn round at the lip by hands and weather. Water climbs a short column at its centre and falls back muttering into the basin.',
+  },
   /** A stepped granite dais with a board bolted to it — the Great Crossing's noticeboard, made visible. */
-  plinth: { width: 3, depth: 3, height: 3, frames: 1, frameMs: 0, opaque: false },
-  well: { width: 2, depth: 2, height: 2, frames: 1, frameMs: 0, opaque: false },
+  plinth: {
+    width: 3, depth: 3, height: 3, frames: 1, frameMs: 0, opaque: false,
+    keywords: ['plinth', 'noticeboard', 'notices', 'board', 'granite'],
+    look: 'A stepped block of grey granite, waist high and squared off. A broad board is bolted flat to its face, layered with notices under the weather.',
+    bearsBoard: true,
+  },
+  well: {
+    width: 2, depth: 2, height: 2, frames: 1, frameMs: 0, opaque: false,
+    keywords: ['well', 'wellhead', 'shaft'],
+    look: 'A round wellhead of mortared stone, the courses inside slick and dark. Whatever is down there is a long way down.',
+  },
   /** One tile of floor, two tiles of marble: the overhang case the `height` field exists for. */
-  statue: { width: 1, depth: 1, height: 2, frames: 1, frameMs: 0, opaque: false },
-  cart: { width: 2, depth: 2, height: 2, frames: 1, frameMs: 0, opaque: false },
-  haystack: { width: 2, depth: 2, height: 3, frames: 1, frameMs: 0, opaque: true },
+  statue: {
+    width: 1, depth: 1, height: 2, frames: 1, frameMs: 0, opaque: false,
+    keywords: ['statue', 'figure', 'marble'],
+    look: 'A marble figure on a low base, the face weathered past recognising. Whoever it was, the city has stopped explaining.',
+  },
+  cart: {
+    width: 2, depth: 2, height: 2, frames: 1, frameMs: 0, opaque: false,
+    keywords: ['cart', 'handcart', 'barrow'],
+    look: 'A wooden handcart tipped onto its shafts, one wheel worn to the felloe. Empty, and not recently.',
+  },
+  haystack: {
+    width: 2, depth: 2, height: 3, frames: 1, frameMs: 0, opaque: true,
+    keywords: ['haystack', 'hay', 'bale', 'straw'],
+    look: 'A round bale of straw, taller than you are and packed hard. Something could be lost in that and never found.',
+  },
 } as const;
 
 /** A prop standing in a room, at a tile offset inside that room's own block. */
@@ -93,4 +143,26 @@ export interface RoomScenery {
 
 export function isSceneryKind(value: unknown): value is SceneryKind {
   return typeof value === 'string' && (SCENERY_KINDS as readonly string[]).includes(value);
+}
+
+/**
+ * Which prop standing in this room answers to a word, if any.
+ *
+ * Whole-word and case-blind, the way `find_ex_description` (`actinf.c:671`) matches — a prefix
+ * match would let `look s` hit a statue while the player meant south, and direction already wins
+ * that argument earlier in `lookAt`.
+ *
+ * Takes the room's own list rather than a room, so the rules stay free of `world.ts` shapes and
+ * this can be asked about a hypothetical arrangement in a test.
+ */
+export function sceneryNamed(
+  scenery: readonly RoomScenery[] | undefined,
+  word: string,
+): RoomScenery | undefined {
+  if (!scenery?.length || !word) return undefined;
+  const needle = word.toLowerCase();
+  for (const prop of scenery) {
+    if (SCENERY[prop.kind]?.keywords.includes(needle)) return prop;
+  }
+  return undefined;
 }
