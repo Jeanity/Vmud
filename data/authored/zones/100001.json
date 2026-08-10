@@ -1,7 +1,7 @@
 {
-  "$comment": "Velen - The Square, Phase 22's courtyard seed. The first committed first-party zone: the great crossing of the city's two streets, laid to TorilMUD Waterdeep's plan (owner, 2026-08-09) - a north-south spine, one great east-west cross street, and the square where they meet. Phase 23 grows the noticeboard, the shops and the gate guards from here. Room ids are zone x 1000 + n by the Phase 22 law; prose is ours and ships.",
+  "$comment": "Velen, one zone on one plane - the owner's ask (2026-08-10: 'if I walk north out of the square it should just go to the next attached zone... from gate to road I don't think it needs to be [a portal]'), and DESIGN-city.md section 2's own picture: streets at z 0, the Underquay at z -1, the wall walk at z +1. Eight authored zones were merged here because a zone's coordinates are normalised per zone, so districts-as-zones could never share a frame; districts are now a naming convention and the city is one map, exactly as IceCrag Castle is one zone of 219 rooms across eleven levels. The four edges into HARVESTED rooms (431, 77504, 77580, 81128) stay portals, because two sources genuinely share no plane - measured across the harvest, 0 of 991 cross-zone exits are geometric neighbours.",
   "id": 100001,
-  "name": "Velen - The Square",
+  "name": "Velen",
   "seamless": true,
   "entryRoom": 100001000,
   "rooms": [
@@ -58,8 +58,7 @@
           "to": 100001000
         },
         "north": {
-          "to": 100003000,
-          "portal": true
+          "to": 100001010
         }
       }
     },
@@ -79,8 +78,7 @@
           "to": 100001000
         },
         "south": {
-          "to": 100013000,
-          "portal": true
+          "to": 100001064
         }
       }
     },
@@ -108,12 +106,10 @@
           }
         },
         "west": {
-          "to": 100007000,
-          "portal": true
+          "to": 100001040
         },
         "south": {
-          "to": 100006000,
-          "portal": true
+          "to": 100001030
         }
       }
     },
@@ -133,8 +129,7 @@
           "to": 100001000
         },
         "east": {
-          "to": 100012000,
-          "portal": true
+          "to": 100001062
         }
       }
     },
@@ -167,6 +162,842 @@
         {
           "keywords": "chalkboard board",
           "text": "BEDS ABOVE - CLEAN - COPPER A NIGHT. STEW UNTIL THE POT SAYS OTHERWISE. NO SINGING BEFORE DARK."
+        }
+      ]
+    },
+    {
+      "id": 100001010,
+      "zone": 100001,
+      "name": "The Guildhall Court",
+      "sector": "city",
+      "pos": {
+        "x": 0,
+        "y": -2,
+        "z": 0
+      },
+      "description": "A cobbled court hemmed in by the trades of violence and grace: the Hall of the Shield stands north behind its rack of dented practice arms, a door west keeps its own counsel, the Seminary of the Dawn opens east in whitewash and bellrope, and a worn stone stair climbs the tower wall. Chalk circles on the cobbles mark where lessons got out of hand.",
+      "exits": {
+        "north": {
+          "to": 100001011
+        },
+        "west": {
+          "to": 100001012,
+          "door": {
+            "name": "a quiet door",
+            "closed": false,
+            "locked": false
+          }
+        },
+        "east": {
+          "to": 100001013
+        },
+        "south": {
+          "to": 100001001
+        },
+        "up": {
+          "to": 100001014
+        }
+      },
+      "extras": [
+        {
+          "keywords": "chalk circles",
+          "text": "Rings and half-rings, scuffed and redrawn. Somebody keeps score in tally marks by the north wall, and somebody else keeps rubbing the tallies out."
+        }
+      ]
+    },
+    {
+      "id": 100001011,
+      "zone": 100001,
+      "name": "The Hall of the Shield",
+      "sector": "inside",
+      "pos": {
+        "x": 0,
+        "y": -3,
+        "z": 0
+      },
+      "flags": [
+        "indoors"
+      ],
+      "description": "Long, loud, and smelling of oil and sweat. Pells stand in ranks down the middle, each beaten past apology, and the walls carry shields split clean through - hung not as trophies but as syllabus. The floorboards are scarred in arcs where ten thousand footwork drills have turned on the same heel.",
+      "exits": {
+        "south": {
+          "to": 100001010
+        },
+        "north": {
+          "to": 100001020
+        }
+      }
+    },
+    {
+      "id": 100001012,
+      "zone": 100001,
+      "name": "Behind the Quiet Door",
+      "sector": "inside",
+      "pos": {
+        "x": -1,
+        "y": -2,
+        "z": 0
+      },
+      "flags": [
+        "indoors",
+        "dark"
+      ],
+      "description": "A room that is mostly shadow on purpose. Ropes, sills and a shuttered lantern hang from a practice wall built like the back of a house, and the floor is chalked with the outlines of squeaky boards. A sign by the door lists house rules; the first rule is that there is no sign.",
+      "exits": {
+        "east": {
+          "to": 100001010,
+          "door": {
+            "name": "a quiet door",
+            "closed": false,
+            "locked": false
+          }
+        }
+      }
+    },
+    {
+      "id": 100001013,
+      "zone": 100001,
+      "name": "The Seminary of the Dawn",
+      "sector": "inside",
+      "pos": {
+        "x": 1,
+        "y": -2,
+        "z": 0
+      },
+      "flags": [
+        "indoors"
+      ],
+      "description": "Whitewashed and windowed east, so the morning arrives like an argument won. Benches face a plain lectern; the only ornament is a sunburst beaten from copper, kept polished by novices who are told the shine is the lesson. It smells of beeswax, paper, and patience.",
+      "exits": {
+        "west": {
+          "to": 100001010
+        }
+      }
+    },
+    {
+      "id": 100001014,
+      "zone": 100001,
+      "name": "The Turn of the Wizards' Stair",
+      "sector": "inside",
+      "pos": {
+        "x": 0,
+        "y": -2,
+        "z": 1
+      },
+      "flags": [
+        "indoors"
+      ],
+      "description": "The stair turns here around a pillar carved with names, some of which are still legible and one of which is scorched. A slit window shows the square below, small enough to make the city look tidy. The steps continue upward past a rope that suggests, politely, that they do not continue for you.",
+      "exits": {
+        "down": {
+          "to": 100001010
+        }
+      },
+      "extras": [
+        {
+          "keywords": "rope",
+          "text": "Braided silk, hung at hip height. It is not locked, latched or warded. It does not need to be, and that is the lesson."
+        }
+      ]
+    },
+    {
+      "id": 100001020,
+      "zone": 100001,
+      "name": "The North Gatehouse, Guardroom",
+      "sector": "inside",
+      "pos": {
+        "x": 0,
+        "y": -4,
+        "z": 0
+      },
+      "flags": [
+        "indoors"
+      ],
+      "description": "Stone on stone, built to be bored in: a rack of halberds nobody has needed yet, a table scarred by dice, and a duty roster nailed where the draught cannot take it. A stair climbs into the thickness of the wall itself, worn hollow at the middle of each step by boots going up reluctant and coming down glad.",
+      "exits": {
+        "south": {
+          "to": 100001011
+        },
+        "up": {
+          "to": 100001023
+        },
+        "north": {
+          "to": 100001060
+        }
+      },
+      "extras": [
+        {
+          "keywords": "roster duty",
+          "text": "Names, watches, and against one name in a different hand: OWES THE POT THREE NIGHTS. The pot keeps better records than the captain."
+        }
+      ]
+    },
+    {
+      "id": 100001021,
+      "zone": 100001,
+      "name": "The Wall Walk, Western Reach",
+      "sector": "city",
+      "pos": {
+        "x": -2,
+        "y": -4,
+        "z": 1
+      },
+      "description": "The battlement runs out of wall here for now: a timber hoarding closes the walk where the masons' scaffolds begin, and the harbour shows between the merlons - masts, gulls, and the long grey argument of the sea. The wind arrives with opinions it formed over open water.",
+      "exits": {
+        "east": {
+          "to": 100001022
+        }
+      }
+    },
+    {
+      "id": 100001022,
+      "zone": 100001,
+      "name": "The Wall Walk, West of the Gate",
+      "sector": "city",
+      "pos": {
+        "x": -1,
+        "y": -4,
+        "z": 1
+      },
+      "description": "A clean stretch of battlement, crenellated seaward, parapeted city-side - whoever built this wall expected trouble from both directions and said so in stone. Below, inside the wall, the guild court's chalk circles look like a scholar's diagrams; beyond it the square's fountain is a coin of light.",
+      "exits": {
+        "west": {
+          "to": 100001021
+        },
+        "east": {
+          "to": 100001023
+        }
+      }
+    },
+    {
+      "id": 100001023,
+      "zone": 100001,
+      "name": "The Wall Walk Above the North Gate",
+      "sector": "city",
+      "pos": {
+        "x": 0,
+        "y": -4,
+        "z": 1
+      },
+      "description": "The walk widens over the gate arch into a fighting platform: murder holes plugged with years of dust, a bracket for a brazier, and the groove where a portcullis chain once ran and will run again. The North Road will pass beneath this spot one day, and the platform waits for it with the patience of masonry.",
+      "exits": {
+        "west": {
+          "to": 100001022
+        },
+        "east": {
+          "to": 100001024
+        },
+        "down": {
+          "to": 100001020
+        }
+      },
+      "extras": [
+        {
+          "keywords": "holes murder",
+          "text": "Round mouths in the floor, stopped with dust and one bird's nest. Nothing has been poured through them in a long peace, which is what they are for: walls buy the years in which nobody uses them."
+        }
+      ]
+    },
+    {
+      "id": 100001024,
+      "zone": 100001,
+      "name": "The Wall Walk, East of the Gate",
+      "sector": "city",
+      "pos": {
+        "x": 1,
+        "y": -4,
+        "z": 1
+      },
+      "description": "The battlement runs east in good repair, flagstones swept by wind and one broom. From here the city's plan shows itself: the Spine running south toward the crossing, roofs shouldering one another for the light, and the eastern fields beyond the wall waiting to become the Market Ward's caravans.",
+      "exits": {
+        "west": {
+          "to": 100001023
+        },
+        "east": {
+          "to": 100001025
+        }
+      }
+    },
+    {
+      "id": 100001025,
+      "zone": 100001,
+      "name": "The Wall Walk, Eastern Reach",
+      "sector": "city",
+      "pos": {
+        "x": 2,
+        "y": -4,
+        "z": 1
+      },
+      "description": "The walk ends at a turret stub and a rope, beyond which the wall is a promise rather than a fact: courses of dressed stone step down into scaffolding and the smell of mortar. A watchman turning here can see the whole of his beat behind him, which is the point of a wall you can walk.",
+      "exits": {
+        "west": {
+          "to": 100001024
+        }
+      }
+    },
+    {
+      "id": 100001030,
+      "zone": 100001,
+      "name": "The Fish Market",
+      "sector": "city",
+      "pos": {
+        "x": -1,
+        "y": 1,
+        "z": 0
+      },
+      "description": "A lane drops south off the Cross Street and lands here, at trestles under sailcloth awnings, and on them everything the Sea of Swords was careless enough to lose: silver-sided herring in ranks, crabs working slowly in a barrel, a swordfish laid out like an argument. The stones are wet all day and the gulls have opinions about everything. Sold out by noon, scrubbed by one, and smelling of it until the tide turns.",
+      "exits": {
+        "north": {
+          "to": 100001003
+        },
+        "west": {
+          "to": 100001031
+        },
+        "south": {
+          "to": 100001032
+        }
+      },
+      "extras": [
+        {
+          "keywords": "trestles fish herring",
+          "text": "The morning's catch, going over faster than it is going out. A boy walks the row with a bucket, wetting everything down and being shouted at for it."
+        }
+      ]
+    },
+    {
+      "id": 100001031,
+      "zone": 100001,
+      "name": "The Long Quay",
+      "sector": "city",
+      "pos": {
+        "x": -2,
+        "y": 1,
+        "z": 0
+      },
+      "description": "Stone runs out into the water and the water runs out to the world: the Nelanther somewhere past the haze, the Tusks south of that, and every mast on the quayside pointing at the same grey sky. Bollards worn round by two centuries of rope. A ship is loading, a ship is unloading, and a third has been alongside so long the gulls have made arrangements.",
+      "exits": {
+        "east": {
+          "to": 100001030
+        },
+        "south": {
+          "to": 100001033,
+          "door": {
+            "name": "the Wet Boot's door",
+            "closed": false,
+            "locked": false
+          }
+        },
+        "down": {
+          "to": 100001051,
+          "door": {
+            "name": "a quayside grate",
+            "closed": true,
+            "locked": false
+          }
+        }
+      },
+      "extras": [
+        {
+          "keywords": "ships masts",
+          "text": "Coasters mostly, and one deep-water hull with a Tethyrian look to her. Nobody on any deck is in a hurry to explain where they have been."
+        },
+        {
+          "keywords": "grate quayside",
+          "text": "Set flush in the stone where the quay meets the wall, and hinged. The city's water goes down here at the ebb; at the flood, something comes back up it."
+        }
+      ]
+    },
+    {
+      "id": 100001032,
+      "zone": 100001,
+      "name": "Warehouse Row",
+      "sector": "city",
+      "pos": {
+        "x": -1,
+        "y": 2,
+        "z": 0
+      },
+      "description": "Doors wide enough for a cart and tall enough for a mast section, most of them shut, all of them numbered in whitewash. Between two of them a gap just wide enough for a person leads nowhere in particular, which is a thing worth noticing about a street. Bales, crates, and the smell of pitch, hemp and pepper.",
+      "exits": {
+        "north": {
+          "to": 100001030
+        }
+      },
+      "extras": [
+        {
+          "keywords": "gap",
+          "text": "Shoulder-width, ankle-deep in rubbish, and swept clean of it in a strip down the middle where feet go regularly."
+        }
+      ]
+    },
+    {
+      "id": 100001033,
+      "zone": 100001,
+      "name": "The Wet Boot",
+      "sector": "inside",
+      "pos": {
+        "x": -2,
+        "y": 2,
+        "z": 0
+      },
+      "flags": [
+        "indoors",
+        "inn"
+      ],
+      "description": "Low, dark, and pitched like a hold - the floor slopes toward the water because the building has been thinking about it for years. The beer is honest and nothing else here is. Sailors sleep in the corners between ships, and the landlord charges them for the corner. There is a boot nailed above the bar, and it is wet.",
+      "exits": {
+        "north": {
+          "to": 100001031,
+          "door": {
+            "name": "the Wet Boot's door",
+            "closed": false,
+            "locked": false
+          }
+        }
+      },
+      "extras": [
+        {
+          "keywords": "boot",
+          "text": "Nailed sole-outward over the spirits, and dripping into a tin cup that somebody empties. Ask how it stays wet and the room goes quiet in an enjoyable way."
+        }
+      ]
+    },
+    {
+      "id": 100001040,
+      "zone": 100001,
+      "name": "The Mouth of the Shambles",
+      "sector": "city",
+      "pos": {
+        "x": -2,
+        "y": 0,
+        "z": 0
+      },
+      "description": "The Cross Street gives up here. Cobbles turn to packed filth, the buildings lean until their upper storeys nearly touch, and what light gets down does so at an angle and in a hurry. Somebody has painted a crude fish on the wall in tar - a mark, and not a friendly one. The way back to the crossing is behind you, and it is worth remembering that.",
+      "exits": {
+        "east": {
+          "to": 100001003
+        },
+        "west": {
+          "to": 100001041
+        }
+      },
+      "extras": [
+        {
+          "keywords": "fish mark tar",
+          "text": "A fish with too many teeth, painted at the height of a man's eye. It has been painted over twice and come back both times."
+        }
+      ]
+    },
+    {
+      "id": 100001041,
+      "zone": 100001,
+      "name": "Cutthroat Row",
+      "sector": "city",
+      "pos": {
+        "x": -3,
+        "y": 0,
+        "z": 0
+      },
+      "flags": [
+        "dark"
+      ],
+      "description": "A street named by the people who use it and never corrected by anyone with the authority to. Doorways stand at intervals like open mouths, most of them without doors; a stair goes down into a cellar that is a rumour. The gutter runs down the middle, and it runs the wrong way for the tide.",
+      "exits": {
+        "east": {
+          "to": 100001040
+        },
+        "south": {
+          "to": 100001042
+        },
+        "west": {
+          "to": 100001043
+        }
+      }
+    },
+    {
+      "id": 100001042,
+      "zone": 100001,
+      "name": "The Tanners' Yard",
+      "sector": "city",
+      "pos": {
+        "x": -3,
+        "y": 1,
+        "z": 0
+      },
+      "description": "The smell arrives before the yard does and stays after you leave it: lime, urine, and the particular sweetness of hides going over. Vats sit sunken in the ground with boards across them. In the corner, under a broken handcart, an iron grate lies in the stone with the dark coming up through it.",
+      "exits": {
+        "north": {
+          "to": 100001041
+        },
+        "down": {
+          "to": 100001050,
+          "door": {
+            "name": "an iron grate",
+            "closed": true,
+            "locked": false
+          }
+        }
+      },
+      "extras": [
+        {
+          "keywords": "grate iron",
+          "text": "Bars as thick as a thumb, hinged on one side and worn bright on the other where hands have hauled it up. Whatever the tanners pour away goes down here, and whatever is down there knows the way back."
+        },
+        {
+          "keywords": "vats boards",
+          "text": "Some are covered, some are not, and there is no way to tell from the boards which is which. The yard's own joke, told at the expense of strangers."
+        }
+      ]
+    },
+    {
+      "id": 100001043,
+      "zone": 100001,
+      "name": "A Dead End Behind the Row",
+      "sector": "city",
+      "pos": {
+        "x": -4,
+        "y": 0,
+        "z": 0
+      },
+      "flags": [
+        "dark"
+      ],
+      "description": "Three walls and no door, which is the whole design: the Shambles keeps a room like this the way a trap keeps a spring. The ground is trodden flat and there is a great deal of it trodden flat, which says how often people come here and how long they stay standing.",
+      "exits": {
+        "east": {
+          "to": 100001041
+        }
+      }
+    },
+    {
+      "id": 100001050,
+      "zone": 100001,
+      "name": "Beneath the Tanners' Grate",
+      "sector": "cave",
+      "pos": {
+        "x": -3,
+        "y": 1,
+        "z": -1
+      },
+      "flags": [
+        "dark",
+        "indoors"
+      ],
+      "description": "The drop ends on a brick ledge above running water. Light comes down through the grate in bars and dies about a yard in. The tunnel goes two ways: east into the smell, and south where the brickwork changes to something older and better made than anything the tanners have ever built.",
+      "exits": {
+        "up": {
+          "to": 100001042,
+          "door": {
+            "name": "an iron grate",
+            "closed": true,
+            "locked": false
+          }
+        },
+        "east": {
+          "to": 100001051
+        },
+        "south": {
+          "to": 100001052
+        }
+      }
+    },
+    {
+      "id": 100001051,
+      "zone": 100001,
+      "name": "The Sewer Main",
+      "sector": "cave",
+      "pos": {
+        "x": -2,
+        "y": 1,
+        "z": -1
+      },
+      "flags": [
+        "dark",
+        "indoors"
+      ],
+      "description": "A brick barrel wide enough for two men abreast and a channel down the middle carrying whatever Velen is finished with. The walls sweat. Somewhere ahead water falls into water, steadily, in a rhythm just irregular enough to keep sounding like footsteps.",
+      "exits": {
+        "west": {
+          "to": 100001050
+        },
+        "south": {
+          "to": 100001053
+        },
+        "up": {
+          "to": 100001031,
+          "door": {
+            "name": "a quayside grate",
+            "closed": true,
+            "locked": false
+          }
+        }
+      }
+    },
+    {
+      "id": 100001052,
+      "zone": 100001,
+      "name": "The Old Undercroft",
+      "sector": "cave",
+      "pos": {
+        "x": -3,
+        "y": 2,
+        "z": -1
+      },
+      "flags": [
+        "dark",
+        "indoors"
+      ],
+      "description": "Dressed stone, vaulted, and dry - a cellar from a Velen that stood before this one, swallowed by the city's own foundations. Iron rings are set in the walls at intervals nobody wants explained. At the south end a door of banded oak sits in a frame that has not shifted in two hundred years.",
+      "exits": {
+        "north": {
+          "to": 100001050
+        },
+        "east": {
+          "to": 100001053
+        },
+        "south": {
+          "to": 100001054,
+          "door": {
+            "name": "the vault door",
+            "closed": true,
+            "locked": true,
+            "keyId": 9000002
+          }
+        }
+      },
+      "extras": [
+        {
+          "keywords": "rings iron",
+          "text": "Set at shoulder height, a stride apart, worn smooth on the inner curve. Whatever they held was held here a long time."
+        },
+        {
+          "keywords": "door vault banded oak",
+          "text": "Oak banded in iron, with a keyhole the size of a thumb and no handle on this side. The bands are pitted with age and completely unrusted, which is its own kind of unsettling."
+        }
+      ]
+    },
+    {
+      "id": 100001053,
+      "zone": 100001,
+      "name": "Where the Tunnels Cross",
+      "sector": "cave",
+      "pos": {
+        "x": -2,
+        "y": 2,
+        "z": -1
+      },
+      "flags": [
+        "dark",
+        "indoors"
+      ],
+      "description": "Four ways meet under a shaft that goes up into blackness and does not arrive anywhere useful. The water from the main pours away west into a sump. Somebody has been living here - a nest of sacking, a cold fire, and a tally scratched into the brick that is far too long to be days.",
+      "exits": {
+        "north": {
+          "to": 100001051
+        },
+        "west": {
+          "to": 100001052
+        },
+        "east": {
+          "to": 81128,
+          "portal": true
+        }
+      },
+      "extras": [
+        {
+          "keywords": "tally scratches",
+          "text": "Groups of five, cut deep, running along the brick at sitting height for the length of a man's reach and then starting again lower down."
+        },
+        {
+          "keywords": "hole east breach",
+          "text": "The brick has been broken out eastward and shored with driftwood by somebody who meant to use it again. The air that comes through it is not city air."
+        }
+      ]
+    },
+    {
+      "id": 100001054,
+      "zone": 100001,
+      "name": "The Vault Under Velen",
+      "sector": "inside",
+      "pos": {
+        "x": -3,
+        "y": 3,
+        "z": -1
+      },
+      "flags": [
+        "dark",
+        "indoors",
+        "safe"
+      ],
+      "description": "A small square room, immaculate, and empty in the way a made bed is empty. Shelves of stone run along three walls with nothing on them. Whatever the old city kept here was taken out, carefully, by people who had the time to be careful - and the door was locked behind them.",
+      "exits": {
+        "north": {
+          "to": 100001052,
+          "door": {
+            "name": "the vault door",
+            "closed": true,
+            "locked": true,
+            "keyId": 9000002
+          }
+        }
+      }
+    },
+    {
+      "id": 100001060,
+      "zone": 100001,
+      "name": "Outside the North Gate",
+      "sector": "road",
+      "pos": {
+        "x": 0,
+        "y": -5,
+        "z": 0
+      },
+      "description": "The gate arch throws its shadow back over you and the city ends at a line in the stone. Ahead the road is a made thing for a hundred paces and a habit after that, running north between drainage ditches and the stubble of last year's barley. Carters coming in look relieved; carters going out do not.",
+      "exits": {
+        "south": {
+          "to": 100001020
+        },
+        "north": {
+          "to": 100001061
+        }
+      },
+      "extras": [
+        {
+          "keywords": "ditches",
+          "text": "Cut deep and kept clear, which tells you the city takes the road seriously even where the road stops being paved."
+        }
+      ]
+    },
+    {
+      "id": 100001061,
+      "zone": 100001,
+      "name": "The North Road, Beyond the Ditches",
+      "sector": "road",
+      "pos": {
+        "x": 0,
+        "y": -6,
+        "z": 0
+      },
+      "description": "The last of Velen's cultivation gives out and the country takes over: gorse, wind, and a sky that goes all the way down to the ground in every direction. The road is a pale line ahead. It gets colder from here, everyone says so, and everyone who has been further north says it with feeling.",
+      "exits": {
+        "south": {
+          "to": 100001060
+        },
+        "north": {
+          "to": 431,
+          "portal": true
+        }
+      },
+      "extras": [
+        {
+          "keywords": "road line",
+          "text": "Rutted, straight, and going somewhere that does not care whether you arrive. The verges have not been cut in a while."
+        }
+      ]
+    },
+    {
+      "id": 100001062,
+      "zone": 100001,
+      "name": "The East Road, Under the Wall",
+      "sector": "road",
+      "pos": {
+        "x": 2,
+        "y": 0,
+        "z": 0
+      },
+      "description": "The city's shadow lies across the road until mid-morning. Wheel ruts run deep and parallel here, worn by every caravan that ever thought better of the last mile and pushed on. A milestone stands at the verge with VELEN cut into it and a number that the weather has taken.",
+      "exits": {
+        "west": {
+          "to": 100001004
+        },
+        "east": {
+          "to": 100001063
+        }
+      },
+      "extras": [
+        {
+          "keywords": "milestone stone",
+          "text": "VELEN, and beneath it a distance nobody can read any more. Travellers touch it going out. Nobody has ever explained why."
+        }
+      ]
+    },
+    {
+      "id": 100001063,
+      "zone": 100001,
+      "name": "Where the Road Meets the Trees",
+      "sector": "road",
+      "pos": {
+        "x": 3,
+        "y": 0,
+        "z": 0
+      },
+      "description": "The made road ends the way made roads do out here - not at a boundary but in a widening of ruts, a turning circle for carts that have decided this is far enough. Ahead the trees begin, and between them a game trail goes on eastward with no interest in wheels at all.",
+      "exits": {
+        "west": {
+          "to": 100001062
+        },
+        "east": {
+          "to": 77504,
+          "portal": true
+        }
+      },
+      "extras": [
+        {
+          "keywords": "trail game",
+          "text": "Narrow, root-crossed, and beaten hard by feet that were not wearing boots. It goes into the wood and the wood closes behind it."
+        }
+      ]
+    },
+    {
+      "id": 100001064,
+      "zone": 100001,
+      "name": "The South Road, Past the Last Houses",
+      "sector": "road",
+      "pos": {
+        "x": 0,
+        "y": 2,
+        "z": 0
+      },
+      "description": "The houses thin, then stop, and the road goes on without them past kitchen gardens and a burying ground with a low wall. The gutters that argue their way down the Spine arrive here and are encouraged into a ditch, which they take badly.",
+      "exits": {
+        "north": {
+          "to": 100001002
+        },
+        "south": {
+          "to": 100001065
+        }
+      },
+      "extras": [
+        {
+          "keywords": "burying ground graves wall",
+          "text": "Small, tidy, and older than the wall around it. The nearest stones face the road, which was somebody's idea of company."
+        }
+      ]
+    },
+    {
+      "id": 100001065,
+      "zone": 100001,
+      "name": "Where the Road Goes Soft",
+      "sector": "swamp",
+      "pos": {
+        "x": 0,
+        "y": 3,
+        "z": 0
+      },
+      "description": "The ditch wins. Ahead the road becomes a causeway of laid brush and then an opinion about where the firm ground might be; standing water reaches out on both sides and reflects a sky it improves. Frogs conduct business. Somewhere out there the stumps begin.",
+      "exits": {
+        "north": {
+          "to": 100001064
+        },
+        "south": {
+          "to": 77580,
+          "portal": true
+        }
+      },
+      "extras": [
+        {
+          "keywords": "causeway brush",
+          "text": "Faggots of cut brush laid crosswise and sunk under years of mud. Repaired often enough to prove somebody still comes this way."
         }
       ]
     }

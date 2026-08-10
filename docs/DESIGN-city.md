@@ -75,7 +75,20 @@ is the content that finally spends it.
          Underquay (z −1) beneath it all · Wall Walk (z +1) on the ring
 ```
 
-Each district is **its own zone** — the owner asked for a city of stitched zones, and it is also
+**The districts were each their own zone until 2026-08-10, and then they stopped being.** The owner
+asked the question that undid it — *"is it possible to just join zones without all the portals? If
+I walk north out of the square it should just go to the next attached zone… from gate to road I
+don't think it needs to be [a portal]"* — and the answer was that a zone's coordinates are
+normalised **per zone**, so two zones can never share a plane and every district border was
+therefore forced to be a portal. Velen is now **one zone on one plane across three levels**, which
+is what §2's own diagram above always described (streets z 0, Underquay z −1, wall walk z +1) and
+what the harvest does anyway: Tordraken is one zone of 219 rooms across eleven levels. A district
+is a naming convention. The four edges into *harvested* rooms stay portals and always will — two
+sources share no coordinate frame, measured at 0 of 991.
+
+The original reasoning, kept because its first two thirds still hold:
+
+Each district was **its own zone** — the owner asked for a city of stitched zones, and it is also
 simply correct here: the room stays the unit of interest management, cross-district doors are
 ordinary exits, and a district can be built, populated and re-authored without touching its
 neighbours. Authored zones take ids at **900001+** — the same convention Windsong opened for

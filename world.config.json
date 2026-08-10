@@ -1,7 +1,22 @@
 {
   "$comment": "Which zones the server runs. This is the pluggable bit: add a zone id here, restart, and it is in the game. Ids are the MUD's own zone numbers - see data/world/index.json for all 327.",
-  "zones": [24, 36, 168, 260, 261, 100000, 64, 321, 190, 193, 226, 367, 423, 100001, 100003, 100009, 100007, 100010, 100006, 100011, 100012, 100013, 260, 261],
-  "$velenComment": "100001 'Velen - The Square' joined 2026-08-09: Phase 22's courtyard seed and the first COMMITTED authored zone - its source is data/authored/zones/100001.json in git, worldgen merges it beside the harvest, and the server loads the built file like any harvested zone (file-first routing in GameWorld.load; the A8d shell now serves only zones with no built file, like 100000). It is an island until Phase 27 stitches the roads - reach it by admin teleport. Not in populate: Phase 23 brings its people.",
+  "zones": [
+    24,
+    36,
+    168,
+    260,
+    261,
+    100000,
+    64,
+    321,
+    190,
+    193,
+    226,
+    367,
+    423,
+    100001
+  ],
+  "$velenComment": "100001 'Velen' is the city, one zone on one coordinate plane across three levels - the Underquay at z -1, the streets at z 0, the wall walk and the wizards' stair at z +1. It was eight zones until 2026-08-10, when the owner asked why walking north out of the square was a transition at all: a zone's coordinates are normalised PER ZONE, so districts-as-zones could never share a frame and every district border had to be a portal. Merged, the whole city is one grid and every step inside it is a step. Districts are a naming convention now, which is also how the harvest works - IceCrag/Tordraken is one zone of 219 rooms across eleven levels. The only portals left in the city are the four edges into HARVESTED rooms (431, 77504, 77580, 81128), which are honest: two sources share no plane, measured at 0 of 991 cross-zone exits being geometric neighbours.",
   "$zoneComment": "36 IceCrag Castle and 168 Kobold Settlement are Duris-matched, so they carry real sector types, room flags and prose from the .wld harvest - 216 of IceCrag's 219 rooms have descriptions and 41 are genuinely dark. 260 The Stag Forest and 261 The Stump Bog are NOT matched (3 of 98 and 0 of 93 rooms), so their terrain is inferred - word and suffix rules plus graph diffusion since Phase 5c - and they have no prose; they stay loaded because they are the only adjacent pair with cross-zone exits, which is what travel between zones is tested against.",
   "$spawnComment": "Room 41260 'An Overgrown Field' (zone 168, level 5) is where a new character starts, and it was chosen from the data rather than by eye: no aggressive mob stands in it, nine of its neighbours hold level 2-6 kobolds, and nothing adjacent is above level 3. Grumbiter's Inn - the one safe room in the loaded world - is on the same level. It moved here in Phase 14b from room 281, IceCrag's approach road, because IceCrag's own population runs level 15-60 with a median of 41: a new character spawned there could not win a fight anywhere they could walk to. See docs/DESIGN-progression.md.",
   "spawn": {
@@ -13,7 +28,16 @@
   "$questComment": "64 Faerie Realm joined 2026-08-08, chosen off REFERENCE-duris-quests.md's harvest list for its quests rather than its geography. It was picked over the doc's own headline candidate: Ashstone Refugee Camp (326) has 20 givers in the .qst but our zMUD map holds only FOUR rooms and two mob resets for it, so not one of its givers spawns and nothing there is shippable. Of the 31 harvested zones with a .qst, Faerie Realm is the only one offering several single-item objectives whose sources all spawn, at a level band a character might survive: 197 rooms, 96 mob resets, levels 4-62 against Jotunheim's median 54, and no fee on any objective, so nothing had to be dropped to fit the schema. See docs/REFERENCE-duris-quests.md.",
   "$walkableComment": "The Feywild became walkable on 2026-08-08, on the owner's ask, and it took a measurement plus one authored door. The measurement: across all 327 harvested zones the Faerie Realm sits in a SIX-zone island - 64, 190, 193, 226, 367, 423 - with no walking route to the 268-zone mainland from anywhere, so no amount of loading could ever have connected it. What CAN be loaded is 321 Evermeet- Ancient Forest, 100 rooms that already border the Kobold Settlement in the harvest (41187 'A Game Trail' south to 41185 'A Stand of Ancient Trees', both ways) - the settlement's ONLY harvested neighbour, and until now the loaded world had six disconnected pieces including a kobold zone joined to nothing. The crossing itself is authored in data/world/overrides/links.json: a faerie ring from 41180 deep in that wood to 7691 'A Ring of Rowan Trees', which the map already named and which already drops into Finn's Keep, whose key one of the live quests pays. Population is the honest gap: of the six new zones only 64 has harvested spawns, so Leuthilspar's forest (367) and the Unseelie Court (423) are 471 rooms of fully-described, entirely empty world, and 321/190/226 are largely prose-less as well - loaded on the same terms 260 and 261 already are.",
   "$courtsComment": "226 Seelie Faerie Court and 423 Unseelie Faerie Court joined 2026-08-08 on the owner's ask ('yes populate the courts'). Neither has a harvested spawn file - no Duris .wld matches either, so worldgen never wrote one - and they are the first zones to be populated without a harvest: `emptyZoneSpawns` in server/src/spawns.ts gives such a zone an empty table so its clock runs and authored placements have somewhere to land. Their inhabitants are NOT invented. The zMUD capture preserved each room's contents below its `Exits:` line, so the mapper recorded the actual population - 12 creatures across the Seelie court's three inner chambers, including Tiaronn and Sysoria by name, and 55 content lines across all 288 Unseelie rooms. Names, descriptions and rooms are transcribed from that; only the stat blocks are ours, and each is copied verbatim from a harvested template at the same level. See data/world/overrides/mobs-authored.json.",
-  "$squareComment": "100001 joined populate 2026-08-10 - Phase 23: the square's folk are all authored (mobs-authored.json 9000054-59, placements.json), so the zone fills through emptyZoneSpawns exactly as the faerie courts do: four anchor keepers (weaponsmith, armourer, alchemist, the Anchor & Anvil's landlord - shops-authored.json), and two watchmen of Velen standing the future gate posts.",
   "$wildsComment": "260 The Stag Forest and 261 The Stump Bog joined populate 2026-08-10, the day Phase 27 gave them roads. Both are unmatched by Duris and have no harvested spawn file, so they fill the way the faerie courts do - emptyZoneSpawns plus authored placements. The population is read off the ROOM NAMES the zMUD mapper recorded rather than invented: the Stag Forest has game trails, a gigantic duskwood and a ravine, so it gets deer, wolves, boar, a poacher on the ravine lip and the White Stag under the duskwood; the Stump Bog has eleven rooms of decrepit cemetery and one Ancient Tomb, so it gets leeches and lurkers in the water, the drowned and a barrow wight among the stones, and Hessk the Bogfather in the tomb. Bands are 5-18 and 12-25, which fills the hole between the kobold settlement (2-8) and IceCrag (15-60). NOTE the placement limit is the WORLD cap for that vnum (countOf(vnum) < limit), not a per-room count - five wolves in five rooms means limit 5 on every row, and a hand-edited overlay needs a restart because a ZoneClock holds the table it booted with.",
-  "populate": [24, 36, 168, 64, 226, 423, 100001, 100003, 100009, 100007, 100010, 100006, 100011, 100012, 100013, 260, 261]
+  "populate": [
+    24,
+    36,
+    168,
+    64,
+    226,
+    423,
+    100001,
+    260,
+    261
+  ]
 }
