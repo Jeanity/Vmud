@@ -143,6 +143,41 @@ const SECTOR_ART: readonly TileArt[] = [
   { sheet: 'hole', frames: [10], tint: 0xa080d0 },             // astral — violet void
 ];
 
+/**
+ * What a **blocked border** looks like — V8b, indexed by `SECTOR_INDEX` like the floors above.
+ *
+ * The owner's brief is the specification: *"if we need to keep people on paths etc we can do that
+ * with trees, fences, rivers, buildings."* So a border with no exit is drawn as the thing that
+ * would honestly be there — a house wall between city rooms, a tree line in forest, rock in the
+ * hills, water at the shore — and the server has already made it solid. The seam carries the
+ * sector of the side that gets to explain it (the indoor side, where there is one), so a building's
+ * outer wall reads as masonry from the street rather than as a hedge.
+ *
+ * Drawn from the sheets already loaded rather than new art, which keeps this a rendering change:
+ * `rock` for stone and masonry, `trunk` for a tree line, `water` for a run of water. Real dressed
+ * art — the terrain pack's fences, hedgerows and cliff edges — is V8d's job, and this table is
+ * where it will land.
+ */
+const BLOCKER_ART: readonly TileArt[] = [
+  { sheet: 'rock', frames: [10], tint: 0x9a8f7a },      // inside — a plastered wall
+  { sheet: 'rock', frames: [10], tint: 0xa8a294 },      // city — masonry
+  { sheet: 'rock', frames: [10], tint: 0x9c9384 },      // road — a wall along the way
+  { sheet: 'trunk', frames: [10], tint: 0x8fa06a },     // field — hedge
+  { sheet: 'trunk', frames: [10] },                      // forest — a tree line
+  { sheet: 'rock', frames: [10], tint: 0xa89c84 },      // hills — boulders
+  { sheet: 'rock', frames: [10], tint: 0x8c8c8c },      // mountain — rock
+  { sheet: 'water', frames: [16], tint: 0x6f7a5a },     // swamp — standing water
+  { sheet: 'rock', frames: [10], tint: 0xd8c69a },      // desert — a drift of stone
+  { sheet: 'rock', frames: [10], tint: 0xdff0ff },      // arctic — ice
+  { sheet: 'rock', frames: [10], tint: 0x6a6a6a },      // cave — the living rock
+  { sheet: 'water', frames: [16] },                      // shallow water
+  { sheet: 'water', frames: [16], tint: 0x8899cc },     // deep water
+  { sheet: 'water', frames: [10], tint: 0x6070a0 },     // underwater
+  { sheet: 'rock', frames: [10], tint: 0xa8d8ff },      // air — nothing to stand on
+  { sheet: 'rock', frames: [10], tint: 0xa080d0 },      // astral
+];
+const BLOCKER_FALLBACK: TileArt = { sheet: 'rock', frames: [10], tint: 0x9a9384 };
+
 const CONNECTOR_ART: TileArt = { sheet: 'dirt', frames: [17, 17, 10] };
 /** A **shut** door: solid, and the warm timber tint that says "this is a thing, not a floor". */
 const DOOR_ART: TileArt = { sheet: 'dirt2', frames: [15], tint: 0xd0a070 };
@@ -3368,6 +3403,8 @@ export class WorldScene extends Phaser.Scene {
         return STAIRS_UP_ART;
       case Tile.StairsDown:
         return STAIRS_DOWN_ART;
+      case Tile.Blocker:
+        return BLOCKER_ART[sector] ?? BLOCKER_FALLBACK;
       default:
         return SECTOR_ART[sector] ?? FALLBACK_ART;
     }

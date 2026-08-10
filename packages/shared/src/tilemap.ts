@@ -74,6 +74,20 @@ export const Tile = {
   StairsDown: 5,
   /** The same doorway standing open. Walkable and transparent, but still drawn as a door. */
   DoorOpen: 6,
+  /**
+   * A **blocked border, wearing something** — V8b, and the point of the seamless world's law.
+   *
+   * V8a left a no-exit seam as `Void`, which is solid and correct and looks like nothing: a black
+   * gap between two grounds that are otherwise continuous. The owner's brief said what should be
+   * there instead — *"if we need to keep people on paths etc we can do that with trees, fences,
+   * rivers, buildings"* — so a blocked seam is now its own kind: as solid and as sight-stopping as
+   * void, and drawn by the client as whatever the two sectors it separates call for.
+   *
+   * Deliberately a tile kind rather than a flag on `Void`. Walkability and opacity are lookups on
+   * the kind, and a blocker that became walkable by omission would be a wall-walk exploit — being
+   * its own number means every gate has to name it, and the two that matter do.
+   */
+  Blocker: 7,
 } as const;
 
 export type Tile = (typeof Tile)[keyof typeof Tile];
@@ -93,7 +107,7 @@ export type Tile = (typeof Tile)[keyof typeof Tile];
  * setDoorTiles} is the one mutation both sides run, and the `door` server message is what carries it.
  */
 export function isWalkable(tile: number): boolean {
-  return tile !== Tile.Void && tile !== Tile.Door;
+  return tile !== Tile.Void && tile !== Tile.Door && tile !== Tile.Blocker;
 }
 
 /** Either state of a doorway, for code that cares that a tile *is* a door rather than how it stands. */
@@ -426,10 +440,25 @@ function stampSeams(
         );
       }
 
-      if (!open) continue; // the seam is already solid — the blocker V8b will dress
+      if (!open) {
+        // **V8b: the blocked seam gets something in it.** The tiles were already solid — void
+        // refuses passage as firmly as a wall does — so this changes nothing about the law and
+        // everything about the world: a border with no exit is a house wall, a hedge, a tree line
+        // or a run of water, and now it is *drawn* as one. The sector is carried on the tile so
+        // the client can choose which; the seam takes the **indoor** side's sector when there is
+        // one, because a building's outside wall belongs to the building.
+        const wall = sectorIndex(room.sector === 'inside' ? room.sector : neighbour.sector);
+        for (const { tx, ty } of cells) stamp(tx, ty, Tile.Blocker, wall);
+        continue;
+      }
       const sector = seamSector(room, neighbour);
       if (door) {
-        // The gate on the derived cells; the rest of the seam stays wall.
+        // **The wall first, then the gate in it** — V8b's correction to V8a. V8a stamped only the
+        // gate and left the rest of the seam as void: solid, and invisible, so a doorway in a
+        // building read as a door floating in a gap. The wall is laid across the whole shared edge
+        // and the gate stamped over its middle, which is what a door in a wall actually is.
+        const wall = sectorIndex(room.sector === 'inside' ? room.sector : neighbour.sector);
+        for (const { tx, ty } of cells) stamp(tx, ty, Tile.Blocker, wall);
         for (const { tx, ty } of connectorCells(origin, dx, dy, SEAM_GAP)) {
           stamp(tx, ty, doorTile(door), sector);
         }
@@ -450,8 +479,13 @@ function stampSeams(
       openSeams.has(`${x},${y},south`) &&
       openSeams.has(`${x + 1},${y},south`) &&
       openSeams.has(`${x},${y + 1},east`);
-    if (!allOpen) continue;
     const origin = roomOrigins.get(room.id)!;
+    // V8b: a corner where any seam is shut is the post the walls meet at, and it is drawn rather
+    // than left as a hole. Only a corner with open floor on all four sides stays plaza.
+    if (!allOpen) {
+      stamp(origin.tx + ROOM_TILES, origin.ty + ROOM_TILES, Tile.Blocker, sectorIndex(quad[0]!.sector));
+      continue;
+    }
     stamp(origin.tx + ROOM_TILES, origin.ty + ROOM_TILES, Tile.Floor, seamSector(quad[0]!, quad[1]!));
   }
 }
@@ -517,6 +551,9 @@ const CARVE_RANK: Readonly<Record<number, number>> = {
   [Tile.Connector]: 1,
   [Tile.StairsUp]: 4,
   [Tile.StairsDown]: 4,
+  // Above void, below everything walkable: a blocker may be painted over emptiness, and any real
+  // passage — a corridor, a door, a floor — beats a wall that two sectors merely implied.
+  [Tile.Blocker]: 0.5,
   [Tile.Void]: 0,
 };
 

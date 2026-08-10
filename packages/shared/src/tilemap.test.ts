@@ -599,7 +599,11 @@ describe('buildZoneTilemap, seamless', () => {
     }
   });
 
-  it('leaves the whole seam solid between adjacent rooms with no exit', () => {
+  it('fills the whole seam with a blocker between adjacent rooms with no exit', () => {
+    // V8b changed what a blocked seam *is* without changing what it does: V8a left it `Void`,
+    // which is solid and looks like nothing. It is now `Blocker` — still solid, still opaque, and
+    // drawn by the client as the wall or tree line the two sectors call for. The assertion that
+    // matters is the law, so it is made twice: the kind, and `isWalkable` regardless of kind.
     const grid = buildZoneTilemap(
       seamlessZone([
         { id: 1, sector: 'city', pos: { x: 0, y: 0, z: 0 } },
@@ -608,7 +612,9 @@ describe('buildZoneTilemap, seamless', () => {
     );
     const seamX = ROOM_TILES;
     for (let ty = 0; ty < ROOM_TILES; ty++) {
-      assert.equal(tileAt(grid, seamX, ty), Tile.Void, `blocked seam at ty=${ty} refuses passage`);
+      const tile = tileAt(grid, seamX, ty);
+      assert.equal(tile, Tile.Blocker, `blocked seam at ty=${ty} is dressed`);
+      assert.equal(isWalkable(tile), false, `blocked seam at ty=${ty} refuses passage`);
     }
   });
 
@@ -625,7 +631,12 @@ describe('buildZoneTilemap, seamless', () => {
     for (let ty = 0; ty < ROOM_TILES; ty++) {
       const tile = tileAt(grid, seamX, ty);
       if (tile === Tile.Door) doorCells.push(ty);
-      else assert.equal(tile, Tile.Void, `wall beside the gate at ty=${ty}`);
+      // V8b: the wall beside a gate is a *drawn* wall now, not the void V8a left. Solid either
+      // way — the assertion that matters is that nobody walks through it.
+      else {
+        assert.equal(tile, Tile.Blocker, `wall beside the gate at ty=${ty}`);
+        assert.equal(isWalkable(tile), false, `wall beside the gate at ty=${ty} is solid`);
+      }
     }
     assert.equal(doorCells.length, CONNECTOR_WIDTH, 'the gate is exactly connector-wide');
     // Both rooms derive the same cells — the open/shut invariant.
@@ -657,7 +668,8 @@ describe('buildZoneTilemap, seamless', () => {
     const open = buildZoneTilemap(quad(true));
     assert.equal(tileAt(open, ROOM_TILES, ROOM_TILES), Tile.Floor, 'a plaza corner is plaza');
     const walled = buildZoneTilemap(quad(false));
-    assert.equal(tileAt(walled, ROOM_TILES, ROOM_TILES), Tile.Void, 'a corner beside any shut seam is a post');
+    assert.equal(tileAt(walled, ROOM_TILES, ROOM_TILES), Tile.Blocker, 'a corner beside any shut seam is a post');
+    assert.equal(isWalkable(tileAt(walled, ROOM_TILES, ROOM_TILES)), false, 'and the post is solid');
   });
 
   it('flood-fill equals the room graph — the open world is still the MUD world', () => {
