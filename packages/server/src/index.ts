@@ -10531,7 +10531,14 @@ wss.on('connection', (socket, request) => {
 });
 
 setInterval(() => {
-  const { moved, transitions, pathsEnded, winded, relit, affectEvents, vitalsChanged } = sim.tick();
+  const { moved, transitions, pathsEnded, winded, seamCrossings, relit, affectEvents, vitalsChanged } = sim.tick();
+
+  // **Carried across a seam** — the owner's ruling that a road leaving a zone is a step. The sim
+  // spotted the walker pressed against the edge; the crossing itself is the ordinary typed step, so
+  // it pays the terrain, obeys the fight refusal, announces to both rooms and runs the arrival. A
+  // player who cannot afford the ground, or is mid-fight, is refused here exactly as `east` would
+  // refuse them — which is why this is `stepRoom` and not a teleport.
+  for (const { player, dir } of seamCrossings) stepRoom(player, dir);
 
   // Walking never crosses a Place today, but `fromPlace` means anything that moves a player mid-tick
   // (a trap, a portal tile, a summon) is announced correctly without a second code path.

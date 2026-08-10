@@ -52,6 +52,7 @@ import {
   type ResetCommand,
   type Rng,
   type Sector,
+  type TileGrid,
   type StackPolicy,
   type VitalPool,
   type EntityId,
@@ -677,6 +678,12 @@ export interface TickResult {
   readonly pathsEnded: readonly PathEnded[];
   /** Players a continuous step just refused for lack of movement — edge-triggered, one per shoreline. */
   readonly winded: readonly Player[];
+  /**
+   * Walkers standing on the last tile of their room with a **seam** ahead of them, asking to be
+   * carried across. The sim reports rather than acts: crossing charges movement, announces to two
+   * rooms and obeys the fight rules, and none of that is this file's business.
+   */
+  readonly seamCrossings: readonly { readonly player: Player; readonly dir: Direction }[];
   /**
    * Players whose lit set changed for a reason **other than moving** — a torch lit, a spell cast, a
    * Beacon of Hope crumbling to dust.
@@ -1902,6 +1909,8 @@ export class Simulation {
     const pathsEnded: PathEnded[] = [];
     // Players a continuous step just refused for lack of movement — edge-triggered, see the gate.
     const winded: Player[] = [];
+    /** Walkers pressed against a seam, asking to be carried across. See `seamUnderfoot`. */
+    const seamCrossings: { player: Player; dir: Direction }[] = [];
 
     // Players only, and this is the one pass where that is the *mechanic* rather than a limitation:
     // movement here is driven by a held steering vector or a server-walked route, and both are things a
@@ -2004,6 +2013,16 @@ export class Simulation {
       player.x = next.x;
       player.y = next.y;
 
+      // **A seam carries you through** — the owner's ruling that a road leaving a zone is a step and
+      // not a teleport. Continuous movement cannot cross a boundary the geometry never carved: the
+      // walker simply stops against the last tile of their own room and nothing happens, which is
+      // what made every zone edge feel like a wall with a violet ring on it. Pressed against that
+      // edge, heading that way, with a seam exit there — ask to be taken across. The *asking* is
+      // the point: this file owns no announcements, no movement costs and no fight rules, so the
+      // request goes up with the tick and `index.ts` runs the ordinary step, which pays all three.
+      const seam = this.seamUnderfoot(player, grid, intentX, intentY);
+      if (seam) seamCrossings.push({ player, dir: seam });
+
       if (path) {
         if (Math.hypot(player.x - startX, player.y - startY) < distance * PROGRESS_FRACTION) {
           if (++path.stalled >= STUCK_TICKS) {
@@ -2042,7 +2061,7 @@ export class Simulation {
 
     // Drained rather than read: a light change is an edge, and reporting it twice would have the
     // server re-send `self` and re-fold `seen` every tick for the rest of the character's life.
-    return { moved, transitions, pathsEnded, winded, relit: this.drainRelit(), affectEvents, vitalsChanged };
+    return { moved, transitions, pathsEnded, winded, seamCrossings, relit: this.drainRelit(), affectEvents, vitalsChanged };
   }
 
   /**
@@ -2097,6 +2116,38 @@ export class Simulation {
     // match a key that was set against the Place they have just left.
     actor.visibleRoom = NEVER;
     return target.place;
+  }
+
+  /**
+   * The seam a walker is pressed against, or nothing.
+   *
+   * Three things have to be true, and the order they are checked in is the cheapness order. The
+   * walker must be **heading** somewhere — a body standing still is not asking to leave. The room
+   * must have a **seam** that way, which is the rare case and settles it for almost everybody. And
+   * the walker must be on the **last tile** of their own room block in that direction, so that
+   * crossing happens where the ground runs out and not from the middle of a field.
+   *
+   * The dominant axis decides the direction: pressing north-east against a north seam should cross,
+   * and picking the larger component is what `headingOf` already does for facing. Diagonal input
+   * into a corner therefore resolves to whichever way the walker mostly meant.
+   */
+  private seamUnderfoot(player: Player, grid: TileGrid, intentX: number, intentY: number): Direction | undefined {
+    if (intentX === 0 && intentY === 0) return undefined;
+    const dir: Direction =
+      Math.abs(intentX) >= Math.abs(intentY) ? (intentX > 0 ? 'east' : 'west') : intentY > 0 ? 'south' : 'north';
+    const room = this.room(player.roomId);
+    const exit = room?.exits[dir];
+    if (!exit?.seam) return undefined;
+    const origin = grid.roomOrigins.get(player.roomId);
+    if (!origin) return undefined;
+    const tx = Math.floor(player.x / TILE_SIZE) - origin.tx;
+    const ty = Math.floor(player.y / TILE_SIZE) - origin.ty;
+    const atEdge =
+      dir === 'east' ? tx >= ROOM_TILES - 1
+      : dir === 'west' ? tx <= 0
+      : dir === 'south' ? ty >= ROOM_TILES - 1
+      : ty <= 0;
+    return atEdge ? dir : undefined;
   }
 
   /** Giver vnums for the view's `questGiver` bit — combat.ts keeps the twin that refuses harm. */

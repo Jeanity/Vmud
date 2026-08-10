@@ -2883,6 +2883,13 @@ export class WorldScene extends Phaser.Scene {
       // rather than by design. A marker makes it an exit you can see and click.
       for (const [dir, exit] of Object.entries(room.exits ?? {})) {
         if (!exit?.portal) continue;
+        // **A seam is not a portal to look at** — the owner's ruling, 2026-08-10: *"portals should
+        // only be used to traverse large distances or for magic reasons."* A road running out of one
+        // zone into the trees of the next is neither, so it carries no ring and no click target; the
+        // server walks you through when you press against the edge. The exit is still `portal` in the
+        // geometry, because no corridor can be carved across two coordinate frames — it simply stops
+        // announcing itself.
+        if (exit.seam) continue;
         this.placeObjects.push(this.makePortalMarker(origin, dir as Direction, room.id));
       }
     }

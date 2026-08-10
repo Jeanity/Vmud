@@ -174,6 +174,24 @@ export interface RoomExit {
    * opening in a wall.
    */
   readonly portal?: boolean;
+  /**
+   * A **seam**: an ordinary step that happens to cross a boundary the geometry cannot carve.
+   *
+   * The owner's ruling, 2026-08-10: *"portals should only be used to traverse large distances or
+   * for magic reasons — enter the underworld or upper planes or a mage's secret chamber."* A road
+   * running out of one zone and into the trees of the next is none of those. It is a step.
+   *
+   * So `portal` and `seam` say two different things and both are needed. `portal` is the **geometry**
+   * — no tiles are carved here, because the two ends share no coordinate frame — and it stays true
+   * of a seam. `seam` is the **fiction**: draw no ring, offer no click, and carry the walker straight
+   * through when they press against the edge, so that crossing reads as walking rather than as
+   * teleporting. Dress both sides to match — a bridge, a gate, a gap in a treeline — and the player
+   * never learns there was a boundary.
+   *
+   * What it does *not* fix is the camera: the far side is still another grid, so the view cuts even
+   * where the fiction does not. Aligning the grids is `DESIGN-open-world.md` §5b's own slice.
+   */
+  readonly seam?: boolean;
 }
 
 /**

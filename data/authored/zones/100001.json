@@ -885,7 +885,8 @@
         },
         "north": {
           "to": 431,
-          "portal": true
+          "portal": true,
+          "seam": true
         }
       },
       "extras": [
@@ -924,27 +925,32 @@
     {
       "id": 100001063,
       "zone": 100001,
-      "name": "Where the Road Meets the Trees",
+      "name": "The Trystbrook Bridge",
       "sector": "road",
       "pos": {
         "x": 3,
         "y": 0,
         "z": 0
       },
-      "description": "The made road ends the way made roads do out here - not at a boundary but in a widening of ruts, a turning circle for carts that have decided this is far enough. Ahead the trees begin, and between them a game trail goes on eastward with no interest in wheels at all.",
+      "description": "A humpbacked bridge of grey stone carries the road over the Trystbrook, which is too small to need a bridge this good and too old to argue about it. The parapets are worn smooth at the middle of each span where people stop to look at the water. East, the made road gives up and a game trail goes on into the trees with no interest in wheels at all; west, the ruts run back toward Velen and the wall you can just see from the crown of the arch.",
       "exits": {
         "west": {
           "to": 100001062
         },
         "east": {
           "to": 77504,
-          "portal": true
+          "portal": true,
+          "seam": true
         }
       },
       "extras": [
         {
-          "keywords": "trail game",
-          "text": "Narrow, root-crossed, and beaten hard by feet that were not wearing boots. It goes into the wood and the wood closes behind it."
+          "keywords": "brook water trystbrook",
+          "text": "Brown, shallow and busy, running south to find the marsh. Somebody has set a line of stepping stones beside the bridge for those who trust their feet more than the mason."
+        },
+        {
+          "keywords": "parapet parapets stone",
+          "text": "Dished in the middle by two centuries of elbows. Names are cut into the coping, most of them worn to a suggestion, one of them scratched last week."
         }
       ]
     },
@@ -991,7 +997,8 @@
         },
         "south": {
           "to": 77580,
-          "portal": true
+          "portal": true,
+          "seam": true
         }
       },
       "extras": [

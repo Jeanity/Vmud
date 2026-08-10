@@ -121,6 +121,38 @@ visible and reversible, and Velen is deliberately the testbed: authored, six roo
    source. Atmosphere props are per-room authored content (a `scenery` field on authored rooms,
    perhaps), so the fountain stands where its `read fountain` text says it does.
 
+## 5a. Portals are for magic and distance — seams are for steps
+
+**Owner's ruling, 2026-08-10:** *"portals should only be used to traverse large distances or for
+magic reasons — enter the underworld or upper planes or a mage's secret chamber."*
+
+That sorts every crossing in the game into two kinds, and the sorting is the design.
+
+A **portal** is an event. It goes somewhere far or somewhere impossible, it is allowed to announce
+itself with a violet ring, and stepping through it should feel like a thing you did: the faerie
+ring, the smugglers' crawl from the Underquay to the kobolds' pit, whatever the Mages' Tower is
+hiding.
+
+A **seam** is a step. A road runs out of one zone and into the trees of the next; a bridge carries
+you over a brook and the far bank happens to belong to somebody else's map. `RoomExit.seam` marks
+those, and three things follow: the client draws no marker and offers no click, the server carries
+you across when you press against the last tile of the room, and the return half inherits the flag
+so the boundary does not announce itself in one direction only. Underneath it is still
+`portal: true` — no corridor can be carved between two coordinate frames — it simply stops saying so.
+
+**Dress both sides.** The owner's own framing: *"we create rooms that are the same in the zones so
+it doesn't actually visually change anything… standing on a bridge that if I go east I am in the
+woods, if I go west I am back on the road to Velen."* A seam is only invisible if what you see after
+the step continues what you saw before, so a crossing wants a bridge, a gate, a ford or a gap in a
+treeline written on both sides of it. **Filler rooms are welcome** where the fiction needs room to
+breathe — owner, same conversation: *"if we have to add filler roads or paths to make it work that
+is fine also, a little stroll has never hurt anyone. Unless we put bandits on the roads of course."*
+
+**What a seam does not fix: the camera.** The far side is a different grid, so the view still cuts
+even where the fiction does not — twinned dressing hides it well and does not remove it. That is
+§5b's slice, and the two are complementary: seams make crossings *read* right now, and one plane
+makes them *look* right later.
+
 ## 5b. The world is one plane after all — measured 2026-08-10
 
 **This section corrects a belief the project has held since Phase 1, and it is the most useful

@@ -155,6 +155,8 @@ export function validateAuthoredZone(raw: unknown, file: string): Zone {
       if (!(DIRECTIONS as readonly string[]).includes(dir)) refuse(file, `room ${rid}: ${JSON.stringify(dir)} is not a direction`);
       if (!isRecord(exit) || !isInteger(exit.to)) refuse(file, `room ${rid}: exit ${dir} must be { to: <room id> }`);
       if (exit.portal !== undefined && typeof exit.portal !== 'boolean') refuse(file, `room ${rid}: exit ${dir}: portal must be boolean`);
+      if (exit.seam !== undefined && typeof exit.seam !== 'boolean') refuse(file, `room ${rid}: exit ${dir}: seam must be boolean`);
+      if (exit.seam === true && exit.portal !== true) refuse(file, `room ${rid}: exit ${dir}: a seam is a portal that hides itself, so it must also be declared a portal`);
       if (exit.door !== undefined) {
         const door = exit.door;
         if (!isRecord(door) || typeof door.closed !== 'boolean' || typeof door.locked !== 'boolean') {
@@ -288,7 +290,10 @@ export function mergeAuthoredZones(harvested: Zone[], authored: Zone[]): { zones
         if (queued.has(returnDir)) {
           refuse(file, `room ${room.id}: two authored edges both need ${returnDir} out of harvested ${exit.to}`);
         }
-        queued.set(returnDir, { to: room.id, portal: true });
+        // The return half inherits the seam. A crossing that reads as a step going out and as a
+        // violet ring coming back would be worse than no seam at all — the boundary would announce
+        // itself in exactly one direction, which is how a player learns it is there.
+        queued.set(returnDir, { to: room.id, portal: true, ...(exit.seam ? { seam: true } : {}) });
         injections.set(exit.to, queued);
         crossSource++;
       }
