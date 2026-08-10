@@ -10,6 +10,8 @@
  * data source we have.
  */
 
+import type { RoomScenery } from './scenery.ts';
+
 export type RoomId = number;
 export type ZoneId = number;
 
@@ -290,6 +292,18 @@ export interface Room {
    * vnums; a room that can simply say what stands in it says so here.
    */
   readonly board?: string;
+  /**
+   * Things standing on this room's floor — V8d. A fountain, a plinth, a handcart.
+   *
+   * Geometry, not decoration: every prop is solid, so this list changes where a character may walk
+   * and both the server and the client stamp it into their grids from the same table. See
+   * `scenery.ts` for the catalogue and why paint that is *not* in the way is deliberately kept out
+   * of it, and {@link tilemap.scenerySiting} for what makes a placement legal.
+   *
+   * Authored content. Nothing in the harvest produces this, because the source data records what a
+   * room *says* it contains, not where the thing stands in it.
+   */
+  readonly scenery?: readonly RoomScenery[];
 }
 
 /* -------------------------------------------------------------------------- */

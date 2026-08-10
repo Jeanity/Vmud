@@ -40,6 +40,18 @@
           "keywords": "plinth granite",
           "text": "Waist-high, squared, and no longer bare: four iron bolts hold the city's noticeboard fast against the harbour wind."
         }
+      ],
+      "scenery": [
+        {
+          "kind": "fountain",
+          "tx": 2,
+          "ty": 3
+        },
+        {
+          "kind": "plinth",
+          "tx": 5,
+          "ty": 3
+        }
       ]
     },
     {
@@ -111,7 +123,14 @@
         "south": {
           "to": 100001030
         }
-      }
+      },
+      "scenery": [
+        {
+          "kind": "well",
+          "tx": 6,
+          "ty": 6
+        }
+      ]
     },
     {
       "id": 100001004,
@@ -202,6 +221,18 @@
         {
           "keywords": "chalk circles",
           "text": "Rings and half-rings, scuffed and redrawn. Somebody keeps score in tally marks by the north wall, and somebody else keeps rubbing the tallies out."
+        }
+      ],
+      "scenery": [
+        {
+          "kind": "statue",
+          "tx": 1,
+          "ty": 1
+        },
+        {
+          "kind": "statue",
+          "tx": 7,
+          "ty": 1
         }
       ]
     },
@@ -462,6 +493,13 @@
           "keywords": "trestles fish herring",
           "text": "The morning's catch, going over faster than it is going out. A boy walks the row with a bucket, wetting everything down and being shouted at for it."
         }
+      ],
+      "scenery": [
+        {
+          "kind": "cart",
+          "tx": 1,
+          "ty": 6
+        }
       ]
     },
     {
@@ -504,6 +542,13 @@
         {
           "keywords": "grate quayside",
           "text": "Set flush in the stone where the quay meets the wall, and hinged. The city's water goes down here at the ebb; at the flood, something comes back up it."
+        }
+      ],
+      "scenery": [
+        {
+          "kind": "cart",
+          "tx": 6,
+          "ty": 1
         }
       ]
     },
@@ -585,6 +630,13 @@
         {
           "keywords": "fish mark tar",
           "text": "A fish with too many teeth, painted at the height of a man's eye. It has been painted over twice and come back both times."
+        }
+      ],
+      "scenery": [
+        {
+          "kind": "cart",
+          "tx": 6,
+          "ty": 6
         }
       ]
     },
@@ -894,6 +946,13 @@
           "keywords": "road line",
           "text": "Rutted, straight, and going somewhere that does not care whether you arrive. The verges have not been cut in a while."
         }
+      ],
+      "scenery": [
+        {
+          "kind": "haystack",
+          "tx": 6,
+          "ty": 5
+        }
       ]
     },
     {
@@ -977,6 +1036,13 @@
         {
           "keywords": "burying ground graves wall",
           "text": "Small, tidy, and older than the wall around it. The nearest stones face the road, which was somebody's idea of company."
+        }
+      ],
+      "scenery": [
+        {
+          "kind": "haystack",
+          "tx": 1,
+          "ty": 1
         }
       ]
     },

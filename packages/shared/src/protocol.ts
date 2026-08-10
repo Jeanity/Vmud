@@ -287,7 +287,17 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * `identity` (race, class, the six scores — the sheet shows numbers; the roll showed words) and
  * {@link CharacterSummary} gains `race`/`class`, so the picker can say what a body is.
  *
- * Is 30: **the guildmaster's mark.** `EntityView` gains `trainer` beside `keeper` — the gold `%`
+ * Is 31: **the world gains furniture.** `Room` gains `scenery` — a list of props standing on the
+ * floor, each a catalogue name and a tile offset inside the room's own block. It rides on the
+ * `zone` message, which already carries whole rooms, so nothing new is sent and nothing is sent
+ * more often; what changes is that the client now draws things the server also treats as solid.
+ * **That is why it is a protocol version and not a client detail.** Every prop occupies ground,
+ * both sides stamp the same footprint into their grids from the same table, and a client that
+ * ignored the field would predict straight through a fountain the server says is there. Answers
+ * the owner's ask of 2026-08-09: *"we will have to think about adding some scenery at some point,
+ * also a fountain or pothole or something like that, just for atmosphere."*
+ *
+ * Was 30: **the guildmaster's mark.** `EntityView` gains `trainer` beside `keeper` — the gold `%`
  * over a teacher's head and the *Train* menu row, protocol 28's argument for the third badge: a
  * body that offers something is told apart before you click it. Trainers are deliberately **not**
  * untouchable — a guildmaster is classically a fight you may pick and lose.
@@ -326,7 +336,7 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * is `paint`'s existing colour-code renderer that tells them apart on screen, not a `.ch-*` rule
  * like the six before them carry.
  */
-export const PROTOCOL_VERSION = 30;
+export const PROTOCOL_VERSION = 31;
 
 /**
  * One member of your group, as the roster draws them — protocol 19.

@@ -24,6 +24,8 @@ import {
   PLAYER_SPEED,
   RACES,
   ROOM_TILES,
+  SCENERY,
+  SCENERY_KINDS,
   parseArtId,
   TILE_SIZE,
   Tile,
@@ -988,6 +990,38 @@ const HEALTH_LOW_BELOW = 0.3;
 const ENTITY_DEPTH = 10;
 const ITEM_DEPTH = 8;
 
+/**
+ * The tallest world the ground band can sort, in pixels.
+ *
+ * Only a divisor: {@link groundDepth} maps a y coordinate into the fraction between `ENTITY_DEPTH`
+ * and the next whole depth, and this is what it divides by. 65,536px is 2,048 tiles, comfortably
+ * past the largest grid the project has built (zone 260's upper level, 180 tiles) and past the
+ * 4,096px render-texture ceiling that bounds them in practice. The clamp below is the backstop, and
+ * a world that reached it would sort wrongly rather than draw wrongly.
+ */
+const DEPTH_Y_SPAN = 65536;
+
+/**
+ * Where something standing on the ground sorts against everything else standing on it — V8d.
+ *
+ * Until scenery there was nothing to sort *against*: every character sat at a flat `ENTITY_DEPTH`
+ * and drew in creation order, which is invisible while all the sprites are the same height and
+ * nothing occludes anything. A fountain breaks that immediately. It is a fixed object two tiles
+ * tall, so a character walking round the back of it must go behind and one in front must come out
+ * in front, and a single flat depth can only ever give you one of those.
+ *
+ * The rule is the standard three-quarter one: **whatever is further south is nearer the camera.**
+ * For a character that is the point their feet are on. For a prop it is the *southern edge of its
+ * footprint* — the front of the thing, where it meets the floor — not the top of its picture and
+ * not its centre, both of which would put a tall prop behind someone it should be hiding.
+ *
+ * Everything stays inside `[ENTITY_DEPTH, ENTITY_DEPTH + 1)`, so the bands around it are untouched:
+ * items at 8 stay under all of it, the marker layer at 15 and the fog at 50 stay over it.
+ */
+function groundDepth(y: number): number {
+  return ENTITY_DEPTH + Math.min(0.999, Math.max(0, y / DEPTH_Y_SPAN));
+}
+
 /** Prefix for the generated ground-item textures. See {@link WorldScene.makeItemTextures}. */
 const ITEM_TEXTURE_PREFIX = 'item:';
 /** Drawn for an item whose sprite key names nothing this client knows how to draw. */
@@ -1366,6 +1400,17 @@ export class WorldScene extends Phaser.Scene {
       this.load.spritesheet(sheet, `tiles/${sheet}.png`, {
         frameWidth: TILE_SIZE,
         frameHeight: TILE_SIZE,
+      });
+    }
+    // Scenery — V8d. One sheet per prop, and its frame size is read straight off the catalogue
+    // rather than declared here: a prop's artwork is a rectangular crop at the source atlas's 32px
+    // grid, so `width x height` in tiles *is* the picture, and the two cannot drift apart. Keyed
+    // `prop-*` because `cart` and `statue` are the sort of words an item texture will want later.
+    for (const kind of SCENERY_KINDS) {
+      const spec = SCENERY[kind];
+      this.load.spritesheet(`prop-${kind}`, `tiles/props/${kind}.png`, {
+        frameWidth: spec.width * TILE_SIZE,
+        frameHeight: spec.height * TILE_SIZE,
       });
     }
     // The character layers, as spritesheets rather than images so a facing is a frame index rather than
@@ -2843,6 +2888,27 @@ export class WorldScene extends Phaser.Scene {
 
     // Static geometry, so it is stamped once into a single texture rather than kept as ~10,000
     // game objects.
+    // **The ground under a prop is ground** — V8d. A footprint tile is solid, and an *opaque* one is
+    // stamped `Blocker`, which `artFor` would otherwise dress as masonry or a tree line. That is
+    // right for a wall between rooms and wrong under a hay bale, which is a thing standing on a
+    // field and not a hole in one: the sprite has transparent corners, and a wall showing through
+    // them reads as the bale sitting in a pit. Collected before the paint so the loop stays a
+    // lookup.
+    const underProp = new Set<number>();
+    for (const room of zone.rooms) {
+      const origin = grid.roomOrigins.get(room.id);
+      if (!origin || !room.scenery?.length) continue;
+      for (const prop of room.scenery) {
+        const spec = SCENERY[prop.kind];
+        if (!spec) continue;
+        for (let dy = 0; dy < spec.depth; dy++) {
+          for (let dx = 0; dx < spec.width; dx++) {
+            underProp.add((origin.ty + prop.ty + dy) * grid.width + origin.tx + prop.tx + dx);
+          }
+        }
+      }
+    }
+
     const map = this.add.renderTexture(0, 0, width, height).setOrigin(0, 0).setDepth(0);
     map.beginDraw();
     for (let ty = 0; ty < grid.height; ty++) {
@@ -2850,7 +2916,10 @@ export class WorldScene extends Phaser.Scene {
         const index = ty * grid.width + tx;
         const tile = grid.tiles[index] ?? Tile.Void;
         if (tile === Tile.Void) continue;
-        const art = this.artFor(tile, grid.sectors[index] ?? 3);
+        const sector = grid.sectors[index] ?? 3;
+        const art = underProp.has(index)
+          ? (SECTOR_ART[sector] ?? FALLBACK_ART)
+          : this.artFor(tile, sector);
         const frame = art.frames[hashTile(tx, ty) % art.frames.length] ?? 10;
         map.batchDrawFrame(art.sheet, frame, tx * TILE_SIZE, ty * TILE_SIZE, 1, art.tint ?? 0xffffff);
       }
@@ -2897,6 +2966,42 @@ export class WorldScene extends Phaser.Scene {
         // announcing itself.
         if (exit.seam) continue;
         this.placeObjects.push(this.makePortalMarker(origin, dir as Direction, room.id));
+      }
+
+      // Scenery — V8d, and the fountain the owner asked for. The picture hangs from the bottom of
+      // its footprint rather than the top, because `height` may exceed `depth`: a statue stands on
+      // one tile and is drawn two tall, the upper tile overhanging the ground behind it. Anchoring
+      // at the bottom is what makes that overhang land in the right place, and it is the same edge
+      // `groundDepth` sorts on, so the picture and the sorting agree by construction.
+      for (const prop of room.scenery ?? []) {
+        const spec = SCENERY[prop.kind];
+        if (!spec) continue;
+        const left = (origin.tx + prop.tx) * TILE_SIZE;
+        const bottom = (origin.ty + prop.ty + spec.depth) * TILE_SIZE;
+        const sprite = this.add
+          .sprite(left, bottom - spec.height * TILE_SIZE, `prop-${prop.kind}`)
+          .setOrigin(0, 0)
+          .setDepth(groundDepth(bottom));
+        if (spec.frames > 1) {
+          const key = `prop-anim-${prop.kind}`;
+          if (!this.anims.exists(key)) {
+            this.anims.create({
+              key,
+              frames: this.anims.generateFrameNumbers(`prop-${prop.kind}`, {
+                start: 0,
+                end: spec.frames - 1,
+              }),
+              frameRate: 1000 / spec.frameMs,
+              repeat: -1,
+            });
+          }
+          // Started at a frame derived from the tile rather than 0, so two fountains in sight of
+          // each other are not pumping in lockstep. Same reason the ground scatter is a coordinate
+          // hash: it must look unplanned and be identical for every player.
+          sprite.play(key);
+          sprite.anims.setProgress((hashTile(origin.tx + prop.tx, origin.ty + prop.ty) % 100) / 100);
+        }
+        this.placeObjects.push(sprite);
       }
     }
     // Labels built while zoomed out must start hidden, not appear for one frame and then vanish.
@@ -3590,7 +3695,7 @@ export class WorldScene extends Phaser.Scene {
     if (label) parts.push(label);
     const container = this.add
       .container(view.x, view.y, parts)
-      .setDepth(isItem ? ITEM_DEPTH : ENTITY_DEPTH);
+      .setDepth(isItem ? ITEM_DEPTH : groundDepth(view.y));
 
     // A slow bob, for the same reason the destination marker pulses: a still sprite on a still floor
     // reads as scenery, and this is a thing you can pick up by walking over it. The tween is held on
@@ -4361,6 +4466,9 @@ export class WorldScene extends Phaser.Scene {
         this.faceEntity(entity, entity.view.facing);
       }
       entity.container.setPosition(Math.round(entity.x), Math.round(entity.y));
+      // **Re-sorted every frame, because walking round the fountain is the whole point** — V8d. An
+      // item keeps its flat band; it lies on the floor and nothing needs to pass behind it.
+      if (entity.view.kind !== 'item') entity.container.setDepth(groundDepth(entity.y));
       // **The target marker, moved with the body it marks.** Owner's ask (2026-08-04): know which one
       // you are focused on, and know when that changed. Positioned here rather than parented to the
       // entity's container so it is never scaled or flipped by the sprite's own transforms — an arrow

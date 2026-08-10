@@ -93,6 +93,35 @@ describe('validateAuthoredZone', () => {
     assert.throws(() => validateAuthoredZone(flag, '100001.json'), /ROOM_FLAGS catalogue/);
   });
 
+  it('accepts a room that stands a prop on its floor', () => {
+    const good = doc();
+    (good.rooms as Record<string, unknown>[])[0]!.scenery = [
+      { kind: 'fountain', tx: 3, ty: 3 },
+      { kind: 'statue', tx: 1, ty: 6 },
+    ];
+    const zone = validateAuthoredZone(good, '100001.json');
+    assert.equal(zone.rooms[0]!.scenery?.length, 2);
+  });
+
+  it('refuses scenery the catalogue does not hold, or sited where it cannot stand', () => {
+    const typo = doc();
+    (typo.rooms as Record<string, unknown>[])[0]!.scenery = [{ kind: 'fontain', tx: 3, ty: 3 }];
+    assert.throws(() => validateAuthoredZone(typo, '100001.json'), /SCENERY catalogue/);
+
+    // The plinth is 3x3, so its far corner would land two tiles outside the room — in the gap,
+    // which belongs to doors and seams.
+    const spill = doc();
+    (spill.rooms as Record<string, unknown>[])[0]!.scenery = [{ kind: 'plinth', tx: 7, ty: 7 }];
+    assert.throws(() => validateAuthoredZone(spill, '100001.json'), /does not fit/);
+
+    const stacked = doc();
+    (stacked.rooms as Record<string, unknown>[])[0]!.scenery = [
+      { kind: 'fountain', tx: 2, ty: 2 },
+      { kind: 'well', tx: 3, ty: 3 },
+    ];
+    assert.throws(() => validateAuthoredZone(stacked, '100001.json'), /overlaps fountain/);
+  });
+
   it('refuses two rooms in one cell', () => {
     const bad = doc();
     (bad.rooms as Record<string, unknown>[])[1]!.pos = { x: 0, y: 0, z: 0 };

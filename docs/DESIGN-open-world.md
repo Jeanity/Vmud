@@ -111,7 +111,8 @@ visible and reversible, and Velen is deliberately the testbed: authored, six roo
    cap that `world.ts` once lost a day to is further away than it was. And the validator reported
    two Stump Bog rooms as wall-walk exploits, which turned out to be the *test* being wrong —
    see `seamless.test.ts` on why reachability here is undirected.
-4. **V8d — the dressing.** Sector transition tiles, scatter (the existing rock/tree decoration
+4. **V8d — the dressing.** **Scenery built 2026-08-10; the rest of this row is still open.**
+   Sector transition tiles, scatter (the existing rock/tree decoration
    grows into copses and hedgerows), rivers with bridges, and the city's walls and house fronts —
    which is where this plan meets DESIGN-city.md: Velen's districts are drawn as streets between
    buildings rather than blocks beside blocks. **And plaza furniture** — owner, 2026-08-09, on
@@ -120,6 +121,47 @@ visible and reversible, and Velen is deliberately the testbed: authored, six roo
    them makes the text true on screen, and the terrain-v7 pack's decoration sheets are the obvious
    source. Atmosphere props are per-room authored content (a `scenery` field on authored rooms,
    perhaps), so the fountain stands where its `read fountain` text says it does.
+
+   **What was built.** The `scenery` field, and the *perhaps* resolved into a rule worth stating:
+   **a prop is a thing in the way.** That one sentence decides everything else. Paint — the grass
+   tufts, the cobble mix, the scattered rock — is chosen by a hash of the coordinate, lives in the
+   client, and can never desync because it changes nothing. A prop occupies ground, so it is a rule,
+   so the catalogue is in `shared` and both sides stamp the same footprint. It is also why a prop
+   has no `solid` flag: everything in `scenery.ts` is solid, and decoration that is *not* in the way
+   belongs in the client's variant tables instead. Protocol 31 carries it, on the `zone` message
+   that already sends whole rooms.
+
+   Two things fell out of building it that this row had not anticipated.
+
+   **`Tile.Prop` had to be a second solid kind, because solidity and opacity are different
+   questions.** `Blocker` is a wall: you neither cross it nor see past it. A fountain is something
+   you walk around and look straight over, and a plaza casting walls of shadow from its own
+   furniture would read worse than a bare one. One extra tile number buys the distinction, and the
+   catalogue names which each prop is — the hay bale is the only one that chooses `Blocker`, being
+   three tiles of straw and taller than the person looking at it.
+
+   **`Blocker` was never in `isOpaqueTile`, and that was a live bug.** Its own docblock promised it
+   was *"as solid and as sight-stopping as void"* and `tilemap.test.ts` said "still solid, still
+   opaque", but nothing had ever asked the function — so every wall, hedge and tree line V8b stamped
+   between rooms was see-through, banking rooms into `seen` through solid masonry. Found only
+   because adding a deliberately *transparent* solid meant reading the opaque one first, and fixed
+   in the same slice.
+
+   The client learnt to y-sort while it was there. Every character sat at one flat `ENTITY_DEPTH`,
+   which is invisible while nothing occludes anything and wrong the moment a two-tile fountain
+   exists. `groundDepth` now sorts characters and props together on the standard three-quarter rule,
+   **whatever is further south is nearer**. For a prop that is the southern edge of its *footprint* —
+   the front of the thing, where it meets the floor — not the top of its picture, which would put a
+   tall prop behind someone it should be hiding.
+
+   Ten props stand in Velen: the fountain and the plinth the Great Crossing's prose promised, two
+   statues in the Guildhall Court, a well on the Cross Street, handcarts in the Fish Market, on the
+   Long Quay and at the Mouth of the Shambles, and hay bales on the two road rooms outside the
+   walls. The check that none of them walls a room in half is not a new one — it is V8b's law, the
+   flood-fill that must equal the room graph, and it passed.
+
+   **Still open in this row:** sector transition tiles, automatic wilderness scatter, rivers and
+   bridges, and the city drawn as streets between buildings.
 
 ## 5a. Portals are for magic and distance — seams are for steps
 

@@ -31,6 +31,7 @@ with the images in any build that ships them.
 | `rock.png` | scatter decoration |
 | `cobbles.png` | city flagstone |
 | `treetop.png`, `trunk.png` | tree decoration |
+| `props/*.png` | scenery — the things that stand in a room |
 
 No changes have been made to the source images; tiles are selected by frame index at run time.
 
@@ -41,3 +42,13 @@ ZaPaper, billknye, William Thompson, caeles, Redshrike, Bertram, and Rayane Fél
 CC-BY-SA 3.0 / GPL 3.0. The atlas is vendored at `assets/love2d-lpc-tiles/` (untracked, from
 <https://github.com/DrJamgo/love2d-lpc-tiles>), whose `CREDITS-terrain-v7.txt` is the authoritative
 per-source record. Drawn untinted.
+
+`props/` is six sprites cut unmodified from `decorations-medieval.png` in the same vendored atlas —
+`fountain` (three animation frames), `plinth`, `well`, `statue`, `cart`, `haystack`. That sheet is
+itself a compilation, and its `CREDITS-decorations-medieval.txt` is the authoritative per-source
+record; the contributors it names are **Reemax (Tuomo Untinen), Lanea Zimmerman (Sharm), Xenodora,
+Johann C, Johannes Sjölund, Hyptosis, Daniel Armstrong (HughSpectrum), Redshrike,
+William Thompson and wulax**, under CC-BY-SA 3.0 / GPL 3.0 (parts also GPL 2.0).
+
+Cutting is the only edit: each file is a rectangular crop at the atlas's own 32px grid, so a prop's
+art size is its footprint in tiles, and the frames of an animated prop lie left to right.

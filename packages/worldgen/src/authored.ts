@@ -50,6 +50,8 @@ import {
   boundsOf,
   cellKey,
   isGeometricallyConsistent,
+  isSceneryKind,
+  scenerySiting,
   type Direction,
   type Room,
   type RoomExit,
@@ -150,6 +152,17 @@ export function validateAuthoredZone(raw: unknown, file: string): Zone {
         }
       }
     }
+    if (entry.scenery !== undefined) {
+      if (!Array.isArray(entry.scenery)) refuse(file, `room ${rid}: scenery must be an array`);
+      for (const prop of entry.scenery) {
+        if (!isRecord(prop) || !isIntegers(prop.tx, prop.ty)) {
+          refuse(file, `room ${rid}: every scenery prop must be { kind, tx, ty } with integer tiles`);
+        }
+        if (!isSceneryKind(prop.kind)) {
+          refuse(file, `room ${rid}: ${JSON.stringify(prop.kind)} is not one of the SCENERY catalogue`);
+        }
+      }
+    }
     if (!isRecord(entry.exits)) refuse(file, `room ${rid}: exits must be an object (may be empty)`);
     for (const [dir, exit] of Object.entries(entry.exits)) {
       if (!(DIRECTIONS as readonly string[]).includes(dir)) refuse(file, `room ${rid}: ${JSON.stringify(dir)} is not a direction`);
@@ -167,6 +180,12 @@ export function validateAuthoredZone(raw: unknown, file: string): Zone {
         }
       }
     }
+    // Siting last, because it needs the finished room: the check that a prop is not standing on a
+    // staircase can only be made once the exits are known, since that is what decides whether the
+    // room has stairs at all.
+    const sited = scenerySiting(entry as unknown as Room);
+    if (sited) refuse(file, `room ${rid}: ${sited}`);
+
     validated.push(entry as unknown as Room);
   }
 

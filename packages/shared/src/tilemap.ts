@@ -20,6 +20,7 @@ import {
   type Sector,
   type Zone,
 } from './world.ts';
+import { SCENERY, type SceneryKind } from './scenery.ts';
 
 export const TILE_SIZE = 32;
 
@@ -88,6 +89,17 @@ export const Tile = {
    * its own number means every gate has to name it, and the two that matter do.
    */
   Blocker: 7,
+  /**
+   * **A thing standing in the room** — V8d. Solid, and *not* sight-stopping.
+   *
+   * The whole reason this is a second kind rather than more `Blocker` is that pair of answers.
+   * `Blocker` is a wall: you neither cross it nor see past it. A fountain, a well, a handcart is
+   * something you walk around and look straight over, and a plaza whose own furniture cast walls of
+   * shadow would read worse than one with no furniture at all. Splitting solidity from opacity here
+   * costs one number and means the scenery catalogue can say which a prop is — see
+   * {@link scenery.SCENERY}, where the hay bale is the one that chooses `Blocker`.
+   */
+  Prop: 8,
 } as const;
 
 export type Tile = (typeof Tile)[keyof typeof Tile];
@@ -107,7 +119,7 @@ export type Tile = (typeof Tile)[keyof typeof Tile];
  * setDoorTiles} is the one mutation both sides run, and the `door` server message is what carries it.
  */
 export function isWalkable(tile: number): boolean {
-  return tile !== Tile.Void && tile !== Tile.Door && tile !== Tile.Blocker;
+  return tile !== Tile.Void && tile !== Tile.Door && tile !== Tile.Blocker && tile !== Tile.Prop;
 }
 
 /** Either state of a doorway, for code that cares that a tile *is* a door rather than how it stands. */
@@ -272,6 +284,86 @@ export function stairPlacement(
 }
 
 /**
+ * The tile a prop's footprint becomes — V8d.
+ *
+ * {@link Tile.Prop} for the ordinary case and {@link Tile.Blocker} for the opaque one, which is the
+ * only difference between them: both stop movement, and only `Blocker` stops sight.
+ */
+export function sceneryTile(kind: SceneryKind): number {
+  return SCENERY[kind].opaque ? Tile.Blocker : Tile.Prop;
+}
+
+/**
+ * Why a room's props cannot stand where they were put, or `undefined` if they can.
+ *
+ * Called by the worldgen validator so a bad placement is a build failure with a sentence attached,
+ * rather than a prop that quietly loses the tiles it could not have. Three things can be wrong, and
+ * the third is the one nobody can see coming:
+ *
+ * 1. The footprint leaves the room. Rooms are {@link ROOM_TILES} square and props do not spill into
+ *    the gap, because the gap is where doors and seams live.
+ * 2. Two props overlap.
+ * 3. **The footprint lands on a staircase.** Stairs are stamped inside the room block at an offset
+ *    derived from the room id ({@link stairPlacement}), so they are invisible to anyone reading the
+ *    room's JSON — an author has no way to know a flight is at 4,4 without asking. This asks.
+ *
+ * What it deliberately does *not* check is whether a prop walls a room in half. That is real, and
+ * it is already caught: the seamless world's law is that a flood-fill of the rendered tiles equals
+ * a walk of the room graph, and `seamless.test.ts` asserts it over every open-rendered zone. A
+ * fountain across a doorway fails that test, which is the test doing its job.
+ */
+export function scenerySiting(room: Room): string | undefined {
+  const props = room.scenery ?? [];
+  if (props.length === 0) return undefined;
+
+  const stairs = stairPlacement(room.id, !!room.exits.up, !!room.exits.down);
+  const stairCells = new Set<number>();
+  for (const offset of [stairs.up, stairs.down]) {
+    if (!offset) continue;
+    for (let dy = 0; dy < STAIR_TILES; dy++) {
+      for (let dx = 0; dx < STAIR_TILES; dx++) {
+        stairCells.add((offset.dy + dy) * ROOM_TILES + offset.dx + dx);
+      }
+    }
+  }
+
+  const taken = new Map<number, SceneryKind>();
+  for (const prop of props) {
+    const spec = SCENERY[prop.kind];
+    if (!spec) return `unknown scenery kind "${prop.kind}"`;
+
+    if (!Number.isInteger(prop.tx) || !Number.isInteger(prop.ty)) {
+      return `${prop.kind} at ${prop.tx},${prop.ty} is not on a whole tile`;
+    }
+    if (
+      prop.tx < 0 ||
+      prop.ty < 0 ||
+      prop.tx + spec.width > ROOM_TILES ||
+      prop.ty + spec.depth > ROOM_TILES
+    ) {
+      return (
+        `${prop.kind} at ${prop.tx},${prop.ty} is ${spec.width}x${spec.depth} and does not fit ` +
+        `inside a ${ROOM_TILES}x${ROOM_TILES} room`
+      );
+    }
+
+    for (let dy = 0; dy < spec.depth; dy++) {
+      for (let dx = 0; dx < spec.width; dx++) {
+        const cell = (prop.ty + dy) * ROOM_TILES + prop.tx + dx;
+        const other = taken.get(cell);
+        if (other) return `${prop.kind} at ${prop.tx},${prop.ty} overlaps ${other}`;
+        if (stairCells.has(cell)) {
+          return `${prop.kind} at ${prop.tx},${prop.ty} stands on this room's staircase`;
+        }
+        taken.set(cell, prop.kind);
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Builds the tile grid for one Z level of a zone.
  *
  * The grid spans the rooms on that level and nothing more, so its coordinates belong to that Place
@@ -372,6 +464,32 @@ export function buildZoneTilemap(zone: Zone, level = 0): TileGrid {
   }
 
   if (seamless) stampSeams(rooms, roomOrigins, tiles, sectors, width, height);
+
+  // Scenery last, and only over plain floor — V8d. A prop is authored as a room-relative offset and
+  // so cannot reach the gap where doors and seams live, but it *can* be written over a staircase,
+  // which is stamped inside the room block at an offset nobody reading the room's JSON can see. The
+  // `Floor` test is the guard: a prop never eats a stair, a door or a connector, whatever it was
+  // told to do. Authoring is stopped from getting there at all by `scenerySiting`, which the
+  // worldgen validator runs and which knows where the flights are.
+  for (const room of rooms) {
+    if (!room.scenery?.length) continue;
+    const origin = roomOrigins.get(room.id)!;
+    for (const prop of room.scenery) {
+      const spec = SCENERY[prop.kind];
+      if (!spec) continue;
+      const kind = sceneryTile(prop.kind);
+      for (let dy = 0; dy < spec.depth; dy++) {
+        for (let dx = 0; dx < spec.width; dx++) {
+          const tx = origin.tx + prop.tx + dx;
+          const ty = origin.ty + prop.ty + dy;
+          if (tx < 0 || ty < 0 || tx >= width || ty >= height) continue;
+          const index = ty * width + tx;
+          if (tiles[index] !== Tile.Floor) continue;
+          tiles[index] = kind;
+        }
+      }
+    }
+  }
 
   return { width, height, level, tiles, sectors, rooms: roomsAt, roomOrigins, gap };
 }

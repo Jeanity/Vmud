@@ -55,9 +55,19 @@ export const DEFAULT_LIGHT_RADIUS = 2;
  *
  * An open doorway is transparent, which is what makes opening one *visibly* worth doing: the room
  * beyond appears the moment the door swings back, without the character taking a step.
+ *
+ * **`Blocker` was missing here until V8d, and that was a bug.** Its own docblock promised it was
+ * *"as solid and as sight-stopping as void"* and `tilemap.test.ts` said "still solid, still opaque"
+ * — but nothing had ever asked this function, so every wall, hedge and tree line the seamless
+ * projection stamped between rooms was see-through. It is exactly the fault the paragraph above
+ * describes: a wall you can see straight through, banking rooms into `seen` through solid masonry.
+ * Adding it here narrows what a player can see, which is the correct direction for a mistake of
+ * this kind to be corrected in.
+ *
+ * {@link Tile.Prop} is deliberately *not* here. That is the whole reason it is a separate kind.
  */
 export function isOpaqueTile(tile: number): boolean {
-  return tile === Tile.Void || tile === Tile.Door;
+  return tile === Tile.Void || tile === Tile.Door || tile === Tile.Blocker;
 }
 
 /* -------------------------------------------------------------------------- */
