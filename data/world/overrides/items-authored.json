@@ -1,60 +1,78 @@
 {
-  "next": 9000002,
-  "items": {
-    "9000000": {
-      "vnum": 9000000,
-      "keywords": [
-        "windsong",
-        "scimitar",
-        "elven",
-        "blade"
-      ],
-      "name": "&+WWindsong&N&+w, scimitar of the elven winds&N",
-      "roomLine": "&+WA slender elven scimitar hums softly here, stirring the air around it.&N",
-      "type": 5,
-      "ac": 0,
-      "size": 2,
-      "cost": 250000,
-      "stackLimit": 1,
-      "slot": "mainHand",
-      "damage": {
-        "count": 2,
-        "sides": 6,
-        "bonus": 2
-      },
-      "weaponClass": 5,
-      "art": "weapon-sword-saber-saber",
-      "proc": {
-        "t": "special",
-        "id": "windsong"
-      },
-      "at": "2026-08-07T10:00:06.580Z",
-      "by": "panel"
-    },
-    "9000001": {
-      "vnum": 9000001,
-      "keywords": [
-        "whisperwind",
-        "bow"
-      ],
-      "name": "&+Cthe &+WWhisperwind&N",
-      "roomLine": "&+Cthe Whisperwind lies here, humming faintly.&N",
-      "type": 6,
-      "ac": 0,
-      "size": 1,
-      "cost": 0,
-      "stackLimit": 1,
-      "slot": "mainHand",
-      "damage": {
-        "count": 3,
-        "sides": 6,
-        "bonus": 2
-      },
-      "fires": 1,
-      "conjures": "&+Ca shimmering arrow&N",
-      "hitroll": 3,
-      "at": "2026-08-09T05:22:46.793Z",
-      "by": "fable, slice 7"
-    }
+ "next": 9000003,
+ "items": {
+  "9000000": {
+   "vnum": 9000000,
+   "keywords": [
+    "windsong",
+    "scimitar",
+    "elven",
+    "blade"
+   ],
+   "name": "&+WWindsong&N&+w, scimitar of the elven winds&N",
+   "roomLine": "&+WA slender elven scimitar hums softly here, stirring the air around it.&N",
+   "type": 5,
+   "ac": 0,
+   "size": 2,
+   "cost": 250000,
+   "stackLimit": 1,
+   "slot": "mainHand",
+   "damage": {
+    "count": 2,
+    "sides": 6,
+    "bonus": 2
+   },
+   "weaponClass": 5,
+   "art": "weapon-sword-saber-saber",
+   "proc": {
+    "t": "special",
+    "id": "windsong"
+   },
+   "at": "2026-08-07T10:00:06.580Z",
+   "by": "panel"
+  },
+  "9000001": {
+   "vnum": 9000001,
+   "keywords": [
+    "whisperwind",
+    "bow"
+   ],
+   "name": "&+Cthe &+WWhisperwind&N",
+   "roomLine": "&+Cthe Whisperwind lies here, humming faintly.&N",
+   "type": 6,
+   "ac": 0,
+   "size": 1,
+   "cost": 0,
+   "stackLimit": 1,
+   "slot": "mainHand",
+   "damage": {
+    "count": 3,
+    "sides": 6,
+    "bonus": 2
+   },
+   "fires": 1,
+   "conjures": "&+Ca shimmering arrow&N",
+   "hitroll": 3,
+   "at": "2026-08-09T05:22:46.793Z",
+   "by": "fable, slice 7"
+  },
+  "9000002": {
+   "vnum": 9000002,
+   "keywords": [
+    "key",
+    "vault",
+    "iron",
+    "old"
+   ],
+   "name": "&+ya heavy iron key&N",
+   "roomLine": "&+yA heavy iron key lies here, dark with age.&N",
+   "type": 18,
+   "ac": 0,
+   "size": 1,
+   "cost": 0,
+   "stackLimit": 1,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-26"
   }
+ }
 }

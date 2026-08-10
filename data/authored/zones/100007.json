@@ -1,0 +1,75 @@
+{
+  "$comment": "Velen - The Shambles, Phase 26. The owner's brief: a district that isn't safe to wander into unless you are prepared to defend yourself. The danger is population and geometry, not a new mechanism - the aggression system is what makes it honest. Grates go down into the Underquay from the yard; the dead end is where the unwise shortcut ends.",
+  "id": 100007,
+  "name": "Velen - The Shambles",
+  "seamless": true,
+  "entryRoom": 100007000,
+  "rooms": [
+    {
+      "id": 100007000,
+      "zone": 100007,
+      "name": "The Mouth of the Shambles",
+      "sector": "city",
+      "pos": { "x": 0, "y": 0, "z": 0 },
+      "description": "The Cross Street gives up here. Cobbles turn to packed filth, the buildings lean until their upper storeys nearly touch, and what light gets down does so at an angle and in a hurry. Somebody has painted a crude fish on the wall in tar - a mark, and not a friendly one. The way back to the crossing is behind you, and it is worth remembering that.",
+      "exits": {
+        "east": { "to": 100001003, "portal": true },
+        "west": { "to": 100007001 }
+      },
+      "extras": [
+        {
+          "keywords": "fish mark tar",
+          "text": "A fish with too many teeth, painted at the height of a man's eye. It has been painted over twice and come back both times."
+        }
+      ]
+    },
+    {
+      "id": 100007001,
+      "zone": 100007,
+      "name": "Cutthroat Row",
+      "sector": "city",
+      "pos": { "x": -1, "y": 0, "z": 0 },
+      "flags": ["dark"],
+      "description": "A street named by the people who use it and never corrected by anyone with the authority to. Doorways stand at intervals like open mouths, most of them without doors; a stair goes down into a cellar that is a rumour. The gutter runs down the middle, and it runs the wrong way for the tide.",
+      "exits": {
+        "east": { "to": 100007000 },
+        "south": { "to": 100007002 },
+        "west": { "to": 100007003 }
+      }
+    },
+    {
+      "id": 100007002,
+      "zone": 100007,
+      "name": "The Tanners' Yard",
+      "sector": "city",
+      "pos": { "x": -1, "y": 1, "z": 0 },
+      "description": "The smell arrives before the yard does and stays after you leave it: lime, urine, and the particular sweetness of hides going over. Vats sit sunken in the ground with boards across them. In the corner, under a broken handcart, an iron grate lies in the stone with the dark coming up through it.",
+      "exits": {
+        "north": { "to": 100007001 },
+        "down": { "to": 100010000, "portal": true, "door": { "name": "an iron grate", "closed": true, "locked": false } }
+      },
+      "extras": [
+        {
+          "keywords": "grate iron",
+          "text": "Bars as thick as a thumb, hinged on one side and worn bright on the other where hands have hauled it up. Whatever the tanners pour away goes down here, and whatever is down there knows the way back."
+        },
+        {
+          "keywords": "vats boards",
+          "text": "Some are covered, some are not, and there is no way to tell from the boards which is which. The yard's own joke, told at the expense of strangers."
+        }
+      ]
+    },
+    {
+      "id": 100007003,
+      "zone": 100007,
+      "name": "A Dead End Behind the Row",
+      "sector": "city",
+      "pos": { "x": -2, "y": 0, "z": 0 },
+      "flags": ["dark"],
+      "description": "Three walls and no door, which is the whole design: the Shambles keeps a room like this the way a trap keeps a spring. The ground is trodden flat and there is a great deal of it trodden flat, which says how often people come here and how long they stay standing.",
+      "exits": {
+        "east": { "to": 100007001 }
+      }
+    }
+  ]
+}

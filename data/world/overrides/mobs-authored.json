@@ -1,5 +1,5 @@
 {
- "next": 9000067,
+ "next": 9000072,
  "mobs": {
   "9000005": {
    "vnum": 9000005,
@@ -2744,6 +2744,228 @@
    "wimpyAt": 0,
    "at": "2026-08-10T00:00:00.000Z",
    "by": "phase-25"
+  },
+  "9000067": {
+   "vnum": 9000067,
+   "keywords": [
+    "cutpurse",
+    "thug"
+   ],
+   "name": "a Shambles cutpurse",
+   "room": "A cutpurse leans in a doorway, weighing you.",
+   "level": 12,
+   "hp": "12d8+50",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 2200,
+    "remembers": true,
+    "sentinel": false,
+    "assists": true
+   },
+   "pursuit": {
+    "tier": "zone",
+    "trackRooms": 3,
+    "giveUpMs": 20000,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 7,
+    "damage": {
+     "count": 2,
+     "sides": 4,
+     "bonus": 2
+    },
+    "attackBonus": 2,
+    "roundMs": 3000
+   },
+   "experience": 900,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-26"
+  },
+  "9000068": {
+   "vnum": 9000068,
+   "keywords": [
+    "bravo",
+    "thug"
+   ],
+   "name": "a scarred bravo",
+   "room": "A scarred bravo blocks most of the street by standing in it.",
+   "level": 16,
+   "hp": "16d10+90",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 2200,
+    "remembers": true,
+    "sentinel": false,
+    "assists": true
+   },
+   "pursuit": {
+    "tier": "zone",
+    "trackRooms": 3,
+    "giveUpMs": 20000,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 5,
+    "damage": {
+     "count": 2,
+     "sides": 6,
+     "bonus": 3
+    },
+    "attackBonus": 2,
+    "roundMs": 3000
+   },
+   "experience": 2000,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-26"
+  },
+  "9000069": {
+   "vnum": 9000069,
+   "keywords": [
+    "ratcatcher",
+    "shambles"
+   ],
+   "name": "a ratcatcher of the Shambles",
+   "room": "A ratcatcher works the gutter with a hooked pole.",
+   "level": 10,
+   "hp": "10d8+40",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 2200,
+    "remembers": true,
+    "sentinel": false,
+    "assists": true
+   },
+   "pursuit": {
+    "tier": "zone",
+    "trackRooms": 3,
+    "giveUpMs": 20000,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 8,
+    "damage": {
+     "count": 1,
+     "sides": 8,
+     "bonus": 2
+    },
+    "attackBonus": 2,
+    "roundMs": 3000
+   },
+   "experience": 600,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-26"
+  },
+  "9000070": {
+   "vnum": 9000070,
+   "keywords": [
+    "dweller",
+    "sewer",
+    "tunnel"
+   ],
+   "name": "a tunnel dweller",
+   "room": "Something pale unfolds from the brickwork and looks at you.",
+   "level": 20,
+   "hp": "20d10+140",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 2200,
+    "remembers": true,
+    "sentinel": false,
+    "assists": true
+   },
+   "pursuit": {
+    "tier": "zone",
+    "trackRooms": 3,
+    "giveUpMs": 20000,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 4,
+    "damage": {
+     "count": 3,
+     "sides": 6,
+     "bonus": 4
+    },
+    "attackBonus": 2,
+    "roundMs": 3000
+   },
+   "experience": 4500,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-26"
+  },
+  "9000071": {
+   "vnum": 9000071,
+   "keywords": [
+    "dweller",
+    "sewer",
+    "tunnel"
+   ],
+   "name": "a tunnel dweller",
+   "room": "A tunnel dweller crouches over something it would rather you did not see.",
+   "level": 20,
+   "hp": "20d10+140",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 2200,
+    "remembers": true,
+    "sentinel": false,
+    "assists": true
+   },
+   "pursuit": {
+    "tier": "zone",
+    "trackRooms": 3,
+    "giveUpMs": 20000,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 4,
+    "damage": {
+     "count": 3,
+     "sides": 6,
+     "bonus": 4
+    },
+    "attackBonus": 2,
+    "roundMs": 3000
+   },
+   "experience": 4500,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-26"
   }
  }
 }

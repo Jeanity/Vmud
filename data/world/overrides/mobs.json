@@ -1,30 +1,39 @@
 {
-  "1400": {
-    "spells": [
-      "magic_missile",
-      "burning_hands",
-      "cure_light"
-    ],
-    "at": "2026-08-07T04:54:00.594Z",
-    "by": "slice3-drive"
-  },
-  "97003": {
-    "loot": [
-      {
-        "vnum": 9000001,
-        "slot": "mainHand"
-      }
-    ],
-    "at": "2026-08-09T05:27:05.751Z"
-  },
-  "9000007": {
-    "loot": [
-      {
-        "vnum": 9000000,
-        "slot": "mainHand",
-        "percent": 2
-      }
-    ],
-    "at": "2026-08-07T08:48:30.059Z"
-  }
+ "1400": {
+  "spells": [
+   "magic_missile",
+   "burning_hands",
+   "cure_light"
+  ],
+  "at": "2026-08-07T04:54:00.594Z",
+  "by": "slice3-drive"
+ },
+ "97003": {
+  "loot": [
+   {
+    "vnum": 9000001,
+    "slot": "mainHand"
+   }
+  ],
+  "at": "2026-08-09T05:27:05.751Z"
+ },
+ "9000007": {
+  "loot": [
+   {
+    "vnum": 9000000,
+    "slot": "mainHand",
+    "percent": 2
+   }
+  ],
+  "at": "2026-08-07T08:48:30.059Z"
+ },
+ "9000071": {
+  "loot": [
+   {
+    "vnum": 9000002
+   }
+  ],
+  "at": "2026-08-10T00:00:00.000Z",
+  "by": "phase-26"
+ }
 }

@@ -440,7 +440,13 @@ export class GameWorld {
       this.zoneList.push(zone);
       // Before the grids are built from it: `buildZoneTilemap` reads `closed`, so a later unlock would
       // leave a cached grid disagreeing with the door it was carved from.
-      if (!LOCKS_HOLD) relaxed += relaxLocks(zone);
+      // **Authored zones keep their locks** — Phase 26. `LOCKS_HOLD`'s argument was never "locks are
+      // a bad mechanic"; it was that the *harvest* has 42 locked doors and zero key ids, so honouring
+      // them walls off content nobody can open (IceCrag loses 194 of 219 rooms). An authored lock is
+      // the opposite case by construction: we wrote the door, so we wrote the key, and the vault
+      // under Velen is *supposed* to be shut. The flag stays false for the harvest until worldgen
+      // learns to read key ids; ours are already content.
+      if (!LOCKS_HOLD && zone.id < AUTHORED_ZONE_BASE) relaxed += relaxLocks(zone);
       // Also before the grids: an override can change a room's sector, and the tilemap is carved from
       // sectors. Composing after the fact would leave the map showing the terrain the harvest had.
       // The snapshot is taken first, inside, so `revertRoom` can undo what is about to be applied.

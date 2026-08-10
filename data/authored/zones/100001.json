@@ -102,6 +102,10 @@
             "closed": false,
             "locked": false
           }
+        },
+        "west": {
+          "to": 100007000,
+          "portal": true
         }
       }
     },

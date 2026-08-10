@@ -6790,6 +6790,64 @@ function deliverWhisper(from: Player, to: Actor, said: string): void {
 }
 
 /** `open east`, or bare `open` for the door the character is facing. */
+/**
+ * `unlock <dir>` / `lock <dir>` — `do_unlock` and `do_lock`, arriving with Phase 26's vault.
+ *
+ * The key is an **object you are carrying** whose vnum is the door's `keyId`, which is what makes a
+ * lock a question rather than a wall: the answer is somewhere in the world. Three refusals, the
+ * source's own: no door, no lock on it, and no key in hand. A door must be **shut** to be locked —
+ * `actmove.c` refuses to turn a key in an open door, and so does this, because the alternative is a
+ * locked door standing open and nobody able to say what that means.
+ *
+ * Both ends are set, exactly as `workDoor` sets both ends of a swing: a doorway locked from one
+ * side only is the asymmetry `world.doorway` exists to prevent.
+ */
+function keyDoorCommand(player: Player, verb: 'unlock' | 'lock', argument: string): void {
+  const dir = argument ? parseDirection(argument) : player.facing;
+  if (!dir) {
+    send(player.id, { t: 'log', channel: 'error', text: `"${argument}" is not a direction.` });
+    return;
+  }
+  const doorway = world.doorway(player.roomId, dir);
+  if (!doorway) {
+    send(player.id, { t: 'log', channel: 'error', text: `There is nothing to ${verb} ${dir}.` });
+    return;
+  }
+  faceDirection(player, dir);
+  const { near, far } = doorway;
+  const name = near.door.name;
+  const locking = verb === 'lock';
+
+  if (near.door.keyId === undefined) {
+    send(player.id, { t: 'log', channel: 'error', text: `${capitalise(name)} has no lock.` });
+    return;
+  }
+  if (near.door.locked === locking) {
+    send(player.id, {
+      t: 'log',
+      channel: 'error',
+      text: `${capitalise(name)} is already ${locking ? 'locked' : 'unlocked'}.`,
+    });
+    return;
+  }
+  if (!near.door.closed) {
+    send(player.id, { t: 'log', channel: 'error', text: `${capitalise(name)} is open — shut it first.` });
+    return;
+  }
+  const holding = player.inventory.stacks.some((stack) => vnumOf(stack.item) === near.door.keyId);
+  if (!holding) {
+    send(player.id, { t: 'log', channel: 'error', text: `You do not have the key to ${name}.` });
+    return;
+  }
+
+  // Both ends, the far one optional exactly as `setDoorClosed` treats it — a one-way exit has a
+  // near side and nothing behind it.
+  near.door.locked = locking;
+  if (far) far.door.locked = locking;
+  send(player.id, { t: 'log', channel: 'room', text: `You ${verb} ${name}.` });
+  actToRoom(player, 'room', (who) => `${capitalise(who)} ${locking ? 'locks' : 'unlocks'} ${name}.`);
+}
+
 function workDoorCommand(player: Player, verb: 'open' | 'close', argument: string): void {
   if (!argument) {
     workDoor(player, verb, player.facing);
@@ -6955,6 +7013,8 @@ function runCommand(player: Player, line: string): void {
     case 'reply': return doReply(player, rest);
     case 'gsay': return doGsay(player, rest);
     case 'open': return workDoorCommand(player, 'open', rest);
+    case 'unlock': return keyDoorCommand(player, 'unlock', rest);
+    case 'lock': return keyDoorCommand(player, 'lock', rest);
     case 'close': return workDoorCommand(player, 'close', rest);
     case 'who': return listWho(player);
     case 'help': return showHelp(player);

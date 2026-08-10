@@ -1,0 +1,91 @@
+{
+  "$comment": "The Underquay, Phase 26 - the city's dark half at z -1. Grates come down from the Shambles (100007) and from Harbourside's future dock (Phase 27 adds its own). The vault door is the first lock in the game that HOLDS: authored zones keep their locks now (see LOCKS_HOLD in world.ts), the key is an authored item, and the door is shut and locked as written. Its contents wait on the coin-weight decision - the design says build the room either way.",
+  "id": 100010,
+  "name": "The Underquay",
+  "seamless": true,
+  "entryRoom": 100010000,
+  "rooms": [
+    {
+      "id": 100010000,
+      "zone": 100010,
+      "name": "Beneath the Tanners' Grate",
+      "sector": "cave",
+      "pos": { "x": 0, "y": 0, "z": -1 },
+      "flags": ["dark", "indoors"],
+      "description": "The drop ends on a brick ledge above running water. Light comes down through the grate in bars and dies about a yard in. The tunnel goes two ways: north into the smell, and east where the brickwork changes to something older and better made than anything the tanners have ever built.",
+      "exits": {
+        "up": { "to": 100007002, "portal": true, "door": { "name": "an iron grate", "closed": true, "locked": false } },
+        "north": { "to": 100010001 },
+        "east": { "to": 100010002 }
+      }
+    },
+    {
+      "id": 100010001,
+      "zone": 100010,
+      "name": "The Sewer Main",
+      "sector": "cave",
+      "pos": { "x": 0, "y": -1, "z": -1 },
+      "flags": ["dark", "indoors"],
+      "description": "A brick barrel wide enough for two men abreast and a channel down the middle carrying whatever Velen is finished with. The walls sweat. Somewhere ahead water falls into water, steadily, in a rhythm just irregular enough to keep sounding like footsteps.",
+      "exits": {
+        "south": { "to": 100010000 },
+        "east": { "to": 100010003 }
+      }
+    },
+    {
+      "id": 100010002,
+      "zone": 100010,
+      "name": "The Old Undercroft",
+      "sector": "cave",
+      "pos": { "x": 1, "y": 0, "z": -1 },
+      "flags": ["dark", "indoors"],
+      "description": "Dressed stone, vaulted, and dry - a cellar from a Velen that stood before this one, swallowed by the city's own foundations. Iron rings are set in the walls at intervals nobody wants explained. At the east end a door of banded oak sits in a frame that has not shifted in two hundred years.",
+      "exits": {
+        "west": { "to": 100010000 },
+        "north": { "to": 100010003 },
+        "east": { "to": 100010004, "door": { "name": "the vault door", "closed": true, "locked": true, "keyId": 9000002 } }
+      },
+      "extras": [
+        {
+          "keywords": "rings iron",
+          "text": "Set at shoulder height, a stride apart, worn smooth on the inner curve. Whatever they held was held here a long time."
+        },
+        {
+          "keywords": "door vault banded oak",
+          "text": "Oak banded in iron, with a keyhole the size of a thumb and no handle on this side. The bands are pitted with age and completely unrusted, which is its own kind of unsettling."
+        }
+      ]
+    },
+    {
+      "id": 100010003,
+      "zone": 100010,
+      "name": "Where the Tunnels Cross",
+      "sector": "cave",
+      "pos": { "x": 1, "y": -1, "z": -1 },
+      "flags": ["dark", "indoors"],
+      "description": "Four ways meet under a shaft that goes up into blackness and does not arrive anywhere useful. The water from the main pours away west into a sump. Somebody has been living here - a nest of sacking, a cold fire, and a tally scratched into the brick that is far too long to be days.",
+      "exits": {
+        "west": { "to": 100010001 },
+        "south": { "to": 100010002 }
+      },
+      "extras": [
+        {
+          "keywords": "tally scratches",
+          "text": "Groups of five, cut deep, running along the brick at sitting height for the length of a man's reach and then starting again lower down."
+        }
+      ]
+    },
+    {
+      "id": 100010004,
+      "zone": 100010,
+      "name": "The Vault Under Velen",
+      "sector": "inside",
+      "pos": { "x": 2, "y": 0, "z": -1 },
+      "flags": ["dark", "indoors", "safe"],
+      "description": "A small square room, immaculate, and empty in the way a made bed is empty. Shelves of stone run along three walls with nothing on them. Whatever the old city kept here was taken out, carefully, by people who had the time to be careful - and the door was locked behind them.",
+      "exits": {
+        "west": { "to": 100010002, "door": { "name": "the vault door", "closed": true, "locked": true, "keyId": 9000002 } }
+      }
+    }
+  ]
+}

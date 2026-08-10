@@ -201,6 +201,11 @@ export const COMMANDS = [
   // path to the guildmaster, and `prac` — the word every Diku player actually types — arrives as a
   // prefix for free.
   'practice',
+  // Phase 26 — the key turns. `lock` and `unlock` are `do_lock`/`do_unlock`, and they arrive now
+  // because an authored lock finally holds (see `LOCKS_HOLD`). `l` and `lo` are look, `log` is
+  // logout, so `lock` needs all four letters and `unl` reaches its opposite.
+  'unlock',
+  'lock',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -472,6 +477,9 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   quit: { status: 'resting', posture: 'prone', inCombat: false },
   // Phase 24. A lesson wants a conscious student and no drawn blade; a seat in the hall is fine.
   practice: { status: 'resting', posture: 'prone', inCombat: false },
+  // Phase 26. `do_unlock` wants a hand and attention: the same bar `open` keeps, for the same reason.
+  unlock: { status: 'resting', posture: 'sitting' },
+  lock: { status: 'resting', posture: 'sitting' },
   logout: { status: 'resting', posture: 'prone', inCombat: false },
 };
 

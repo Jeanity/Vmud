@@ -1468,6 +1468,17 @@ three gates) and merchants and townsfolk move through the streets below.
 
 #### Phase 26 — Underquay and the Shambles
 
+**Built 2026-08-10, and it turned out to carry one real mechanism after all: locks that hold.**
+`LOCKS_HOLD` has been false since Phase 5 for a measured reason — the harvest has 42 locked doors
+and **zero** key ids, and honouring them costs IceCrag 194 of its 219 rooms. That argument does not
+reach an *authored* lock: we wrote the door, so we wrote the key. `relaxLocks` now skips authored
+zones, and `unlock`/`lock` arrive with it (`do_unlock`: the key is a carried object whose vnum is
+the door's `keyId`, the door must be shut to turn a key in it, both ends set together). The
+Shambles (100007) hangs west of the crossing — four rooms, three aggressive residents, a dead end
+that is trodden very flat — and the Underquay (100010) lies beneath at z −1: five rooms of brick
+and old stone reached by the tanners' grate, two tunnel dwellers, and the vault under Velen behind
+a banded oak door that is genuinely locked. The key hangs on the dweller at the tunnel crossing.
+
 The city's dark half, and it is content: the sewers at z = −1 with grates in four districts, the
 locked vault (built now, opened only if coin ever gains weight), and the Shambles — the district
 the aggression system makes honest, dangerous exactly as the owner asked: *"aren't safe to wander
