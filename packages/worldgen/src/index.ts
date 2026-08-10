@@ -127,6 +127,7 @@ function report(stats: WorldgenStats): void {
   line('exact neighbour', stats.exactNeighbour, stats.exits);
   line('portal (in-zone)', stats.portals, stats.exits);
   line('portal (cross-zone)', stats.crossZone, stats.exits);
+  line('seams (walked, no ring)', stats.seams, stats.portals + stats.crossZone);
 
   console.log('\n  discarded');
   line('diagonal exits', stats.droppedDiagonal);

@@ -148,6 +148,20 @@ treeline written on both sides of it. **Filler rooms are welcome** where the fic
 breathe — owner, same conversation: *"if we have to add filler roads or paths to make it work that
 is fine also, a little stroll has never hurt anyone. Unless we put bandits on the roads of course."*
 
+**Applied to the whole world 2026-08-10**, and the default is the ruling read literally: worldgen
+marks **every horizontal portal a seam**, cross-zone and in-zone alike, because neither is distance
+and neither is magic. Magic is the exception and has to be *authored* — which is the right way
+round, since the harvest cannot tell a teleporter from a track, and everything we actually know to
+be magic (the faerie ring in `links.json`, the smugglers' crawl under Velen) is authored anyway.
+**5,328 of 6,453 portals** stopped announcing themselves; in the loaded world the count of visible
+rings fell from **109 to 21**.
+
+The 21 are all honest. Eight are staircases. Eleven are `up`/`down` exits the mapper drew between
+rooms at the *same* height — clambering onto a stump, onto a hilltop — and a marker that says
+*there is a way up here* is worth keeping, which is also why the seam rule excludes the vertical:
+a seam is walked into by pressing against a room's edge, and `up` has no edge to press. The last
+two point at zones the config does not load, and are a ring to nowhere worth cleaning up later.
+
 **What a seam does not fix: the camera.** The far side is a different grid, so the view still cuts
 even where the fiction does not — twinned dressing hides it well and does not remove it. That is
 §5b's slice, and the two are complementary: seams make crossings *read* right now, and one plane

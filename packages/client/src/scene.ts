@@ -204,6 +204,12 @@ const FALLBACK_ART: TileArt = { sheet: 'grass', frames: [10] };
 
 /** Divergence from the server, in pixels, past which we stop easing and just snap. */
 const SNAP_DISTANCE = 28;
+/**
+ * Divergence past which the *camera* snaps too, because the move was a teleport rather than a
+ * correction. One room: prediction is never a whole room wrong, so anything this size is the server
+ * having put the character somewhere else entirely — a seam crossing, an admin teleport, a flee.
+ */
+const TELEPORT_DISTANCE = ROOM_TILES * TILE_SIZE;
 
 /**
  * Reconciliation rates, as a fraction of the remaining gap per frame at 60fps. See {@link ease} for
@@ -4298,6 +4304,16 @@ export class WorldScene extends Phaser.Scene {
         if (drift > SNAP_DISTANCE) {
           entity.x = entity.serverX;
           entity.y = entity.serverY;
+          // **A correction is never a whole room, so a jump this big is a teleport** — and the
+          // camera has to go with it, exactly as it does on a Place change. Without this the body
+          // arrived instantly and the camera set off at its lerp to catch up, panning the map past
+          // a player who had already stopped: the same complaint seams raised at a zone border,
+          // in miniature, at every in-zone crossing. Also covers an admin teleport and a flee that
+          // lands somewhere unexpected, neither of which changes Place.
+          if (drift > TELEPORT_DISTANCE && this.followTarget) {
+            this.cameras.main.panEffect.reset();
+            this.followSelf();
+          }
         } else if (drift > 0.5) {
           // Two different jobs, so two different rates. While predicting, this is only nudging a
           // guess that is already nearly right, and easing gently keeps small corrections invisible.

@@ -85,6 +85,8 @@ export interface WorldgenStats {
   dangling: number;
   /** Exits whose two ends are the same room. See the drop in `loadWorld`. */
   selfLinks: number;
+  /** Cross-zone borders walked as ordinary steps rather than portals. See the seam note. */
+  seams: number;
   droppedDiagonal: number;
   droppedSpecial: number;
   duplicateDirection: number;
@@ -248,6 +250,7 @@ function build(
     crossZone: 0,
     dangling: 0,
     selfLinks: 0,
+    seams: 0,
     droppedDiagonal: 0,
     droppedSpecial: 0,
     duplicateDirection: 0,
@@ -375,11 +378,33 @@ function build(
       else stats.portals++;
     }
 
+    // **A harvested border is a step** — the owner's ruling, 2026-08-10: portals are for large
+    // distances and for magic, and a road that runs out of one area into the next is neither. Every
+    // horizontal cross-zone exit in the mapper's data is a border of that kind: a path leaving the
+    // wood, a gate between two halves of a keep, a shoreline. So they are seams by **default**, and
+    // magic is the exception that has to be authored — which is the right way round, because the
+    // harvest cannot tell a teleporter from a track and the things we *know* are magic (the faerie
+    // ring in `links.json`, the smugglers' crawl under Velen) are authored anyway.
+    //
+    // Vertical crossings are left alone. A seam is walked into by pressing against the edge of a
+    // room, and `up` has no edge to press: a stair between zones stays a marked transition, which
+    // is also what climbing one should feel like.
+    // Any horizontal portal is a seam, in-zone ones included. A cross-zone border is a road leaving
+    // an area; an *in-zone* portal is the mapper's own layout giving up — "Street of the Arts" with
+    // an east exit to "Street of the Arts" five cells away, because the street was drawn with a
+    // bend the grid cannot hold. Neither is distance and neither is magic, so by the ruling neither
+    // wears a ring. The honest fix for the in-zone kind is a carved corridor (DESIGN-open-world.md
+    // §5's V8d); until then a seam at least makes the street continue instead of asking to be
+    // clicked, and the two ends almost always share a name, so the crossing reads as walking on.
+    const seam = portal && dir !== 'up' && dir !== 'down';
+    if (seam) stats.seams++;
+
     const door = doorFrom(e);
     bucket.set(dir, {
       to: e.ToID,
       ...(door ? { door } : {}),
       ...(portal ? { portal: true } : {}),
+      ...(seam ? { seam: true } : {}),
     });
     stats.exits++;
   }
