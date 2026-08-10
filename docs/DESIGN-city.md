@@ -84,7 +84,10 @@ therefore forced to be a portal. Velen is now **one zone on one plane across thr
 is what §2's own diagram above always described (streets z 0, Underquay z −1, wall walk z +1) and
 what the harvest does anyway: Tordraken is one zone of 219 rooms across eleven levels. A district
 is a naming convention. The four edges into *harvested* rooms stay portals and always will — two
-sources share no coordinate frame, measured at 0 of 991.
+sources share no coordinate frame *as emitted*, measured at 0 of 991 — though see
+DESIGN-open-world.md §5b, which found the mapper's raw coordinates are global and 54% of cross-zone
+exits would be neighbours if worldgen stopped normalising per zone. The roads may yet lose their
+portals.
 
 The original reasoning, kept because its first two thirds still hold:
 

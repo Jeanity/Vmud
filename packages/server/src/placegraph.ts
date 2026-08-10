@@ -4,7 +4,11 @@
  * The `M` overview frames the Place you are standing on and there has never been a view of anywhere
  * else. This is that view, and `HANDOFF.md`'s first decision says what shape it is allowed to take:
  * worldgen normalises coordinates **per zone and per level**, so no two Places share a coordinate
- * space and 0 of 991 cross-zone exits are geometric neighbours. There is no plane to lay the world
+ * space and 0 of 991 cross-zone exits are geometric neighbours. (Corrected 2026-08-10: that is true
+ * of the *emitted* data and not of the source — the mapper's own coordinates are global, and 54% of
+ * cross-zone exits are neighbours under one frame. See DESIGN-open-world.md §5b. It does not change
+ * this view, which is a graph on purpose, but it does mean the plane exists.) There is no plane
+ * *as emitted* to lay the world
  * out on. So it is a **graph** — nodes you have visited, edges you have walked — and any attempt to
  * draw it as a map would be inventing a geography the world does not have.
  *

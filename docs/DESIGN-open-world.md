@@ -121,6 +121,59 @@ visible and reversible, and Velen is deliberately the testbed: authored, six roo
    source. Atmosphere props are per-room authored content (a `scenery` field on authored rooms,
    perhaps), so the fountain stands where its `read fountain` text says it does.
 
+## 5b. The world is one plane after all — measured 2026-08-10
+
+**This section corrects a belief the project has held since Phase 1, and it is the most useful
+thing V8b and V8c turned up.**
+
+The belief, stated in `placegraph.ts`, `HANDOFF.md`, `DESIGN-city.md` and this document's own §3:
+*"worldgen normalises coordinates per zone and per level, so no two Places share a coordinate space
+and 0 of 991 cross-zone exits is a geometric neighbour. There is no plane to draw the world on."*
+
+Every clause of that is true **of the emitted data**, and the last one does not follow. The owner
+asked, walking east out of Velen, *"is there still supposed to be a portal?"* — and the honest way
+to answer it was to go back past the emitted world to the mapper's database.
+
+`zmud.ts` computes `minX`/`minY`/`minZ` **inside a per-zone loop** and subtracts them, so each zone
+is normalised to its own origin. That is what destroys cross-zone adjacency. The raw `ObjectTbl`
+coordinates are **global** — one canvas for the whole map — and read that way, at the same detected
+pitch of 240:
+
+| | geometric neighbours |
+| --- | --- |
+| within a zone, one global frame | **111,765 of 116,699** (95.8%) |
+| across zones, one global frame | **547 of 1,006** (54%) |
+| across zones, as currently emitted | **0 of 991** |
+
+Among the zones the server actually loads it is **17 of 19** horizontal cross-zone exits — including
+every one of the thirteen between the Stag Forest and the Stump Bog, the kobold settlement's border
+with Evermeet, and the Faerie Realm's with Leuthilspar and the Unseelie Court. Those are not
+portals because the world lacks a plane. They are portals because we threw the plane away.
+
+### What this does and does not mean
+
+It does **not** mean one grid for the world: a global grid would be enormous, and zones load and
+unload independently on purpose. It means the *offsets are knowable*, which is the missing piece
+under everything in §5 — a grid may span several zones once each zone knows where it sits relative
+to its neighbours.
+
+The remaining 46% are genuinely not neighbours, and the misses scatter across 357 distinct offsets
+rather than clustering, so there is no single correction that rescues them. Those stay portals and
+should: the mapper drew some areas on separate canvases, and a faerie ring is *supposed* to look
+like magic.
+
+### The slice this implies
+
+**V8e — the world on one plane.** worldgen records each zone's global origin in its zone file
+(it already computes the per-zone minimum; this is the number it currently discards). `GameWorld`
+gains the ability to build one grid from several zones by placing each at its own offset, which is
+the same merge Velen's districts got by hand in the V8b work — generalised, and driven by data
+rather than by an author choosing coordinates. Then a border between two adjacent harvested zones
+is a seam like any other, and the 17 of 19 stop being transitions.
+
+Not attempted in V8c: `Place` is `(zone, level)` in about a hundred places, and the change wants
+its own slice with its own tests rather than riding on a rendering change.
+
 ## 6. Open questions for the owner
 
 1. **How far does open go?** Proposal above: outdoors open, interiors and dungeons enclosed. Is

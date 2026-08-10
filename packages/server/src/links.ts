@@ -36,6 +36,8 @@
  * not the geometric neighbour in this direction"*, and the client already draws those as a portal
  * rather than an opening in a wall. Two rooms in different zones can never be geometric neighbours —
  * worldgen normalises coordinates per zone, so they share no coordinate space at all — so the flag is
+ * (and note, from 2026-08-10: the normalisation is the *cause*, not a property of the world. The
+ * mapper's raw coordinates are one global frame; see DESIGN-open-world.md §5b.)
  * not a choice this file makes, it is a fact about what it does.
  *
  * The loader takes `quests.ts`' posture exactly: a missing file is a world with no authored links, not
