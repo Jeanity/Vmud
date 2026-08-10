@@ -123,14 +123,7 @@
         "south": {
           "to": 100001030
         }
-      },
-      "scenery": [
-        {
-          "kind": "well",
-          "tx": 6,
-          "ty": 6
-        }
-      ]
+      }
     },
     {
       "id": 100001004,
@@ -917,6 +910,13 @@
         {
           "keywords": "ditches",
           "text": "Cut deep and kept clear, which tells you the city takes the road seriously even where the road stops being paved."
+        }
+      ],
+      "scenery": [
+        {
+          "kind": "well",
+          "tx": 6,
+          "ty": 1
         }
       ]
     },

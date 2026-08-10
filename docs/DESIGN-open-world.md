@@ -155,10 +155,19 @@ visible and reversible, and Velen is deliberately the testbed: authored, six roo
    tall prop behind someone it should be hiding.
 
    Ten props stand in Velen: the fountain and the plinth the Great Crossing's prose promised, two
-   statues in the Guildhall Court, a well on the Cross Street, handcarts in the Fish Market, on the
+   statues in the Guildhall Court, a well outside the North Gate, handcarts in the Fish Market, on the
    Long Quay and at the Mouth of the Shambles, and hay bales on the two road rooms outside the
    walls. The check that none of them walls a room in half is not a new one — it is V8b's law, the
    flood-fill that must equal the room graph, and it passed.
+
+   **One placement was wrong and the owner caught it on sight:** the well started on the Cross
+   Street and was invisible there. Not a hue problem — the well is drawn in the *same cobblestone
+   masonry* as a city street, so on cobbles its silhouette dissolves entirely. Checked all six props
+   against that ground before reaching for a general fix, and the well is the only one affected; the
+   rest carry darker outlines or brighter tones and read fine. So the fix is the placement, not a
+   tint or a contact shadow: it now stands outside the North Gate on brown road dirt, where carters
+   would water anyway. **A prop has to be legible against the sector it stands on**, and that is
+   worth checking at authoring time rather than discovering in play.
 
    **Still open in this row:** sector transition tiles, automatic wilderness scatter, rivers and
    bridges, and the city drawn as streets between buildings.
