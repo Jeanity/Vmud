@@ -8945,6 +8945,18 @@ function doPractice(player: Player, rest: string): void {
   player.purse = paid;
   player.skills.set(match, learned + 1);
   send(player.id, { t: 'log', channel: 'system', text: `You practice '${SKILLS[match].name}' for a while...` });
+  // The owner's ask, in the grind's own voice — `notchSkill`'s exact sentence, so a point announces
+  // itself the same way however it was earned — plus the standing, because this point was paid for
+  // and the buyer is owed the number.
+  send(player.id, {
+    t: 'log',
+    channel: 'system',
+    text: `&+cYou feel your skill in ${SKILLS[match].name} improving.&N (${learned + 1}/${classId ? ceilingFor(match, classId, player.level) : 0})`,
+  });
+  // Owner-reported the same evening: the purse in the open inventory tab held its number until the
+  // panel was reopened. The shop verbs already push the fresh bag through `afterKitChange` after
+  // every coin movement; a lesson moves coin and takes the same seam.
+  afterKitChange(player);
 }
 
 /** `list` — what is on the shelf, and what each costs *you*. */
@@ -9439,6 +9451,14 @@ function persistAdminEdit(player: Player): void {
 
 const adminLive: LiveOps = {
   online: () => [...sim.allPlayers()],
+  // The coin verb, through the same seam every purse movement takes, so the open inventory tab
+  // learns immediately — the exact staleness the owner reported of practice, not re-earned here.
+  grantCoins: (player, copper) => {
+    const total = Math.max(0, purseValue(player.purse) + copper);
+    player.purse = purseFromValue(total);
+    afterKitChange(player);
+    return total;
+  },
   // A6. The router validates and persists; these apply — the same split `authorRoom` keeps.
   itemOverrides: () => itemOverrides,
   authorItem,

@@ -151,6 +151,12 @@ export interface LiveOps {
   teleport(player: Player, room: RoomId): boolean;
   /** One line to one player, marked as the operator's voice. */
   tell(player: Player, text: string): void;
+  /**
+   * Adds copper to a purse (negative removes, floored at empty) and pushes the fresh bag. Returns
+   * the purse's new total. Born the night the guild sink worked: the owner practiced himself
+   * bankrupt testing Phase 24 and the operator kit had items to give but no coin.
+   */
+  grantCoins(player: Player, copper: number): number;
   /** Closes the socket; the ordinary disconnect path does the bookkeeping. */
   kick(player: Player): void;
   /**
@@ -527,7 +533,7 @@ const LEVEL_MAX = 60;
 /** The longest line an operator may speak. Longer is a paste error, not a message. */
 const TEXT_MAX = 300;
 
-const PATCH_KEYS = new Set(['hp', 'mana', 'move', 'level', 'light', 'clearAffects', 'wound', 'healed']);
+const PATCH_KEYS = new Set(['hp', 'mana', 'move', 'level', 'light', 'clearAffects', 'wound', 'healed', 'coins']);
 
 /**
  * What a builder may author on a room. **Geometry is deliberately absent** — see `authorRoom`.
@@ -3245,6 +3251,11 @@ export class AdminApi {
     if (patch.healed === true) {
       this.deps.live.setVitals(player, { hp: player.maxHp, mana: player.maxMana, move: player.maxMove });
       applied.healed = true;
+    }
+    if (typeof patch.coins === 'number' && Number.isFinite(patch.coins)) {
+      const total = this.deps.live.grantCoins(player, Math.round(patch.coins));
+      applied.coins = Math.round(patch.coins);
+      applied.purseNow = total;
     }
     const pools: { hp?: number; mana?: number; move?: number } = {};
     // Hit points clamp at 1, not the death floor: an admin-induced dying window would enter the

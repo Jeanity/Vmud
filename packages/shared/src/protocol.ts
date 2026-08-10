@@ -494,6 +494,8 @@ export interface EntityView {
   readonly questGiver?: true;
   /** This body trades — protocol 28. The gold `$` and the *List wares* menu row hang off this bit. */
   readonly keeper?: true;
+  /** This body teaches — protocol 30. The gold `%` and the *Train* menu row hang off this bit. */
+  readonly trainer?: true;
   /**
    * This body cannot be harmed — protocol 27, and **independent of {@link questGiver}**.
    *

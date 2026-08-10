@@ -124,6 +124,8 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
   const accounts = new AccountStore({ dir: join(dir, 'accounts') });
   const world = new GameWorld([options.zone ?? testZone()], { zone: 600, room: null });
   const players: Player[] = [];
+  const granted: { name: string; copper: number }[] = [];
+  void granted;
   const calls: string[] = [];
   const heard: string[] = [];
   const scopes: AnnounceScope[] = [];
@@ -163,6 +165,10 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
 
   const live: LiveOps = {
     online: () => players,
+    grantCoins: (player, copper) => {
+      granted.push({ name: player.name, copper });
+      return Math.max(0, copper);
+    },
     // `noPopulation` is how the 409 branch gets exercised: a zone the world *has* but that carries no
     // population file will never repop, and that is a different answer from a zone that does not exist.
     repopZone: (zone) =>
