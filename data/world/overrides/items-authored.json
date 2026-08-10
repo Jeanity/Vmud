@@ -1,5 +1,5 @@
 {
- "next": 9000007,
+ "next": 9000008,
  "items": {
   "9000000": {
    "vnum": 9000000,
@@ -154,6 +154,23 @@
    "slot": "neck",
    "at": "2026-08-10T00:00:00.000Z",
    "by": "phase-27b"
+  },
+  "9000007": {
+   "vnum": 9000007,
+   "keywords": [
+    "needle",
+    "iron",
+    "bone"
+   ],
+   "name": "&+wa needle of blackened bone&N",
+   "roomLine": "&+wA needle of blackened bone lies here, fine as a splinter.&N",
+   "type": 9,
+   "ac": 0,
+   "size": 1,
+   "cost": 1,
+   "stackLimit": 1,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "panel"
   }
  }
 }

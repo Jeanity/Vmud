@@ -196,6 +196,19 @@ export function itemsIn(ground: Ground, roomId: RoomId): GroundItem[] {
 }
 
 /**
+ * The same list, minus anything nobody has found yet — `ITEM_SECRET`, and what `search` is for.
+ *
+ * **Every player-facing path uses this one**; `itemsIn` stays raw for the two callers that must see
+ * everything, which are the search itself and the operator's panel. The split matters more than it
+ * looks: a hidden needle that stayed in the room view would be drawn on the floor by the client,
+ * answer to `get needle`, and be listed by `look` — three different ways of handing over the thing
+ * the player was supposed to have to look for.
+ */
+export function visibleItemsIn(ground: Ground, roomId: RoomId): GroundItem[] {
+  return itemsIn(ground, roomId).filter((entry) => entry.item.hidden !== true);
+}
+
+/**
  * How this appears to a client.
  *
  * `kind: 'item'` puts it down the same path corpses already take — one image, no facing, no health

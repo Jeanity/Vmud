@@ -139,6 +139,21 @@ export interface RoomScenery {
   readonly tx: number;
   /** Room-relative tile of the footprint's north-west corner. */
   readonly ty: number;
+  /**
+   * The vnum of something lost in it, put there hidden — the owner's ask, 2026-08-10: *"maybe the
+   * haystack can be searched with a chance of finding a needle."*
+   *
+   * On the **prop** rather than in a reset's object list, and the difference is the whole point of
+   * the field. A reset `O` command would put a needle in the same *room*, which is a different
+   * sentence: it would be lying on the floor of a room that happens to contain a haystack. Saying
+   * it here is saying the bale is what it is lost in, which is what makes `search haystack` mean
+   * something more than `search`.
+   *
+   * The item is dropped once at boot, `hidden`, and does not decay — see `seedConcealed` in the
+   * server. Finding it is permanent for that uptime, exactly as `do_search` clearing `ITEM_SECRET`
+   * is permanent for that reset.
+   */
+  readonly conceals?: number;
 }
 
 export function isSceneryKind(value: unknown): value is SceneryKind {

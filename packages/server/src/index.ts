@@ -36,6 +36,9 @@ import {
   groupedShare,
   abilityChance,
   SCENERY,
+  SEARCH_LAG_ROUNDS,
+  SEARCH_LINES,
+  findsIt,
   sceneryNamed,
   SHIELDLESS_BASH_LINE,
   STARTER_SHIELD_ID,
@@ -337,6 +340,8 @@ import {
   groundSprite,
   groundViewOf,
   itemsIn,
+  type GroundItem,
+  visibleItemsIn,
   nearestMatching,
   takeItem,
   withinPickupReach,
@@ -1082,6 +1087,43 @@ if (loadedSpawns.length === 0) {
   console.log('[pop] no population files; the world is empty. Run `npm run worldgen`.');
 }
 
+/**
+ * Things lost in the scenery, put where they were lost — `RoomScenery.conceals`.
+ *
+ * **Once, at boot, and never again.** A repop re-runs a zone's resets; this deliberately does not
+ * ride along, because the needle is not population — it is a single object somebody dropped in a
+ * bale, and a search that could be repeated every repop for the same needle would turn a discovery
+ * into a farm. The floor is not persisted, so a restart is the only thing that puts it back, which
+ * is the same grain as `do_search` clearing `ITEM_SECRET` until the next reset.
+ *
+ * **Dropped at the room's centre rather than on the prop**, which looks wrong and is not: a prop's
+ * own tiles are solid, and an item lying inside them would be found and then be unreachable, since
+ * picking it up needs somewhere to stand. The bale is where it *was* lost; the floor is where it
+ * ends up once you have pulled it out.
+ */
+let concealed = 0;
+for (const place of world.allPlaces()) {
+  const grid = world.grid(place);
+  for (const room of world.zone(place.zone)?.rooms ?? []) {
+    for (const prop of room.scenery ?? []) {
+      if (prop.conceals === undefined) continue;
+      const template = itemCatalogue.get(prop.conceals);
+      const origin = grid?.roomOrigins.get(room.id);
+      if (!template || !origin) continue;
+      const centre = roomCentre(origin);
+      dropItem(
+        ground,
+        { ...instantiate(template), hidden: true },
+        { roomId: room.id, place, x: tileCentre(centre.tx), y: tileCentre(centre.ty) },
+        undefined,
+        Number.MAX_SAFE_INTEGER,
+      );
+      concealed++;
+    }
+  }
+}
+if (concealed > 0) console.log(`[pop] ${concealed} thing(s) lost in the scenery, waiting to be searched out`);
+
 
 /** Sockets by entity id, so we can address a single player. */
 const sockets = new Map<EntityId, WebSocket>();
@@ -1488,7 +1530,7 @@ function visibleEntities(observer: Player): EntityView[] {
   // Dropped things, through the same gate for the same reason. A dagger on the floor of an unlit room
   // is not visible because you happen to know somebody dropped one — and this is what makes a dark
   // room a real place to lose something in.
-  for (const entry of itemsIn(ground, observer.roomId)) {
+  for (const entry of visibleItemsIn(ground, observer.roomId)) {
     if (!observer.visible.has(tileIndexAt(grid, entry.x, entry.y))) continue;
     const template = templateOf(entry.item);
     // A7d: the authored art id, when there is one, so a dagger on the floor is a dagger rather than
@@ -4285,6 +4327,90 @@ function stripLeadingArticle(name: string): string {
  * learning forces the fumble, and the `||` short-circuits so a notching attempt never rolls for
  * success at all. See `RESCUE_NOTCH_CHANCE` for the full note.
  */
+/**
+ * `search` — `do_search` (`actobj.c:5771`), and both of the owner's asks for it.
+ *
+ * Three things it can be pointed at, and the third is ours rather than the source's:
+ *
+ * - **Nothing** — the room, which is where a hidden thing lies. `do_search` with no argument walks
+ *   `world[ch->in_room].contents`.
+ * - **A corpse or a container** — `do_search <thing>` walks what is inside it, refusing anything
+ *   that is not a container, storage, corpse or quiver, and refusing a *closed* one with its own
+ *   sentence. This is the owner's 2026-08-06 ask, *"hidden items in corpses, found by searching"*.
+ * - **A prop** — `search haystack`. Duris has no scenery, so this is an extension, and it is a
+ *   small one: our props *are* the room's furniture, and the source's own second case is "a thing
+ *   standing in the room that has an inside". A prop is searched by searching the room around it,
+ *   which is why the roll and the result are identical and only the prose differs.
+ *
+ * **One find per search**, as the source does — `for (; k && !found_something; …)` stops at the
+ * first — so a room with two hidden things takes two searches and two rounds. And the round is
+ * charged whether or not anything turns up (`CharWait(ch, PULSE_VIOLENCE)` runs at the end,
+ * unconditionally), which is what stops `search` being a free action you spam on every tile.
+ */
+function doSearch(player: Player, rest: string): void {
+  const word = rest.trim().toLowerCase().split(/\s+/)[0] ?? '';
+  const fail = (): void => send(player.id, { t: 'log', channel: 'error', text: SEARCH_LINES.notFound });
+
+  if (sim.affectsOf(player, 'off_balance').length > 0) {
+    send(player.id, { t: 'log', channel: 'error', text: 'You have not recovered your balance yet.' });
+    return;
+  }
+
+  const room = sim.room(player.roomId);
+  // Where the hidden things are. The room, unless a container was named — in which case its
+  // contents, and the two refusals that get you there.
+  let pool: Item[];
+  let container: GroundItem | undefined;
+  if (word && sceneryNamed(room?.scenery, word) === undefined) {
+    container = itemsIn(ground, player.roomId).find((entry) => wordsFor(entry.item).includes(word));
+    if (!container) return fail();
+    if (!container.held) return fail();
+    pool = container.held.contents.map((stack: Stack) => stack.item);
+  } else {
+    pool = itemsIn(ground, player.roomId).map((entry) => entry.item);
+  }
+
+  // Charged before the outcome, so a fruitless search costs exactly what a lucky one does.
+  sim.addAffect(
+    player,
+    newAffect({ type: 'off_balance', durationMs: Math.round(SEARCH_LAG_ROUNDS * ROUND_MS), flags: AffectFlag.NoSave }),
+  );
+
+  const scores = player.identity?.scores;
+  const hiddenHere = pool.filter((item) => item.hidden === true);
+  for (const item of hiddenHere) {
+    // A character with no rolled scores predates Phase 20b; treat them as unremarkable rather than
+    // refusing the verb, which would make `search` silently dead for every pre-phase body.
+    if (!findsIt(combatRng, scores?.int ?? 10, scores?.wis ?? 10)) continue;
+    reveal(item);
+    send(player.id, { t: 'log', channel: 'room', text: `You find ${item.name}&N!` });
+    actToRoom(player, 'room', (who) => `${capitalise(who)} finds ${item.name}&N!`);
+    return; // one find per search
+  }
+  fail();
+}
+
+/** Clears `hidden` on the ground entry holding this item, or inside whatever container holds it. */
+function reveal(found: Item): void {
+  for (const entry of ground.values()) {
+    if (entry.item === found) {
+      const { hidden: _gone, ...rest } = entry.item;
+      ground.set(entry.id, { ...entry, item: rest });
+      return;
+    }
+    if (!entry.held) continue;
+    const index = entry.held.contents.findIndex((stack) => stack.item === found);
+    if (index < 0) continue;
+    const contents = entry.held.contents.map((stack: Stack, at: number) => {
+      if (at !== index) return stack;
+      const { hidden: _gone, ...rest } = stack.item;
+      return { ...stack, item: rest };
+    });
+    ground.set(entry.id, { ...entry, held: { ...entry.held, contents } });
+    return;
+  }
+}
+
 function doRescue(player: Player, rest: string): void {
   const term = rest.trim();
   if (!term) {
@@ -4869,7 +4995,7 @@ function doRead(player: Player, rest: string): void {
     const hit = matchExtra(word, templateOf(stack.item)?.extras);
     if (hit !== undefined) return readOff(stack.item, hit);
   }
-  for (const entry of itemsIn(ground, player.roomId)) {
+  for (const entry of visibleItemsIn(ground, player.roomId)) {
     const hit = matchExtra(word, templateOf(entry.item)?.extras);
     if (hit !== undefined) return readOff(entry.item, hit);
   }
@@ -4881,7 +5007,7 @@ function doRead(player: Player, rest: string): void {
   const named =
     Object.values(player.equipped).some((worn) => worn !== undefined && answers(worn)) ||
     player.inventory.stacks.some((stack) => answers(stack.item)) ||
-    itemsIn(ground, player.roomId).some((entry) => answers(entry.item));
+    visibleItemsIn(ground, player.roomId).some((entry) => answers(entry.item));
   send(player.id, {
     t: 'log',
     channel: 'error',
@@ -7165,6 +7291,9 @@ function runCommand(player: Player, line: string): void {
     // Phase 19 slice 4. Not routed through `useAbility`: a rescue rolls no dice against a body — it
     // moves a fight, and its notch runs backwards. See `doRescue`.
     case 'rescue': return doRescue(player, rest);
+    // Looking harder at what is already in front of you. No skill anywhere in `do_search` — the gate
+    // is ability scores, so everyone may try and the clever are quietly better. See `search.ts`.
+    case 'search': return doSearch(player, rest);
     // Phase 20 slice 2. The wind-up — see `doCast` for what is machinery and what still waits.
     case 'cast': return doCast(player, rest);
     // Phase 20 slice 4. The classless casting path — a scroll asks nothing of who you are.
@@ -8074,7 +8203,7 @@ function afterKitChange(player: Player): void {
  * visible across the room reads as the game being broken rather than as a reason to take three steps.
  */
 function getFromGround(player: Player, rest: string): void {
-  const inRoom = itemsIn(ground, player.roomId);
+  const inRoom = visibleItemsIn(ground, player.roomId);
   const here = inRoom.filter((entry) => withinPickupReach(entry, player.x, player.y));
   if (here.length === 0) {
     send(player.id, {
@@ -8355,7 +8484,7 @@ function resolveContainer(player: Player, keyword: string): ContainerLookup {
     return { found: 'not-a-container', item };
   }
 
-  const reachable = itemsIn(ground, player.roomId).filter((entry) => withinPickupReach(entry, player.x, player.y));
+  const reachable = visibleItemsIn(ground, player.roomId).filter((entry) => withinPickupReach(entry, player.x, player.y));
   const entry = nearestMatching(reachable, keyword, player.x, player.y, wordsFor);
   if (!entry) return { found: 'nothing' };
   const rule = entry.held?.rule ?? templateOf(entry.item)?.container;

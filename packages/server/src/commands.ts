@@ -142,6 +142,10 @@ export const COMMANDS = [
   // Phase 19 slice 4. `rest` and `remove` sit above — `r` and `re` are rest, `rem` is remove — so
   // `resc` is the shortest thing that reaches this, which is what Duris' own table gives it too.
   'rescue',
+  // `do_search` is not a skill and never was - the gate is ability scores, so the verb is open
+  // to everyone. `say`, `score` and `sell` sit above, so `sea` is the shortest reach, which is
+  // what Duris' own ordering gives it too.
+  'search',
   // Owner's report, 2026-08-07: `inventory` was printing the worn kit under the carried list, and a
   // dressed character with an empty bag read it as the wrong answer. Diku's own split: `inventory`
   // carries, `equipment` wears. `e` is east and `ex` is exits, both above, so `eq` is the shortest
@@ -433,6 +437,9 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // `CMD_Y(CMD_RESCUE, STAT_NORMAL + POS_STANDING, …)` — bash and kick's row exactly, and for the same
   // reason: you cannot pull a fight onto yourself from the floor, and mid-combat is when it matters.
   rescue: { status: 'normal', posture: 'standing' },
+  // `CMD_N(CMD_SEARCH, STAT_NORMAL + POS_STANDING, …)` (`interp.c:2608`) — on your feet, and the
+  // absent `inCombat` is the source's own `CMD_N`: you may search mid-fight, and pay a round for it.
+  search: { status: 'normal', posture: 'standing' },
   // `CMD_Y(CMD_EQUIPMENT, STAT_SLEEPING + POS_PRONE, …)` — readable while *asleep*, which is laxer than
   // inventory's resting: checking what you are wearing is interface, and the source treats it as such.
   equipment: { status: 'sleeping', posture: 'prone' },

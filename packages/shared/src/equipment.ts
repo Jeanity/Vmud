@@ -139,6 +139,19 @@ export interface Item {
   readonly canThrow?: true;
   readonly throwRange?: number;
   readonly returning?: true;
+  /**
+   * **Really here, and not listed until somebody looks properly** — `ITEM_SECRET` (`defines.h:197`),
+   * and the thing `search` exists to turn up.
+   *
+   * Not invisibility and not a container: the item is lying in the room or sitting in a corpse the
+   * whole time, and `look` simply does not mention it. `do_search` clears the bit on a successful
+   * `find_chance` and announces *"You find $p!"* to the room, which is why this is a property of
+   * the **instance** rather than the template — being found is a thing that happens once, to one
+   * needle, and a template flag would re-hide it for everyone on the next spawn.
+   *
+   * Absent means ordinary, which is every item in the world today.
+   */
+  readonly hidden?: true;
   /** Slice 7's magic launcher: the conjured missile's name. See the template field for the rules. */
   readonly conjures?: string;
   /** What it hits for, on a weapon. Absent on everything worn rather than wielded. */

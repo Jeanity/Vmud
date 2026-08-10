@@ -29,6 +29,7 @@ export * from './names.ts';
 export * from './races.ts';
 export * from './classes.ts';
 export * from './scores.ts';
+export * from './search.ts';
 export * from './chargen-resume.ts';
 export * from './protocol.ts';
 export * from './scenery.ts';

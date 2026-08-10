@@ -158,6 +158,9 @@ export function validateAuthoredZone(raw: unknown, file: string): Zone {
         if (!isRecord(prop) || !isIntegers(prop.tx, prop.ty)) {
           refuse(file, `room ${rid}: every scenery prop must be { kind, tx, ty } with integer tiles`);
         }
+        if (prop.conceals !== undefined && !isInteger(prop.conceals)) {
+          refuse(file, `room ${rid}: scenery conceals must be an item vnum`);
+        }
         if (!isSceneryKind(prop.kind)) {
           refuse(file, `room ${rid}: ${JSON.stringify(prop.kind)} is not one of the SCENERY catalogue`);
         }
