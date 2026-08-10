@@ -443,3 +443,28 @@ describe('encumbrance — Phase 16', () => {
     }
   });
 });
+
+describe('the heal room — Phase 23, ROOM_HEAL transcribed from the code, not the comment', () => {
+  it('adds level x 2 to hp, after the multipliers, as limits.c:304 does', () => {
+    const resting = regenPerMinute('hp', stance('prone', 'resting'), { healRoom: true, level: 20 });
+    assert.equal(resting, BASE_REGEN.hp * 1.25 * 1.25 + 40);
+  });
+
+  it('pays hp only — mana_regen and move_regen carry no such clause', () => {
+    const plain = regenPerMinute('mana', stance('prone', 'resting'), {});
+    assert.equal(regenPerMinute('mana', stance('prone', 'resting'), { healRoom: true, level: 20 }), plain);
+    assert.equal(
+      regenPerMinute('move', stance('prone', 'resting'), { healRoom: true, level: 20 }),
+      regenPerMinute('move', stance('prone', 'resting'), {}),
+    );
+  });
+
+  it('never touches a bleed-out — the >= sleeping guard keeps the dying clock honest', () => {
+    assert.equal(regenPerMinute('hp', stance('prone', 'dying'), { healRoom: true, level: 20 }), -2);
+  });
+
+  it('lands before the gear bonus, additive with it, not compounded by sleep', () => {
+    const asleep = regenPerMinute('hp', stance('prone', 'sleeping'), { healRoom: true, level: 10, bonus: 6 });
+    assert.equal(asleep, BASE_REGEN.hp * 1.5 * 1.25 + 20 + 6);
+  });
+});

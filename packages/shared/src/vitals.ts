@@ -185,7 +185,21 @@ export function regenBonus(total: number): number {
 export function regenPerMinute(
   pool: VitalPool,
   stance: Stance,
-  options: { readonly fighting?: boolean; readonly winded?: boolean; readonly bonus?: number } = {},
+  options: {
+    readonly fighting?: boolean;
+    readonly winded?: boolean;
+    readonly bonus?: number;
+    /**
+     * Standing in a heal room — Phase 23's `inn` flag wearing Duris' `ROOM_HEAL` mechanism. The
+     * define's comment says *"you regain stats twice as fast here"* and the code says otherwise,
+     * and the code is the spec: `limits.c:304` adds **level × 2** to the hp gain, hp *only*
+     * (`mana_regen` and `move_regen` carry no such clause), guarded on `GET_STAT >= STAT_SLEEPING`
+     * so a heal room comforts the resting without touching a bleed-out's clock.
+     */
+    readonly healRoom?: boolean;
+    /** The body's level, which is what a heal room pays by. Only read when `healRoom` is set. */
+    readonly level?: number;
+  } = {},
 ): number {
   // A corpse is not a body doing slow arithmetic, and this has to be said *before* the clauses below
   // rather than fall out of them: with a bonus in play, `gain = 0` plus a positive modifier would have
@@ -203,6 +217,12 @@ export function regenPerMinute(
     gain = pool === 'hp' ? status.absolute : 0;
   } else {
     gain = BASE_REGEN[pool] * (status.scale ?? 1) * POSTURE_REGEN[stance.posture];
+  }
+
+  // The heal room's addition lands where the source lands it: after the position multipliers,
+  // before the gear bonus, additive — an inn does not compound with sleep, it pays on top of it.
+  if (pool === 'hp' && options.healRoom && statusRank(stance.status) >= statusRank('sleeping')) {
+    gain += (options.level ?? 0) * 2;
   }
 
   if (pool === 'hp' || gain !== 0 || bonus < 0) gain += bonus;

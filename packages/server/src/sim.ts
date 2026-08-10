@@ -1773,6 +1773,10 @@ export class Simulation {
           fighting: player.fighting !== undefined,
           winded: player.windedMs > 0,
           bonus: sumApply(player.affects, REGEN_APPLY[pool.name]),
+          // Phase 23: the inn's heal-room clause — the room is already in hand from the treading
+          // check, and the level rides along because a heal room pays by it.
+          healRoom: room?.flags?.includes('inn') ?? false,
+          level: player.level,
         });
         // Nothing to do: full and healing, or a rate of zero. Skipping keeps the carry untouched so a
         // character who sits still at full health does not bank a point to spend the instant they are

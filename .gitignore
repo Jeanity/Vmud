@@ -17,6 +17,8 @@ data/world/*
 # is a decision one operator made on one server for one evening, and committing it would push that
 # decision to every clone. The default is in `settings.ts` and a missing file reads as it.
 data/world/overrides/settings.json
+# The noticeboards' posts: runtime state the gods write from the panel, `settings.json`'s argument.
+data/world/overrides/boards.json
 
 # Per-character save data (explored maps, inventories, worn kit).
 data/players/

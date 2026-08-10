@@ -1417,6 +1417,12 @@ harvested zone does.
 
 #### Phase 23 — Velen Square
 
+**Built 2026-08-10** — the noticeboard (`boards.ts`, `read board` / `read <n>`, gods post from the
+Messaging panel, the caps and the imagination line all `boards.c`'s own), the `inn` flag
+(`ROOM_HEAL` transcribed from the code, not the comment: level × 2 hp, resting or better), four
+authored anchor keepers with shops (`shops-authored.json` over the harvest), and two watchmen of
+Velen on the future gate posts. Awaiting the owner's walk: read the news, buy bread, wake rested.
+
 The owner's chosen first milestone: small but alive. The square, the **noticeboard** transcribed
 from `boards.c` (gods post from the admin panel, players `read` — the machine the `read` row
 deferred once already), the Anchor & Anvil (an `inn` room flag: faster regen, and memorization

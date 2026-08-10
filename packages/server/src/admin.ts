@@ -67,6 +67,7 @@ import {
 // A subpath import, as `vision.ts` is in `players.ts`: the catalogue is not in the package barrel.
 import { LIGHT_SOURCES, lightSource, type LightSource } from '@mygame/shared/light.ts';
 
+import { BOARDS_FILE, addPost, postRefusal, removePost, saveBoards, type BoardStore } from './boards.ts';
 import { askOnce, draftDescription, listModels, ollamaReachable } from './ollama.ts';
 import { saveRoomOverrides, type RoomOverride } from './overrides.ts';
 import { saveAuthoredMobs, type AuthoredMobStore, type MobDraft } from './mob-authoring.ts';
@@ -503,6 +504,13 @@ export interface AdminDeps {
    * so the loader and the writer can never drift apart on the path.
    */
   readonly questsFile?: string | undefined;
+  /**
+   * Phase 23: the noticeboards' posts, shared with `doRead` — the panel writes what the world
+   * reads, one Map. Absent in tests that assert without touching the world's boards.
+   */
+  readonly boards?: BoardStore | undefined;
+  /** Where the posts persist. Defaulted by `boards.ts`; injectable for the same tests. */
+  readonly boardsFile?: string | undefined;
   /** Boot-time constants the dashboard reports. */
   readonly facts: {
     readonly protocol: number;
@@ -784,6 +792,14 @@ export class AdminApi {
     }
     if (head === 'announce' && parts.length === 1 && request.method === 'POST') {
       return this.announce(request.body);
+    }
+    // Phase 23. The noticeboards' write path — the gods post here, the world reads with `read`.
+    if (head === 'boards' && parts.length === 1 && request.method === 'GET') return this.boards();
+    if (head === 'boards' && slug !== undefined && action === 'posts' && parts.length === 3 && request.method === 'POST') {
+      return this.postToBoard(slug, request.body);
+    }
+    if (head === 'boards' && slug !== undefined && action === 'posts' && parts.length === 4 && request.method === 'DELETE') {
+      return this.removeBoardPost(slug, parts[3]!);
     }
     if (head === 'settings' && parts.length === 1) {
       if (request.method === 'GET') return { status: 200, body: { settings: this.deps.live.settings() } };
@@ -3456,6 +3472,72 @@ export class AdminApi {
     const heard = this.deps.announce(text, scope);
     this.audit('announce', { text, scope: scope.kind, where, heard });
     return { status: 200, body: { ok: true, heard, where } };
+  }
+
+  /**
+   * Every board standing in the world, with its posts — Phase 23. The list is derived from the
+   * rooms rather than from the store, because a board with no posts yet is still a board (the
+   * panel must offer it) and a store key no room holds any more is a plank in a shed (it must not
+   * be posted to). The store is the posts; the world is the boards.
+   */
+  private boardRooms(): Map<string, { id: RoomId; name: string; zone: ZoneId }[]> {
+    const found = new Map<string, { id: RoomId; name: string; zone: ZoneId }[]>();
+    for (const zone of this.deps.world.allZones()) {
+      for (const room of zone.rooms) {
+        if (room.board === undefined) continue;
+        const list = found.get(room.board) ?? [];
+        list.push({ id: room.id, name: room.name, zone: zone.id });
+        found.set(room.board, list);
+      }
+    }
+    return found;
+  }
+
+  private boards(): AdminResponse {
+    const store = this.deps.boards;
+    if (!store) return { status: 500, body: { error: 'this server was built without a board store' } };
+    const boards = [...this.boardRooms().entries()].map(([id, rooms]) => ({
+      id,
+      rooms,
+      posts: store.get(id) ?? [],
+    }));
+    boards.sort((a, b) => a.id.localeCompare(b.id));
+    return { status: 200, body: { boards } };
+  }
+
+  private postToBoard(board: string, body: unknown): AdminResponse {
+    const store = this.deps.boards;
+    if (!store) return { status: 500, body: { error: 'this server was built without a board store' } };
+    if (!this.boardRooms().has(board)) {
+      return { status: 404, body: { error: `no room in the loaded world holds a board named "${board}"` } };
+    }
+    const raw = (body ?? {}) as { headline?: unknown; body?: unknown; by?: unknown };
+    if (typeof raw.headline !== 'string' || typeof raw.body !== 'string') {
+      return { status: 400, body: { error: 'body must carry "headline" and "body" strings; "by" is optional' } };
+    }
+    const by = typeof raw.by === 'string' && raw.by.trim() ? raw.by.trim() : 'The Gods';
+    const refusal = postRefusal(store, board, raw.headline, raw.body);
+    if (refusal) return { status: 400, body: { error: refusal } };
+    const post = addPost(store, board, raw.headline, raw.body, by, Date.now());
+    saveBoards(store, this.deps.boardsFile ?? BOARDS_FILE);
+    const number = store.get(board)!.length;
+    this.audit('board.post', { board, number, headline: post.headline, by: post.by });
+    return { status: 200, body: { ok: true, board, number, post } };
+  }
+
+  private removeBoardPost(board: string, which: string): AdminResponse {
+    const store = this.deps.boards;
+    if (!store) return { status: 500, body: { error: 'this server was built without a board store' } };
+    const number = Number(which);
+    if (!Number.isInteger(number) || number < 1) {
+      return { status: 400, body: { error: 'the post number is 1-based, as the board itself numbers them' } };
+    }
+    const removed = removePost(store, board, number);
+    // The source's own sentence for a message that is not there, kept for the operator too.
+    if (!removed) return { status: 404, body: { error: 'That message exists only in your imagination.' } };
+    saveBoards(store, this.deps.boardsFile ?? BOARDS_FILE);
+    this.audit('board.remove', { board, number, headline: removed.headline });
+    return { status: 200, body: { ok: true, board, removed } };
   }
 
   /**

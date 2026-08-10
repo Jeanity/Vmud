@@ -1,2189 +1,2445 @@
 {
-  "next": 9000054,
-  "mobs": {
-    "9000005": {
-      "vnum": 9000005,
-      "keywords": [
-        "parahna"
-      ],
-      "name": "A Parahna",
-      "room": "A Parahna is standing here.",
-      "level": 1,
-      "hp": "10d20",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "aggressive",
-        "clauses": [
-          "all"
-        ],
-        "reactionMs": 2480,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 10,
-        "damage": {
-          "count": 3,
-          "sides": 4,
-          "bonus": 2
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 450,
-      "wimpyAt": 0,
-      "at": "2026-08-07T03:22:01.688Z"
+ "next": 9000060,
+ "mobs": {
+  "9000005": {
+   "vnum": 9000005,
+   "keywords": [
+    "parahna"
+   ],
+   "name": "A Parahna",
+   "room": "A Parahna is standing here.",
+   "level": 1,
+   "hp": "10d20",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 2480,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 10,
+    "damage": {
+     "count": 3,
+     "sides": 4,
+     "bonus": 2
     },
-    "9000006": {
-      "vnum": 9000006,
-      "keywords": [
-        "paranha"
-      ],
-      "name": "A paranha",
-      "room": "A paranha is standing here.",
-      "level": 1,
-      "hp": "10d20",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "aggressive",
-        "clauses": [
-          "all"
-        ],
-        "reactionMs": 2480,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 10,
-        "damage": {
-          "count": 3,
-          "sides": 5,
-          "bonus": 0
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 450,
-      "wimpyAt": 0,
-      "at": "2026-08-07T03:24:52.403Z"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 450,
+   "wimpyAt": 0,
+   "at": "2026-08-07T03:22:01.688Z"
+  },
+  "9000006": {
+   "vnum": 9000006,
+   "keywords": [
+    "paranha"
+   ],
+   "name": "A paranha",
+   "room": "A paranha is standing here.",
+   "level": 1,
+   "hp": "10d20",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 2480,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 10,
+    "damage": {
+     "count": 3,
+     "sides": 5,
+     "bonus": 0
     },
-    "9000007": {
-      "vnum": 9000007,
-      "keywords": [
-        "elven",
-        "master",
-        "ranger",
-        "elf"
-      ],
-      "name": "&+Gan elven master ranger&N",
-      "room": "&+GAn elven master ranger moves through the trees with unhurried grace.&N",
-      "level": 32,
-      "hp": "30d10+280",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 1860,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 16,
-        "damage": {
-          "count": 3,
-          "sides": 6,
-          "bonus": 4
-        },
-        "attackBonus": 10,
-        "roundMs": 3000
-      },
-      "experience": 42000,
-      "wimpyAt": 0,
-      "at": "2026-08-07T08:43:14.591Z"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 450,
+   "wimpyAt": 0,
+   "at": "2026-08-07T03:24:52.403Z"
+  },
+  "9000007": {
+   "vnum": 9000007,
+   "keywords": [
+    "elven",
+    "master",
+    "ranger",
+    "elf"
+   ],
+   "name": "&+Gan elven master ranger&N",
+   "room": "&+GAn elven master ranger moves through the trees with unhurried grace.&N",
+   "level": 32,
+   "hp": "30d10+280",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 1860,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 16,
+    "damage": {
+     "count": 3,
+     "sides": 6,
+     "bonus": 4
     },
-    "9000008": {
-      "vnum": 9000008,
-      "keywords": [
-        "faerie",
-        "young",
-        "robes"
-      ],
-      "name": "a young faerie",
-      "room": "A young faerie flutters about carelessly dragging its robes along the ground.",
-      "level": 9,
-      "hp": "9d14+31",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 3,
-        "damage": {
-          "count": 2,
-          "sides": 3,
-          "bonus": 1
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 1166,
-      "wimpyAt": 54,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14043 a rose faerie"
+    "attackBonus": 10,
+    "roundMs": 3000
+   },
+   "experience": 42000,
+   "wimpyAt": 0,
+   "at": "2026-08-07T08:43:14.591Z"
+  },
+  "9000008": {
+   "vnum": 9000008,
+   "keywords": [
+    "faerie",
+    "young",
+    "robes"
+   ],
+   "name": "a young faerie",
+   "room": "A young faerie flutters about carelessly dragging its robes along the ground.",
+   "level": 9,
+   "hp": "9d14+31",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 3,
+    "damage": {
+     "count": 2,
+     "sides": 3,
+     "bonus": 1
     },
-    "9000009": {
-      "vnum": 9000009,
-      "keywords": [
-        "faerie",
-        "young",
-        "wings"
-      ],
-      "name": "a young faerie",
-      "room": "A young faerie stands here clothed in robes, with small wings fluttering impatiently.",
-      "level": 10,
-      "hp": "10d19+45",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 3,
-        "damage": {
-          "count": 2,
-          "sides": 3,
-          "bonus": 1
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 1296,
-      "wimpyAt": 60,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14019 a cottage faerie"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 1166,
+   "wimpyAt": 54,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14043 a rose faerie"
+  },
+  "9000009": {
+   "vnum": 9000009,
+   "keywords": [
+    "faerie",
+    "young",
+    "wings"
+   ],
+   "name": "a young faerie",
+   "room": "A young faerie stands here clothed in robes, with small wings fluttering impatiently.",
+   "level": 10,
+   "hp": "10d19+45",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 3,
+    "damage": {
+     "count": 2,
+     "sides": 3,
+     "bonus": 1
     },
-    "9000010": {
-      "vnum": 9000010,
-      "keywords": [
-        "half-elf",
-        "halfelf",
-        "elf",
-        "scribe"
-      ],
-      "name": "a forest clad half-elf",
-      "room": "A forest clad half-elf stands here scribbling madly onto a parchment.",
-      "level": 16,
-      "hp": "16d30+80",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 5,
-        "damage": {
-          "count": 3,
-          "sides": 4,
-          "bonus": 2
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 7776,
-      "wimpyAt": 96,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14008 a Tinker woman"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 1296,
+   "wimpyAt": 60,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14019 a cottage faerie"
+  },
+  "9000010": {
+   "vnum": 9000010,
+   "keywords": [
+    "half-elf",
+    "halfelf",
+    "elf",
+    "scribe"
+   ],
+   "name": "a forest clad half-elf",
+   "room": "A forest clad half-elf stands here scribbling madly onto a parchment.",
+   "level": 16,
+   "hp": "16d30+80",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 5,
+    "damage": {
+     "count": 3,
+     "sides": 4,
+     "bonus": 2
     },
-    "9000011": {
-      "vnum": 9000011,
-      "keywords": [
-        "guard",
-        "palace",
-        "bored"
-      ],
-      "name": "a bored palace guard",
-      "room": "A bored palace guard leans against the palace wall, eyelids sagging heavily.",
-      "level": 20,
-      "hp": "20d33+120",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 7,
-        "damage": {
-          "count": 3,
-          "sides": 4,
-          "bonus": 2
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 9720,
-      "wimpyAt": 120,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14020 a faerie cook"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 7776,
+   "wimpyAt": 96,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14008 a Tinker woman"
+  },
+  "9000011": {
+   "vnum": 9000011,
+   "keywords": [
+    "guard",
+    "palace",
+    "bored"
+   ],
+   "name": "a bored palace guard",
+   "room": "A bored palace guard leans against the palace wall, eyelids sagging heavily.",
+   "level": 20,
+   "hp": "20d33+120",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 7,
+    "damage": {
+     "count": 3,
+     "sides": 4,
+     "bonus": 2
     },
-    "9000012": {
-      "vnum": 9000012,
-      "keywords": [
-        "faerie",
-        "agitated",
-        "dagger"
-      ],
-      "name": "an agitated faerie",
-      "room": "An agitated faerie stands here restlessly toying with it's dagger.",
-      "level": 20,
-      "hp": "20d33+120",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "aggressive",
-        "clauses": [
-          "all"
-        ],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 7,
-        "damage": {
-          "count": 3,
-          "sides": 4,
-          "bonus": 2
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 9720,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14020 a faerie cook"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 9720,
+   "wimpyAt": 120,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14020 a faerie cook"
+  },
+  "9000012": {
+   "vnum": 9000012,
+   "keywords": [
+    "faerie",
+    "agitated",
+    "dagger"
+   ],
+   "name": "an agitated faerie",
+   "room": "An agitated faerie stands here restlessly toying with it's dagger.",
+   "level": 20,
+   "hp": "20d33+120",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 7,
+    "damage": {
+     "count": 3,
+     "sides": 4,
+     "bonus": 2
     },
-    "9000013": {
-      "vnum": 9000013,
-      "keywords": [
-        "faerie",
-        "steward"
-      ],
-      "name": "a faerie steward",
-      "room": "A faerie steward stands here rummaging through a pile of papers.",
-      "level": 23,
-      "hp": "23d44+207",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 7,
-        "damage": {
-          "count": 3,
-          "sides": 5,
-          "bonus": 3
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 20493,
-      "wimpyAt": 138,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14007 Elizda"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 9720,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14020 a faerie cook"
+  },
+  "9000013": {
+   "vnum": 9000013,
+   "keywords": [
+    "faerie",
+    "steward"
+   ],
+   "name": "a faerie steward",
+   "room": "A faerie steward stands here rummaging through a pile of papers.",
+   "level": 23,
+   "hp": "23d44+207",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 7,
+    "damage": {
+     "count": 3,
+     "sides": 5,
+     "bonus": 3
     },
-    "9000014": {
-      "vnum": 9000014,
-      "keywords": [
-        "guard",
-        "palace",
-        "attentive"
-      ],
-      "name": "an attentive palace guard",
-      "room": "An attentive palace guard flutters here, keeping the palace safe.",
-      "level": 23,
-      "hp": "23d44+207",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 7,
-        "damage": {
-          "count": 3,
-          "sides": 5,
-          "bonus": 3
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 20493,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14007 Elizda"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 20493,
+   "wimpyAt": 138,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14007 Elizda"
+  },
+  "9000014": {
+   "vnum": 9000014,
+   "keywords": [
+    "guard",
+    "palace",
+    "attentive"
+   ],
+   "name": "an attentive palace guard",
+   "room": "An attentive palace guard flutters here, keeping the palace safe.",
+   "level": 23,
+   "hp": "23d44+207",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 7,
+    "damage": {
+     "count": 3,
+     "sides": 5,
+     "bonus": 3
     },
-    "9000015": {
-      "vnum": 9000015,
-      "keywords": [
-        "faerie",
-        "guard",
-        "chainmail",
-        "honour",
-        "honor"
-      ],
-      "name": "a faerie honour guard",
-      "room": "A faerie garbed in fine chainmail stands at attention.",
-      "level": 26,
-      "hp": "26d65+338",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 8,
-        "damage": {
-          "count": 3,
-          "sides": 6,
-          "bonus": 4
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 23166,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14067 a faerie guard of the Seelie Court"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 20493,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14007 Elizda"
+  },
+  "9000015": {
+   "vnum": 9000015,
+   "keywords": [
+    "faerie",
+    "guard",
+    "chainmail",
+    "honour",
+    "honor"
+   ],
+   "name": "a faerie honour guard",
+   "room": "A faerie garbed in fine chainmail stands at attention.",
+   "level": 26,
+   "hp": "26d65+338",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 8,
+    "damage": {
+     "count": 3,
+     "sides": 6,
+     "bonus": 4
     },
-    "9000016": {
-      "vnum": 9000016,
-      "keywords": [
-        "emissary",
-        "king",
-        "kings"
-      ],
-      "name": "the king's emissary",
-      "room": "The king's emissary stands here perusing a legal document.",
-      "level": 34,
-      "hp": "34d83+578",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 11,
-        "damage": {
-          "count": 4,
-          "sides": 6,
-          "bonus": 7
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 44064,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14021 Vokko"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 23166,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14067 a faerie guard of the Seelie Court"
+  },
+  "9000016": {
+   "vnum": 9000016,
+   "keywords": [
+    "emissary",
+    "king",
+    "kings"
+   ],
+   "name": "the king's emissary",
+   "room": "The king's emissary stands here perusing a legal document.",
+   "level": 34,
+   "hp": "34d83+578",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 11,
+    "damage": {
+     "count": 4,
+     "sides": 6,
+     "bonus": 7
     },
-    "9000017": {
-      "vnum": 9000017,
-      "keywords": [
-        "faerie",
-        "decrepit",
-        "robes"
-      ],
-      "name": "a decrepit faerie",
-      "room": "A decrepit faerie floats here cloaked in dark robes.",
-      "level": 35,
-      "hp": "35d56+525",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 11,
-        "damage": {
-          "count": 4,
-          "sides": 6,
-          "bonus": 7
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 45360,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14054 a traveling faerie"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 44064,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14021 Vokko"
+  },
+  "9000017": {
+   "vnum": 9000017,
+   "keywords": [
+    "faerie",
+    "decrepit",
+    "robes"
+   ],
+   "name": "a decrepit faerie",
+   "room": "A decrepit faerie floats here cloaked in dark robes.",
+   "level": 35,
+   "hp": "35d56+525",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 11,
+    "damage": {
+     "count": 4,
+     "sides": 6,
+     "bonus": 7
     },
-    "9000018": {
-      "vnum": 9000018,
-      "keywords": [
-        "sysoria",
-        "princess",
-        "faerie"
-      ],
-      "name": "Sysoria, the faerie Princess",
-      "room": "Sysoria, the faerie Princess lies here weeping.",
-      "level": 45,
-      "hp": "45d99+1980",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 17,
-        "damage": {
-          "count": 6,
-          "sides": 6,
-          "bonus": 12
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 109350,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14028 Celriya"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 45360,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14054 a traveling faerie"
+  },
+  "9000018": {
+   "vnum": 9000018,
+   "keywords": [
+    "sysoria",
+    "princess",
+    "faerie"
+   ],
+   "name": "Sysoria, the faerie Princess",
+   "room": "Sysoria, the faerie Princess lies here weeping.",
+   "level": 45,
+   "hp": "45d99+1980",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 17,
+    "damage": {
+     "count": 6,
+     "sides": 6,
+     "bonus": 12
     },
-    "9000019": {
-      "vnum": 9000019,
-      "keywords": [
-        "tiaronn",
-        "king",
-        "faerie"
-      ],
-      "name": "Tiaronn, King of the faeries",
-      "room": "Tiaronn, King of the faeries rests here lost in deep thought.",
-      "level": 55,
-      "hp": "55d131+4675",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 21,
-        "damage": {
-          "count": 7,
-          "sides": 6,
-          "bonus": 30
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 222750,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14005 Guhan, the Tinker leader"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 109350,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14028 Celriya"
+  },
+  "9000019": {
+   "vnum": 9000019,
+   "keywords": [
+    "tiaronn",
+    "king",
+    "faerie"
+   ],
+   "name": "Tiaronn, King of the faeries",
+   "room": "Tiaronn, King of the faeries rests here lost in deep thought.",
+   "level": 55,
+   "hp": "55d131+4675",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 21,
+    "damage": {
+     "count": 7,
+     "sides": 6,
+     "bonus": 30
     },
-    "9000020": {
-      "vnum": 9000020,
-      "keywords": [
-        "brownie",
-        "colorful"
-      ],
-      "name": "a colorful brownie",
-      "room": "A colorful brownie parades about.",
-      "level": 8,
-      "hp": "8d18+28",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 3,
-        "damage": {
-          "count": 2,
-          "sides": 3,
-          "bonus": 1
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 1036,
-      "wimpyAt": 48,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14068 a lubberkin"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 222750,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14005 Guhan, the Tinker leader"
+  },
+  "9000020": {
+   "vnum": 9000020,
+   "keywords": [
+    "brownie",
+    "colorful"
+   ],
+   "name": "a colorful brownie",
+   "room": "A colorful brownie parades about.",
+   "level": 8,
+   "hp": "8d18+28",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 3,
+    "damage": {
+     "count": 2,
+     "sides": 3,
+     "bonus": 1
     },
-    "9000021": {
-      "vnum": 9000021,
-      "keywords": [
-        "brownie",
-        "graceful"
-      ],
-      "name": "a graceful brownie",
-      "room": "A graceful looking brownie slips through the forest.",
-      "level": 10,
-      "hp": "10d19+45",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 3,
-        "damage": {
-          "count": 2,
-          "sides": 3,
-          "bonus": 1
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 1296,
-      "wimpyAt": 60,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14019 a cottage faerie"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 1036,
+   "wimpyAt": 48,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14068 a lubberkin"
+  },
+  "9000021": {
+   "vnum": 9000021,
+   "keywords": [
+    "brownie",
+    "graceful"
+   ],
+   "name": "a graceful brownie",
+   "room": "A graceful looking brownie slips through the forest.",
+   "level": 10,
+   "hp": "10d19+45",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 3,
+    "damage": {
+     "count": 2,
+     "sides": 3,
+     "bonus": 1
     },
-    "9000022": {
-      "vnum": 9000022,
-      "keywords": [
-        "gnome",
-        "redcap",
-        "cap",
-        "red"
-      ],
-      "name": "a gnome with a red cap",
-      "room": "A gnome with a red cap looks about with murderous intent.",
-      "level": 12,
-      "hp": "12d27+72",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "aggressive",
-        "clauses": [
-          "all"
-        ],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 4,
-        "damage": {
-          "count": 2,
-          "sides": 5,
-          "bonus": 2
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 5832,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v66003 a mineguard (z24)"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 1296,
+   "wimpyAt": 60,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14019 a cottage faerie"
+  },
+  "9000022": {
+   "vnum": 9000022,
+   "keywords": [
+    "gnome",
+    "redcap",
+    "cap",
+    "red"
+   ],
+   "name": "a gnome with a red cap",
+   "room": "A gnome with a red cap looks about with murderous intent.",
+   "level": 12,
+   "hp": "12d27+72",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 4,
+    "damage": {
+     "count": 2,
+     "sides": 5,
+     "bonus": 2
     },
-    "9000023": {
-      "vnum": 9000023,
-      "keywords": [
-        "faerie",
-        "woodland"
-      ],
-      "name": "a woodland faerie",
-      "room": "A woodland faerie blends in with the scenery.",
-      "level": 14,
-      "hp": "9d14+31",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 3,
-        "damage": {
-          "count": 2,
-          "sides": 3,
-          "bonus": 1
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 1166,
-      "wimpyAt": 84,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14046 a violet faerie"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 5832,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v66003 a mineguard (z24)"
+  },
+  "9000023": {
+   "vnum": 9000023,
+   "keywords": [
+    "faerie",
+    "woodland"
+   ],
+   "name": "a woodland faerie",
+   "room": "A woodland faerie blends in with the scenery.",
+   "level": 14,
+   "hp": "9d14+31",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 3,
+    "damage": {
+     "count": 2,
+     "sides": 3,
+     "bonus": 1
     },
-    "9000024": {
-      "vnum": 9000024,
-      "keywords": [
-        "meenlock",
-        "grotesque"
-      ],
-      "name": "a grotesque meenlock",
-      "room": "A grotesque meenlock clacks and chitters in madness.",
-      "level": 15,
-      "hp": "15d23+60",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "aggressive",
-        "clauses": [
-          "all"
-        ],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 5,
-        "damage": {
-          "count": 2,
-          "sides": 5,
-          "bonus": 2
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 7290,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14011 a Tinker stableboy"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 1166,
+   "wimpyAt": 84,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14046 a violet faerie"
+  },
+  "9000024": {
+   "vnum": 9000024,
+   "keywords": [
+    "meenlock",
+    "grotesque"
+   ],
+   "name": "a grotesque meenlock",
+   "room": "A grotesque meenlock clacks and chitters in madness.",
+   "level": 15,
+   "hp": "15d23+60",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 5,
+    "damage": {
+     "count": 2,
+     "sides": 5,
+     "bonus": 2
     },
-    "9000025": {
-      "vnum": 9000025,
-      "keywords": [
-        "gnome",
-        "slave"
-      ],
-      "name": "a gnome slave",
-      "room": "A gnome slave searches the area for combatants.",
-      "level": 15,
-      "hp": "15d23+60",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "aggressive",
-        "clauses": [
-          "all"
-        ],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 5,
-        "damage": {
-          "count": 2,
-          "sides": 5,
-          "bonus": 2
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 7290,
-      "wimpyAt": 90,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14011 a Tinker stableboy"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 7290,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14011 a Tinker stableboy"
+  },
+  "9000025": {
+   "vnum": 9000025,
+   "keywords": [
+    "gnome",
+    "slave"
+   ],
+   "name": "a gnome slave",
+   "room": "A gnome slave searches the area for combatants.",
+   "level": 15,
+   "hp": "15d23+60",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 5,
+    "damage": {
+     "count": 2,
+     "sides": 5,
+     "bonus": 2
     },
-    "9000026": {
-      "vnum": 9000026,
-      "keywords": [
-        "man",
-        "old",
-        "capering"
-      ],
-      "name": "an old man",
-      "room": "An old man capers along here, crazily prancing about.",
-      "level": 16,
-      "hp": "16d30+80",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 5,
-        "damage": {
-          "count": 3,
-          "sides": 4,
-          "bonus": 2
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 7776,
-      "wimpyAt": 96,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14008 a Tinker woman"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 7290,
+   "wimpyAt": 90,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14011 a Tinker stableboy"
+  },
+  "9000026": {
+   "vnum": 9000026,
+   "keywords": [
+    "man",
+    "old",
+    "capering"
+   ],
+   "name": "an old man",
+   "room": "An old man capers along here, crazily prancing about.",
+   "level": 16,
+   "hp": "16d30+80",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 5,
+    "damage": {
+     "count": 3,
+     "sides": 4,
+     "bonus": 2
     },
-    "9000027": {
-      "vnum": 9000027,
-      "keywords": [
-        "faerie",
-        "oily",
-        "lanky"
-      ],
-      "name": "an oily, lanky faerie",
-      "room": "An oily, lanky faerie trundles about the forest.",
-      "level": 18,
-      "hp": "18d35+126",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 6,
-        "damage": {
-          "count": 3,
-          "sides": 4,
-          "bonus": 2
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 8748,
-      "wimpyAt": 108,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14006 a weary adventurer"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 7776,
+   "wimpyAt": 96,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14008 a Tinker woman"
+  },
+  "9000027": {
+   "vnum": 9000027,
+   "keywords": [
+    "faerie",
+    "oily",
+    "lanky"
+   ],
+   "name": "an oily, lanky faerie",
+   "room": "An oily, lanky faerie trundles about the forest.",
+   "level": 18,
+   "hp": "18d35+126",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 6,
+    "damage": {
+     "count": 3,
+     "sides": 4,
+     "bonus": 2
     },
-    "9000028": {
-      "vnum": 9000028,
-      "keywords": [
-        "faerie",
-        "slick"
-      ],
-      "name": "a slick faerie",
-      "room": "A slick faerie wriggles through the forest.",
-      "level": 18,
-      "hp": "18d35+126",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 6,
-        "damage": {
-          "count": 3,
-          "sides": 4,
-          "bonus": 2
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 8748,
-      "wimpyAt": 108,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14006 a weary adventurer"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 8748,
+   "wimpyAt": 108,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14006 a weary adventurer"
+  },
+  "9000028": {
+   "vnum": 9000028,
+   "keywords": [
+    "faerie",
+    "slick"
+   ],
+   "name": "a slick faerie",
+   "room": "A slick faerie wriggles through the forest.",
+   "level": 18,
+   "hp": "18d35+126",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 6,
+    "damage": {
+     "count": 3,
+     "sides": 4,
+     "bonus": 2
     },
-    "9000029": {
-      "vnum": 9000029,
-      "keywords": [
-        "sprite",
-        "unseelie"
-      ],
-      "name": "an unseelie sprite",
-      "room": "An unseelie sprite floats here obediently.",
-      "level": 20,
-      "hp": "20d33+120",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 7,
-        "damage": {
-          "count": 3,
-          "sides": 4,
-          "bonus": 2
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 9720,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14020 a faerie cook"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 8748,
+   "wimpyAt": 108,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14006 a weary adventurer"
+  },
+  "9000029": {
+   "vnum": 9000029,
+   "keywords": [
+    "sprite",
+    "unseelie"
+   ],
+   "name": "an unseelie sprite",
+   "room": "An unseelie sprite floats here obediently.",
+   "level": 20,
+   "hp": "20d33+120",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 7,
+    "damage": {
+     "count": 3,
+     "sides": 4,
+     "bonus": 2
     },
-    "9000030": {
-      "vnum": 9000030,
-      "keywords": [
-        "woman",
-        "translucent"
-      ],
-      "name": "a translucent woman",
-      "room": "A translucent woman rests here, scanning the forest for something.",
-      "level": 20,
-      "hp": "20d33+120",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 7,
-        "damage": {
-          "count": 3,
-          "sides": 4,
-          "bonus": 2
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 9720,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14020 a faerie cook"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 9720,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14020 a faerie cook"
+  },
+  "9000030": {
+   "vnum": 9000030,
+   "keywords": [
+    "woman",
+    "translucent"
+   ],
+   "name": "a translucent woman",
+   "room": "A translucent woman rests here, scanning the forest for something.",
+   "level": 20,
+   "hp": "20d33+120",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 7,
+    "damage": {
+     "count": 3,
+     "sides": 4,
+     "bonus": 2
     },
-    "9000031": {
-      "vnum": 9000031,
-      "keywords": [
-        "woman",
-        "sylvan"
-      ],
-      "name": "a sylvan woman",
-      "room": "A sylvan woman stands here dressed in leaves.",
-      "level": 23,
-      "hp": "23d44+207",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 7,
-        "damage": {
-          "count": 3,
-          "sides": 5,
-          "bonus": 3
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 20493,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14007 Elizda"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 9720,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14020 a faerie cook"
+  },
+  "9000031": {
+   "vnum": 9000031,
+   "keywords": [
+    "woman",
+    "sylvan"
+   ],
+   "name": "a sylvan woman",
+   "room": "A sylvan woman stands here dressed in leaves.",
+   "level": 23,
+   "hp": "23d44+207",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 7,
+    "damage": {
+     "count": 3,
+     "sides": 5,
+     "bonus": 3
     },
-    "9000032": {
-      "vnum": 9000032,
-      "keywords": [
-        "woman",
-        "shapely",
-        "green"
-      ],
-      "name": "a shapely woman dressed in green",
-      "room": "A shapely woman dressed in green waits by the water's edge.",
-      "level": 26,
-      "hp": "26d65+338",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 8,
-        "damage": {
-          "count": 3,
-          "sides": 6,
-          "bonus": 4
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 23166,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14067 a faerie guard of the Seelie Court"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 20493,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14007 Elizda"
+  },
+  "9000032": {
+   "vnum": 9000032,
+   "keywords": [
+    "woman",
+    "shapely",
+    "green"
+   ],
+   "name": "a shapely woman dressed in green",
+   "room": "A shapely woman dressed in green waits by the water's edge.",
+   "level": 26,
+   "hp": "26d65+338",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 8,
+    "damage": {
+     "count": 3,
+     "sides": 6,
+     "bonus": 4
     },
-    "9000033": {
-      "vnum": 9000033,
-      "keywords": [
-        "sprite",
-        "raider",
-        "unseelie"
-      ],
-      "name": "an unseelie sprite raider",
-      "room": "An unseelie sprite raider combs the forest.",
-      "level": 26,
-      "hp": "26d65+338",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "aggressive",
-        "clauses": [
-          "all"
-        ],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 8,
-        "damage": {
-          "count": 3,
-          "sides": 6,
-          "bonus": 4
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 23166,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14067 a faerie guard of the Seelie Court"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 23166,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14067 a faerie guard of the Seelie Court"
+  },
+  "9000033": {
+   "vnum": 9000033,
+   "keywords": [
+    "sprite",
+    "raider",
+    "unseelie"
+   ],
+   "name": "an unseelie sprite raider",
+   "room": "An unseelie sprite raider combs the forest.",
+   "level": 26,
+   "hp": "26d65+338",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 8,
+    "damage": {
+     "count": 3,
+     "sides": 6,
+     "bonus": 4
     },
-    "9000034": {
-      "vnum": 9000034,
-      "keywords": [
-        "faerie",
-        "spiky"
-      ],
-      "name": "a spiky faerie",
-      "room": "An spiky faerie looks about with killing intent.",
-      "level": 29,
-      "hp": "29d65+377",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "aggressive",
-        "clauses": [
-          "all"
-        ],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 9,
-        "damage": {
-          "count": 3,
-          "sides": 6,
-          "bonus": 4
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 25839,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14010 Bandor"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 23166,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14067 a faerie guard of the Seelie Court"
+  },
+  "9000034": {
+   "vnum": 9000034,
+   "keywords": [
+    "faerie",
+    "spiky"
+   ],
+   "name": "a spiky faerie",
+   "room": "An spiky faerie looks about with killing intent.",
+   "level": 29,
+   "hp": "29d65+377",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 9,
+    "damage": {
+     "count": 3,
+     "sides": 6,
+     "bonus": 4
     },
-    "9000035": {
-      "vnum": 9000035,
-      "keywords": [
-        "faerie",
-        "spiky",
-        "sentry"
-      ],
-      "name": "a spiky faerie sentry",
-      "room": "An spiky faerie scours the forest for intruders.",
-      "level": 29,
-      "hp": "29d65+377",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "aggressive",
-        "clauses": [
-          "all"
-        ],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 9,
-        "damage": {
-          "count": 3,
-          "sides": 6,
-          "bonus": 4
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 25839,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14010 Bandor"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 25839,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14010 Bandor"
+  },
+  "9000035": {
+   "vnum": 9000035,
+   "keywords": [
+    "faerie",
+    "spiky",
+    "sentry"
+   ],
+   "name": "a spiky faerie sentry",
+   "room": "An spiky faerie scours the forest for intruders.",
+   "level": 29,
+   "hp": "29d65+377",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 9,
+    "damage": {
+     "count": 3,
+     "sides": 6,
+     "bonus": 4
     },
-    "9000036": {
-      "vnum": 9000036,
-      "keywords": [
-        "faerie",
-        "haughty"
-      ],
-      "name": "a haughty faerie",
-      "room": "A haughty faerie glances over at you.",
-      "level": 34,
-      "hp": "34d83+578",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 11,
-        "damage": {
-          "count": 4,
-          "sides": 6,
-          "bonus": 7
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 44064,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14021 Vokko"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 25839,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14010 Bandor"
+  },
+  "9000036": {
+   "vnum": 9000036,
+   "keywords": [
+    "faerie",
+    "haughty"
+   ],
+   "name": "a haughty faerie",
+   "room": "A haughty faerie glances over at you.",
+   "level": 34,
+   "hp": "34d83+578",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 11,
+    "damage": {
+     "count": 4,
+     "sides": 6,
+     "bonus": 7
     },
-    "9000037": {
-      "vnum": 9000037,
-      "keywords": [
-        "woman",
-        "ethereal",
-        "beauty"
-      ],
-      "name": "a woman of ethereal beauty",
-      "room": "A woman of ethereal beauty floats here, serenely.",
-      "level": 35,
-      "hp": "35d56+525",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 11,
-        "damage": {
-          "count": 4,
-          "sides": 6,
-          "bonus": 7
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 45360,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14054 a traveling faerie"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 44064,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14021 Vokko"
+  },
+  "9000037": {
+   "vnum": 9000037,
+   "keywords": [
+    "woman",
+    "ethereal",
+    "beauty"
+   ],
+   "name": "a woman of ethereal beauty",
+   "room": "A woman of ethereal beauty floats here, serenely.",
+   "level": 35,
+   "hp": "35d56+525",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 11,
+    "damage": {
+     "count": 4,
+     "sides": 6,
+     "bonus": 7
     },
-    "9000038": {
-      "vnum": 9000038,
-      "keywords": [
-        "woman",
-        "unearthly",
-        "beauty"
-      ],
-      "name": "a woman of unearthly beauty",
-      "room": "A woman of unearthly beauty floats here.",
-      "level": 45,
-      "hp": "45d99+1980",
-      "sprite": "human",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 0,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": false
-      },
-      "combat": {
-        "armourClass": 17,
-        "damage": {
-          "count": 6,
-          "sides": 6,
-          "bonus": 12
-        },
-        "attackBonus": 0,
-        "roundMs": 3000
-      },
-      "experience": 109350,
-      "wimpyAt": 0,
-      "at": "2026-08-08T06:47:52.226Z",
-      "by": "transcribed from the zMUD room capture; numbers copied from v14028 Celriya"
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 45360,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14054 a traveling faerie"
+  },
+  "9000038": {
+   "vnum": 9000038,
+   "keywords": [
+    "woman",
+    "unearthly",
+    "beauty"
+   ],
+   "name": "a woman of unearthly beauty",
+   "room": "A woman of unearthly beauty floats here.",
+   "level": 45,
+   "hp": "45d99+1980",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 0,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 17,
+    "damage": {
+     "count": 6,
+     "sides": 6,
+     "bonus": 12
     },
-    "9000039": {
-      "vnum": 9000039,
-      "keywords": [
-        "faerie",
-        "pixie"
-      ],
-      "name": "a little pixie",
-      "room": "A little faerie pixie is here flying along the currents of air.",
-      "level": 9,
-      "hp": "9d19+40",
-      "sprite": "human",
-      "race": "H",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 2320,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": false,
-        "opensDoors": true
-      },
-      "wimpyAt": 0,
-      "experience": 1166,
-      "coins": {
-        "copper": 4,
-        "silver": 3
-      },
-      "combat": {
-        "armourClass": 3,
-        "damage": {
-          "count": 2,
-          "sides": 3,
-          "bonus": 1
-        },
-        "attackBonus": 3,
-        "roundMs": 3000
-      },
-      "at": "2026-08-08",
-      "by": "the courts own copy of harvested 14001 \"a little pixie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 109350,
+   "wimpyAt": 0,
+   "at": "2026-08-08T06:47:52.226Z",
+   "by": "transcribed from the zMUD room capture; numbers copied from v14028 Celriya"
+  },
+  "9000039": {
+   "vnum": 9000039,
+   "keywords": [
+    "faerie",
+    "pixie"
+   ],
+   "name": "a little pixie",
+   "room": "A little faerie pixie is here flying along the currents of air.",
+   "level": 9,
+   "hp": "9d19+40",
+   "sprite": "human",
+   "race": "H",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2320,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": false,
+    "opensDoors": true
+   },
+   "wimpyAt": 0,
+   "experience": 1166,
+   "coins": {
+    "copper": 4,
+    "silver": 3
+   },
+   "combat": {
+    "armourClass": 3,
+    "damage": {
+     "count": 2,
+     "sides": 3,
+     "bonus": 1
     },
-    "9000040": {
-      "vnum": 9000040,
-      "keywords": [
-        "weary",
-        "adventurer"
-      ],
-      "name": "a weary adventurer",
-      "room": "A lost and weary adventurer is here, taking advantage of his hosts hospitality.",
-      "level": 18,
-      "hp": "18d35+126",
-      "sprite": "human",
-      "race": "H",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 2140,
-        "remembers": false,
-        "sentinel": true,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": true
-      },
-      "wimpyAt": 108,
-      "experience": 8748,
-      "coins": {
-        "copper": 9,
-        "silver": 7,
-        "gold": 3
-      },
-      "combat": {
-        "armourClass": 6,
-        "damage": {
-          "count": 3,
-          "sides": 4,
-          "bonus": 2
-        },
-        "attackBonus": 6,
-        "roundMs": 3000
-      },
-      "at": "2026-08-08",
-      "by": "the courts own copy of harvested 14006 \"a weary adventurer\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    "attackBonus": 3,
+    "roundMs": 3000
+   },
+   "at": "2026-08-08",
+   "by": "the courts own copy of harvested 14001 \"a little pixie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+  },
+  "9000040": {
+   "vnum": 9000040,
+   "keywords": [
+    "weary",
+    "adventurer"
+   ],
+   "name": "a weary adventurer",
+   "room": "A lost and weary adventurer is here, taking advantage of his hosts hospitality.",
+   "level": 18,
+   "hp": "18d35+126",
+   "sprite": "human",
+   "race": "H",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2140,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": true
+   },
+   "wimpyAt": 108,
+   "experience": 8748,
+   "coins": {
+    "copper": 9,
+    "silver": 7,
+    "gold": 3
+   },
+   "combat": {
+    "armourClass": 6,
+    "damage": {
+     "count": 3,
+     "sides": 4,
+     "bonus": 2
     },
-    "9000041": {
-      "vnum": 9000041,
-      "keywords": [
-        "faerie",
-        "cook"
-      ],
-      "name": "a faerie cook",
-      "room": "A faerie cook is here creating the wonderful delights you smell all around you.",
-      "level": 20,
-      "hp": "20d33+120",
-      "sprite": "human",
-      "race": "H",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 2100,
-        "remembers": false,
-        "sentinel": true,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": true
-      },
-      "wimpyAt": 0,
-      "experience": 9720,
-      "coins": {
-        "silver": 9,
-        "gold": 3
-      },
-      "combat": {
-        "armourClass": 7,
-        "damage": {
-          "count": 3,
-          "sides": 4,
-          "bonus": 2
-        },
-        "attackBonus": 6,
-        "roundMs": 3000
-      },
-      "at": "2026-08-08",
-      "by": "the courts own copy of harvested 14020 \"a faerie cook\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    "attackBonus": 6,
+    "roundMs": 3000
+   },
+   "at": "2026-08-08",
+   "by": "the courts own copy of harvested 14006 \"a weary adventurer\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+  },
+  "9000041": {
+   "vnum": 9000041,
+   "keywords": [
+    "faerie",
+    "cook"
+   ],
+   "name": "a faerie cook",
+   "room": "A faerie cook is here creating the wonderful delights you smell all around you.",
+   "level": 20,
+   "hp": "20d33+120",
+   "sprite": "human",
+   "race": "H",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2100,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": true
+   },
+   "wimpyAt": 0,
+   "experience": 9720,
+   "coins": {
+    "silver": 9,
+    "gold": 3
+   },
+   "combat": {
+    "armourClass": 7,
+    "damage": {
+     "count": 3,
+     "sides": 4,
+     "bonus": 2
     },
-    "9000042": {
-      "vnum": 9000042,
-      "keywords": [
-        "short",
-        "swarthy",
-        "faerie"
-      ],
-      "name": "a short, swarthy faerie",
-      "room": "A short, swarthy faerie is here wandering with an aimless intent.",
-      "level": 18,
-      "hp": "18d35+126",
-      "sprite": "human",
-      "race": "H",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 2140,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": false,
-        "opensDoors": true
-      },
-      "wimpyAt": 0,
-      "experience": 8748,
-      "coins": {
-        "copper": 9,
-        "silver": 7,
-        "gold": 3
-      },
-      "combat": {
-        "armourClass": 6,
-        "damage": {
-          "count": 3,
-          "sides": 4,
-          "bonus": 2
-        },
-        "attackBonus": 6,
-        "roundMs": 3000
-      },
-      "at": "2026-08-08",
-      "by": "the courts own copy of harvested 14040 \"a short, swarthy faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    "attackBonus": 6,
+    "roundMs": 3000
+   },
+   "at": "2026-08-08",
+   "by": "the courts own copy of harvested 14020 \"a faerie cook\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+  },
+  "9000042": {
+   "vnum": 9000042,
+   "keywords": [
+    "short",
+    "swarthy",
+    "faerie"
+   ],
+   "name": "a short, swarthy faerie",
+   "room": "A short, swarthy faerie is here wandering with an aimless intent.",
+   "level": 18,
+   "hp": "18d35+126",
+   "sprite": "human",
+   "race": "H",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2140,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": false,
+    "opensDoors": true
+   },
+   "wimpyAt": 0,
+   "experience": 8748,
+   "coins": {
+    "copper": 9,
+    "silver": 7,
+    "gold": 3
+   },
+   "combat": {
+    "armourClass": 6,
+    "damage": {
+     "count": 3,
+     "sides": 4,
+     "bonus": 2
     },
-    "9000043": {
-      "vnum": 9000043,
-      "keywords": [
-        "faerie",
-        "changling",
-        "toadstool"
-      ],
-      "name": "a faerie changling",
-      "room": "A curious looking toadstool is growing off to the side here.",
-      "level": 8,
-      "hp": "8d14+28",
-      "sprite": "human",
-      "race": "H",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 2340,
-        "remembers": false,
-        "sentinel": true,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": true
-      },
-      "wimpyAt": 0,
-      "experience": 1036,
-      "coins": {
-        "copper": 4,
-        "silver": 2
-      },
-      "combat": {
-        "armourClass": 3,
-        "damage": {
-          "count": 2,
-          "sides": 3,
-          "bonus": 1
-        },
-        "attackBonus": 2,
-        "roundMs": 3000
-      },
-      "at": "2026-08-08",
-      "by": "the courts own copy of harvested 14042 \"a faerie changling\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    "attackBonus": 6,
+    "roundMs": 3000
+   },
+   "at": "2026-08-08",
+   "by": "the courts own copy of harvested 14040 \"a short, swarthy faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+  },
+  "9000043": {
+   "vnum": 9000043,
+   "keywords": [
+    "faerie",
+    "changling",
+    "toadstool"
+   ],
+   "name": "a faerie changling",
+   "room": "A curious looking toadstool is growing off to the side here.",
+   "level": 8,
+   "hp": "8d14+28",
+   "sprite": "human",
+   "race": "H",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2340,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": true
+   },
+   "wimpyAt": 0,
+   "experience": 1036,
+   "coins": {
+    "copper": 4,
+    "silver": 2
+   },
+   "combat": {
+    "armourClass": 3,
+    "damage": {
+     "count": 2,
+     "sides": 3,
+     "bonus": 1
     },
-    "9000044": {
-      "vnum": 9000044,
-      "keywords": [
-        "rose",
-        "faerie"
-      ],
-      "name": "a rose faerie",
-      "room": "A faerie who tends the roses of the temple grounds is here.",
-      "level": 9,
-      "hp": "9d14+31",
-      "sprite": "human",
-      "race": "H",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 2320,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": false,
-        "opensDoors": true
-      },
-      "wimpyAt": 0,
-      "experience": 1166,
-      "coins": {
-        "copper": 4,
-        "silver": 3
-      },
-      "combat": {
-        "armourClass": 3,
-        "damage": {
-          "count": 2,
-          "sides": 3,
-          "bonus": 1
-        },
-        "attackBonus": 3,
-        "roundMs": 3000
-      },
-      "at": "2026-08-08",
-      "by": "the courts own copy of harvested 14043 \"a rose faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    "attackBonus": 2,
+    "roundMs": 3000
+   },
+   "at": "2026-08-08",
+   "by": "the courts own copy of harvested 14042 \"a faerie changling\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+  },
+  "9000044": {
+   "vnum": 9000044,
+   "keywords": [
+    "rose",
+    "faerie"
+   ],
+   "name": "a rose faerie",
+   "room": "A faerie who tends the roses of the temple grounds is here.",
+   "level": 9,
+   "hp": "9d14+31",
+   "sprite": "human",
+   "race": "H",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2320,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": false,
+    "opensDoors": true
+   },
+   "wimpyAt": 0,
+   "experience": 1166,
+   "coins": {
+    "copper": 4,
+    "silver": 3
+   },
+   "combat": {
+    "armourClass": 3,
+    "damage": {
+     "count": 2,
+     "sides": 3,
+     "bonus": 1
     },
-    "9000045": {
-      "vnum": 9000045,
-      "keywords": [
-        "azalea",
-        "faerie"
-      ],
-      "name": "an azalea faerie",
-      "room": "A freckled skin azalea faerie is here tending to the garden.",
-      "level": 9,
-      "hp": "9d14+31",
-      "sprite": "human",
-      "race": "H",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 2320,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": false,
-        "opensDoors": true
-      },
-      "wimpyAt": 0,
-      "experience": 1166,
-      "coins": {
-        "copper": 4,
-        "silver": 3
-      },
-      "combat": {
-        "armourClass": 3,
-        "damage": {
-          "count": 2,
-          "sides": 3,
-          "bonus": 1
-        },
-        "attackBonus": 3,
-        "roundMs": 3000
-      },
-      "at": "2026-08-08",
-      "by": "the courts own copy of harvested 14044 \"an azalea faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    "attackBonus": 3,
+    "roundMs": 3000
+   },
+   "at": "2026-08-08",
+   "by": "the courts own copy of harvested 14043 \"a rose faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+  },
+  "9000045": {
+   "vnum": 9000045,
+   "keywords": [
+    "azalea",
+    "faerie"
+   ],
+   "name": "an azalea faerie",
+   "room": "A freckled skin azalea faerie is here tending to the garden.",
+   "level": 9,
+   "hp": "9d14+31",
+   "sprite": "human",
+   "race": "H",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2320,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": false,
+    "opensDoors": true
+   },
+   "wimpyAt": 0,
+   "experience": 1166,
+   "coins": {
+    "copper": 4,
+    "silver": 3
+   },
+   "combat": {
+    "armourClass": 3,
+    "damage": {
+     "count": 2,
+     "sides": 3,
+     "bonus": 1
     },
-    "9000046": {
-      "vnum": 9000046,
-      "keywords": [
-        "daisy",
-        "faerie"
-      ],
-      "name": "a daisy faerie",
-      "room": "A daisy faerie is here playing among the flowers of the garden.",
-      "level": 7,
-      "hp": "7d14+24",
-      "sprite": "human",
-      "race": "H",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 2360,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": false,
-        "opensDoors": true
-      },
-      "wimpyAt": 0,
-      "experience": 907,
-      "coins": {
-        "copper": 3,
-        "silver": 2
-      },
-      "combat": {
-        "armourClass": 2,
-        "damage": {
-          "count": 2,
-          "sides": 3,
-          "bonus": 1
-        },
-        "attackBonus": 2,
-        "roundMs": 3000
-      },
-      "at": "2026-08-08",
-      "by": "the courts own copy of harvested 14045 \"a daisy faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    "attackBonus": 3,
+    "roundMs": 3000
+   },
+   "at": "2026-08-08",
+   "by": "the courts own copy of harvested 14044 \"an azalea faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+  },
+  "9000046": {
+   "vnum": 9000046,
+   "keywords": [
+    "daisy",
+    "faerie"
+   ],
+   "name": "a daisy faerie",
+   "room": "A daisy faerie is here playing among the flowers of the garden.",
+   "level": 7,
+   "hp": "7d14+24",
+   "sprite": "human",
+   "race": "H",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2360,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": false,
+    "opensDoors": true
+   },
+   "wimpyAt": 0,
+   "experience": 907,
+   "coins": {
+    "copper": 3,
+    "silver": 2
+   },
+   "combat": {
+    "armourClass": 2,
+    "damage": {
+     "count": 2,
+     "sides": 3,
+     "bonus": 1
     },
-    "9000047": {
-      "vnum": 9000047,
-      "keywords": [
-        "violet",
-        "faerie"
-      ],
-      "name": "a violet faerie",
-      "room": "A demure and regal violet faerie strolls along the garden path here.",
-      "level": 14,
-      "hp": "9d14+31",
-      "sprite": "human",
-      "race": "H",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 2220,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": false,
-        "opensDoors": true
-      },
-      "wimpyAt": 0,
-      "experience": 1166,
-      "coins": {
-        "copper": 4,
-        "silver": 3
-      },
-      "combat": {
-        "armourClass": 3,
-        "damage": {
-          "count": 2,
-          "sides": 3,
-          "bonus": 1
-        },
-        "attackBonus": 4,
-        "roundMs": 3000
-      },
-      "at": "2026-08-08",
-      "by": "the courts own copy of harvested 14046 \"a violet faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    "attackBonus": 2,
+    "roundMs": 3000
+   },
+   "at": "2026-08-08",
+   "by": "the courts own copy of harvested 14045 \"a daisy faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+  },
+  "9000047": {
+   "vnum": 9000047,
+   "keywords": [
+    "violet",
+    "faerie"
+   ],
+   "name": "a violet faerie",
+   "room": "A demure and regal violet faerie strolls along the garden path here.",
+   "level": 14,
+   "hp": "9d14+31",
+   "sprite": "human",
+   "race": "H",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2220,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": false,
+    "opensDoors": true
+   },
+   "wimpyAt": 0,
+   "experience": 1166,
+   "coins": {
+    "copper": 4,
+    "silver": 3
+   },
+   "combat": {
+    "armourClass": 3,
+    "damage": {
+     "count": 2,
+     "sides": 3,
+     "bonus": 1
     },
-    "9000048": {
-      "vnum": 9000048,
-      "keywords": [
-        "tiny",
-        "buttercup",
-        "faerie"
-      ],
-      "name": "a buttercup faerie",
-      "room": "A tiny faerie is here lying among the buttercups of the garden.",
-      "level": 6,
-      "hp": "6d19+27",
-      "sprite": "human",
-      "race": "H",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 2380,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": false,
-        "opensDoors": true
-      },
-      "wimpyAt": 0,
-      "experience": 777,
-      "coins": {
-        "copper": 3,
-        "silver": 2
-      },
-      "combat": {
-        "armourClass": 2,
-        "damage": {
-          "count": 2,
-          "sides": 3,
-          "bonus": 1
-        },
-        "attackBonus": 2,
-        "roundMs": 3000
-      },
-      "at": "2026-08-08",
-      "by": "the courts own copy of harvested 14047 \"a buttercup faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    "attackBonus": 4,
+    "roundMs": 3000
+   },
+   "at": "2026-08-08",
+   "by": "the courts own copy of harvested 14046 \"a violet faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+  },
+  "9000048": {
+   "vnum": 9000048,
+   "keywords": [
+    "tiny",
+    "buttercup",
+    "faerie"
+   ],
+   "name": "a buttercup faerie",
+   "room": "A tiny faerie is here lying among the buttercups of the garden.",
+   "level": 6,
+   "hp": "6d19+27",
+   "sprite": "human",
+   "race": "H",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2380,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": false,
+    "opensDoors": true
+   },
+   "wimpyAt": 0,
+   "experience": 777,
+   "coins": {
+    "copper": 3,
+    "silver": 2
+   },
+   "combat": {
+    "armourClass": 2,
+    "damage": {
+     "count": 2,
+     "sides": 3,
+     "bonus": 1
     },
-    "9000049": {
-      "vnum": 9000049,
-      "keywords": [
-        "traveling",
-        "faerie"
-      ],
-      "name": "a traveling faerie",
-      "room": "A faerie traveling towards the court of Queen Mab is here.",
-      "level": 35,
-      "hp": "35d56+525",
-      "sprite": "human",
-      "race": "H",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 1800,
-        "remembers": true,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": false,
-        "opensDoors": true
-      },
-      "wimpyAt": 210,
-      "experience": 45360,
-      "coins": {
-        "copper": 9,
-        "silver": 9,
-        "gold": 1,
-        "platinum": 2
-      },
-      "combat": {
-        "armourClass": 11,
-        "damage": {
-          "count": 4,
-          "sides": 6,
-          "bonus": 7
-        },
-        "attackBonus": 11,
-        "roundMs": 3000
-      },
-      "at": "2026-08-08",
-      "by": "the courts own copy of harvested 14054 \"a traveling faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    "attackBonus": 2,
+    "roundMs": 3000
+   },
+   "at": "2026-08-08",
+   "by": "the courts own copy of harvested 14047 \"a buttercup faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+  },
+  "9000049": {
+   "vnum": 9000049,
+   "keywords": [
+    "traveling",
+    "faerie"
+   ],
+   "name": "a traveling faerie",
+   "room": "A faerie traveling towards the court of Queen Mab is here.",
+   "level": 35,
+   "hp": "35d56+525",
+   "sprite": "human",
+   "race": "H",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 1800,
+    "remembers": true,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": false,
+    "opensDoors": true
+   },
+   "wimpyAt": 210,
+   "experience": 45360,
+   "coins": {
+    "copper": 9,
+    "silver": 9,
+    "gold": 1,
+    "platinum": 2
+   },
+   "combat": {
+    "armourClass": 11,
+    "damage": {
+     "count": 4,
+     "sides": 6,
+     "bonus": 7
     },
-    "9000050": {
-      "vnum": 9000050,
-      "keywords": [
-        "little",
-        "faerie",
-        "hob"
-      ],
-      "name": "a little hob",
-      "room": "A little hob is here skipping about.",
-      "level": 4,
-      "hp": "4d15+14",
-      "sprite": "human",
-      "race": "H",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 2420,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": true
-      },
-      "wimpyAt": 0,
-      "experience": 518,
-      "coins": {
-        "copper": 2,
-        "silver": 1
-      },
-      "combat": {
-        "armourClass": 1,
-        "damage": {
-          "count": 1,
-          "sides": 5,
-          "bonus": 0
-        },
-        "attackBonus": 1,
-        "roundMs": 3000
-      },
-      "at": "2026-08-08",
-      "by": "the courts own copy of harvested 14055 \"a little hob\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    "attackBonus": 11,
+    "roundMs": 3000
+   },
+   "at": "2026-08-08",
+   "by": "the courts own copy of harvested 14054 \"a traveling faerie\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+  },
+  "9000050": {
+   "vnum": 9000050,
+   "keywords": [
+    "little",
+    "faerie",
+    "hob"
+   ],
+   "name": "a little hob",
+   "room": "A little hob is here skipping about.",
+   "level": 4,
+   "hp": "4d15+14",
+   "sprite": "human",
+   "race": "H",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2420,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": true
+   },
+   "wimpyAt": 0,
+   "experience": 518,
+   "coins": {
+    "copper": 2,
+    "silver": 1
+   },
+   "combat": {
+    "armourClass": 1,
+    "damage": {
+     "count": 1,
+     "sides": 5,
+     "bonus": 0
     },
-    "9000051": {
-      "vnum": 9000051,
-      "keywords": [
-        "dwarfish",
-        "derrick"
-      ],
-      "name": "a dwarfish derrick",
-      "room": "A dwarfish derrick is here misdirecting travelers of the Faerie Realm.",
-      "level": 5,
-      "hp": "5d15+17",
-      "sprite": "human",
-      "race": "H",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 2400,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": true
-      },
-      "wimpyAt": 0,
-      "experience": 648,
-      "coins": {
-        "copper": 3,
-        "silver": 1
-      },
-      "combat": {
-        "armourClass": 2,
-        "damage": {
-          "count": 1,
-          "sides": 5,
-          "bonus": 0
-        },
-        "attackBonus": 1,
-        "roundMs": 3000
-      },
-      "at": "2026-08-08",
-      "by": "the courts own copy of harvested 14058 \"a dwarfish derrick\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    "attackBonus": 1,
+    "roundMs": 3000
+   },
+   "at": "2026-08-08",
+   "by": "the courts own copy of harvested 14055 \"a little hob\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+  },
+  "9000051": {
+   "vnum": 9000051,
+   "keywords": [
+    "dwarfish",
+    "derrick"
+   ],
+   "name": "a dwarfish derrick",
+   "room": "A dwarfish derrick is here misdirecting travelers of the Faerie Realm.",
+   "level": 5,
+   "hp": "5d15+17",
+   "sprite": "human",
+   "race": "H",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2400,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": true
+   },
+   "wimpyAt": 0,
+   "experience": 648,
+   "coins": {
+    "copper": 3,
+    "silver": 1
+   },
+   "combat": {
+    "armourClass": 2,
+    "damage": {
+     "count": 1,
+     "sides": 5,
+     "bonus": 0
     },
-    "9000052": {
-      "vnum": 9000052,
-      "keywords": [
-        "faerie",
-        "guard",
-        "seelie"
-      ],
-      "name": "a faerie guard of the Seelie Court",
-      "room": "A faerie of the Seelie Court is here, guarding the valley from evil.",
-      "level": 26,
-      "hp": "26d65+338",
-      "sprite": "human",
-      "race": "H",
-      "aggro": {
-        "disposition": "aggressive",
-        "clauses": [
-          "evilAlign"
-        ],
-        "reactionMs": 1980,
-        "remembers": false,
-        "sentinel": true,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": true,
-        "opensDoors": true
-      },
-      "wimpyAt": 0,
-      "experience": 23166,
-      "coins": {
-        "copper": 7,
-        "silver": 2,
-        "gold": 6,
-        "platinum": 1
-      },
-      "combat": {
-        "armourClass": 8,
-        "damage": {
-          "count": 3,
-          "sides": 6,
-          "bonus": 4
-        },
-        "attackBonus": 8,
-        "roundMs": 3000
-      },
-      "at": "2026-08-08",
-      "by": "the courts own copy of harvested 14067 \"a faerie guard of the Seelie Court\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+    "attackBonus": 1,
+    "roundMs": 3000
+   },
+   "at": "2026-08-08",
+   "by": "the courts own copy of harvested 14058 \"a dwarfish derrick\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+  },
+  "9000052": {
+   "vnum": 9000052,
+   "keywords": [
+    "faerie",
+    "guard",
+    "seelie"
+   ],
+   "name": "a faerie guard of the Seelie Court",
+   "room": "A faerie of the Seelie Court is here, guarding the valley from evil.",
+   "level": 26,
+   "hp": "26d65+338",
+   "sprite": "human",
+   "race": "H",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "evilAlign"
+    ],
+    "reactionMs": 1980,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": true
+   },
+   "wimpyAt": 0,
+   "experience": 23166,
+   "coins": {
+    "copper": 7,
+    "silver": 2,
+    "gold": 6,
+    "platinum": 1
+   },
+   "combat": {
+    "armourClass": 8,
+    "damage": {
+     "count": 3,
+     "sides": 6,
+     "bonus": 4
     },
-    "9000053": {
-      "vnum": 9000053,
-      "keywords": [
-        "faerie",
-        "lubberkin"
-      ],
-      "name": "a lubberkin",
-      "room": "A lubberkin is here making a fool of himself.",
-      "level": 8,
-      "hp": "8d18+28",
-      "sprite": "human",
-      "race": "H",
-      "aggro": {
-        "disposition": "passive",
-        "clauses": [],
-        "reactionMs": 2340,
-        "remembers": false,
-        "sentinel": false,
-        "assists": false
-      },
-      "pursuit": {
-        "tier": "sentinel",
-        "trackRooms": 0,
-        "giveUpMs": 0,
-        "respectsSafeRooms": true,
-        "staysInZone": false,
-        "opensDoors": true
-      },
-      "wimpyAt": 0,
-      "experience": 1036,
-      "coins": {
-        "copper": 4,
-        "silver": 2
-      },
-      "combat": {
-        "armourClass": 3,
-        "damage": {
-          "count": 2,
-          "sides": 3,
-          "bonus": 1
-        },
-        "attackBonus": 2,
-        "roundMs": 3000
-      },
-      "at": "2026-08-08",
-      "by": "the courts own copy of harvested 14068 \"a lubberkin\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
-    }
+    "attackBonus": 8,
+    "roundMs": 3000
+   },
+   "at": "2026-08-08",
+   "by": "the courts own copy of harvested 14067 \"a faerie guard of the Seelie Court\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+  },
+  "9000053": {
+   "vnum": 9000053,
+   "keywords": [
+    "faerie",
+    "lubberkin"
+   ],
+   "name": "a lubberkin",
+   "room": "A lubberkin is here making a fool of himself.",
+   "level": 8,
+   "hp": "8d18+28",
+   "sprite": "human",
+   "race": "H",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2340,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": false,
+    "opensDoors": true
+   },
+   "wimpyAt": 0,
+   "experience": 1036,
+   "coins": {
+    "copper": 4,
+    "silver": 2
+   },
+   "combat": {
+    "armourClass": 3,
+    "damage": {
+     "count": 2,
+     "sides": 3,
+     "bonus": 1
+    },
+    "attackBonus": 2,
+    "roundMs": 3000
+   },
+   "at": "2026-08-08",
+   "by": "the courts own copy of harvested 14068 \"a lubberkin\". Cloned rather than reused because spawn limits are world-wide: zone 64 carries its own M commands at a limit equal to its own count, so a court holding the same vnum starves them and, for 14067, the chained equip that is the only source of Finn's signet ring never fires again."
+  },
+  "9000054": {
+   "vnum": 9000054,
+   "keywords": [
+    "sedric",
+    "weaponsmith",
+    "smith"
+   ],
+   "name": "Sedric the weaponsmith",
+   "room": "Sedric the weaponsmith works a whetstone beside his stall.",
+   "level": 18,
+   "hp": "18d10+120",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2000,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 3,
+    "damage": {
+     "count": 2,
+     "sides": 8,
+     "bonus": 4
+    },
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 3200,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-23"
+  },
+  "9000055": {
+   "vnum": 9000055,
+   "keywords": [
+    "marda",
+    "armourer"
+   ],
+   "name": "Marda the armourer",
+   "room": "Marda the armourer sorts buckles and straps at her stall.",
+   "level": 18,
+   "hp": "18d10+120",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2000,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 2,
+    "damage": {
+     "count": 2,
+     "sides": 6,
+     "bonus": 4
+    },
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 3200,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-23"
+  },
+  "9000056": {
+   "vnum": 9000056,
+   "keywords": [
+    "ilvara",
+    "alchemist"
+   ],
+   "name": "Ilvara the alchemist",
+   "room": "Ilvara the alchemist minds a rack of stoppered bottles.",
+   "level": 15,
+   "hp": "15d8+90",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2000,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 6,
+    "damage": {
+     "count": 1,
+     "sides": 6,
+     "bonus": 2
+    },
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 2400,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-23"
+  },
+  "9000057": {
+   "vnum": 9000057,
+   "keywords": [
+    "osric",
+    "landlord",
+    "innkeeper"
+   ],
+   "name": "Osric, landlord of the Anchor & Anvil",
+   "room": "Osric the landlord polishes a mug that is already clean.",
+   "level": 16,
+   "hp": "16d10+100",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2000,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 5,
+    "damage": {
+     "count": 2,
+     "sides": 6,
+     "bonus": 3
+    },
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 2800,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-23"
+  },
+  "9000058": {
+   "vnum": 9000058,
+   "keywords": [
+    "watchman",
+    "watch",
+    "guard"
+   ],
+   "name": "a watchman of Velen",
+   "room": "A watchman of Velen stands his post, eyes on the road.",
+   "level": 30,
+   "hp": "30d10+300",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2000,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 0,
+    "damage": {
+     "count": 3,
+     "sides": 8,
+     "bonus": 6
+    },
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 12000,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-23"
+  },
+  "9000059": {
+   "vnum": 9000059,
+   "keywords": [
+    "watchman",
+    "watch",
+    "guard"
+   ],
+   "name": "a watchman of Velen",
+   "room": "A watchman of Velen leans on a halberd, missing nothing.",
+   "level": 30,
+   "hp": "30d10+300",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2000,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 0,
+    "damage": {
+     "count": 3,
+     "sides": 8,
+     "bonus": 6
+    },
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 12000,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-23"
   }
+ }
 }

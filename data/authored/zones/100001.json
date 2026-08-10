@@ -11,7 +11,8 @@
       "name": "The Great Crossing",
       "sector": "city",
       "pos": { "x": 0, "y": 0, "z": 0 },
-      "description": "Two streets meet here and neither yields: the Spine runs gate to gate through the city's long axis, and the Cross Street cuts away toward the eastern wall. At the heart of the crossing an old stone fountain mutters to itself, and beside it stands an empty plinth of grey granite, waiting for whatever the city decides to say. The flagstones are worn into shallow troughs by feet that had somewhere to be.",
+      "board": "velen-square",
+      "description": "Two streets meet here and neither yields: the Spine runs gate to gate through the city's long axis, and the Cross Street cuts away toward the eastern wall. At the heart of the crossing an old stone fountain mutters to itself, and beside it a broad noticeboard stands bolted to a plinth of grey granite - the place the city says what it needs said. The flagstones are worn into shallow troughs by feet that had somewhere to be.",
       "exits": {
         "north": { "to": 100001001 },
         "south": { "to": 100001002 },
@@ -25,7 +26,7 @@
         },
         {
           "keywords": "plinth granite",
-          "text": "Waist-high, squared, and bare. Four bolt-holes in the top face say something stood here before, or will."
+          "text": "Waist-high, squared, and no longer bare: four iron bolts hold the city's noticeboard fast against the harbour wind."
         }
       ]
     },
@@ -80,7 +81,7 @@
       "name": "The Anchor & Anvil, Common Room",
       "sector": "inside",
       "pos": { "x": -1, "y": -1, "z": 0 },
-      "flags": ["indoors"],
+      "flags": ["indoors", "inn"],
       "description": "Low beams, long tables, and a fire that has opinions about the weather. The Anchor & Anvil serves the crossing's traffic - sailors up from the docks, smiths down from their forges, and travellers who cannot yet tell the two apart. The boards of the floor are scrubbed pale, and the landlord's chalkboard promises beds upstairs in a hand that brooks no argument.",
       "exits": {
         "south": { "to": 100001003, "door": { "name": "the inn door", "closed": false, "locked": false } }

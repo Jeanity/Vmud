@@ -193,6 +193,12 @@ export const ROOM_FLAGS = [
   'no_recall',
   'death_trap',
   'safe',
+  /**
+   * A room that mends you — Phase 23's inn, wearing Duris' `ROOM_HEAL` (`defines.h:394`, BIT_18).
+   * The mechanism is `limits.c:304`'s, not the define's comment's: level × 2 added to hp
+   * regeneration per minute, hp only, and only while at least sleeping — see `regenPerMinute`.
+   */
+  'inn',
 ] as const;
 
 export type RoomFlag = (typeof ROOM_FLAGS)[number];
@@ -259,6 +265,13 @@ export interface Room {
    * Same third-party posture as `description`, and gated on the same `--descriptions` switch.
    */
   readonly extras?: readonly ExtraDescription[];
+  /**
+   * A noticeboard standing in this room — Phase 23, `boards.c`'s machine on this project's seams.
+   * The value is the board's id in the server's post store: `read board` lists its messages and
+   * `read <n>` prints one. The source found boards by scanning room contents for registered object
+   * vnums; a room that can simply say what stands in it says so here.
+   */
+  readonly board?: string;
 }
 
 /* -------------------------------------------------------------------------- */

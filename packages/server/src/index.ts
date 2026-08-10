@@ -239,7 +239,7 @@ import { roomLightsItself, underOpenSky } from '@mygame/shared/light.ts';
 import { AccountStore, MAX_CHARACTERS_PER_ACCOUNT, type AccountRecord, type AuthResult } from './accounts.ts';
 import { AdminApi, LOOPBACK, serveAdmin, type LiveOps } from './admin.ts';
 import { artIdFromPath, artSheetPath } from './art.ts';
-import {
+import { AUTHORED_SHOPS_FILE,
   findInStock,
   loadShops,
   priceToBuy,
@@ -335,6 +335,7 @@ import {
   withinPickupReach,
   type Ground,
 } from './ground.ts';
+import { boardListing, boardMessage, loadBoards } from './boards.ts';
 import { loadSettings, saveSettings, type WorldSettings } from './settings.ts';
 import { attemptFlee, type FleeOutcome } from './flee.ts';
 import { markPursuers, pursuitTarget } from './pursue.ts';
@@ -532,6 +533,8 @@ const itemCatalogue = loadItemCatalogue();
 // Phase 17. Keyed by keeper mob vnum — a shopkeeper is a mob vnum and nothing else, so this map is
 // the whole of "is the thing in front of me a merchant". Empty when the harvest has not been run.
 const shopsByKeeper = loadShops();
+// Phase 23: the authored anchors lie over the harvest — same loader, same tolerance, second word.
+for (const [keeper, shop] of loadShops(AUTHORED_SHOPS_FILE)) shopsByKeeper.set(keeper, shop);
 
 /**
  * A6: the authored overlay, composed over the harvest — and the pristine copies that make a revert
@@ -955,6 +958,13 @@ const ground: Ground = new Map();
  * same breath, so a restart cannot silently revert one.
  */
 let settings: WorldSettings = loadSettings();
+
+/**
+ * The noticeboards' posts — Phase 23. One Map shared by `doRead` (the world reading) and the admin
+ * router (the gods writing), loaded once; the router saves on every mutation, so a restart serves
+ * yesterday's news rather than none.
+ */
+const boards = loadBoards();
 
 /**
  * The stream every die roll in a fight comes from.
@@ -4692,6 +4702,26 @@ function doRead(player: Player, rest: string): void {
   const prose = (text: string): void => send(player.id, { t: 'log', channel: 'room', text });
 
   const room = sim.room(player.roomId);
+
+  // **The room's noticeboard outranks its prose** — Phase 23, `boards.c`'s machine: in the room
+  // that holds the board, `read board` is the listing and `read <n>` is a message, before any
+  // extra gets to answer to the same words. The source's spec-proc ran ahead of the generic
+  // reader for the same reason. Elsewhere, numbers and the word "board" stay ordinary words —
+  // the Anchor & Anvil's chalkboard answers to `read board` because no board stands in that room.
+  if (room?.board !== undefined) {
+    const posts = boards.get(room.board) ?? [];
+    if (word === 'board' || word === 'bulletin' || word === 'noticeboard') {
+      for (const line of boardListing(posts)) prose(line);
+      // `boards.c:306` — the one thing everyone in the square learns from a reader's back.
+      actToRoom(player, 'room', (who) => `${capitalise(who)} studies the noticeboard.`);
+      return;
+    }
+    if (/^\d+$/.test(word)) {
+      for (const line of boardMessage(posts, Number(word))) prose(line);
+      return;
+    }
+  }
+
   const roomHit = matchExtra(word, room?.extras);
   if (roomHit !== undefined) {
     prose(roomHit);
@@ -9836,6 +9866,8 @@ const admin = new AdminApi({
   authoredMobsFile: AUTHORED_MOBS_FILE,
   // A7q. `quests.ts`'s own constant, so the loader six hundred lines above and the writer share a path.
   questsFile: QUESTS_FILE,
+  // Phase 23. The same Map `doRead` serves players from — the panel writes what the world reads.
+  boards,
   facts: { protocol: PROTOCOL_VERSION, tickMs: TICK_MS, roundMs: ROUND_MS, startedAt: Date.now() },
 });
 // Announced at boot like every other switch, so a server quietly running an open admin API is not a

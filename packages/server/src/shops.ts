@@ -41,6 +41,15 @@ import { WORLD_DIR } from './world.ts';
 /** Where `npm run worldgen` writes the harvest. One file for the world, like the catalogue. */
 export const SHOPS_FILE = join(WORLD_DIR, 'shops.json');
 
+/**
+ * The authored shops — Phase 23's anchor keepers, committed beside the other authored overlays.
+ * Same record shape as the harvest; {@link loadShops} reads it with the same tolerant eye, and the
+ * caller lays it over the harvest map so an authored keeper vnum can never be shadowed by a
+ * harvested one (the bands cannot collide — 9,000,000 against a harvest that tops out five digits
+ * lower — but the ordering states the intent).
+ */
+export const AUTHORED_SHOPS_FILE = join(WORLD_DIR, 'overrides', 'shops-authored.json');
+
 /** One shop, exactly as worldgen emits it. */
 export interface Shop {
   readonly vnum: number;

@@ -55,6 +55,120 @@ export const messagingSection = {
     };
     scopePick.addEventListener('change', retarget);
 
+    // Phase 23 — the noticeboards. The other voice: not spoken at whoever is standing there, but
+    // pinned up for whoever comes to read. Boards are listed from the world (a board with no posts
+    // is still a board); posts land through the same store `read` serves, so the panel and the
+    // square can never tell a different story.
+    interface BoardsBody {
+      readonly boards: readonly {
+        readonly id: string;
+        readonly rooms: readonly { readonly id: number; readonly name: string }[];
+        readonly posts: readonly { readonly headline: string; readonly by: string; readonly at: number }[];
+      }[];
+    }
+    const boardPick = el('select', {});
+    const signedAs = el('input', { type: 'text', size: '18', maxlength: '40', placeholder: 'The Gods' });
+    const headline = el('input', { type: 'text', size: '52', maxlength: '70', placeholder: 'headline — 70 characters, as the source allows' });
+    const postBody = el('textarea', { rows: '5', cols: '54', maxlength: '4000', placeholder: 'the message itself' });
+    const boardFlash = el('p', { class: 'flash' });
+    const postList = el('div', {});
+
+    const refreshBoards = async (): Promise<void> => {
+      const result = await call<BoardsBody>('GET', '/boards');
+      if (!result.ok || !result.body) {
+        render(postList, el('p', { class: 'muted' }, result.error ?? 'boards unavailable'));
+        return;
+      }
+      const chosen = boardPick.value;
+      render(
+        boardPick,
+        ...result.body.boards.map((board) =>
+          el('option', { value: board.id }, `${board.id} — ${board.rooms[0]?.name ?? 'no room?'}`),
+        ),
+      );
+      if (chosen && result.body.boards.some((board) => board.id === chosen)) boardPick.value = chosen;
+      const active = result.body.boards.find((board) => board.id === boardPick.value);
+      if (!active) {
+        render(postList, el('p', { class: 'muted' }, 'No boards stand in the loaded world.'));
+        return;
+      }
+      if (active.posts.length === 0) {
+        render(postList, el('p', { class: 'muted' }, 'The board is empty.'));
+        return;
+      }
+      // Newest first with true numbers — exactly the order the square shows a reader.
+      render(
+        postList,
+        ...active.posts
+          .map((post, index) => ({ post, number: index + 1 }))
+          .reverse()
+          .map(({ post, number }) =>
+            el(
+              'div',
+              { class: 'row' },
+              el('span', { class: 'muted' }, `${number} : `),
+              el('span', {}, `${post.headline} `),
+              el('span', { class: 'muted' }, `(${post.by})`),
+              el(
+                'button',
+                {
+                  onclick: () => {
+                    void (async () => {
+                      const gone = await call<{ ok: boolean }>('DELETE', `/boards/${active.id}/posts/${number}`);
+                      boardFlash.className = gone.ok ? 'flash ok' : 'flash err';
+                      boardFlash.textContent = gone.ok ? `post ${number} taken down` : (gone.error ?? 'failed');
+                      void refreshBoards();
+                    })();
+                  },
+                },
+                'take down',
+              ),
+            ),
+          ),
+      );
+    };
+    boardPick.addEventListener('change', () => void refreshBoards());
+
+    const post = async (): Promise<void> => {
+      const board = boardPick.value;
+      if (!board) return;
+      boardFlash.className = 'flash';
+      boardFlash.textContent = '…';
+      const result = await call<{ ok: boolean; number: number }>('POST', `/boards/${board}/posts`, {
+        headline: headline.value,
+        body: postBody.value,
+        ...(signedAs.value.trim() ? { by: signedAs.value.trim() } : {}),
+      });
+      if (result.ok && result.body) {
+        boardFlash.className = 'flash ok';
+        boardFlash.textContent = `pinned as message ${result.body.number}`;
+        headline.value = '';
+        postBody.value = '';
+        void refreshBoards();
+      } else {
+        boardFlash.className = 'flash err';
+        boardFlash.textContent = result.error ?? 'failed';
+      }
+    };
+
+    const boardsCard = el(
+      'div',
+      { class: 'card' },
+      el('h3', {}, 'The noticeboards'),
+      el(
+        'p',
+        { class: 'note' },
+        'Pinned, not spoken: players read these at the board with “read board” and “read <n>”. ' +
+          'Posts survive restarts and stay up until taken down.',
+      ),
+      el('div', { class: 'row' }, el('label', {}, 'board'), boardPick, el('label', {}, 'signed as'), signedAs),
+      el('div', { class: 'row' }, headline),
+      el('div', { class: 'row' }, postBody),
+      el('div', { class: 'row' }, el('button', { onclick: () => void post() }, 'Pin it up')),
+      boardFlash,
+      postList,
+    );
+
     const speak = async (): Promise<void> => {
       const text = input.value.trim();
       if (!text) return;
@@ -115,9 +229,11 @@ export const messagingSection = {
             'what state they are in before you say anything to them.',
         ),
       ),
+      boardsCard,
     );
 
     retarget();
+    void refreshBoards();
 
     // The pickers, fetched once: which places and rooms exist changes on a restart, not mid-session.
     void (async () => {

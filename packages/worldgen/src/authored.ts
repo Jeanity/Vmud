@@ -136,6 +136,12 @@ export function validateAuthoredZone(raw: unknown, file: string): Zone {
     if (entry.description !== undefined && typeof entry.description !== 'string') {
       refuse(file, `room ${rid}: description must be a string`);
     }
+    if (entry.board !== undefined) {
+      // A slug, because it is a store key and an audit-line name: lowercase, digits, hyphens.
+      if (typeof entry.board !== 'string' || !/^[a-z0-9][a-z0-9-]{0,39}$/.test(entry.board)) {
+        refuse(file, `room ${rid}: board must be a lowercase slug (letters, digits, hyphens, max 40)`);
+      }
+    }
     if (entry.extras !== undefined) {
       if (!Array.isArray(entry.extras)) refuse(file, `room ${rid}: extras must be an array`);
       for (const extra of entry.extras) {

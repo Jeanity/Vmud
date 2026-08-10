@@ -1,0 +1,70 @@
+[
+ {
+  "vnum": 9000054,
+  "keeper": 9000054,
+  "room": 100001004,
+  "sells": [
+   256,
+   622,
+   263,
+   258,
+   280,
+   166,
+   167
+  ],
+  "buyPercent": 0.55,
+  "sellPercent": 1.15,
+  "buysTypes": [
+   5,
+   6,
+   7
+  ]
+ },
+ {
+  "vnum": 9000055,
+  "keeper": 9000055,
+  "room": 100001001,
+  "sells": [
+   209,
+   214,
+   215,
+   227,
+   228,
+   26
+  ],
+  "buyPercent": 0.55,
+  "sellPercent": 1.15,
+  "buysTypes": [
+   9
+  ]
+ },
+ {
+  "vnum": 9000056,
+  "keeper": 9000056,
+  "room": 100001002,
+  "sells": [
+   97539,
+   2679
+  ],
+  "buyPercent": 0.5,
+  "sellPercent": 1.2,
+  "buysTypes": [
+   10
+  ]
+ },
+ {
+  "vnum": 9000057,
+  "keeper": 9000057,
+  "room": 100001005,
+  "sells": [
+   2015,
+   2017,
+   1403,
+   301,
+   302
+  ],
+  "buyPercent": 0.0,
+  "sellPercent": 1.0,
+  "buysTypes": []
+ }
+]
