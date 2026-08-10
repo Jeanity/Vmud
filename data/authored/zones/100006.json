@@ -1,0 +1,138 @@
+{
+  "$comment": "Velen - Harbourside, Phase 27. The docks on the western water: fish market, the long quay, warehouse row, and the Wet Boot - the OTHER inn, rough where the Anchor & Anvil is merely loud. Reached down a lane off the Cross Street rather than through the Shambles, so the water has an honest route. A grate on the quay drops into the Underquay's sewer main, the second of the design's four district grates.",
+  "id": 100006,
+  "name": "Velen - Harbourside",
+  "seamless": true,
+  "entryRoom": 100006000,
+  "rooms": [
+    {
+      "id": 100006000,
+      "zone": 100006,
+      "name": "The Fish Market",
+      "sector": "city",
+      "pos": {
+        "x": 1,
+        "y": 0,
+        "z": 0
+      },
+      "description": "A lane drops south off the Cross Street and lands here, at trestles under sailcloth awnings, and on them everything the Sea of Swords was careless enough to lose: silver-sided herring in ranks, crabs working slowly in a barrel, a swordfish laid out like an argument. The stones are wet all day and the gulls have opinions about everything. Sold out by noon, scrubbed by one, and smelling of it until the tide turns.",
+      "exits": {
+        "north": {
+          "to": 100001003,
+          "portal": true
+        },
+        "west": {
+          "to": 100006001
+        },
+        "south": {
+          "to": 100006002
+        }
+      },
+      "extras": [
+        {
+          "keywords": "trestles fish herring",
+          "text": "The morning's catch, going over faster than it is going out. A boy walks the row with a bucket, wetting everything down and being shouted at for it."
+        }
+      ]
+    },
+    {
+      "id": 100006001,
+      "zone": 100006,
+      "name": "The Long Quay",
+      "sector": "city",
+      "pos": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "description": "Stone runs out into the water and the water runs out to the world: the Nelanther somewhere past the haze, the Tusks south of that, and every mast on the quayside pointing at the same grey sky. Bollards worn round by two centuries of rope. A ship is loading, a ship is unloading, and a third has been alongside so long the gulls have made arrangements.",
+      "exits": {
+        "east": {
+          "to": 100006000
+        },
+        "south": {
+          "to": 100006003,
+          "door": {
+            "name": "the Wet Boot's door",
+            "closed": false,
+            "locked": false
+          }
+        },
+        "down": {
+          "to": 100010001,
+          "portal": true,
+          "door": {
+            "name": "a quayside grate",
+            "closed": true,
+            "locked": false
+          }
+        }
+      },
+      "extras": [
+        {
+          "keywords": "ships masts",
+          "text": "Coasters mostly, and one deep-water hull with a Tethyrian look to her. Nobody on any deck is in a hurry to explain where they have been."
+        },
+        {
+          "keywords": "grate quayside",
+          "text": "Set flush in the stone where the quay meets the wall, and hinged. The city's water goes down here at the ebb; at the flood, something comes back up it."
+        }
+      ]
+    },
+    {
+      "id": 100006002,
+      "zone": 100006,
+      "name": "Warehouse Row",
+      "sector": "city",
+      "pos": {
+        "x": 1,
+        "y": 1,
+        "z": 0
+      },
+      "description": "Doors wide enough for a cart and tall enough for a mast section, most of them shut, all of them numbered in whitewash. Between two of them a gap just wide enough for a person leads nowhere in particular, which is a thing worth noticing about a street. Bales, crates, and the smell of pitch, hemp and pepper.",
+      "exits": {
+        "north": {
+          "to": 100006000
+        }
+      },
+      "extras": [
+        {
+          "keywords": "gap",
+          "text": "Shoulder-width, ankle-deep in rubbish, and swept clean of it in a strip down the middle where feet go regularly."
+        }
+      ]
+    },
+    {
+      "id": 100006003,
+      "zone": 100006,
+      "name": "The Wet Boot",
+      "sector": "inside",
+      "pos": {
+        "x": 0,
+        "y": 1,
+        "z": 0
+      },
+      "flags": [
+        "indoors",
+        "inn"
+      ],
+      "description": "Low, dark, and pitched like a hold - the floor slopes toward the water because the building has been thinking about it for years. The beer is honest and nothing else here is. Sailors sleep in the corners between ships, and the landlord charges them for the corner. There is a boot nailed above the bar, and it is wet.",
+      "exits": {
+        "north": {
+          "to": 100006001,
+          "door": {
+            "name": "the Wet Boot's door",
+            "closed": false,
+            "locked": false
+          }
+        }
+      },
+      "extras": [
+        {
+          "keywords": "boot",
+          "text": "Nailed sole-outward over the spirits, and dripping into a tin cup that somebody empties. Ask how it stays wet and the room goes quiet in an enjoyable way."
+        }
+      ]
+    }
+  ]
+}

@@ -66,5 +66,19 @@
   "buyPercent": 0.0,
   "sellPercent": 1.0,
   "buysTypes": []
+ },
+ {
+  "vnum": 9000074,
+  "keeper": 9000074,
+  "room": 100006003,
+  "sells": [
+   2015,
+   2017,
+   296,
+   301
+  ],
+  "buyPercent": 0.0,
+  "sellPercent": 1.0,
+  "buysTypes": []
  }
 ]

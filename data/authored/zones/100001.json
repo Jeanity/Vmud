@@ -77,6 +77,10 @@
       "exits": {
         "north": {
           "to": 100001000
+        },
+        "south": {
+          "to": 100013000,
+          "portal": true
         }
       }
     },
@@ -106,6 +110,10 @@
         "west": {
           "to": 100007000,
           "portal": true
+        },
+        "south": {
+          "to": 100006000,
+          "portal": true
         }
       }
     },
@@ -123,6 +131,10 @@
       "exits": {
         "west": {
           "to": 100001000
+        },
+        "east": {
+          "to": 100012000,
+          "portal": true
         }
       }
     },

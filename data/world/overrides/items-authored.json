@@ -1,5 +1,5 @@
 {
- "next": 9000003,
+ "next": 9000004,
  "items": {
   "9000000": {
    "vnum": 9000000,
@@ -73,6 +73,24 @@
    "stackLimit": 1,
    "at": "2026-08-10T00:00:00.000Z",
    "by": "phase-26"
+  },
+  "9000003": {
+   "vnum": 9000003,
+   "keywords": [
+    "cloak",
+    "roadwarden",
+    "grey"
+   ],
+   "name": "&+La roadwarden's grey cloak&N",
+   "roomLine": "&+LA grey cloak lies here, road-dust worked into every fold.&N",
+   "type": 9,
+   "ac": 3,
+   "size": 3,
+   "cost": 4200,
+   "stackLimit": 1,
+   "slot": "about",
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27"
   }
  }
 }

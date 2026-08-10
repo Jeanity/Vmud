@@ -1,75 +1,192 @@
 [
-  {
-    "id": "celriyas-brothers-sword",
-    "giver": 14028,
-    "name": "Celriya's brother's sword",
-    "ask": "I have always wondered what has become of my people. Their absence from me has been a void in my soul I wish I could someday fill. My brother, Tvelor, forged a powerful sword once. I wonder if that sword is still among my people. But alas, I am far too old now to seek out my lost kin.",
-    "thanks": "It... it is amazing. Now I know my people made it safely beyond this realm; I am at peace. There is little reward I can offer you for such a thing as peace of mind, but please accept this, and my debt of gratitude for the kindness and the time you spent finding this artifact of my people.",
-    "objective": { "kind": "bring", "vnum": 14001, "what": "an elvish sword of great antiquity" },
-    "reward": { "xp": 0, "copper": 0, "item": 14011 }
+ {
+  "id": "celriyas-brothers-sword",
+  "giver": 14028,
+  "name": "Celriya's brother's sword",
+  "ask": "I have always wondered what has become of my people. Their absence from me has been a void in my soul I wish I could someday fill. My brother, Tvelor, forged a powerful sword once. I wonder if that sword is still among my people. But alas, I am far too old now to seek out my lost kin.",
+  "thanks": "It... it is amazing. Now I know my people made it safely beyond this realm; I am at peace. There is little reward I can offer you for such a thing as peace of mind, but please accept this, and my debt of gratitude for the kindness and the time you spent finding this artifact of my people.",
+  "objective": {
+   "kind": "bring",
+   "vnum": 14001,
+   "what": "an elvish sword of great antiquity"
   },
-  {
-    "id": "finns-mammoth-key",
-    "giver": 14015,
-    "name": "Finn's castle key",
-    "ask": "I can't believe this! I just can't believe it... I lost the key to my own castle gate. Even if I do return to the mortal realm I couldn't even get into my own castle. It could be anywhere. I might not even have remembered to bring it with me when I first left.",
-    "thanks": "I can finally return to my castle! This is a miracle, thank you ever so much. There's no way I'm going to leave my castle again... here, take my sword. I'll no longer have a need for such a thing now that I'll be retiring. Here's a little extra money too for all your efforts.",
-    "objective": { "kind": "bring", "vnum": 14037, "what": "a mammoth key of crafted iron" },
-    "reward": { "xp": 0, "copper": 500000, "item": 14023 }
-  },
-  {
-    "id": "finns-signet-ring",
-    "giver": 14015,
-    "name": "Finn's signet ring",
-    "ask": "Alas, I've wandered this realm to its farthest corners, helped Queen Mab in her quest to regain her throne, but can not find my way back home to the mortal realm. If only I had not lost my signet ring...",
-    "thanks": "Thank you, thank you — for your efforts I'll reward you. Now let me just find... no. No! My key! I can't find the key to my castle!",
-    "objective": { "kind": "bring", "vnum": 14036, "what": "Finn's signet ring" },
-    "reward": { "xp": 0, "copper": 0, "item": 14018 }
-  },
-  {
-    "id": "gwark-thins-the-warren",
-    "giver": 1401,
-    "name": "Thin the warren",
-    "ask": "The shaman coddles his whelps and the warren grows insolent. Cull three of the youths — quietly — and Gwark will remember it.",
-    "thanks": "So the surface breeds killers after all. Gwark remembers, as promised.",
-    "objective": { "kind": "kill", "vnum": 1422, "count": 3, "what": "kobold youths" },
-    "reward": { "xp": 500, "copper": 50 },
-    "protectGiver": true
-  },
-  {
-    "id": "szxvu-smelts-the-nuggets",
-    "giver": 1420,
-    "name": "Szxvu's smelting",
-    "ask": "I can take 8 silver nuggets and make it into a block of usable silver. With that block of silver I could make many great things.... for a price.",
-    "thanks": "There's much can be done with a couple good block of silver ... could make a great shield!",
-    "objective": { "kind": "bring", "vnum": 1447, "count": 8, "what": "small nuggets of silver" },
-    "reward": { "xp": 0, "copper": 0, "item": 1448 }
-  },
-  {
-    "id": "the-commanders-lost-book",
-    "giver": 97021,
-    "name": "The Commander's lost book",
-    "ask": "I've lost my book, whats it to you? This book I was borrowing from the archives has up and disappeared. Just a week ago I was reading it on my trek through the mountains east of Verzanan, and now its gone. I wonder if that shifty-eyed loon stole it.",
-    "thanks": "I knew that shifty-eyed loon stole it! Babbling like he was, he was bound to be a thief. As a token of my appreciation, take this ring. Its half of a set I picked up on an expedition to... well never mind that, just take the ring. I lost the purple one anyway.",
-    "objective": { "kind": "bring", "vnum": 97006, "what": "an ancient crumbling book" },
-    "reward": { "xp": 0, "copper": 0, "item": 97144 }
-  },
-  {
-    "id": "the-jewelers-raw-gem",
-    "giver": 66021,
-    "name": "The jeweler's cutting work",
-    "ask": "Sure, I can cut gems for ya. Provided ya find me some good ones.",
-    "thanks": "Here ya go. A real beauty, that one is!",
-    "objective": { "kind": "bring", "vnum": 66039, "what": "a raw gem" },
-    "reward": { "xp": 0, "copper": 0, "item": 66044 }
-  },
-  {
-    "id": "the-viscounts-onion",
-    "giver": 97023,
-    "name": "The Viscount's onion",
-    "ask": "All I ask is that you convince Masha to let me have one of those scrumptious onions... I have to sneak in the kitchen at night just to get one! Last time I tried, that infernal dunce, Tar, caught me in the act and ran off to Masha blathering all about it.",
-    "thanks": "Magnificent! I've been waiting quite a while for this. Here... drink this and see what happens.",
-    "objective": { "kind": "bring", "vnum": 97115, "what": "an onion" },
-    "reward": { "xp": 0, "copper": 0, "item": 97135 }
+  "reward": {
+   "xp": 0,
+   "copper": 0,
+   "item": 14011
   }
+ },
+ {
+  "id": "finns-mammoth-key",
+  "giver": 14015,
+  "name": "Finn's castle key",
+  "ask": "I can't believe this! I just can't believe it... I lost the key to my own castle gate. Even if I do return to the mortal realm I couldn't even get into my own castle. It could be anywhere. I might not even have remembered to bring it with me when I first left.",
+  "thanks": "I can finally return to my castle! This is a miracle, thank you ever so much. There's no way I'm going to leave my castle again... here, take my sword. I'll no longer have a need for such a thing now that I'll be retiring. Here's a little extra money too for all your efforts.",
+  "objective": {
+   "kind": "bring",
+   "vnum": 14037,
+   "what": "a mammoth key of crafted iron"
+  },
+  "reward": {
+   "xp": 0,
+   "copper": 500000,
+   "item": 14023
+  }
+ },
+ {
+  "id": "finns-signet-ring",
+  "giver": 14015,
+  "name": "Finn's signet ring",
+  "ask": "Alas, I've wandered this realm to its farthest corners, helped Queen Mab in her quest to regain her throne, but can not find my way back home to the mortal realm. If only I had not lost my signet ring...",
+  "thanks": "Thank you, thank you \u2014 for your efforts I'll reward you. Now let me just find... no. No! My key! I can't find the key to my castle!",
+  "objective": {
+   "kind": "bring",
+   "vnum": 14036,
+   "what": "Finn's signet ring"
+  },
+  "reward": {
+   "xp": 0,
+   "copper": 0,
+   "item": 14018
+  }
+ },
+ {
+  "id": "gwark-thins-the-warren",
+  "giver": 1401,
+  "name": "Thin the warren",
+  "ask": "The shaman coddles his whelps and the warren grows insolent. Cull three of the youths \u2014 quietly \u2014 and Gwark will remember it.",
+  "thanks": "So the surface breeds killers after all. Gwark remembers, as promised.",
+  "objective": {
+   "kind": "kill",
+   "vnum": 1422,
+   "count": 3,
+   "what": "kobold youths"
+  },
+  "reward": {
+   "xp": 500,
+   "copper": 50
+  },
+  "protectGiver": true
+ },
+ {
+  "id": "szxvu-smelts-the-nuggets",
+  "giver": 1420,
+  "name": "Szxvu's smelting",
+  "ask": "I can take 8 silver nuggets and make it into a block of usable silver. With that block of silver I could make many great things.... for a price.",
+  "thanks": "There's much can be done with a couple good block of silver ... could make a great shield!",
+  "objective": {
+   "kind": "bring",
+   "vnum": 1447,
+   "count": 8,
+   "what": "small nuggets of silver"
+  },
+  "reward": {
+   "xp": 0,
+   "copper": 0,
+   "item": 1448
+  }
+ },
+ {
+  "id": "the-commanders-lost-book",
+  "giver": 97021,
+  "name": "The Commander's lost book",
+  "ask": "I've lost my book, whats it to you? This book I was borrowing from the archives has up and disappeared. Just a week ago I was reading it on my trek through the mountains east of Verzanan, and now its gone. I wonder if that shifty-eyed loon stole it.",
+  "thanks": "I knew that shifty-eyed loon stole it! Babbling like he was, he was bound to be a thief. As a token of my appreciation, take this ring. Its half of a set I picked up on an expedition to... well never mind that, just take the ring. I lost the purple one anyway.",
+  "objective": {
+   "kind": "bring",
+   "vnum": 97006,
+   "what": "an ancient crumbling book"
+  },
+  "reward": {
+   "xp": 0,
+   "copper": 0,
+   "item": 97144
+  }
+ },
+ {
+  "id": "the-jewelers-raw-gem",
+  "giver": 66021,
+  "name": "The jeweler's cutting work",
+  "ask": "Sure, I can cut gems for ya. Provided ya find me some good ones.",
+  "thanks": "Here ya go. A real beauty, that one is!",
+  "objective": {
+   "kind": "bring",
+   "vnum": 66039,
+   "what": "a raw gem"
+  },
+  "reward": {
+   "xp": 0,
+   "copper": 0,
+   "item": 66044
+  }
+ },
+ {
+  "id": "the-viscounts-onion",
+  "giver": 97023,
+  "name": "The Viscount's onion",
+  "ask": "All I ask is that you convince Masha to let me have one of those scrumptious onions... I have to sneak in the kitchen at night just to get one! Last time I tried, that infernal dunce, Tar, caught me in the act and ran off to Masha blathering all about it.",
+  "thanks": "Magnificent! I've been waiting quite a while for this. Here... drink this and see what happens.",
+  "objective": {
+   "kind": "bring",
+   "vnum": 97115,
+   "what": "an onion"
+  },
+  "reward": {
+   "xp": 0,
+   "copper": 0,
+   "item": 97135
+  }
+ },
+ {
+  "id": "the-tally-in-the-tunnels",
+  "giver": 9000058,
+  "name": "The tally in the tunnels",
+  "ask": "You have the look of someone who goes down where sensible folk do not. Then hear this: we have lost two men to the Underquay this season, and neither was taken by water. Something keeps a count down there, scratched into the brick, and the count is longer than any man has been missing. Kill one of the pale things and I will pay for the peace of mind.",
+  "thanks": "One less, then. I will not ask what it looked like up close - the last man who told me has not slept since. Take this, with the watch's thanks, and stay out of the tunnels unless you are being paid to be in them.",
+  "objective": {
+   "kind": "kill",
+   "vnum": 9000070,
+   "count": 1,
+   "what": "a tunnel dweller"
+  },
+  "reward": {
+   "xp": 4000,
+   "copper": 12000
+  },
+  "protectGiver": true
+ },
+ {
+  "id": "the-roadwardens-cloak",
+  "giver": 9000057,
+  "name": "The roadwarden's cloak",
+  "ask": "A roadwarden drank here every eighth day for six years, and then did not. His cloak went north with whoever took it off him - grey, road-dust in every fold, you would know it. The brigands on the north road wear what they take. Bring me the cloak and I will see it goes to his sister in Tordraken.",
+  "thanks": "That is the one. She will want to know how it came back, and I will tell her a traveller brought it, which is the kindest true thing I can say. Your bed here is paid for as long as I keep the place.",
+  "objective": {
+   "kind": "bring",
+   "vnum": 9000003,
+   "count": 1,
+   "what": "a roadwarden's grey cloak"
+  },
+  "reward": {
+   "xp": 6000,
+   "copper": 25000
+  }
+ },
+ {
+  "id": "what-the-shambles-owes",
+  "giver": 9000055,
+  "name": "What the Shambles owes",
+  "ask": "A bravo out of the Shambles took three buckles and a good strap off my stall in daylight and told me what he would do if I called the watch. I did not call the watch. I am telling you instead, which I consider the better errand. He stands in the dead end behind Cutthroat Row when he is not working.",
+  "thanks": "Good. Word travels in that district faster than the watch ever has, and what it will say is that Marda's stall is not free. Take something from the rack - you have earned the right to be fussy about buckles.",
+  "objective": {
+   "kind": "kill",
+   "vnum": 9000068,
+   "count": 1,
+   "what": "a scarred bravo"
+  },
+  "reward": {
+   "xp": 2500,
+   "copper": 8000
+  }
+ }
 ]

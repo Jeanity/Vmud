@@ -1,0 +1,63 @@
+{
+  "$comment": "Phase 27, and the first cross-source stitch the Phase 22 pipeline was built for: this road ends in HARVESTED room 431, 'A Road Through the Flatlands' in IceCrag Castle's zone - a road meeting a road. The merge injects the return exit into 431's free south side; it never overwrites. Danger is the point: IceCrag's population runs level 15-60, so the design's 'escorted stretches only' is literally true of this direction.",
+  "id": 100011,
+  "name": "The North Road",
+  "seamless": true,
+  "entryRoom": 100011000,
+  "rooms": [
+    {
+      "id": 100011000,
+      "zone": 100011,
+      "name": "Outside the North Gate",
+      "sector": "road",
+      "pos": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "description": "The gate arch throws its shadow back over you and the city ends at a line in the stone. Ahead the road is a made thing for a hundred paces and a habit after that, running north between drainage ditches and the stubble of last year's barley. Carters coming in look relieved; carters going out do not.",
+      "exits": {
+        "south": {
+          "to": 100009000,
+          "portal": true
+        },
+        "north": {
+          "to": 100011001
+        }
+      },
+      "extras": [
+        {
+          "keywords": "ditches",
+          "text": "Cut deep and kept clear, which tells you the city takes the road seriously even where the road stops being paved."
+        }
+      ]
+    },
+    {
+      "id": 100011001,
+      "zone": 100011,
+      "name": "The North Road, Beyond the Ditches",
+      "sector": "road",
+      "pos": {
+        "x": 0,
+        "y": -1,
+        "z": 0
+      },
+      "description": "The last of Velen's cultivation gives out and the country takes over: gorse, wind, and a sky that goes all the way down to the ground in every direction. The road is a pale line ahead. It gets colder from here, everyone says so, and everyone who has been further north says it with feeling.",
+      "exits": {
+        "south": {
+          "to": 100011000
+        },
+        "north": {
+          "to": 431,
+          "portal": true
+        }
+      },
+      "extras": [
+        {
+          "keywords": "road line",
+          "text": "Rutted, straight, and going somewhere that does not care whether you arrive. The verges have not been cut in a while."
+        }
+      ]
+    }
+  ]
+}

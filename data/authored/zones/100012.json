@@ -1,0 +1,63 @@
+{
+  "$comment": "Phase 27. The caravan road out of the East Cross Street, ending in HARVESTED room 77504 'A Burrow' in The Stag Forest - the road gives out at the forest edge, which is what the harvested room's own name supports. Injected return goes into 77504's free west. The Stag Forest carries no harvested population (not in `populate`), so this direction is quiet rather than dangerous - said out loud so nobody reads the emptiness as a bug.",
+  "id": 100012,
+  "name": "The East Road",
+  "seamless": true,
+  "entryRoom": 100012000,
+  "rooms": [
+    {
+      "id": 100012000,
+      "zone": 100012,
+      "name": "The East Road, Under the Wall",
+      "sector": "road",
+      "pos": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
+      "description": "The city's shadow lies across the road until mid-morning. Wheel ruts run deep and parallel here, worn by every caravan that ever thought better of the last mile and pushed on. A milestone stands at the verge with VELEN cut into it and a number that the weather has taken.",
+      "exits": {
+        "west": {
+          "to": 100001004,
+          "portal": true
+        },
+        "east": {
+          "to": 100012001
+        }
+      },
+      "extras": [
+        {
+          "keywords": "milestone stone",
+          "text": "VELEN, and beneath it a distance nobody can read any more. Travellers touch it going out. Nobody has ever explained why."
+        }
+      ]
+    },
+    {
+      "id": 100012001,
+      "zone": 100012,
+      "name": "Where the Road Meets the Trees",
+      "sector": "road",
+      "pos": {
+        "x": 1,
+        "y": 0,
+        "z": 0
+      },
+      "description": "The made road ends the way made roads do out here - not at a boundary but in a widening of ruts, a turning circle for carts that have decided this is far enough. Ahead the trees begin, and between them a game trail goes on eastward with no interest in wheels at all.",
+      "exits": {
+        "west": {
+          "to": 100012000
+        },
+        "east": {
+          "to": 77504,
+          "portal": true
+        }
+      },
+      "extras": [
+        {
+          "keywords": "trail game",
+          "text": "Narrow, root-crossed, and beaten hard by feet that were not wearing boots. It goes into the wood and the wood closes behind it."
+        }
+      ]
+    }
+  ]
+}

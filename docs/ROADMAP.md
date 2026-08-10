@@ -1488,6 +1488,20 @@ becomes a story.
 
 #### Phase 27 — Harbourside and the roads
 
+**Built 2026-08-10 — Act VII closes.** Harbourside (100006): fish market, the long quay looking at
+the Nelanther, warehouse row, and the Wet Boot (the *other* inn, `inn`-flagged, Hessa keeping it).
+**The roads are stitched, and the number that proves it is 4** — every previous build reported "0
+cross-source edges" because Phase 22's rule had never once fired: the North Road now ends in
+harvested **431 "A Road Through the Flatlands"** (a road meeting a road, IceCrag's level 15–60
+making "escorted stretches only" literally true), the East Road in **77504** at the Stag Forest's
+edge, the South Road in **77580** where the Stump Bog begins, and the Underquay's smugglers' tunnel
+in **81128, the kobolds' sacrificial pit** — which explains the bones. Every return exit was
+injected into a free side; the validator refused a mismatched pair first time and was right to.
+**Measured: 645 rooms across 14 zones are now walkable from the Great Crossing**, the spawn field
+among them at 23 steps. **Rare loads needed no work — they were already data**: `percent` on an
+authored loot row is validated 1–99 and rolled at spawn, so the roadwarden's cloak simply rides a
+brigand at 8%. Three quests open the wave, one per district.
+
 The docks on the western water, the three roads stitched to harvested wilderness through Phase
 22's cross-source rule, **rare loads promoted to data** (Windsong's ranger already fakes the
 mechanism at 2%; this makes it a spawn field), and the quest wave — the city and its surrounds

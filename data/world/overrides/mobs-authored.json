@@ -1,5 +1,5 @@
 {
- "next": 9000072,
+ "next": 9000077,
  "mobs": {
   "9000005": {
    "vnum": 9000005,
@@ -2966,6 +2966,220 @@
    "wimpyAt": 0,
    "at": "2026-08-10T00:00:00.000Z",
    "by": "phase-26"
+  },
+  "9000072": {
+   "vnum": 9000072,
+   "keywords": [
+    "fishwife",
+    "monger",
+    "gutter"
+   ],
+   "name": "a fishmonger",
+   "room": "A fishmonger guts and calls, guts and calls.",
+   "level": 8,
+   "hp": "8d8+30",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2400,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 8,
+    "damage": {
+     "count": 1,
+     "sides": 6,
+     "bonus": 1
+    },
+    "attackBonus": 1,
+    "roundMs": 3000
+   },
+   "experience": 300,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27"
+  },
+  "9000073": {
+   "vnum": 9000073,
+   "keywords": [
+    "sailor",
+    "hand"
+   ],
+   "name": "an off-watch sailor",
+   "room": "An off-watch sailor is upright, which is his whole ambition today.",
+   "level": 14,
+   "hp": "14d8+70",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2400,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 7,
+    "damage": {
+     "count": 2,
+     "sides": 4,
+     "bonus": 2
+    },
+    "attackBonus": 1,
+    "roundMs": 3000
+   },
+   "experience": 1200,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27"
+  },
+  "9000074": {
+   "vnum": 9000074,
+   "keywords": [
+    "landlord",
+    "hessa",
+    "boot"
+   ],
+   "name": "Hessa of the Wet Boot",
+   "room": "Hessa pulls a jug and watches the door out of long habit.",
+   "level": 22,
+   "hp": "22d10+160",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2400,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 4,
+    "damage": {
+     "count": 2,
+     "sides": 8,
+     "bonus": 4
+    },
+    "attackBonus": 1,
+    "roundMs": 3000
+   },
+   "experience": 6000,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27"
+  },
+  "9000075": {
+   "vnum": 9000075,
+   "keywords": [
+    "brigand",
+    "roadman"
+   ],
+   "name": "a road brigand",
+   "room": "A brigand steps out of the gorse with the unhurried air of a man who has counted you.",
+   "level": 18,
+   "hp": "18d10+110",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 2400,
+    "remembers": true,
+    "sentinel": false,
+    "assists": true
+   },
+   "pursuit": {
+    "tier": "zone",
+    "trackRooms": 2,
+    "giveUpMs": 15000,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 5,
+    "damage": {
+     "count": 2,
+     "sides": 8,
+     "bonus": 3
+    },
+    "attackBonus": 1,
+    "roundMs": 3000
+   },
+   "experience": 3000,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27"
+  },
+  "9000076": {
+   "vnum": 9000076,
+   "keywords": [
+    "carter",
+    "trader"
+   ],
+   "name": "a carter bound for Velen",
+   "room": "A carter walks beside his mule, telling it about the state of the roads.",
+   "level": 9,
+   "hp": "9d8+35",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2400,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 8,
+    "damage": {
+     "count": 1,
+     "sides": 6,
+     "bonus": 1
+    },
+    "attackBonus": 1,
+    "roundMs": 3000
+   },
+   "experience": 400,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27"
   }
  }
 }
