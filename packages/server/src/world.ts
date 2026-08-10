@@ -63,6 +63,7 @@ import {
   type Extent,
 } from './room-authoring.ts';
 import { AUTHORED_ZONES_FILE, loadAuthoredZones, type AuthoredZoneStore } from './zone-authoring.ts';
+import { loadZoneOverrides, renameZones } from './zone-overrides.ts';
 
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -336,6 +337,9 @@ export class GameWorld {
   /** How many authored locks were cleared at load. See {@link LOCKS_HOLD}. */
   readonly locksRelaxed: number;
 
+  /** How many harvested zones were re-named at load. See `zone-overrides.ts`. */
+  readonly zonesRenamed: number = 0;
+
   /**
    * Hand-authored room content, composed over the generated zones at construction.
    *
@@ -434,6 +438,11 @@ export class GameWorld {
     const refusals: { id: RoomId; why: string }[] = [];
     let relaxed = 0;
     let authored = 0;
+    // The Tordraken rename, and every one after it: a harvested zone's *name* is the one field no
+    // overlay could reach until now. Composed here beside the room overrides, and before the grids,
+    // for the same reason they are — everything downstream should only ever see the composed world.
+    const zoneNames = loadZoneOverrides();
+    this.zonesRenamed = renameZones(zones, zoneNames);
     for (const zone of zones) {
       if (this.zonesById.has(zone.id)) continue;
       this.zonesById.set(zone.id, zone);

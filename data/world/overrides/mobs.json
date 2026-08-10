@@ -77,5 +77,41 @@
   ],
   "at": "2026-08-10T00:00:00.000Z",
   "by": "phase-27b"
+ },
+ "97002": {
+  "name": "the stone artist",
+  "room": "An artist is here ranting and raving at his half-cut sculpture.",
+  "at": "2026-08-10T00:00:00.000Z",
+  "by": "tordraken"
+ },
+ "97008": {
+  "name": "a Priest of the First Ascension",
+  "room": "A Priest of the First Ascension is here for the dinner banquet.",
+  "at": "2026-08-10T00:00:00.000Z",
+  "by": "tordraken"
+ },
+ "97011": {
+  "name": "a garden attendant",
+  "room": "An attendant is here sweeping salt from the path.",
+  "at": "2026-08-10T00:00:00.000Z",
+  "by": "tordraken"
+ },
+ "97017": {
+  "name": "an off-duty patrol guard",
+  "room": "An off-duty patrol guard wanders the salt garden, taking in the view.",
+  "at": "2026-08-10T00:00:00.000Z",
+  "by": "tordraken"
+ },
+ "97027": {
+  "name": "the clergy's representative",
+  "room": "A representative of the castle clergy is here awaiting the start of the banquet.",
+  "at": "2026-08-10T00:00:00.000Z",
+  "by": "tordraken"
+ },
+ "97042": {
+  "name": "the High Priest's attendant",
+  "room": "The High Priest's attendant stands quietly.",
+  "at": "2026-08-10T00:00:00.000Z",
+  "by": "tordraken"
  }
 }
