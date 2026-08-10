@@ -1,5 +1,5 @@
 {
- "next": 9000004,
+ "next": 9000007,
  "items": {
   "9000000": {
    "vnum": 9000000,
@@ -91,6 +91,69 @@
    "slot": "about",
    "at": "2026-08-10T00:00:00.000Z",
    "by": "phase-27"
+  },
+  "9000004": {
+   "vnum": 9000004,
+   "keywords": [
+    "bow",
+    "yew",
+    "poachers"
+   ],
+   "name": "&+ya poacher's yew bow&N",
+   "roomLine": "&+yA yew bow lies here, its grip worn pale by one man's hand.&N",
+   "type": 6,
+   "ac": 0,
+   "size": 4,
+   "cost": 3800,
+   "stackLimit": 1,
+   "slot": "mainHand",
+   "damage": {
+    "count": 1,
+    "sides": 6,
+    "bonus": 1
+   },
+   "weaponClass": 5,
+   "fires": 1,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27b"
+  },
+  "9000005": {
+   "vnum": 9000005,
+   "keywords": [
+    "antler",
+    "tine",
+    "white",
+    "crown"
+   ],
+   "name": "&+Wa shed crown of white tines&N",
+   "roomLine": "&+WA great white antler lies here, shed and unbroken.&N",
+   "type": 9,
+   "ac": 2,
+   "size": 3,
+   "cost": 15000,
+   "stackLimit": 1,
+   "slot": "head",
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27b"
+  },
+  "9000006": {
+   "vnum": 9000006,
+   "keywords": [
+    "torc",
+    "bog",
+    "black",
+    "iron"
+   ],
+   "name": "&+La torc of bog-black iron&N",
+   "roomLine": "&+LA torc of black iron lies here, beaded with water that will not dry.&N",
+   "type": 9,
+   "ac": 4,
+   "size": 2,
+   "cost": 32000,
+   "stackLimit": 1,
+   "slot": "neck",
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27b"
   }
  }
 }

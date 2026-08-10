@@ -1,5 +1,5 @@
 {
- "next": 9000077,
+ "next": 9000090,
  "mobs": {
   "9000005": {
    "vnum": 9000005,
@@ -3180,6 +3180,576 @@
    "wimpyAt": 0,
    "at": "2026-08-10T00:00:00.000Z",
    "by": "phase-27"
+  },
+  "9000077": {
+   "vnum": 9000077,
+   "keywords": [
+    "deer",
+    "roe",
+    "doe"
+   ],
+   "name": "a roe deer",
+   "room": "A roe deer lifts its head, weighing whether you matter.",
+   "level": 5,
+   "hp": "5d8+15",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2400,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 8,
+    "damage": {
+     "count": 1,
+     "sides": 4,
+     "bonus": 0
+    },
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 180,
+   "wimpyAt": 90,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27b"
+  },
+  "9000078": {
+   "vnum": 9000078,
+   "keywords": [
+    "boar",
+    "pig",
+    "wild"
+   ],
+   "name": "a wild boar",
+   "room": "A wild boar stands in the brush, entirely unwilling to move for you.",
+   "level": 9,
+   "hp": "9d8+45",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 2400,
+    "remembers": true,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "zone",
+    "trackRooms": 2,
+    "giveUpMs": 15000,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 6,
+    "damage": {
+     "count": 2,
+     "sides": 4,
+     "bonus": 2
+    },
+    "attackBonus": 1,
+    "roundMs": 3000
+   },
+   "experience": 700,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27b"
+  },
+  "9000079": {
+   "vnum": 9000079,
+   "keywords": [
+    "wolf",
+    "grey",
+    "gray"
+   ],
+   "name": "a grey wolf",
+   "room": "A grey wolf watches from between the trunks, and it is not alone.",
+   "level": 11,
+   "hp": "11d8+55",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 2400,
+    "remembers": true,
+    "sentinel": false,
+    "assists": true
+   },
+   "pursuit": {
+    "tier": "zone",
+    "trackRooms": 2,
+    "giveUpMs": 15000,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 5,
+    "damage": {
+     "count": 2,
+     "sides": 6,
+     "bonus": 1
+    },
+    "attackBonus": 1,
+    "roundMs": 3000
+   },
+   "experience": 1100,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27b"
+  },
+  "9000080": {
+   "vnum": 9000080,
+   "keywords": [
+    "spider",
+    "forest"
+   ],
+   "name": "a forest spider",
+   "room": "A spider the size of a dinner plate holds the space between two pines.",
+   "level": 8,
+   "hp": "8d8+30",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 2400,
+    "remembers": true,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "zone",
+    "trackRooms": 2,
+    "giveUpMs": 15000,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 7,
+    "damage": {
+     "count": 1,
+     "sides": 8,
+     "bonus": 1
+    },
+    "attackBonus": 1,
+    "roundMs": 3000
+   },
+   "experience": 550,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27b"
+  },
+  "9000081": {
+   "vnum": 9000081,
+   "keywords": [
+    "poacher",
+    "man"
+   ],
+   "name": "a poacher",
+   "room": "A poacher crouches at the ravine's lip, watching the trails below.",
+   "level": 13,
+   "hp": "13d10+70",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 2400,
+    "remembers": true,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "zone",
+    "trackRooms": 2,
+    "giveUpMs": 15000,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 5,
+    "damage": {
+     "count": 2,
+     "sides": 6,
+     "bonus": 3
+    },
+    "attackBonus": 2,
+    "roundMs": 3000
+   },
+   "experience": 1800,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27b"
+  },
+  "9000082": {
+   "vnum": 9000082,
+   "keywords": [
+    "fenwick",
+    "woodsman",
+    "forester"
+   ],
+   "name": "Fenwick the woodsman",
+   "room": "Fenwick sits with his back to an oak, mending something small.",
+   "level": 20,
+   "hp": "20d10+140",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2400,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 4,
+    "damage": {
+     "count": 2,
+     "sides": 8,
+     "bonus": 3
+    },
+    "attackBonus": 3,
+    "roundMs": 3000
+   },
+   "experience": 4000,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27b"
+  },
+  "9000083": {
+   "vnum": 9000083,
+   "keywords": [
+    "stag",
+    "white",
+    "duskwood"
+   ],
+   "name": "the White Stag of the Duskwood",
+   "room": "The White Stag stands under the duskwood, and the wood is quieter for it.",
+   "level": 18,
+   "hp": "18d10+150",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2400,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 2,
+    "damage": {
+     "count": 2,
+     "sides": 8,
+     "bonus": 4
+    },
+    "attackBonus": 3,
+    "roundMs": 3000
+   },
+   "experience": 9000,
+   "wimpyAt": 70,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27b"
+  },
+  "9000084": {
+   "vnum": 9000084,
+   "keywords": [
+    "leech",
+    "giant"
+   ],
+   "name": "a giant leech",
+   "room": "A leech the length of an arm unsticks itself from a stump.",
+   "level": 12,
+   "hp": "12d8+60",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 2400,
+    "remembers": true,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "zone",
+    "trackRooms": 2,
+    "giveUpMs": 15000,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 7,
+    "damage": {
+     "count": 2,
+     "sides": 4,
+     "bonus": 2
+    },
+    "attackBonus": 2,
+    "roundMs": 3000
+   },
+   "experience": 1200,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27b"
+  },
+  "9000085": {
+   "vnum": 9000085,
+   "keywords": [
+    "lurker",
+    "bog"
+   ],
+   "name": "a bog lurker",
+   "room": "Something long-limbed rises out of water that was not deep enough to hide it.",
+   "level": 15,
+   "hp": "15d10+90",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 2400,
+    "remembers": true,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "zone",
+    "trackRooms": 2,
+    "giveUpMs": 15000,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 5,
+    "damage": {
+     "count": 2,
+     "sides": 6,
+     "bonus": 3
+    },
+    "attackBonus": 2,
+    "roundMs": 3000
+   },
+   "experience": 2400,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27b"
+  },
+  "9000086": {
+   "vnum": 9000086,
+   "keywords": [
+    "corpse",
+    "drowned",
+    "dead"
+   ],
+   "name": "a drowned corpse",
+   "room": "A drowned corpse stands among the stones, still draining.",
+   "level": 17,
+   "hp": "17d10+110",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 2400,
+    "remembers": true,
+    "sentinel": false,
+    "assists": true
+   },
+   "pursuit": {
+    "tier": "zone",
+    "trackRooms": 2,
+    "giveUpMs": 15000,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 5,
+    "damage": {
+     "count": 2,
+     "sides": 8,
+     "bonus": 3
+    },
+    "attackBonus": 2,
+    "roundMs": 3000
+   },
+   "experience": 3200,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27b"
+  },
+  "9000087": {
+   "vnum": 9000087,
+   "keywords": [
+    "wight",
+    "barrow"
+   ],
+   "name": "a barrow wight",
+   "room": "A barrow wight regards you from a grave it has finished with.",
+   "level": 21,
+   "hp": "21d10+150",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 2400,
+    "remembers": true,
+    "sentinel": false,
+    "assists": true
+   },
+   "pursuit": {
+    "tier": "zone",
+    "trackRooms": 2,
+    "giveUpMs": 15000,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 3,
+    "damage": {
+     "count": 3,
+     "sides": 6,
+     "bonus": 4
+    },
+    "attackBonus": 3,
+    "roundMs": 3000
+   },
+   "experience": 6000,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27b"
+  },
+  "9000088": {
+   "vnum": 9000088,
+   "keywords": [
+    "hessk",
+    "bogfather"
+   ],
+   "name": "Hessk the Bogfather",
+   "room": "Hessk the Bogfather fills the tomb, and the water comes in with him.",
+   "level": 25,
+   "hp": "25d12+260",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "aggressive",
+    "clauses": [
+     "all"
+    ],
+    "reactionMs": 2400,
+    "remembers": true,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "zone",
+    "trackRooms": 3,
+    "giveUpMs": 15000,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 0,
+    "damage": {
+     "count": 4,
+     "sides": 8,
+     "bonus": 6
+    },
+    "attackBonus": 4,
+    "roundMs": 3000
+   },
+   "experience": 22000,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27b"
+  },
+  "9000089": {
+   "vnum": 9000089,
+   "keywords": [
+    "hermit",
+    "stump"
+   ],
+   "name": "the hermit of the stump",
+   "room": "A hermit sits atop the stump with his feet in the air, quite content.",
+   "level": 14,
+   "hp": "14d8+70",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2400,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 6,
+    "damage": {
+     "count": 1,
+     "sides": 6,
+     "bonus": 1
+    },
+    "attackBonus": 2,
+    "roundMs": 3000
+   },
+   "experience": 1500,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-27b"
   }
  }
 }
