@@ -3441,6 +3441,21 @@ export class WorldScene extends Phaser.Scene {
         existing.y = view.y;
         existing.container.setPosition(view.x, view.y);
         this.pendingArrival = false;
+        // **And the camera goes with them** — the half this block's own note promised and did not
+        // deliver: *"otherwise it slides across a map it was never on, dragging the camera with
+        // it."* Snapping the body alone left the camera following at its 0.18 lerp, so it set off
+        // from wherever the last Place had it and travelled the whole way, sweeping the new zone
+        // past the player. Owner-reported the moment seams made crossings frequent enough to
+        // notice: *"it works but it is very visual the way the next zone sweeps in."*
+        //
+        // `startFollow` hard-sets the scroll — the property the note at {@link followTarget} calls
+        // a jump cut and warns against — and a jump cut is exactly right here, because arriving is
+        // a teleport. Guarded on already following, so 'fit' mode, which deliberately follows
+        // nothing, is not dragged back onto the character by a Place change.
+        if (this.followTarget) {
+          this.cameras.main.panEffect.reset();
+          this.followSelf();
+        }
       }
       if (wornChanged) this.redressEntity(existing);
       this.faceEntity(existing, view.facing);
