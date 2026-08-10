@@ -1449,6 +1449,17 @@ shows it.
 
 #### Phase 25 — Walls and watch
 
+**Built 2026-08-10, and the measurement rewrote the phase.** The premise ("mobs today stand still")
+was stale — Phase 8¾ built the bounded wander first — and `specs.mobile.c`'s `patrol_leader` turned
+out to be *bounded wander with a bias toward trouble*: Duris has no waypoint machinery anywhere,
+`ACT_PATROL` merely excludes a mob from the mundane wander. So the waypoint beat is ours, from the
+city ledger's own ask: `patrols-authored.json` names a route's *turning points*, the hunts' walk
+fills the rooms between, rests are counted in pulses so the beat stays inside the simulation's
+clock, and the source's one real patrol rule is kept — a body with a beat never mundane-wanders.
+The Wall Walk (100009) stands: gatehouse through the Hall of the Shield, five battlement rooms at
+z+1, a watchman beating end to end (verified in three API snapshots: gate → western reach → eastern
+reach), and Meraud the fishwife and a dock porter wandering the square beneath him.
+
 Patrol routes and bounded wander — one mechanism worn two ways (`specs.mobile.c`'s cityguard,
 `mobact.c`'s wanderers). Mobs today stand still unless fighting or pursuing; after this, the
 watch walks beats on the Wall Walk (z = +1, the owner's upper level, gatehouse stairs at the

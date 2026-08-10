@@ -540,6 +540,36 @@ const shopsByKeeper = loadShops();
 for (const [keeper, shop] of loadShops(AUTHORED_SHOPS_FILE)) shopsByKeeper.set(keeper, shop);
 
 /**
+ * The patrol beats — Phase 25, and the measurement is the design here. `specs.mobile.c`'s
+ * `patrol_leader` turned out to be a *bounded wander with a bias toward trouble* — Duris has no
+ * waypoint machinery anywhere; `ACT_PATROL` merely excludes a mob from the mundane wander so its
+ * spec can drive it. The waypoint beat is therefore **ours**, from DESIGN-city.md's ledger
+ * ("patrol routes — waypoints on the tick"), built on the walk the hunts already own: a route is
+ * its *turning points*, `firstStepToward` fills the rooms between, and a watchman walks end to
+ * end, pausing at each reach, for ever. The source's one real patrol rule is kept: a mob with a
+ * beat never mundane-wanders.
+ */
+const PATROLS_FILE = join(WORLD_DIR, 'overrides', 'patrols-authored.json');
+const patrolsByVnum = new Map<number, { route: readonly RoomId[]; pauseMs: number }>();
+try {
+  const raw = JSON.parse(readFileSync(PATROLS_FILE, 'utf8')) as Record<string, { route?: unknown; pauseMs?: unknown }>;
+  for (const [key, row] of Object.entries(raw)) {
+    const vnum = Number(key);
+    if (!Number.isInteger(vnum) || !Array.isArray(row?.route) || row.route.length < 2) continue;
+    if (!row.route.every((room) => typeof room === 'number')) continue;
+    patrolsByVnum.set(vnum, {
+      route: row.route as RoomId[],
+      pauseMs: typeof row.pauseMs === 'number' && row.pauseMs >= 0 ? row.pauseMs : 20_000,
+    });
+  }
+} catch {
+  /* no beats authored yet */
+}
+
+/** Where each patrolling body is in its beat: the leg it walks toward, and pulses left at rest. */
+const patrolLegs = new Map<number, { leg: number; restPulses: number }>();
+
+/**
  * The guildmasters — Phase 24. A registry file rather than a mob field, `shops-authored.json`'s
  * argument one door down: which mob teaches which class is content beside the mob, not a stat on
  * it, and a file of pairs needs no loader surgery. The class decides everything a Duris teacher's
@@ -10646,6 +10676,27 @@ setInterval(() => {
       if (mob.posture !== 'standing' || mob.status !== 'normal') continue;
       if (hunts.has(mob.id)) continue; // mid-chase, mid-stroll, or mid-shuffle already
       if (sim.affectsOf(mob, 'provoked').length > 0) continue;
+
+      // **Phase 25: a body with a beat walks it and does nothing else** — `ACT_PATROL`'s one real
+      // rule, kept. Standing at the leg's end: rest a few pulses (counted in pulses rather than
+      // wall time, so the beat stays inside the simulation's clock), then turn to the next turning
+      // point; the walk itself is the hunts' own, announcements and arrival settle included.
+      const beat = patrolsByVnum.get(mob.vnum);
+      if (beat) {
+        const state = patrolLegs.get(mob.id) ?? { leg: 0, restPulses: 0 };
+        const target = beat.route[state.leg]!;
+        if (mob.roomId === target) {
+          patrolLegs.set(mob.id, {
+            leg: (state.leg + 1) % beat.route.length,
+            restPulses: Math.max(1, Math.round(beat.pauseMs / WANDER_PULSE_MS)),
+          });
+        } else if (state.restPulses > 0) {
+          patrolLegs.set(mob.id, { leg: state.leg, restPulses: state.restPulses - 1 });
+        } else {
+          beginWalkTo(hunts, mob, target);
+        }
+        continue;
+      }
       // Roaming between rooms is for the unanchored only: ACT_SENTINEL is the wander bit (not the
       // pursuit tier — §0.4's own warning), and two exclusions are ours, both about findability — a
       // shopkeeper's post is the shop, and a quest giver who wanders is a quest that cannot be

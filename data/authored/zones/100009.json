@@ -1,0 +1,93 @@
+{
+  "$comment": "Velen - The Wall Walk, Phase 25. The design table's zone, entered through the Hall of the Shield (the watch and the warriors share walls) and climbing to the battlements at z+1. The beat needs no mechanism: specs.mobile.c's patrol_leader is a bounded wander, ours already exists, and on a corridor the anti-backtrack rule IS the march - a watchman with somewhere to walk and a rule against turning round walks his wall. Vertical exits are Place changes the wander refuses, so he can never wander down the stairs.",
+  "id": 100009,
+  "name": "Velen - The Wall Walk",
+  "seamless": true,
+  "entryRoom": 100009000,
+  "rooms": [
+    {
+      "id": 100009000,
+      "zone": 100009,
+      "name": "The North Gatehouse, Guardroom",
+      "sector": "inside",
+      "pos": { "x": 2, "y": 1, "z": 0 },
+      "flags": ["indoors"],
+      "description": "Stone on stone, built to be bored in: a rack of halberds nobody has needed yet, a table scarred by dice, and a duty roster nailed where the draught cannot take it. A stair climbs into the thickness of the wall itself, worn hollow at the middle of each step by boots going up reluctant and coming down glad.",
+      "exits": {
+        "south": { "to": 100003001, "portal": true },
+        "up": { "to": 100009003 }
+      },
+      "extras": [
+        {
+          "keywords": "roster duty",
+          "text": "Names, watches, and against one name in a different hand: OWES THE POT THREE NIGHTS. The pot keeps better records than the captain."
+        }
+      ]
+    },
+    {
+      "id": 100009001,
+      "zone": 100009,
+      "name": "The Wall Walk, Western Reach",
+      "sector": "city",
+      "pos": { "x": 0, "y": 1, "z": 1 },
+      "description": "The battlement runs out of wall here for now: a timber hoarding closes the walk where the masons' scaffolds begin, and the harbour shows between the merlons - masts, gulls, and the long grey argument of the sea. The wind arrives with opinions it formed over open water.",
+      "exits": {
+        "east": { "to": 100009002 }
+      }
+    },
+    {
+      "id": 100009002,
+      "zone": 100009,
+      "name": "The Wall Walk, West of the Gate",
+      "sector": "city",
+      "pos": { "x": 1, "y": 1, "z": 1 },
+      "description": "A clean stretch of battlement, crenellated seaward, parapeted city-side - whoever built this wall expected trouble from both directions and said so in stone. Below, inside the wall, the guild court's chalk circles look like a scholar's diagrams; beyond it the square's fountain is a coin of light.",
+      "exits": {
+        "west": { "to": 100009001 },
+        "east": { "to": 100009003 }
+      }
+    },
+    {
+      "id": 100009003,
+      "zone": 100009,
+      "name": "The Wall Walk Above the North Gate",
+      "sector": "city",
+      "pos": { "x": 2, "y": 1, "z": 1 },
+      "description": "The walk widens over the gate arch into a fighting platform: murder holes plugged with years of dust, a bracket for a brazier, and the groove where a portcullis chain once ran and will run again. The North Road will pass beneath this spot one day, and the platform waits for it with the patience of masonry.",
+      "exits": {
+        "west": { "to": 100009002 },
+        "east": { "to": 100009004 },
+        "down": { "to": 100009000 }
+      },
+      "extras": [
+        {
+          "keywords": "holes murder",
+          "text": "Round mouths in the floor, stopped with dust and one bird's nest. Nothing has been poured through them in a long peace, which is what they are for: walls buy the years in which nobody uses them."
+        }
+      ]
+    },
+    {
+      "id": 100009004,
+      "zone": 100009,
+      "name": "The Wall Walk, East of the Gate",
+      "sector": "city",
+      "pos": { "x": 3, "y": 1, "z": 1 },
+      "description": "The battlement runs east in good repair, flagstones swept by wind and one broom. From here the city's plan shows itself: the Spine running south toward the crossing, roofs shouldering one another for the light, and the eastern fields beyond the wall waiting to become the Market Ward's caravans.",
+      "exits": {
+        "west": { "to": 100009003 },
+        "east": { "to": 100009005 }
+      }
+    },
+    {
+      "id": 100009005,
+      "zone": 100009,
+      "name": "The Wall Walk, Eastern Reach",
+      "sector": "city",
+      "pos": { "x": 4, "y": 1, "z": 1 },
+      "description": "The walk ends at a turret stub and a rope, beyond which the wall is a promise rather than a fact: courses of dressed stone step down into scaffolding and the smell of mortar. A watchman turning here can see the whole of his beat behind him, which is the point of a wall you can walk.",
+      "exits": {
+        "west": { "to": 100009004 }
+      }
+    }
+  ]
+}

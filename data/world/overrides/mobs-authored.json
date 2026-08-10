@@ -1,5 +1,5 @@
 {
- "next": 9000064,
+ "next": 9000067,
  "mobs": {
   "9000005": {
    "vnum": 9000005,
@@ -2616,6 +2616,134 @@
    "wimpyAt": 0,
    "at": "2026-08-10T00:00:00.000Z",
    "by": "phase-24"
+  },
+  "9000064": {
+   "vnum": 9000064,
+   "keywords": [
+    "watchman",
+    "watch",
+    "guard",
+    "wall"
+   ],
+   "name": "a watchman of the wall",
+   "room": "A watchman of the wall passes on his beat, eyes on the horizon.",
+   "level": 30,
+   "hp": "30d10+300",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2000,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 5,
+    "damage": {
+     "count": 3,
+     "sides": 8,
+     "bonus": 6
+    },
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 12000,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-25"
+  },
+  "9000065": {
+   "vnum": 9000065,
+   "keywords": [
+    "fishwife",
+    "meraud"
+   ],
+   "name": "Meraud the fishwife",
+   "room": "Meraud the fishwife crosses the square, basket riding her hip.",
+   "level": 5,
+   "hp": "5d8+20",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2000,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 5,
+    "damage": {
+     "count": 1,
+     "sides": 4,
+     "bonus": 0
+    },
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 100,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-25"
+  },
+  "9000066": {
+   "vnum": 9000066,
+   "keywords": [
+    "porter",
+    "dock"
+   ],
+   "name": "a dock porter",
+   "room": "A dock porter trudges by under a crate that has won the argument.",
+   "level": 6,
+   "hp": "6d8+25",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2000,
+    "remembers": false,
+    "sentinel": false,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 5,
+    "damage": {
+     "count": 1,
+     "sides": 6,
+     "bonus": 1
+    },
+    "attackBonus": 0,
+    "roundMs": 3000
+   },
+   "experience": 150,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-25"
   }
  }
 }
