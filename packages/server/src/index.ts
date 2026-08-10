@@ -328,6 +328,7 @@ import {
   advanceGround,
   dropItem,
   dropSpotNear,
+  groundSprite,
   groundViewOf,
   itemsIn,
   nearestMatching,
@@ -9869,6 +9870,12 @@ const adminLive: LiveOps = {
 // and none of them has authored art yet, so without this every one of them would stop being drawn the
 // day this line changed. `DURIS_ITEM.shield` rather than a guess from the item's own fields: measured,
 // the obvious heuristic dresses 177 pairs of sleeves as shields.
+// Protocol 29: the bag's category silhouette rides the exact taxonomy the floor draws — one
+// function, so a potion in the drawer and a potion on the flagstones can never disagree about
+// what kind of thing a potion is. Art deliberately not passed: this resolver is the *fallback*,
+// consulted only when `artClassOf` above found nothing.
+sim.iconOf = (item) => groundSprite(item, templateOf(item)?.type);
+
 sim.artClassOf = (item) => {
   const template = templateOf(item);
   return (

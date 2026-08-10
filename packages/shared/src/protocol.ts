@@ -287,7 +287,13 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * `identity` (race, class, the six scores — the sheet shows numbers; the roll showed words) and
  * {@link CharacterSummary} gains `race`/`class`, so the picker can say what a body is.
  *
- * Is 28: **the merchant's mark.** `EntityView` gains `keeper` beside `questGiver` — the client's
+ * Is 29: **the artless row gets its silhouette.** `BagRow` gains `icon` — the ground taxonomy's
+ * own key (`item_flask`, `item_scroll`, …) for a row whose item has no authored art, so the bag can
+ * draw the same category shape the floor has always drawn. Found when the potion recall stripped
+ * 364 shield-dressed potions back to honest artlessness and their bag rows went blank: the floor
+ * had a fallback and the drawer never did.
+ *
+ * Was 28: **the merchant's mark.** `EntityView` gains `keeper` beside `questGiver` — the client's
  * one bit for the `$` over a shopkeeper's head and the *List wares* menu row. Keepers are also
  * always `untouchable` (owner, 2026-08-10: *"they are immortal and can't be harmed"* — Duris'
  * `.shp` even carries a per-shop `shop_killable`; the ruling sets every one to N), but the two
@@ -315,7 +321,7 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * is `paint`'s existing colour-code renderer that tells them apart on screen, not a `.ch-*` rule
  * like the six before them carry.
  */
-export const PROTOCOL_VERSION = 28;
+export const PROTOCOL_VERSION = 29;
 
 /**
  * One member of your group, as the roster draws them — protocol 19.
@@ -459,6 +465,13 @@ export interface BagRow {
    * every row carries — 16,421 entries and a few hundred with pictures.
    */
   readonly art?: string;
+  /**
+   * The category silhouette for a row with no {@link art} — protocol 29, the ground taxonomy's own
+   * key (`groundSprite`'s `item_*` family, already on the wire as floor sprites). The drawer paints
+   * it as the floor does: a coloured glow that says *this is a flask* at a glance. Absent when `art`
+   * is present, because a real picture outranks a silhouette.
+   */
+  readonly icon?: string;
 }
 
 export interface BagView {

@@ -169,3 +169,61 @@ function bounds(data: Uint8ClampedArray): { box: Box; pixels: number } | undefin
   if (maxX < minX || maxY < minY) return undefined;
   return { box: { minX, minY, maxX, maxY }, pixels };
 }
+
+/**
+ * The category silhouette for a row with no art — protocol 29's rendering half.
+ *
+ * The floor draws artless items as a coloured glow whose colour *is* the category (`scene.ts`'s
+ * `makeItemTextures`, owner's rule 2026-08-03: *"not everyone reads every description"* — a thing
+ * must say what it is at a glance). The drawer is DOM, so the same geometry is painted here on a
+ * plain canvas: two halo rings, a dark haft, a bright core. **The colour pairs below are copies of
+ * `makeItemTextures`' and must move with them** — the price of the DOM/canvas split, paid in one
+ * table with a pointer at the original.
+ */
+const CATEGORY_COLOURS: Readonly<Record<string, readonly [flame: string, glow: string]>> = {
+  item_weapon: ['#c8cbd0', '#8a8f96'],
+  item_bundle: ['#b08a5c', '#7d6240'],
+  item_armour: ['#8f98a8', '#5d6472'],
+  item_missile: ['#a8926a', '#6f5f44'],
+  item_container: ['#9a6f42', '#6b4c2c'],
+  item_flask: ['#6fb3c8', '#3f7a8c'],
+  item_scroll: ['#e0d6b0', '#a89a70'],
+  item_wand: ['#b98ad8', '#7d55a0'],
+  item_coin: ['#e8c25a', '#a8862c'],
+  item_key: ['#c9b26b', '#8d7a3e'],
+  item_food: ['#c07a5a', '#8a5138'],
+  item_light: ['#f0d68a', '#b59a48'],
+};
+
+const categoryCache = new Map<string, string>();
+
+/** A data URL for the category glow, cached for the life of the tab like the art icons are. */
+export function categoryIcon(key: string): string | undefined {
+  const cached = categoryCache.get(key);
+  if (cached !== undefined) return cached;
+  const colours = CATEGORY_COLOURS[key];
+  if (!colours) return undefined;
+  const [flame, glow] = colours;
+  const canvas = document.createElement('canvas');
+  canvas.width = 20;
+  canvas.height = 20;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return undefined;
+  const circle = (x: number, y: number, r: number, fill: string, alpha: number): void => {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  circle(10, 9, 9, glow, 0.16);
+  circle(10, 9, 6, glow, 0.3);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#2b2317';
+  ctx.fillRect(9, 10, 2, 8);
+  circle(10, 8, 4, glow, 1);
+  circle(10, 7, 2.6, flame, 1);
+  const url = canvas.toDataURL();
+  categoryCache.set(key, url);
+  return url;
+}

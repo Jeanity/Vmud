@@ -735,6 +735,13 @@ export class Simulation {
    */
   artClassOf: ((item: Item) => string | undefined) | undefined;
   /**
+   * The category silhouette for a bag row with no art — protocol 29, injected for `artClassOf`'s
+   * reason: the taxonomy needs the catalogue's `type`, which is `index.ts`'s business. Returns the
+   * ground sprite family (`item_flask`, …) the floor has drawn since 15b, so a potion in the bag
+   * and a potion on the flagstones are the same silhouette.
+   */
+  iconOf: ((item: Item) => string) | undefined;
+  /**
    * What a catalogue item is worth as a light, injected for the same reason {@link artClassOf} is:
    * the item catalogue is `index.ts`'s and `sim.ts` has no business importing it.
    *
@@ -2346,7 +2353,7 @@ export class Simulation {
       // Protocol 15. Omitted for a character carrying nothing at the default capacity, so the common
       // case costs no payload on a message sent every time a hit point moves.
       ...(player.inventory.stacks.length > 0 || player.inventory.capacity !== STARTING_CAPACITY
-        ? { bag: bagViewOf(player, this.artClassOf) }
+        ? { bag: bagViewOf(player, this.artClassOf, this.iconOf) }
         : {}),
       // **The fight first, then the chase.** Both are real at different moments and the precedence is
       // resolved here rather than in the client: while you are swinging at something that is your
@@ -2418,7 +2425,11 @@ function facingOf(dx: number, dy: number, previous: Direction): Direction {
  * Text and counts rather than `Item` records: `self` goes out on every vitals change, and a stranger's
  * armour value has no business riding along on a heartbeat.
  */
-function bagViewOf(player: Player, artOf?: (item: Item) => string | undefined): BagView {
+function bagViewOf(
+  player: Player,
+  artOf?: (item: Item) => string | undefined,
+  iconOf?: (item: Item) => string,
+): BagView {
   /**
    * Folds identical rows together **for display only** — owner's ask (2026-08-04): *"instead of seeing
    * a shard of silver 4 times it should just say a shard of silver x4… if they use a slot each then it
@@ -2460,8 +2471,12 @@ function bagViewOf(player: Player, artOf?: (item: Item) => string | undefined): 
     // body, so an item in the bag and the same item on the shoulders cannot draw differently. Absent
     // when the item has no art, which is most of the catalogue.
     ...(() => {
+      // A real picture outranks a silhouette; a silhouette outranks a blank — protocol 29, found
+      // when the potion recall stripped 364 rows back to artlessness and the drawer went empty.
       const art = artOf?.(stack.item);
-      return art === undefined ? {} : { art };
+      if (art !== undefined) return { art };
+      const icon = iconOf?.(stack.item);
+      return icon === undefined ? {} : { icon };
     })(),
     ...(stack.count > 1 ? { count: stack.count } : {}),
     ...(stack.remaining !== undefined && stack.item.uses !== undefined && stack.remaining < stack.item.uses

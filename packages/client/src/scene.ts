@@ -83,7 +83,7 @@ import { LIGHT_SOURCES, naturalLightTiles, roomLightsItself, roomLightTiles } fr
 
 import type { LogPanel } from './log.ts';
 import type { Net } from './net.ts';
-import { bagIcon } from './bagicon.ts';
+import { bagIcon, categoryIcon } from './bagicon.ts';
 import { artIdForSheet, layerKeysFor, readLayerKey, recolouredSheet, swapsForArt } from './recolour.ts';
 import { paint } from './paint.ts';
 import { TargetMenu, type TargetVerb } from './targetmenu.ts';
@@ -1765,6 +1765,16 @@ export class WorldScene extends Phaser.Scene {
           img.alt = '';
           icon.replaceChildren(img);
         });
+      } else if (row.icon !== undefined) {
+        // Protocol 29: the category silhouette, synchronous because it is painted rather than
+        // fetched — the same glow the floor draws, so a potion is a cyan flask everywhere.
+        const url = categoryIcon(row.icon);
+        if (url !== undefined) {
+          const img = document.createElement('img');
+          img.src = url;
+          img.alt = '';
+          icon.replaceChildren(img);
+        }
       }
 
       const name = document.createElement('span');
