@@ -21,6 +21,7 @@ import { describe, it } from 'node:test';
 import { ROOM_TILES, buildZoneTilemap, isWalkable, roomCentre, tileAt, type Zone } from '@mygame/shared';
 
 import { WORLD_DIR, loadZone } from './world.ts';
+import { applyZoneOverride, loadZoneOverrides } from './zone-overrides.ts';
 
 const VELEN = 100001;
 const built = existsSync(`${WORLD_DIR}/zones/${VELEN}.json`);
@@ -53,24 +54,47 @@ function roomsReachableByTile(zone: Zone, level: number, from: number): Set<numb
   return rooms;
 }
 
-/** Which rooms the *graph* can reach from one room, on this level, ignoring portals and stairs. */
+/**
+ * Which rooms the *graph* can reach from one room, on this level, ignoring portals and stairs.
+ *
+ * **Undirected, and that is the engine's own rule rather than a convenience.** Ground between two
+ * rooms is walkable from both ends the moment either room declares the exit: the classic projection
+ * has always carved its corridor per-room-per-exit, and the seamless one opens a seam if either
+ * side names it. So a one-way exit has never been enforced by geometry — `stepRoom` enforces it on
+ * the typed command, which is a different layer.
+ *
+ * Found by this very test, which first ran directed and reported two Stump Bog rooms as wall-walk
+ * exploits. They were nothing of the kind: *Atop an Enormous Stump* is reached by going **up** from
+ * the four rooms around its base, while its own exits run horizontally back down to them, so the
+ * only inbound edge is vertical and a directed walk can never arrive. The tiles were right and the
+ * model was wrong.
+ */
 function roomsReachableByGraph(zone: Zone, level: number, from: number): Set<number> {
   const here = new Map(zone.rooms.filter((r) => r.pos.z === level).map((r) => [r.id, r]));
-  const seen = new Set<number>([from]);
-  const queue = [from];
-  while (queue.length > 0) {
-    const room = here.get(queue.pop()!);
-    if (!room) continue;
+  const neighbours = new Map<number, Set<number>>();
+  const link = (a: number, b: number): void => {
+    if (!neighbours.has(a)) neighbours.set(a, new Set());
+    neighbours.get(a)!.add(b);
+  };
+  for (const room of here.values()) {
     for (const [dir, exit] of Object.entries(room.exits)) {
       // Portals and vertical links are transitions rather than geometry — they carve no tiles, so
       // the tile walk cannot follow them and neither may this side of the comparison.
       if (!exit || exit.portal || dir === 'up' || dir === 'down') continue;
-      // A shut door stops both truths; an open one stops neither. Read the near side, which is
-      // what the grid was carved from.
+      // A shut door stops both truths; an open one stops neither.
       if (exit.door?.closed) continue;
-      if (!here.has(exit.to) || seen.has(exit.to)) continue;
-      seen.add(exit.to);
-      queue.push(exit.to);
+      if (!here.has(exit.to)) continue;
+      link(room.id, exit.to);
+      link(exit.to, room.id);
+    }
+  }
+  const seen = new Set<number>([from]);
+  const queue = [from];
+  while (queue.length > 0) {
+    for (const next of neighbours.get(queue.pop()!) ?? []) {
+      if (seen.has(next)) continue;
+      seen.add(next);
+      queue.push(next);
     }
   }
   return seen;
@@ -132,6 +156,46 @@ describe('the seamless world is still the room graph — V8b, against the shippe
     const missed = streets.filter((r) => !reached.has(r.id)).map((r) => `${r.id} ${r.name}`);
     assert.deepEqual(missed, [], `unreachable on foot from the first street room: ${missed.join(' | ')}`);
     assert.ok(streets.length >= 20, `and there is a real city here: ${streets.length} street rooms`);
+  });
+
+  it('every zone that declares itself seamless obeys the same law — V8c', () => {
+    // Velen is authored and small; the wilderness is harvested, large, and laid out by a mapper
+    // who never imagined a tile grid. If the rule holds there it holds anywhere, so every seamless
+    // zone in the config is walked, on every level, rather than only the one we wrote.
+    const overrides = loadZoneOverrides();
+    const seamless = [...overrides.entries()].filter(([, o]) => o.seamless === true).map(([id]) => id);
+    assert.ok(seamless.length > 0, 'the overlay declares at least one seamless zone');
+    for (const id of seamless) {
+      if (!existsSync(`${WORLD_DIR}/zones/${id}.json`)) continue;
+      // `loadZone` reads the file; the overlay is composed by `GameWorld.load`. A test that skipped
+      // the composition would be testing the harvest rather than the world the server serves, so
+      // it runs the same function the loader runs.
+      const wild = loadZone(id);
+      applyZoneOverride(wild as unknown as { name: string; id: typeof id; seamless?: boolean }, overrides);
+      assert.equal(wild.seamless, true, `zone ${id} took the overlay's seamless flag`);
+      for (const level of new Set(wild.rooms.map((r) => r.pos.z))) {
+        const rooms = wild.rooms.filter((r) => r.pos.z === level);
+        const from = rooms[0]!.id;
+        const byTile = roomsReachableByTile(wild, level, from);
+        const byGraph = roomsReachableByGraph(wild, level, from);
+        const tileOnly = [...byTile].filter((r) => !byGraph.has(r));
+        const graphOnly = [...byGraph].filter((r) => !byTile.has(r));
+        assert.deepEqual(tileOnly, [], `zone ${id} level ${level}: wall-walk into ${tileOnly.join(', ')}`);
+        assert.deepEqual(graphOnly, [], `zone ${id} level ${level}: sealed off ${graphOnly.join(', ')}`);
+      }
+    }
+  });
+
+  it('no zone with dark rooms was made seamless — the light radius depends on the gap', () => {
+    // The rule that chose the six: `ROOM_GAP` is tuned so the next room sits outside the starting
+    // light radius and inside a torch's. A seam of one tile puts it within reach of anything, so a
+    // zone with real darkness in it would quietly lose the mechanic that makes a torch an upgrade.
+    for (const [id, override] of loadZoneOverrides()) {
+      if (override.seamless !== true) continue;
+      if (!existsSync(`${WORLD_DIR}/zones/${id}.json`)) continue;
+      const dark = loadZone(id).rooms.filter((r) => r.flags?.includes('dark'));
+      assert.deepEqual(dark.map((r) => r.id), [], `zone ${id} is seamless but has dark rooms`);
+    }
   });
 
   it('a room block is nine tiles square, so the seam maths never drifted', () => {
