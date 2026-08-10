@@ -453,7 +453,59 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-### Start here — where 2026-08-09 ended: ranged combat is playable
+### Start here — where 2026-08-10 ended: the world stopped asking to be clicked, and things stand in it
+
+**Seven slices landed, all pushed, `main` at `9e6ff1f`.** In order:
+
+1. **Every road in the world is a seam.** The owner's ruling — *"portals should only be used to
+   traverse large distances or for magic"* — applied literally: worldgen marks **every horizontal
+   portal** a seam, in-zone as well as cross-zone. **5,328 of 6,453 portals stopped announcing
+   themselves; visible rings in the loaded world fell 109 → 21**, and the 21 are honest (eight
+   staircases, eleven clambers the mapper drew flat, two pointing at unloaded zones).
+2. **V8d's scenery.** `Room.scenery`, a six-prop catalogue in `shared`, ten props standing in Velen —
+   the fountain and plinth the Great Crossing's prose has promised since Phase 23. The rule that kept
+   it small: **a prop is a thing in the way.** Paint stays a coordinate hash in the client; anything
+   that occupies ground is a rule both sides stamp from one table. Protocol **31**.
+3. **The well moved** from cobbles to road dirt — the owner could not see it, and the cause was worse
+   than a hue clash: the well is drawn in the *same masonry* as a city street. Checked all six props
+   against that ground before reaching for a general fix; the well was the only one affected.
+4. **Bashing without a shield.** The owner's fifth ask, answered from the source: `do_bash` never
+   refuses, it multiplies the chance by `MAX(20, SKILL_SHIELDLESS_BASH)/100`, and that skill is epic
+   and zeroed on everyone — so a bare-armed bash is **a fifth as likely to land, permanently**.
+5. **Three interactive-scenery asks through intake**, recorded rather than built on the spot.
+6. **`look` at the fountain, `read` the plinth.** Diku's own split, and it exposed that `look`
+   consulted neither extras nor scenery while `read` walked the whole chain.
+7. **`search`**, and a needle lost in a haystack.
+
+**Four findings worth not rediscovering.** (a) **`Tile.Blocker` was never in `isOpaqueTile`** — every
+wall the seamless projection had stamped since V8b was see-through, against its own docblock and a
+test comment that both claimed otherwise. (b) **`look` walked none of `find_ex_description`'s chain**,
+so `read fountain` answered while `look fountain` denied the fountain existed. (c) **Duris' ability
+scores are percentile** (`STAT_INDEX`, `utility.c:4205`), so `find_chance` needed a ×5 conversion onto
+our SRD 3–18 or the best searcher in the game would succeed 18 times in 100. (d) **The admin panel
+already posts to noticeboards** — Phase 23 shipped the whole path; what was missing was never the
+panel, it was that the plinth and the board were two authored facts about one object.
+
+**Two things left deliberately open, both named rather than quietly folded in:**
+
+- **`AuthoredLoot.hidden` does not exist**, so `search <corpse>` runs and can never succeed. This is
+  the actual close of the owner's 2026-08-06 *"hidden items in corpses"* ask, and it is small.
+- **The cadence's A slot is still open.** V (scenery, plinth) and M (bash, search) both ran today;
+  the panel's boards section turned out to already exist, so it consumed nothing.
+
+Also parked: the rest of V8d (sector transition tiles, wilderness scatter, rivers and bridges, the
+city drawn as streets between buildings — `terrain-v7` carries full Wang terrain sets, so transitions
+are real art rather than something to fake), and **V8e**, the world on one plane.
+
+**Gotcha that cost time today:** adding an export to `shared` needs
+`rm -rf packages/*/node_modules/.vite` and a dev-server restart, exactly as CLAUDE.md gotcha 7 says —
+the browser reported `SCENERY_KINDS is not defined` from a cached pre-bundle. And the supervisor's log
+route is `/supervisor/api/log`, not `/logs`; the wrong one returns an error object that reads as an
+empty log and makes a working feature look broken.
+
+---
+
+### Before that — where 2026-08-09 ended: ranged combat is playable
 
 **Ranged is built through slice 5 and live-verified in play, with the owner at the bow.** One skill
 (`ranged`, ranger 95 / rogue 75) covers both delivery methods; `fire`/`shoot <target> [direction]` and
