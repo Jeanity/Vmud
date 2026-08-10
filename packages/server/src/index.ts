@@ -35,6 +35,9 @@ import {
   divideExperience,
   groupedShare,
   abilityChance,
+  SHIELDLESS_BASH_LINE,
+  STARTER_SHIELD_ID,
+  type Shield,
   abilityDamage,
   COMBAT_ABILITIES,
   isCombatAbility,
@@ -3600,6 +3603,30 @@ function groupSay(player: Player, rest: string): void {
  * **A miss still starts the fight**, which is the source's own behaviour (`do_kick` calls `engage` on the
  * failure path too) and the right one: swinging a boot at somebody is a declaration whether or not it lands.
  */
+/**
+ * The shield a character is bashing with, or `undefined` for a bare arm.
+ *
+ * **Duris asks `ch->equipment[WEAR_SHIELD]` and we cannot**, because this project has no shield
+ * slot: a shield is worn in `offHand`, and so is a lantern, a torch and a held spellbook. So the
+ * question "is there a shield on that arm" has to be answered from the item, and it is answered two
+ * ways because our shields come from two places.
+ *
+ * The catalogue's 242 shields carry `ITEM_TYPES.shield` on their template. The starter kit's do
+ * not: `STARTER_KIT` mints its kite and round shields directly, with no vnum and therefore no
+ * template to look the type up in. Testing only the template would have quietly excluded **every
+ * new warrior and paladin** — the exact characters who bash, on the exact day they learn it — and
+ * the bug would have looked like the penalty simply not working.
+ *
+ * `size` and `name` are all that leaves here: `abilities.ts` is rules maths and has no business
+ * knowing what an inventory row looks like.
+ */
+function shieldInHand(player: Player): Shield | undefined {
+  const worn = player.equipped.offHand;
+  if (!worn) return undefined;
+  const isShield = templateOf(worn)?.type === DURIS_ITEM.shield || worn.id === STARTER_SHIELD_ID;
+  return isShield ? { size: worn.size, name: worn.name } : undefined;
+}
+
 function useAbility(player: Player, id: CombatAbilityId, rest: string): void {
   const ability = COMBAT_ABILITIES[id];
   const term = rest.trim();
@@ -3634,7 +3661,16 @@ function useAbility(player: Player, id: CombatAbilityId, rest: string): void {
   }
 
   const learned = learnedAt(player.skills.get(ability.skill), player.level, ability.skill, classOf(player));
-  const landed = randomInt(combatRng, 1, 100) <= abilityChance(learned);
+  const shield = ability.usesShield ? shieldInHand(player) : undefined;
+
+  // **Said before the roll, not after it** — `actoff.c:6299` prints this while working out the
+  // chance, so it is a warning about the attempt rather than an excuse for the miss. Everyone we
+  // can create sees it every time: the skill that would silence it is epic.
+  if (ability.usesShield && !shield) {
+    send(player.id, { t: 'log', channel: 'combat', text: SHIELDLESS_BASH_LINE });
+  }
+
+  const landed = randomInt(combatRng, 1, 100) <= abilityChance(ability, learned, shield);
 
   // Charged whether it lands or not — the cost is the attempt. Both clocks are set before anything else can
   // fail, so a refusal further down cannot leave a free ability behind.
@@ -3679,7 +3715,13 @@ function useAbility(player: Player, id: CombatAbilityId, rest: string): void {
     return;
   }
 
-  const damage = rollDice(combatRng, abilityDamage(ability, learned));
+  // A list, because a shield's contribution is `number(0, 4) + weight / 2` — one rolled term and
+  // one flat — and a single `Dice` cannot hold both. Without a shield it is the one entry it always
+  // was.
+  const damage = abilityDamage(ability, learned, shield).reduce(
+    (total, dice) => total + rollDice(combatRng, dice),
+    0,
+  );
   const result = landBlow({ sim, scheduler, book: threat, ledger }, player, target, damage);
 
   send(player.id, {

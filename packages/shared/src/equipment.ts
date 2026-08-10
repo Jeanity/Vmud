@@ -262,6 +262,18 @@ interface StarterEntry {
  * where a same-level fight lasts six to eight rounds, which is what `DESIGN-progression.md` §2 asks
  * for and what the flee threshold assumes.
  */
+/**
+ * The id every starter shield is minted under, whatever it is called.
+ *
+ * The paladin's kite shield and the cleric's round shield share it deliberately — the comment on
+ * the cleric's row says why, it draws through the mapping the paladin's already uses. Exported
+ * because it is now load-bearing beyond art: a starter shield has no vnum and therefore no
+ * catalogue template, so `DURIS_ITEM.shield` cannot be read off it, and this id is the only thing
+ * that says a new paladin is holding a shield rather than a lantern. See `shieldInHand` in the
+ * server, which is where a bash asks.
+ */
+export const STARTER_SHIELD_ID = 'shield';
+
 const STARTER_KIT: Readonly<Partial<Record<EquipSlot, readonly StarterEntry[]>>> = {
   mainHand: [
     { id: 'dagger', name: 'a notched iron dagger', acMin: 0, acMax: 1, size: 1, damage: { count: 2, sides: 4, bonus: 0 }, weaponClass: 2 },
