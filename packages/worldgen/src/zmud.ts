@@ -83,6 +83,8 @@ export interface WorldgenStats {
   portals: number;
   crossZone: number;
   dangling: number;
+  /** Exits whose two ends are the same room. See the drop in `loadWorld`. */
+  selfLinks: number;
   droppedDiagonal: number;
   droppedSpecial: number;
   duplicateDirection: number;
@@ -245,6 +247,7 @@ function build(
     portals: 0,
     crossZone: 0,
     dangling: 0,
+    selfLinks: 0,
     droppedDiagonal: 0,
     droppedSpecial: 0,
     duplicateDirection: 0,
@@ -320,6 +323,16 @@ function build(
     }
     if (e.FromID === null || e.ToID === null) {
       stats.dangling++;
+      continue;
+    }
+    // **A room does not lead to itself.** The mapper records these — 12 in the shipped world, found
+    // 2026-08-10 while auditing every portal in the game — and each one is a listed exit that puts
+    // you back exactly where you stood. Worse, the layout pass cannot make a self-link geometric,
+    // so each was marked a *portal*: a rendered doorway inviting a player to use nothing. Dropped
+    // rather than kept, on the same argument as a diagonal or a duplicate direction: the game
+    // cannot express it, so the honest thing is to say so and count it.
+    if (e.FromID === e.ToID) {
+      stats.selfLinks++;
       continue;
     }
     const fromCell = cellOf.get(e.FromID);

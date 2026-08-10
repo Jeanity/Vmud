@@ -133,6 +133,7 @@ function report(stats: WorldgenStats): void {
   line('special ("enter x")', stats.droppedSpecial);
   line('duplicate direction', stats.duplicateDirection);
   line('dangling', stats.dangling);
+  line('leads to itself', stats.selfLinks);
   line('rooms w/o zone', stats.roomsSkippedNoZone);
   line('rooms w/o coords', stats.roomsSkippedNoCoords);
   line('cell collisions', stats.cellCollisions);
