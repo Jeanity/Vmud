@@ -287,7 +287,12 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * `identity` (race, class, the six scores — the sheet shows numbers; the roll showed words) and
  * {@link CharacterSummary} gains `race`/`class`, so the picker can say what a body is.
  *
- * Is 29: **the artless row gets its silhouette.** `BagRow` gains `icon` — the ground taxonomy's
+ * Is 30: **the guildmaster's mark.** `EntityView` gains `trainer` beside `keeper` — the gold `%`
+ * over a teacher's head and the *Train* menu row, protocol 28's argument for the third badge: a
+ * body that offers something is told apart before you click it. Trainers are deliberately **not**
+ * untouchable — a guildmaster is classically a fight you may pick and lose.
+ *
+ * Was 29: **the artless row gets its silhouette.** `BagRow` gains `icon` — the ground taxonomy's
  * own key (`item_flask`, `item_scroll`, …) for a row whose item has no authored art, so the bag can
  * draw the same category shape the floor has always drawn. Found when the potion recall stripped
  * 364 shield-dressed potions back to honest artlessness and their bag rows went blank: the floor
@@ -321,7 +326,7 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * is `paint`'s existing colour-code renderer that tells them apart on screen, not a `.ch-*` rule
  * like the six before them carry.
  */
-export const PROTOCOL_VERSION = 29;
+export const PROTOCOL_VERSION = 30;
 
 /**
  * One member of your group, as the roster draws them — protocol 19.

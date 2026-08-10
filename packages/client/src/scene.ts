@@ -1000,6 +1000,8 @@ interface Entity {
   quest: Phaser.GameObjects.Text | undefined;
   /** The gold `$` over a shopkeeper — protocol 28, the owner's ask for an indicator. */
   merchant: Phaser.GameObjects.Text | undefined;
+  /** The gold `%` over a guildmaster — protocol 30. */
+  trainerMark: Phaser.GameObjects.Text | undefined;
   /**
    * The idle animation, held so it can be stopped when the entity is destroyed.
    *
@@ -2266,6 +2268,10 @@ export class WorldScene extends Phaser.Scene {
       if (view.keeper) {
         verbs.push({ label: 'List wares', run: () => this.net.send({ t: 'command', text: 'list' }) });
       }
+      // The teaching row — protocol 30, the same shape a third time.
+      if (view.trainer) {
+        verbs.push({ label: 'Train', run: () => this.net.send({ t: 'command', text: 'practice' }) });
+      }
       if (!view.untouchable) {
         verbs.push(...this.openersFor(view));
         // The ranged rows, same gate the revealed menu uses: offered only when the main hand can.
@@ -3467,6 +3473,20 @@ export class WorldScene extends Phaser.Scene {
           })
           .setOrigin(0.5, 1)
           .setVisible(false);
+    // The guildmaster's mark — protocol 30, the third of the family. Slides left when another badge
+    // holds the centre.
+    const trainerMark = isItem || isSelf
+      ? undefined
+      : this.add
+          .text(0, HEALTH_BAR_Y - 4, '%', {
+            fontFamily: 'Iosevka, Consolas, monospace',
+            fontSize: '14px',
+            color: '#e8c86a',
+            stroke: '#0b0d0a',
+            strokeThickness: 3,
+          })
+          .setOrigin(0.5, 1)
+          .setVisible(false);
     // **Bodies are named on screen; things on the floor are not** — owner's call, 2026-08-05:
     // *"maybe not show the name of the object. just the graphic. people can look at it to see what it
     // is."*
@@ -3501,6 +3521,7 @@ export class WorldScene extends Phaser.Scene {
     if (trough && health) parts.push(trough, health);
     if (questMark) parts.push(questMark);
     if (merchantMark) parts.push(merchantMark);
+    if (trainerMark) parts.push(trainerMark);
     if (label) parts.push(label);
     const container = this.add
       .container(view.x, view.y, parts)
@@ -3530,6 +3551,7 @@ export class WorldScene extends Phaser.Scene {
       healthTrough: trough,
       quest: questMark,
       merchant: merchantMark,
+      trainerMark,
       idle,
       x: view.x,
       y: view.y,
@@ -3811,6 +3833,8 @@ export class WorldScene extends Phaser.Scene {
     entity.quest?.setVisible(entity.view.questGiver === true);
     entity.merchant?.setVisible(entity.view.keeper === true);
     entity.merchant?.setX(entity.view.questGiver === true ? 10 : 0);
+    entity.trainerMark?.setVisible(entity.view.trainer === true);
+    entity.trainerMark?.setX(entity.view.questGiver === true || entity.view.keeper === true ? -10 : 0);
     const bar = entity.health;
     if (!bar) return;
     const fraction = Math.max(0, Math.min(1, entity.view.healthFraction ?? 1));

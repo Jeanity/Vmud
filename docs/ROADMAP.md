@@ -1432,6 +1432,14 @@ already prefers `resting`), four anchor shops on the live shop system, static ga
 
 #### Phase 24 — The guilds
 
+**Built 2026-08-10** — `practice.ts` transcribes `do_practice`: the cost curve ×100 into our
+copper (the sink the scrap-value economy wanted), +1 learned a lesson, the walls in the source's
+order with all four sassy refusals kept word for word. Trainers are a registry
+(`trainers-authored.json`, vnum → class): a hall teaches what `CLASS_SKILLS` grants its master's
+class, exactly as a Duris teacher's own table gated. The Guild Ward stands north of the square by
+portal — three halls, the wizards' stair going up, four level-50 masters (killable on purpose),
+protocol 30's `%` badge and *Train* row. Awaiting the owner's lesson at the warriors' yard.
+
 Trainers, transcribed from `guild.c`'s `do_practice`: the skills table already stores 0 as
 *training never happened* — a trainer is the thing that moves it, for coin, under the class
 ceilings that have gated verbs since Phase 21. The Guild Ward and the Mages' Tower interior are

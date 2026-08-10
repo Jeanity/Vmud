@@ -10,14 +10,26 @@
       "zone": 100001,
       "name": "The Great Crossing",
       "sector": "city",
-      "pos": { "x": 0, "y": 0, "z": 0 },
+      "pos": {
+        "x": 0,
+        "y": 0,
+        "z": 0
+      },
       "board": "velen-square",
       "description": "Two streets meet here and neither yields: the Spine runs gate to gate through the city's long axis, and the Cross Street cuts away toward the eastern wall. At the heart of the crossing an old stone fountain mutters to itself, and beside it a broad noticeboard stands bolted to a plinth of grey granite - the place the city says what it needs said. The flagstones are worn into shallow troughs by feet that had somewhere to be.",
       "exits": {
-        "north": { "to": 100001001 },
-        "south": { "to": 100001002 },
-        "west": { "to": 100001003 },
-        "east": { "to": 100001004 }
+        "north": {
+          "to": 100001001
+        },
+        "south": {
+          "to": 100001002
+        },
+        "west": {
+          "to": 100001003
+        },
+        "east": {
+          "to": 100001004
+        }
       },
       "extras": [
         {
@@ -35,10 +47,20 @@
       "zone": 100001,
       "name": "The Spine, North of the Crossing",
       "sector": "city",
-      "pos": { "x": 0, "y": -1, "z": 0 },
+      "pos": {
+        "x": 0,
+        "y": -1,
+        "z": 0
+      },
       "description": "The city's long street runs north from the crossing, wide enough for two carts and argued over by more. The buildings lean in politely - shopfronts below, shuttered rooms above - and far ahead the street narrows toward where the North Gate will stand watch. The smell of the harbour arrives from behind you in gusts, as if it too were headed somewhere.",
       "exits": {
-        "south": { "to": 100001000 }
+        "south": {
+          "to": 100001000
+        },
+        "north": {
+          "to": 100003000,
+          "portal": true
+        }
       }
     },
     {
@@ -46,10 +68,16 @@
       "zone": 100001,
       "name": "The Spine, South of the Crossing",
       "sector": "city",
-      "pos": { "x": 0, "y": 1, "z": 0 },
+      "pos": {
+        "x": 0,
+        "y": 1,
+        "z": 0
+      },
       "description": "South of the crossing the Spine loses a little of its polish with every stride - the flagstones sit less evenly, and the gutters run with more opinion. Temple Row lies somewhere down this way, and past it the South Gate; the street seems in no hurry to reach either.",
       "exits": {
-        "north": { "to": 100001000 }
+        "north": {
+          "to": 100001000
+        }
       }
     },
     {
@@ -57,11 +85,24 @@
       "zone": 100001,
       "name": "The Cross Street, West of the Crossing",
       "sector": "city",
-      "pos": { "x": -1, "y": 0, "z": 0 },
+      "pos": {
+        "x": -1,
+        "y": 0,
+        "z": 0
+      },
       "description": "The Cross Street runs west toward the water, and the water makes itself known long before it could be seen: gull-cry, tar, wet rope, and the particular shout of people loading things onto other things. On the north side stands the Anchor & Anvil, its sign a ship's anchor laid across a smith's anvil, its door in the habit of being open.",
       "exits": {
-        "east": { "to": 100001000 },
-        "north": { "to": 100001005, "door": { "name": "the inn door", "closed": false, "locked": false } }
+        "east": {
+          "to": 100001000
+        },
+        "north": {
+          "to": 100001005,
+          "door": {
+            "name": "the inn door",
+            "closed": false,
+            "locked": false
+          }
+        }
       }
     },
     {
@@ -69,10 +110,16 @@
       "zone": 100001,
       "name": "The Cross Street, East of the Crossing",
       "sector": "city",
-      "pos": { "x": 1, "y": 0, "z": 0 },
+      "pos": {
+        "x": 1,
+        "y": 0,
+        "z": 0
+      },
       "description": "East of the crossing the street straightens its back and heads for the wall with visible purpose - this is the road the caravans use, and the ruts in the stone are theirs. Market stalls will crowd this stretch one day; for now the street holds its breath, and the East Gate waits somewhere beyond.",
       "exits": {
-        "west": { "to": 100001000 }
+        "west": {
+          "to": 100001000
+        }
       }
     },
     {
@@ -80,11 +127,25 @@
       "zone": 100001,
       "name": "The Anchor & Anvil, Common Room",
       "sector": "inside",
-      "pos": { "x": -1, "y": -1, "z": 0 },
-      "flags": ["indoors", "inn"],
+      "pos": {
+        "x": -1,
+        "y": -1,
+        "z": 0
+      },
+      "flags": [
+        "indoors",
+        "inn"
+      ],
       "description": "Low beams, long tables, and a fire that has opinions about the weather. The Anchor & Anvil serves the crossing's traffic - sailors up from the docks, smiths down from their forges, and travellers who cannot yet tell the two apart. The boards of the floor are scrubbed pale, and the landlord's chalkboard promises beds upstairs in a hand that brooks no argument.",
       "exits": {
-        "south": { "to": 100001003, "door": { "name": "the inn door", "closed": false, "locked": false } }
+        "south": {
+          "to": 100001003,
+          "door": {
+            "name": "the inn door",
+            "closed": false,
+            "locked": false
+          }
+        }
       },
       "extras": [
         {

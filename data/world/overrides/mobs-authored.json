@@ -1,5 +1,5 @@
 {
- "next": 9000060,
+ "next": 9000064,
  "mobs": {
   "9000005": {
    "vnum": 9000005,
@@ -2440,6 +2440,182 @@
    "wimpyAt": 0,
    "at": "2026-08-10T00:00:00.000Z",
    "by": "phase-23"
+  },
+  "9000060": {
+   "vnum": 9000060,
+   "keywords": [
+    "harrow",
+    "captain",
+    "guildmaster",
+    "master"
+   ],
+   "name": "Captain Harrow, master of the shield",
+   "room": "Captain Harrow leans on a scarred pell, finding your stance wanting.",
+   "level": 50,
+   "hp": "50d10+800",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2000,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 0,
+    "damage": {
+     "count": 4,
+     "sides": 10,
+     "bonus": 10
+    },
+    "attackBonus": 10,
+    "roundMs": 3000
+   },
+   "experience": 250000,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-24"
+  },
+  "9000061": {
+   "vnum": 9000061,
+   "keywords": [
+    "vex",
+    "silence",
+    "guildmaster",
+    "master"
+   ],
+   "name": "Silence Vex",
+   "room": "Someone is here. You are nearly sure of it.",
+   "level": 50,
+   "hp": "50d10+800",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2000,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 0,
+    "damage": {
+     "count": 4,
+     "sides": 10,
+     "bonus": 10
+    },
+    "attackBonus": 10,
+    "roundMs": 3000
+   },
+   "experience": 250000,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-24"
+  },
+  "9000062": {
+   "vnum": 9000062,
+   "keywords": [
+    "aldwen",
+    "mother",
+    "guildmaster",
+    "master"
+   ],
+   "name": "Mother Aldwen of the Dawn",
+   "room": "Mother Aldwen sits by the lectern, waiting for the question you came with.",
+   "level": 50,
+   "hp": "50d10+800",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2000,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 0,
+    "damage": {
+     "count": 4,
+     "sides": 10,
+     "bonus": 10
+    },
+    "attackBonus": 10,
+    "roundMs": 3000
+   },
+   "experience": 250000,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-24"
+  },
+  "9000063": {
+   "vnum": 9000063,
+   "keywords": [
+    "zephrane",
+    "grey",
+    "guildmaster",
+    "master"
+   ],
+   "name": "Zephrane the Grey",
+   "room": "Zephrane the Grey stands at the slit window, watching the city think.",
+   "level": 50,
+   "hp": "50d10+800",
+   "sprite": "human",
+   "aggro": {
+    "disposition": "passive",
+    "clauses": [],
+    "reactionMs": 2000,
+    "remembers": false,
+    "sentinel": true,
+    "assists": false
+   },
+   "pursuit": {
+    "tier": "sentinel",
+    "trackRooms": 0,
+    "giveUpMs": 0,
+    "respectsSafeRooms": true,
+    "staysInZone": true,
+    "opensDoors": false
+   },
+   "combat": {
+    "armourClass": 0,
+    "damage": {
+     "count": 4,
+     "sides": 10,
+     "bonus": 10
+    },
+    "attackBonus": 10,
+    "roundMs": 3000
+   },
+   "experience": 250000,
+   "wimpyAt": 0,
+   "at": "2026-08-10T00:00:00.000Z",
+   "by": "phase-24"
   }
  }
 }

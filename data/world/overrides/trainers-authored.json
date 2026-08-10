@@ -1,0 +1,18 @@
+[
+ {
+  "vnum": 9000060,
+  "class": "warrior"
+ },
+ {
+  "vnum": 9000061,
+  "class": "rogue"
+ },
+ {
+  "vnum": 9000062,
+  "class": "cleric"
+ },
+ {
+  "vnum": 9000063,
+  "class": "sorcerer"
+ }
+]

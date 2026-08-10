@@ -16,7 +16,7 @@
  * Both gates apply, and they apply to different things, which is why they are computed separately.
  */
 
-import { createReadStream, existsSync } from 'node:fs';
+import { createReadStream, existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -155,6 +155,7 @@ import {
   describeContainer,
   describePurse,
   purseFromValue,
+  purseValue,
   spendCoins,
   stripColour,
   instantiate,
@@ -337,6 +338,7 @@ import {
   type Ground,
 } from './ground.ts';
 import { boardListing, boardMessage, loadBoards } from './boards.ts';
+import { practiceCost, practiceRefusal, practiceSlate } from './practice.ts';
 import { loadSettings, saveSettings, type WorldSettings } from './settings.ts';
 import { attemptFlee, type FleeOutcome } from './flee.ts';
 import { markPursuers, pursuitTarget } from './pursue.ts';
@@ -422,7 +424,7 @@ import {
 import { buildPlaceGraph } from './placegraph.ts';
 import { AUTHORED_ROOMS_FILE, saveAuthoredRooms } from './room-authoring.ts';
 import { AUTHORED_ZONES_FILE } from './zone-authoring.ts';
-import { GameWorld, placeOf } from './world.ts';
+import { GameWorld, WORLD_DIR, placeOf } from './world.ts';
 
 /**
  * Deliberately `GAME_PORT` and not `PORT`.
@@ -536,6 +538,27 @@ const itemCatalogue = loadItemCatalogue();
 const shopsByKeeper = loadShops();
 // Phase 23: the authored anchors lie over the harvest — same loader, same tolerance, second word.
 for (const [keeper, shop] of loadShops(AUTHORED_SHOPS_FILE)) shopsByKeeper.set(keeper, shop);
+
+/**
+ * The guildmasters — Phase 24. A registry file rather than a mob field, `shops-authored.json`'s
+ * argument one door down: which mob teaches which class is content beside the mob, not a stat on
+ * it, and a file of pairs needs no loader surgery. The class decides everything a Duris teacher's
+ * own skill table decided: what the hall may teach is what `CLASS_SKILLS` grants that class.
+ */
+const TRAINERS_FILE = join(WORLD_DIR, 'overrides', 'trainers-authored.json');
+const trainersByVnum = new Map<number, ClassId>();
+try {
+  const raw = JSON.parse(readFileSync(TRAINERS_FILE, 'utf8')) as { vnum?: unknown; class?: unknown }[];
+  if (Array.isArray(raw)) {
+    for (const row of raw) {
+      if (typeof row?.vnum === 'number' && typeof row.class === 'string' && isClassId(row.class)) {
+        trainersByVnum.set(row.vnum, row.class);
+      }
+    }
+  }
+} catch {
+  /* no guilds authored yet — the ordinary state of a world without a city */
+}
 
 /**
  * A6: the authored overlay, composed over the harvest — and the pristine copies that make a revert
@@ -1123,6 +1146,7 @@ function seedQuestGivers(): { givers: Set<number>; protectedGivers: Set<number> 
 }
 seedQuestGivers();
 sim.setKeepers(shopsByKeeper.keys());
+sim.setTrainers(trainersByVnum.keys());
 
 /** Auth failures one socket may accrue before it is closed. A budget for typos, not dictionaries. */
 const AUTH_ATTEMPT_BUDGET = 5;
@@ -6976,6 +7000,7 @@ function runCommand(player: Player, line: string): void {
     case 'eat': return doEat(player, rest);
     // One line in the source: reading is looking at an extra description. Room, worn, bag, ground.
     case 'read': return doRead(player, rest);
+    case 'practice': return doPractice(player, rest);
     // Never destroys on this pass: an unconfirmed junk arms the question and returns.
     case 'junk': return junkFromBag(player, rest, false);
     case 'wear': return wearFromBag(player, rest);
@@ -8835,6 +8860,91 @@ function stockWords(template: ItemTemplate): readonly string[] {
 /** What the keeper says, in the keeper's voice — the same shape `say` uses so it reads as a person. */
 function keeperSays(player: Player, mob: Mob, text: string): void {
   send(player.id, { t: 'log', channel: 'say', text: `${capitalise(mob.name)} says, '${text}'` });
+}
+
+/** The guildmaster standing in your room, or nothing — `FindTeacher`, against our registry. */
+function teacherFor(player: Player): { mob: Mob; classId: ClassId } | undefined {
+  for (const actor of sim.actorsIn(player.roomId)) {
+    if (!isMob(actor)) continue;
+    const classId = trainersByVnum.get(actor.vnum);
+    if (classId !== undefined) return { mob: actor, classId };
+  }
+  return undefined;
+}
+
+/**
+ * `practice` — Phase 24, `do_practice` on our seams. Bare, it prints the hall's slate: every skill
+ * the teacher's class knows, with your standing and the price, or the source's own "(cannot
+ * practice)" for what your class may never hold. Named, it walks the refusal ladder in the
+ * source's order — the purse, twice your level, your ceiling, twice the teacher's level with its
+ * four sassy answers — and a lesson that survives them all costs the curve and pays **+1 learned**.
+ */
+function doPractice(player: Player, rest: string): void {
+  const here = teacherFor(player);
+  if (!here) {
+    send(player.id, { t: 'log', channel: 'error', text: 'There is no one here to teach you.' });
+    return;
+  }
+  const classId = classOf(player);
+  const effective = (skill: SkillId): number => learnedAt(player.skills.get(skill), player.level, skill, classId);
+
+  const word = rest.trim().toLowerCase();
+  if (!word) {
+    const rows = practiceSlate(here.classId, { classId, level: player.level, learned: effective });
+    if (rows.length === 0) {
+      keeperSays(player, here.mob, 'This hall has nothing left to teach anyone.');
+      return;
+    }
+    send(player.id, { t: 'log', channel: 'system', text: `&+B${'Skill'.padEnd(18)} ${'You'.padEnd(9)}Cost of Teachings&N` });
+    for (const row of rows) {
+      const name = SKILLS[row.skill].name.padEnd(18);
+      const standing = `${row.learned}/${row.ceiling}`.padEnd(9);
+      const price = row.cost === undefined ? '(cannot practice)' : stripColour(describePurse(purseFromValue(row.cost)));
+      send(player.id, { t: 'log', channel: 'system', text: `${name} ${standing}${price}` });
+    }
+    return;
+  }
+
+  // Exact id or display-name match first, then prefix — the source's own two-pass search, which it
+  // grew after `guard` kept reaching "guardian spirits".
+  const match =
+    SKILL_IDS.find((id) => id === word || SKILLS[id].name.toLowerCase() === word) ??
+    SKILL_IDS.find((id) => SKILLS[id].name.toLowerCase().startsWith(word) || id.startsWith(word));
+  if (!match) {
+    send(player.id, { t: 'log', channel: 'error', text: `No skill called "${rest.trim()}" is taught anywhere.` });
+    return;
+  }
+  if (ceilingFor(match, here.classId) <= 0) {
+    keeperSays(player, here.mob, 'That is not something I can teach you.');
+    return;
+  }
+
+  const learned = effective(match);
+  const ceiling = classId ? ceilingFor(match, classId, player.level) : 0;
+  const cost = practiceCost(learned);
+  const refusal = practiceRefusal(
+    {
+      learned,
+      ceiling,
+      studentLevel: player.level,
+      teacherLevel: here.mob.level,
+      canAfford: purseValue(player.purse) >= cost,
+    },
+    randomInt(spawnRng, 1, 4),
+  );
+  if (refusal) {
+    keeperSays(player, here.mob, refusal);
+    return;
+  }
+
+  const paid = spendCoins(player.purse, cost);
+  if (!paid) {
+    keeperSays(player, here.mob, "Sorry, boss, but I'm afraid you cannot afford the training.");
+    return;
+  }
+  player.purse = paid;
+  player.skills.set(match, learned + 1);
+  send(player.id, { t: 'log', channel: 'system', text: `You practice '${SKILLS[match].name}' for a while...` });
 }
 
 /** `list` — what is on the shelf, and what each costs *you*. */

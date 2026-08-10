@@ -197,6 +197,10 @@ export const COMMANDS = [
   // `lo` are look, and nothing above reaches a third letter.
   'quit',
   'logout',
+  // Phase 24 — the guilds. `put` sits above, so `p` and `pu` stay the bag's; `pr` is the shortest
+  // path to the guildmaster, and `prac` — the word every Diku player actually types — arrives as a
+  // prefix for free.
+  'practice',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -466,6 +470,8 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   // `CMD_Y(CMD_QUIT, STAT_RESTING + POS_PRONE, ...)` in spirit: you may leave the world from your
   // bedroll, and never mid-fight — quitting out of a losing exchange would make every death optional.
   quit: { status: 'resting', posture: 'prone', inCombat: false },
+  // Phase 24. A lesson wants a conscious student and no drawn blade; a seat in the hall is fine.
+  practice: { status: 'resting', posture: 'prone', inCombat: false },
   logout: { status: 'resting', posture: 'prone', inCombat: false },
 };
 

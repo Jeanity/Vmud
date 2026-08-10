@@ -2137,6 +2137,13 @@ export class Simulation {
     this.keepers = new Set(vnums);
   }
 
+  /** Trainer vnums for the view's `%` badge — protocol 30. Not folded into `untouchable`: a guildmaster may be fought. */
+  private trainers = new Set<number>();
+
+  setTrainers(vnums: Iterable<number>): void {
+    this.trainers = new Set(vnums);
+  }
+
   /**
    * How one actor appears to somebody else — players and mobs through the same function.
    *
@@ -2152,6 +2159,7 @@ export class Simulation {
       kind: actor.kind,
       ...(isMob(actor) && this.questGivers.has(actor.vnum) ? { questGiver: true as const } : {}),
       ...(isMob(actor) && this.keepers.has(actor.vnum) ? { keeper: true as const } : {}),
+      ...(isMob(actor) && this.trainers.has(actor.vnum) ? { trainer: true as const } : {}),
       ...(isMob(actor) && (this.protectedGivers.has(actor.vnum) || this.keepers.has(actor.vnum))
         ? { untouchable: true as const }
         : {}),
