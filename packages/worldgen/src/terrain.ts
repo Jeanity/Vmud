@@ -45,7 +45,29 @@ interface Rule {
 
 /**
  * Ordered most-specific first — the first match wins. Interior and structural words come before
- * landscape words, because "the forest temple" is an interior, not a forest.
+ * everything else, because "the forest temple" is an interior, not a forest.
+ *
+ * **Landscape words come before road and city, and this ordering was wrong until 2026-08-11.** The
+ * table used to read water, cave, inside, *road, city*, fortifications, then the landscape words —
+ * so `/\b(road|...|path|...)\b/i` fired on "A Forest Path" before `/\bforest\b/i` ever got a turn,
+ * and the room came out `road`. Swept the built world for names carrying both a landscape word and a
+ * road/city word: **444 distinct room names** do, "A Dark Forest Path" and "A Path Through the Lizard
+ * Marsh" among them, and under the old order every one of them lost its biome. The fix reads
+ * `road`/`city` as *dressing on top of* a biome rather than a biome of their own: a path, trail or
+ * street is not a distinct kind of ground, it is a description of what someone built across one, so
+ * when a name carries both, the landscape word is the more specific claim about what is actually
+ * underfoot and now wins. City settlement words move with them for the same reason — "the market in
+ * the hills" is a hills room with a market in it before it is a city.
+ *
+ * **Known trade-off, accepted rather than special-cased:** of those 444 names, 7 use a structural
+ * word — `bridge`, `gate`, `pier`, `wharf`, `dock` — rather than a bare route word, e.g. "A Bridge of
+ * Ice" (now `arctic`, was `road`). A bridge is arguably infrastructure first regardless of what it
+ * crosses, which would argue for carving it out the way the fortification words below are carved out
+ * of `city`. Left alone here: 7 rooms is not enough signal to trust a carve-out over, and `-bridge`
+ * already outranks `-ridge` at the suffix tier below for the compound-name case, which is the one
+ * this project's own room names actually rely on ("Zundbridge"). If the harvest or a future survey
+ * turns up a real population of "X Bridge" rooms that should stay `road`, split `bridge` into its own
+ * rule ahead of the landscape block the way fortifications are split out of `city`.
  *
  * The mapper's own "(Water)" / "(No Ground)" annotations sit near the *bottom*: they are true but
  * generic, so "The Stump Bog (Water)" must hit `swamp` on its own name first and only an otherwise
@@ -66,6 +88,16 @@ const RULES: readonly Rule[] = [
     ],
   },
 
+  // Landscape/biome words — see the ordering note above for why these now sit ahead of road/city.
+  // Relative order among these seven is unchanged from before the fix; only their position moved.
+  { sector: 'swamp', patterns: [/\bswamp\b/i, /\bmarsh(land)?\b/i, /\bbog\b/i, /\bfen\b/i, /\bmire\b/i, /\bmoors?\b/i] },
+  { sector: 'desert', patterns: [/\bdesert\b/i, /\bdune(s)?\b/i, /\bsand(s|y)?\b/i, /\boasis\b/i, /\bwaste(land)?s?\b/i] },
+  { sector: 'arctic', patterns: [/\b(glacier|ice|icy|frozen|snow|tundra|frost|arctic)\b/i] },
+  { sector: 'mountain', patterns: [/\bmountain\b/i, /\bpeak\b/i, /\bsummit\b/i, /\bcliff\b/i, /\bledge\b/i, /\bcrag\b/i, /\bascent\b/i, /\bslope\b/i, /\bcanyon\b/i, /\bravine\b/i] },
+  { sector: 'hills', patterns: [/\bhill(s|side|top)?\b/i, /\bknoll\b/i, /\bridge\b/i, /\bfoothills\b/i, /\bdowns\b/i] },
+  { sector: 'forest', patterns: [/\b(forest|wood(s|land)?|grove|thicket|copse|jungle|glade|canopy|timber)\b/i, /\btrees?\b/i] },
+  { sector: 'field', patterns: [/\b(field|meadow|plain(s)?|grass(land|y)?|pasture|farm(land)?|clearing|steppe|prairie)\b/i] },
+
   { sector: 'road', patterns: [/\b(road|highway|trail|path|street|avenue|lane|bridge|causeway|alley|boulevard|way|ride)\b/i, /\bgate(house|way)?\b/i] },
   { sector: 'city', patterns: [/\b(city|town|village|market(place)?|square|plaza|courtyard|dock|wharf|pier|port|bazaar|walls?)\b/i] },
   /**
@@ -76,14 +108,6 @@ const RULES: readonly Rule[] = [
    * "Castle Road" is still a road, because those rules fire first.
    */
   { sector: 'inside', patterns: [/\b(castle|keep|fort(ress)?|tower|citadel)\b/i] },
-
-  { sector: 'swamp', patterns: [/\bswamp\b/i, /\bmarsh(land)?\b/i, /\bbog\b/i, /\bfen\b/i, /\bmire\b/i, /\bmoors?\b/i] },
-  { sector: 'desert', patterns: [/\bdesert\b/i, /\bdune(s)?\b/i, /\bsand(s|y)?\b/i, /\boasis\b/i, /\bwaste(land)?s?\b/i] },
-  { sector: 'arctic', patterns: [/\b(glacier|ice|icy|frozen|snow|tundra|frost|arctic)\b/i] },
-  { sector: 'mountain', patterns: [/\bmountain\b/i, /\bpeak\b/i, /\bsummit\b/i, /\bcliff\b/i, /\bledge\b/i, /\bcrag\b/i, /\bascent\b/i, /\bslope\b/i, /\bcanyon\b/i, /\bravine\b/i] },
-  { sector: 'hills', patterns: [/\bhill(s|side|top)?\b/i, /\bknoll\b/i, /\bridge\b/i, /\bfoothills\b/i, /\bdowns\b/i] },
-  { sector: 'forest', patterns: [/\b(forest|wood(s|land)?|grove|thicket|copse|jungle|glade|canopy|timber)\b/i, /\btrees?\b/i] },
-  { sector: 'field', patterns: [/\b(field|meadow|plain(s)?|grass(land|y)?|pasture|farm(land)?|clearing|steppe|prairie)\b/i] },
 
   /**
    * Passages, below every landscape word, so "A Mountain Passage" is a mountain and "A Forest
@@ -111,15 +135,28 @@ const RULES: readonly Rule[] = [
  * Each entry requires a stem of at least {@link MIN_STEM} letters, so the bare word never matches
  * here — "the Port" is the word tier's business; this tier exists for "Skullport". `-ton` is
  * deliberately missing however tempting the place-names are: "skeleton" ends in it.
+ *
+ * **`-shire`, `-fell` and `-holt` measure zero hits in the current 46,508-room build** — swept the
+ * built world the same way as `-wood` (18 distinct tokens) and `-moor` (1: "Evermoor") below, and
+ * came back empty for all three. Added anyway, because M1's brief lists them by name and a rule that
+ * costs nothing today is cheap insurance against the next Duris drop or authored zone that uses one.
+ * Sectors picked by ordinary toponymy rather than measurement, same as any other rule here before a
+ * survey gives it evidence: `-holt` is Old English for a small wood or copse (compare "Northolt") —
+ * `forest`. `-fell` is high open moorland, the Lake District sense ("Scafell"), walkable ground
+ * rather than a sheer peak — `hills`, alongside `-ridge`. `-shire` is administered countryside, not
+ * a dense settlement — `field`, alongside `-dale`/`-vale`. All three keep {@link MIN_STEM}'s stem
+ * requirement, and none collides with an existing suffix or a common English word at that length
+ * (checked by hand: nothing plausible ends "-shire"/"-fell"/"-holt" at 7+ letters the way "office"
+ * ends "-ice").
  */
 const SUFFIX_RULES: readonly { readonly sector: Sector; readonly suffixes: readonly string[] }[] = [
   { sector: 'road', suffixes: ['bridge', 'way'] },
-  { sector: 'forest', suffixes: ['woods', 'wood', 'trees', 'tree', 'glen'] },
+  { sector: 'forest', suffixes: ['woods', 'wood', 'trees', 'tree', 'glen', 'holt'] },
   { sector: 'swamp', suffixes: ['moors', 'moor', 'marsh', 'bog', 'fen', 'mire'] },
   { sector: 'city', suffixes: ['port', 'haven', 'burgh', 'burg', 'town'] },
   { sector: 'mountain', suffixes: ['crag', 'peak'] },
-  { sector: 'hills', suffixes: ['ridge'] },
-  { sector: 'field', suffixes: ['dale', 'vale'] },
+  { sector: 'hills', suffixes: ['ridge', 'fell'] },
+  { sector: 'field', suffixes: ['dale', 'vale', 'shire'] },
 ];
 
 const MIN_STEM = 3;

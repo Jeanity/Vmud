@@ -29,6 +29,7 @@ import {
 } from './mobs.ts';
 import { buildCatalogue } from './objects.ts';
 import { loadShops } from './shops.ts';
+import type { TerrainSource } from './terrain.ts';
 import { loadWorld, type WorldgenStats } from './zmud.ts';
 
 /** What the catalogue turned out to be, for the build report. */
@@ -232,6 +233,212 @@ function reportDiffusion(
 }
 
 /**
+ * Whether the zone-name fallback (`source: 'zone'` / `'zone-suffix'`) should block diffusion from
+ * overwriting a room, the way a room-level guess does — M1's brief left this an explicit judgement
+ * call. Answered empirically rather than by feel, with the same held-out method `reportDiffusion`'s
+ * validation above already uses for the `default` tier: find rooms where the zone-tier guess and an
+ * independent Duris answer both exist, and score "keep the zone guess" against "ask the neighbours
+ * instead" on the same 693 held-out rooms.
+ *
+ * **Measured 2026-08-11: keeping the zone guess scores 48.1% exact / 48.1% harvest-compatible; asking
+ * the neighbours scores 65.5% / 69.4%.** A zone-only guess is not a strong claim about one room, it is
+ * the zone's average character, and a specific neighbour vote beats the average often enough that the
+ * mission's "or, if you judge it honest" clause is exercised here: `seeds` below is room/room-suffix
+ * only. This function reruns the same comparison on every build — a live number in the report, not a
+ * comment that can go stale — rather than trusting the one-off measurement forever.
+ */
+function reportZoneTierPolicy(
+  preHarvestZones: readonly Zone[],
+  harvestedZones: readonly Zone[],
+  sources: ReadonlyMap<RoomId, TerrainSource>,
+  harvested: HarvestResult,
+  roomTierSeeds: ReadonlySet<RoomId>,
+): void {
+  const heldOut = [...harvested.sectored].filter((id) => {
+    const s = sources.get(id);
+    return s === 'zone' || s === 'zone-suffix';
+  });
+  if (heldOut.length === 0) return;
+
+  // Truth comes from the *harvested* zones — the sector the join actually settled on for a held-out
+  // room, which is what "keep" and "ask" are both being scored against.
+  const truth = new Map<RoomId, Zone['rooms'][number]['sector']>();
+  for (const zone of harvestedZones) for (const room of zone.rooms) truth.set(room.id, room.sector);
+
+  // "Keep the zone guess" reads the *pre-harvest* zones — the name rules' own answer, before harvest
+  // had a chance to overwrite it with the very truth being predicted. Reading this from
+  // `harvestedZones` instead would silently score the harvest against itself.
+  const zoneGuess = new Map<RoomId, Zone['rooms'][number]['sector']>();
+  for (const zone of preHarvestZones) for (const room of zone.rooms) zoneGuess.set(room.id, room.sector);
+
+  let keepAgree = 0;
+  let keepCompatible = 0;
+  for (const id of heldOut) {
+    const guess = zoneGuess.get(id)!;
+    const real = truth.get(id)!;
+    if (guess === real) keepAgree++;
+    if (harvestCompatible(guess, real)) keepCompatible++;
+  }
+
+  // "Ask the neighbours": withhold both the zone-tier guess and the held-out rooms' own harvest
+  // answer from seeding, diffuse over the *harvested* zones (so neighbours carry the best available
+  // evidence), and score what reaches the held-out rooms blind.
+  const heldOutSet = new Set(heldOut);
+  const blindSeeds = new Set<RoomId>(roomTierSeeds);
+  for (const id of harvested.sectored) if (!heldOutSet.has(id)) blindSeeds.add(id);
+  const blind = diffuseSectors(harvestedZones, blindSeeds);
+  const predicted = new Map<RoomId, Zone['rooms'][number]['sector']>();
+  for (const zone of blind.zones) for (const room of zone.rooms) predicted.set(room.id, room.sector);
+  let askAgree = 0;
+  let askCompatible = 0;
+  for (const id of heldOut) {
+    const guess = predicted.get(id)!;
+    const real = truth.get(id)!;
+    if (guess === real) askAgree++;
+    if (harvestCompatible(guess, real)) askCompatible++;
+  }
+
+  const pct = (n: number, d: number) => (d === 0 ? '0.0%' : `${((100 * n) / d).toFixed(1)}%`);
+  console.log(`\n  zone-tier seed policy, validated against ${heldOut.length} held-out rooms`);
+  console.log(
+    `    keep the zone guess:  ${pct(keepAgree, heldOut.length)} exact, ${pct(keepCompatible, heldOut.length)} compatible`,
+  );
+  console.log(
+    `    ask the neighbours:   ${pct(askAgree, heldOut.length)} exact, ${pct(askCompatible, heldOut.length)} compatible  <- policy in effect`,
+  );
+}
+
+/** Coarse, per-room label provenance across every stage of the pipeline — the M1 build report. */
+type ProvenanceBucket = 'name' | 'suffix' | 'zone' | 'harvest' | 'diffusion' | 'default';
+
+const PROVENANCE_BUCKETS: readonly ProvenanceBucket[] = ['name', 'suffix', 'zone', 'harvest', 'diffusion', 'default'];
+
+const zeroProvenance = (): Record<ProvenanceBucket, number> => ({
+  name: 0,
+  suffix: 0,
+  zone: 0,
+  harvest: 0,
+  diffusion: 0,
+  default: 0,
+});
+
+/**
+ * Merges every stage's evidence into one bucket per room. `TerrainSource`'s four non-default tiers
+ * collapse to three here — `'zone'` absorbs both `'zone'` and `'zone-suffix'`, because the
+ * word/compound distinction that matters at the room level (a suffix guess is weaker evidence, see
+ * `terrain.ts`) is no longer interesting once a room has already fallen through to its zone's name;
+ * the finer split stays available in the "terrain inferred" section above for anyone who wants it.
+ *
+ * Precedence where a room qualifies for more than one bucket: **harvest beats every name-rule tier**,
+ * because `sectored` means Duris pronounced on the room unambiguously (replaced, confirmed, or kept
+ * over Duris' own generic blind spot — see `duris.ts`), which is stronger evidence than a regex match
+ * even when the two happen to agree. **Diffusion only applies to rooms no seed claims** — by
+ * construction `reached` and `sectored` are disjoint, since harvested rooms are always seeds (see
+ * `main`), but the guard costs nothing and states the invariant rather than assuming it.
+ */
+function classifyProvenance(
+  sources: ReadonlyMap<RoomId, TerrainSource>,
+  sectored: ReadonlySet<RoomId> | undefined,
+  reached: ReadonlySet<RoomId>,
+): Map<RoomId, ProvenanceBucket> {
+  const out = new Map<RoomId, ProvenanceBucket>();
+  for (const [id, source] of sources) {
+    const bucket: ProvenanceBucket =
+      source === 'room' ? 'name' : source === 'room-suffix' ? 'suffix' : source === 'default' ? 'default' : 'zone';
+    out.set(id, bucket);
+  }
+  if (sectored) for (const id of sectored) out.set(id, 'harvest');
+  for (const id of reached) if (!sectored?.has(id)) out.set(id, 'diffusion');
+  return out;
+}
+
+interface ZoneProvenance {
+  readonly id: number;
+  readonly name: string;
+  readonly rooms: number;
+  readonly byBucket: Readonly<Record<ProvenanceBucket, number>>;
+}
+
+export interface ProvenanceReport {
+  readonly totalRooms: number;
+  readonly worldwide: Readonly<Record<ProvenanceBucket, number>>;
+  readonly zonesFullyDefaulted: number;
+  readonly zones: readonly ZoneProvenance[];
+}
+
+/**
+ * One row per zone plus the world-wide roll-up. Computed once and shared by the console report and
+ * the `terrain-report.json` sidecar (see `main`), so the two can never disagree about the numbers.
+ *
+ * Takes `zones` from *before* the authored-world merge deliberately: authored rooms are hand-placed,
+ * not inferred, so they carry no entry in `provenance` at all and are skipped (the `if (!bucket)
+ * continue` below) rather than miscounted as `default`. `main` calls this ahead of that merge for
+ * exactly this reason — see the call site.
+ *
+ * **This report's `default` count is not `reportDiffusion`'s `residual`, on purpose.** `residual` is
+ * "rooms diffusion could not reach", which — since M1 stopped treating a zone-tier guess as a
+ * protected seed — includes rooms that still carry a real, if weak, zone-level answer that simply had
+ * no neighbour to confirm or overrule it (bucketed `zone` here, not `default`). `default` here means
+ * *no evidence reached the room at all*, which is the honest reading of the M1 acceptance bar ("<2%
+ * defaulted"): a room resting on its zone's name is not undecided the way a room with no name-rule
+ * match and no reachable neighbour is. Concretely, in the 2026-08-11 build: `residual` is 148 rooms
+ * (0.3%), of which 54 are `zone`-bucket survivors and 94 are genuinely `default` (0.2%) — the second
+ * number is the one this milestone's bar is measured against.
+ */
+function buildProvenanceReport(zones: readonly Zone[], provenance: ReadonlyMap<RoomId, ProvenanceBucket>): ProvenanceReport {
+  const world = zeroProvenance();
+  let zonesFullyDefaulted = 0;
+  let totalRooms = 0;
+
+  const zoneReports: ZoneProvenance[] = [];
+  for (const zone of [...zones].sort((a, b) => a.id - b.id)) {
+    const counts = zeroProvenance();
+    for (const room of zone.rooms) {
+      const bucket = provenance.get(room.id);
+      if (!bucket) continue;
+      counts[bucket]++;
+      world[bucket]++;
+      totalRooms++;
+    }
+    if (zone.rooms.length > 0 && counts.default === zone.rooms.length) zonesFullyDefaulted++;
+    zoneReports.push({ id: zone.id, name: zone.name, rooms: zone.rooms.length, byBucket: counts });
+  }
+
+  return { totalRooms, worldwide: world, zonesFullyDefaulted, zones: zoneReports };
+}
+
+/**
+ * Prints {@link buildProvenanceReport}'s result: one line per zone, sorted by id, then the world-wide
+ * summary. Every zone rather than a top-N — `reportSpawns` below sets this precedent for a
+ * genuinely per-zone report, and a reviewer checking a *named* zone (the Nightwood, the Labyrinth, a
+ * Grid-UD-*) needs to find it by scanning for the id, not guess whether it survived a cutoff. Long,
+ * but this output is meant to be redirected and grepped like the rest of `npm run worldgen`.
+ */
+function reportSectorProvenance(report: ProvenanceReport): void {
+  const pct = (n: number, d: number) => (d === 0 ? '0.0%' : `${((100 * n) / d).toFixed(1)}%`);
+
+  console.log('\n  terrain provenance, by zone');
+  for (const zone of report.zones) {
+    const b = zone.byBucket;
+    const summary = PROVENANCE_BUCKETS.map((k) => `${k}=${b[k]}`).join(' ');
+    console.log(
+      `    zone ${String(zone.id).padStart(4)} ${zone.name.slice(0, 32).padEnd(32)} ` +
+        `${String(zone.rooms).padStart(5)} rooms — ${summary}  (defaulted ${pct(b.default, zone.rooms)})`,
+    );
+  }
+
+  console.log('\n  terrain provenance, world-wide');
+  for (const bucket of PROVENANCE_BUCKETS) {
+    const n = report.worldwide[bucket];
+    console.log(`    ${bucket.padEnd(12)}${String(n).padStart(7)}  (${pct(n, report.totalRooms)})`);
+  }
+  console.log(
+    `    zones fully defaulted: ${report.zonesFullyDefaulted} of ${report.zones.length}` +
+      `    world defaulted: ${pct(report.worldwide.default, report.totalRooms)}`,
+  );
+}
+
+/**
  * What the population harvest found, and — more usefully — what it lost.
  *
  * The drop rate is the number to read. A reset command whose room does not resolve is dropped rather than
@@ -338,22 +545,41 @@ function main(): void {
     console.log('\n  Duris harvest skipped (--no-duris).');
   }
 
-  // Diffusion runs last, over whatever the earlier stages left unlabelled: seeds are every room a
-  // name rule reached plus every room the harvest settled, and only the loader's defaults are
-  // filled in. Order matters — seeding from the harvest is what lets a matched zone's real terrain
-  // bleed into the unmatched rooms around it.
-  const nameSeeds = new Set<RoomId>();
-  for (const [id, source] of sources) if (source !== 'default') nameSeeds.add(id);
-  const seeds = new Set<RoomId>(nameSeeds);
+  // Diffusion runs last, over whatever the earlier stages left unlabelled. Seeds are every room
+  // whose *own name* yielded a sector, plus every room the harvest settled — a room whose own name
+  // gave nothing is never treated as evidence, even when that "nothing" is really "we fell back to
+  // the zone's name". See `reportZoneTierPolicy`'s docblock: keeping a zone-tier guess instead of
+  // asking the graph measures 48.1% accurate against 65.5-69.4% for asking, so `source: 'zone'` /
+  // `'zone-suffix'` rooms are *not* seeds here, on purpose — M1's "or, if you judge it honest" clause.
+  // Order matters — seeding from the harvest is what lets a matched zone's real terrain bleed into
+  // the unmatched rooms around it.
+  //
+  // Water safety, since a wrong `shallow_water`/`deep_water` majority is the one mistake that reads
+  // as a bug rather than an approximation: widening the target pool to include `zone`-tier rooms does
+  // not widen who gets to *vote*. A room only ever enters `labels` — and so only ever casts a vote —
+  // by being a seed (room/room-suffix name match, or harvest) or by being voted a label itself in an
+  // earlier round from the graph; the zone-tier guess a room *carried on entry* is never read as
+  // evidence by `diffuseSectors` (see `diffuse.ts`: non-seed rooms go straight into `unlabelled`,
+  // full stop, whatever sector they happen to hold). So a shoreline cannot flood inland any further
+  // under this policy than it already could under the old one — the only change is that more rooms
+  // are now *eligible to be corrected*, not that water can propagate through any new channel. The
+  // Great Harbor of Waterdeep (zone 105) is the concrete case: 44 rooms named for the harbor carried
+  // a zone-guessed `deep_water` that their real neighbours — mostly quays and warehouses — voted down
+  // to `city`/`inside`, which is the harbour district, not open water.
+  const roomTierSeeds = new Set<RoomId>();
+  for (const [id, source] of sources) if (source === 'room' || source === 'room-suffix') roomTierSeeds.add(id);
+  const seeds = new Set<RoomId>(roomTierSeeds);
   if (harvested) for (const id of harvested.sectored) seeds.add(id);
 
-  // The held-out check: rooms Duris settled that the name rules defaulted are re-predicted from
-  // name seeds alone, on the pre-harvest zones, and compared against what Duris actually said.
+  // The held-out check: rooms Duris settled that the name rules defaulted entirely are re-predicted
+  // from room-tier seeds alone, on the pre-harvest zones, and compared against what Duris actually
+  // said. (Re-reads `sources.get(id) === 'default'` rather than "not a seed", because a zone-tier
+  // room is no longer a seed either and is not what this specific check is about — see the next one.)
   let validation: { n: number; agreed: number; compatible: number } | undefined;
   if (harvested) {
     const heldOut = [...harvested.sectored].filter((id) => sources.get(id) === 'default');
     if (heldOut.length > 0) {
-      const blind = diffuseSectors(world.zones, nameSeeds);
+      const blind = diffuseSectors(world.zones, roomTierSeeds);
       const truth = new Map<RoomId, Zone['rooms'][number]['sector']>();
       for (const zone of zones) for (const room of zone.rooms) truth.set(room.id, room.sector);
       const predicted = new Map<RoomId, Zone['rooms'][number]['sector']>();
@@ -370,10 +596,23 @@ function main(): void {
     }
   }
 
-  const defaultedBefore = stats.rooms - nameSeeds.size;
+  const defaultedBefore = stats.sectorSources['default'] ?? 0;
   const diffused = diffuseSectors(zones, seeds);
   zones = diffused.zones;
   reportDiffusion(diffused, stats.rooms, defaultedBefore, validation);
+  if (harvested) reportZoneTierPolicy(world.zones, harvested.zones, sources, harvested, roomTierSeeds);
+
+  // The M1 provenance report: merges name-rule tier, harvest and diffusion into one bucket per room
+  // and prints it per zone plus world-wide. Computed from `zones` *before* the authored-world merge
+  // further down — see `buildProvenanceReport`'s docblock for why — so it runs here, right after the
+  // stage it is reporting on, rather than at the end with the other file writes.
+  const provenance = classifyProvenance(sources, harvested?.sectored, diffused.reached);
+  const provenanceReport = buildProvenanceReport(zones, provenance);
+  reportSectorProvenance(provenanceReport);
+  if (!args.statsOnly) {
+    mkdirSync(args.out, { recursive: true });
+    writeFileSync(join(args.out, 'terrain-report.json'), JSON.stringify(provenanceReport, null, 2));
+  }
 
   // Population, last: it needs the *final* zones. Diffusion can rewrite a sector but never a name, so in
   // practice the order is free — but taking it last means the room ids written into a reset table are

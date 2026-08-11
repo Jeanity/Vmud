@@ -231,4 +231,33 @@ describe('bookkeeping', () => {
     assert.equal(stats.rounds, 0);
     assert.equal(zones[0]!.rooms[0], world[0]!.rooms[0]);
   });
+
+  it('reports `reached` as exactly the filled rooms, by id, whether or not the object changed', () => {
+    // Room 11 enters unlabelled carrying 'field' (as any non-seed room the loader defaulted would),
+    // and its only neighbour votes 'field' too — so the vote and the prior value agree, the output
+    // object is untouched by identity (see the test above), and reference equality would miss it.
+    // `reached` must not: a caller attributing per-room provenance from *this* set rather than object
+    // identity is the whole reason it exists.
+    const world = [zone(1, [
+      { id: 10, sector: 'field', east: 11 },
+      { id: 11, sector: 'field' },
+    ])];
+    const { zones, reached } = diffuseSectors(world, seeds(10));
+    assert.equal(zones[0]!.rooms[1], world[0]!.rooms[1], 'object identity says unchanged');
+    assert.equal(sectorOf(zones, 11), 'field');
+    assert.ok(reached.has(11), 'but the room was still reached and voted on');
+    assert.equal(reached.size, 1);
+  });
+
+  it('sizes `reached` to exactly stats.filled', () => {
+    const world = [zone(1, [
+      { id: 10, sector: 'forest', east: 11 },
+      { id: 11, sector: 'field', east: 12 },
+      { id: 12, sector: 'field' },
+      { id: 13, sector: 'field' }, // no exits at all: unreachable, must not appear in `reached`
+    ])];
+    const { stats, reached } = diffuseSectors(world, seeds(10));
+    assert.equal(reached.size, stats.filled);
+    assert.equal(reached.has(13), false);
+  });
 });

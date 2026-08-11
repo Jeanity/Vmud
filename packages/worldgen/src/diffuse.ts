@@ -53,6 +53,21 @@ export interface DiffusionStats {
 export interface DiffusionResult {
   readonly zones: readonly Zone[];
   readonly stats: DiffusionStats;
+  /**
+   * Every room a label reached, seeds excluded — `stats.filled` is this set's size, exposed per-room
+   * for callers that need to know *which* rooms diffusion actually decided (the M1 build report's
+   * per-zone breakdown, and its regression tests).
+   *
+   * **Not the same as "the room object changed".** A room can enter unlabelled, get voted a sector
+   * that happens to equal the value it already carried (its zone-tier guess agreeing with its
+   * neighbours, say), and come out of {@link diffuseSectors} as the *same object reference* — see
+   * "reuses room objects it did not change" in `diffuse.test.ts`. Reference identity would silently
+   * undercount exactly the rooms where diffusion and the prior guess agree, which is not a rare edge
+   * case: `field` alone is common enough that a defaulted room voted back to `field` by its neighbours
+   * is a real, non-negligible shape. This set is built from the vote itself, not from the output
+   * objects, so it is exact regardless of whether the label changed anything visible.
+   */
+  readonly reached: ReadonlySet<RoomId>;
 }
 
 /**
@@ -108,6 +123,7 @@ export function diffuseSectors(zones: readonly Zone[], seeds: ReadonlySet<RoomId
   let open = unlabelled;
   let rounds = 0;
   const filledBySector: Record<string, number> = {};
+  const reached = new Set<RoomId>();
 
   while (open.length > 0) {
     // Votes are collected against the labels as they stood at the top of the round and committed
@@ -134,6 +150,7 @@ export function diffuseSectors(zones: readonly Zone[], seeds: ReadonlySet<RoomId
     if (assigned.length === 0) break; // only unreachable rooms remain
     for (const [id, sector] of assigned) {
       labels.set(id, sector);
+      reached.add(id);
       filledBySector[sector] = (filledBySector[sector] ?? 0) + 1;
     }
     open = still;
@@ -150,6 +167,7 @@ export function diffuseSectors(zones: readonly Zone[], seeds: ReadonlySet<RoomId
 
   return {
     zones: out,
+    reached,
     stats: {
       targets,
       filled: targets - open.length,

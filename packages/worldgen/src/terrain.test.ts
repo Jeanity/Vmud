@@ -75,6 +75,42 @@ describe('word rules', () => {
   });
 });
 
+describe('landscape beats road and city, which used to be ordered the other way', () => {
+  it('resolves the flagship case: a path through a forest is a forest', () => {
+    // "A Forest Path" used to hit /\bpath\b/i in the road rule before /\bforest\b/i ever got a turn.
+    assert.equal(sector('A Forest Path'), 'forest');
+    assert.equal(sector('A Dark Forest Path'), 'forest');
+  });
+
+  it('carries the fix through every landscape word, not just forest', () => {
+    // Swept the built world for names carrying both a landscape word and a road/city word: 444
+    // distinct names do. These two are real rooms (zones 113 and 15) that were misclassified `city`
+    // and `road` respectively before this ordering changed.
+    assert.equal(sector('A Trail Through the Bog'), 'swamp');
+    assert.equal(sector('Along the Trade Way at the Edge of the Great Plains'), 'field');
+  });
+
+  it('still lets an enclosed, structural word win over a landscape word', () => {
+    // Interior words were never reordered — "the forest temple" is an interior regardless.
+    assert.equal(sector('A Forest Chamber'), 'inside');
+    assert.equal(sector('A Mountain Tavern'), 'inside');
+  });
+
+  it('accepts the one measured trade-off: a bridge loses to the landscape it crosses', () => {
+    // Documented as a deliberate, accepted cost in terrain.ts rather than special-cased: only 7 of
+    // the 444 affected names use a structural word (bridge/gate/pier/wharf/dock) rather than a bare
+    // route word, and this is one of them, a real room name from zone 154.
+    assert.equal(sector('A Bridge of Ice'), 'arctic');
+  });
+
+  it('leaves road and city alone when no landscape word is present', () => {
+    assert.equal(sector('The Trade Way'), 'road');
+    assert.equal(sector('The Bazaar'), 'city');
+    assert.equal(sector('Castle Road'), 'road');
+    assert.equal(sector('The Castle Courtyard'), 'city');
+  });
+});
+
 describe('suffix rules', () => {
   it('sees into the compounds the word tier cannot', () => {
     // "The regex finds no word boundary inside Nightwood" — the type case for the whole tier.
@@ -94,6 +130,16 @@ describe('suffix rules', () => {
   it('checks bridge before ridge, because every Zundbridge ends in both', () => {
     assert.equal(sector('Crossing the Zundbridge'), 'road');
     assert.equal(sector('Along the Windridge'), 'hills');
+  });
+
+  it('knows -holt, -fell and -shire, added for M1 with zero measured hits so far', () => {
+    // Swept the built 46,508-room world for all three the way -wood and -moor were swept; none
+    // occurs today. Added anyway per the M1 brief — see terrain.ts for the toponymy each is based on
+    // and why the absence of evidence didn't stop the addition. Synthetic names, since no real one
+    // exists yet in this corpus.
+    assert.equal(sector('Through the Ashholt'), 'forest');
+    assert.equal(sector('The Ravenfell'), 'hills');
+    assert.equal(sector('Oakenshire'), 'field');
   });
 
   it('requires a real stem, so the bare word stays the word tier’s business', () => {
