@@ -29,7 +29,9 @@ function makeZone(rooms: readonly Partial<Room>[]): Zone {
     id: r.id ?? i + 1,
     zone: 1,
     name: r.name ?? `Room ${i + 1}`,
-    sector: r.sector ?? 'forest',
+    // `inside`, like the tilemap fixture: these tests count walkable tiles, and a sector the
+    // scatter table knows about would grow props into the middle of every count.
+    sector: r.sector ?? 'inside',
     pos: r.pos ?? { x: i, y: 0, z: 0 },
     exits: r.exits ?? {},
   })) as Room[];

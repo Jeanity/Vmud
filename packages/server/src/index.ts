@@ -40,6 +40,7 @@ import {
   SEARCH_LINES,
   findsIt,
   sceneryNamed,
+  sceneryOf,
   SHIELDLESS_BASH_LINE,
   STARTER_SHIELD_ID,
   type Shield,
@@ -4345,7 +4346,7 @@ function doSearch(player: Player, rest: string): void {
   // three dead guards on the floor they mean.
   let pool: Item[];
   let searched: Corpse | undefined;
-  if (word && sceneryNamed(room?.scenery, word) === undefined) {
+  if (word && sceneryNamed(room ? sceneryOf(room) : undefined, word) === undefined) {
     const bodies = corpsesIn(graveyard, player.roomId)
       .filter((corpse) => withinReach(corpse, player.x, player.y))
       .filter((corpse) => corpseAnswersTo(corpse, word));
@@ -6239,7 +6240,7 @@ function lookAt(player: Player, argument: string): void {
     send(player.id, { t: 'log', channel: 'room', text: authored });
     return;
   }
-  const prop = sceneryNamed(room?.scenery, word);
+  const prop = sceneryNamed(room ? sceneryOf(room) : undefined, word);
   if (prop) {
     send(player.id, { t: 'log', channel: 'room', text: SCENERY[prop.kind].look });
     // The one thing a noticeboard has to volunteer, or nobody learns it is readable.

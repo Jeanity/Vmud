@@ -33,7 +33,11 @@
  */
 
 /** Every prop the world knows how to stand up. The client keeps one image per name. */
-export const SCENERY_KINDS = ['fountain', 'plinth', 'well', 'statue', 'cart', 'haystack'] as const;
+export const SCENERY_KINDS = [
+  'fountain', 'plinth', 'well', 'statue', 'cart', 'haystack',
+  // Scatter — never authored, placed by `scatterFor`. See its note for why they are solid.
+  'stump', 'log', 'bush', 'toadstools',
+] as const;
 
 export type SceneryKind = (typeof SCENERY_KINDS)[number];
 
@@ -130,6 +134,26 @@ export const SCENERY: Readonly<Record<SceneryKind, SceneryProp>> = {
     keywords: ['haystack', 'hay', 'bale', 'straw'],
     look: 'A round bale of straw, taller than you are and packed hard. Something could be lost in that and never found.',
   },
+  stump: {
+    width: 1, depth: 1, height: 1, frames: 1, frameMs: 0, opaque: false,
+    keywords: ['stump', 'tree'],
+    look: 'The sawn-off stump of a tree, roots still gripping. Somebody wanted it gone and did not want it far.',
+  },
+  log: {
+    width: 3, depth: 2, height: 2, frames: 1, frameMs: 0, opaque: false,
+    keywords: ['log', 'trunk', 'deadfall'],
+    look: 'A fallen trunk gone soft with rot, lying where the wind put it.',
+  },
+  bush: {
+    width: 2, depth: 2, height: 2, frames: 1, frameMs: 0, opaque: false,
+    keywords: ['bush', 'shrub', 'scrub'],
+    look: 'A dense low bush, too thick to push through and too short to hide behind.',
+  },
+  toadstools: {
+    width: 1, depth: 1, height: 1, frames: 1, frameMs: 0, opaque: false,
+    keywords: ['toadstools', 'toadstool', 'mushrooms', 'fungus'],
+    look: 'A crowd of pale toadstools, shouldering up through the wet.',
+  },
 } as const;
 
 /** A prop standing in a room, at a tile offset inside that room's own block. */
@@ -158,6 +182,113 @@ export interface RoomScenery {
 
 export function isSceneryKind(value: unknown): value is SceneryKind {
   return typeof value === 'string' && (SCENERY_KINDS as readonly string[]).includes(value);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Scatter                                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What grows where. A sector with no row gets nothing, which is most of them.
+ *
+ * Deliberately short. Interiors, cities and roads are places people keep clear, and a stump in the
+ * middle of the Spine would say the wrong thing about a city that sweeps its streets. Mountain and
+ * cave get nothing either: the blocker lines V8b stamps on their borders are already rock, and
+ * loose scenery on top of that reads as clutter rather than as terrain.
+ */
+const SCATTER_BY_SECTOR: Readonly<Record<string, readonly SceneryKind[]>> = {
+  forest: ['stump', 'log', 'bush', 'bush'],
+  field: ['bush', 'stump'],
+  hills: ['bush', 'stump'],
+  swamp: ['stump', 'toadstools', 'log'],
+};
+
+/**
+ * The quadrants a scattered prop may stand in — everything except the centre row and column.
+ *
+ * **This is the safety property, and it is worth stating as a rule rather than trusting to a test.**
+ * Row 4 and column 4 of every room stay clear, so a plus-shaped path always crosses the room from
+ * edge to edge in both directions. No combination of scatter can therefore cut a room in half or
+ * seal an exit, whatever the hash rolls — the flood-fill validator in `seamless.test.ts` confirms
+ * it, but the geometry means it cannot fail in the first place.
+ *
+ * Each quadrant is 4x4, which is why the widest scatter prop is the 3x2 log.
+ */
+const QUADRANTS: readonly { readonly tx: number; readonly ty: number }[] = [
+  { tx: 0, ty: 0 },
+  { tx: 5, ty: 0 },
+  { tx: 0, ty: 5 },
+  { tx: 5, ty: 5 },
+];
+
+const QUADRANT_TILES = 4;
+
+/** A hash of the room id and a salt. Same shape as the client's tile scatter, and for the reason. */
+function hashRoom(roomId: number, salt: number): number {
+  let h = (Math.imul(roomId, 73856093) ^ Math.imul(salt, 19349663)) >>> 0;
+  h ^= h >>> 13;
+  h = Math.imul(h, 0x5bd1e995) >>> 0;
+  return (h ^ (h >>> 15)) >>> 0;
+}
+
+/**
+ * What the wilderness grows in a room, derived rather than authored.
+ *
+ * 851 rooms went seamless in V8c and every one of them reads as flat lawn: the room graph gave them
+ * borders and the sector gave them a colour, and nothing gave them anything to stand behind. This
+ * fills them, and it has to be **derived** because 851 rooms is past the point where authoring is
+ * honest work.
+ *
+ * **Solid, like every other prop**, and that is the whole reason this lives in `shared` and not in
+ * the client's variant tables. A bush you walk through is paint pretending to be terrain; a bush you
+ * walk around is why the forest feels like a forest. The cost is that the server and every client
+ * must agree exactly, which a pure function of the room id gives for free — no RNG stream, no order
+ * dependence, no message on the wire.
+ *
+ * **A room that was authored keeps what it was given.** Scatter never joins authored scenery: an
+ * author who dressed a room owns it, and mixing the two would mean hand-placed props competing for
+ * tiles with generated ones — which is a collision rule nobody wants to debug.
+ */
+export function scatterFor(
+  roomId: number,
+  sector: string,
+  authored: readonly RoomScenery[] | undefined,
+): readonly RoomScenery[] {
+  if (authored?.length) return authored;
+  const palette = SCATTER_BY_SECTOR[sector];
+  if (!palette) return [];
+
+  // Nought to three. **Measured rather than guessed**: at one prop per room the Stag Forest still
+  // read as lawn — an 81-tile room with a single bush in it is a lawn with a bush on it — and the
+  // rooms are flush in a seamless zone, so what the eye takes in at once is several of them. A
+  // quarter staying empty is what stops the result reading as a regular pattern; the quadrant
+  // dedupe below thins the rest, so the average lands near two.
+  const count = [0, 2, 3, 4][hashRoom(roomId, 0) % 4] ?? 0;
+  if (count === 0) return [];
+
+  const out: RoomScenery[] = [];
+  const usedQuadrants = new Set<number>();
+  for (let i = 0; i < count; i++) {
+    const quadrant = hashRoom(roomId, i * 2 + 1) % QUADRANTS.length;
+    if (usedQuadrants.has(quadrant)) continue; // one prop per quadrant; a clash simply thins it
+    usedQuadrants.add(quadrant);
+
+    const kind = palette[hashRoom(roomId, i * 2 + 2) % palette.length];
+    if (!kind) continue;
+    const spec = SCENERY[kind];
+    const corner = QUADRANTS[quadrant]!;
+    // Jitter inside the quadrant so props are not all pinned to the same corner of every room.
+    const slack = {
+      x: Math.max(0, QUADRANT_TILES - spec.width),
+      y: Math.max(0, QUADRANT_TILES - spec.depth),
+    };
+    out.push({
+      kind,
+      tx: corner.tx + (slack.x === 0 ? 0 : hashRoom(roomId, i * 2 + 7) % (slack.x + 1)),
+      ty: corner.ty + (slack.y === 0 ? 0 : hashRoom(roomId, i * 2 + 8) % (slack.y + 1)),
+    });
+  }
+  return out;
 }
 
 /**

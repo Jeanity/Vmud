@@ -169,8 +169,30 @@ visible and reversible, and Velen is deliberately the testbed: authored, six roo
    would water anyway. **A prop has to be legible against the sector it stands on**, and that is
    worth checking at authoring time rather than discovering in play.
 
-   **Still open in this row:** sector transition tiles, automatic wilderness scatter, rivers and
-   bridges, and the city drawn as streets between buildings.
+   **Wilderness scatter built 2026-08-11.** V8c turned 851 rooms seamless and every one of them read
+   as flat lawn: the graph gave them borders and the sector gave them a colour, and nothing gave them
+   anything to stand behind. `scatterFor` fills them from the room id — four new props (stump, log,
+   bush, toadstools) placed by a pure function of the id and the sector, so the server and every
+   client agree without a byte on the wire. **571 props across the six seamless zones**, 251 rooms
+   dressed and a quarter left as clearings so the result does not read as a pattern.
+
+   Solid, like every other prop, which is the whole reason it lives in `shared`: a bush you walk
+   through is paint pretending to be terrain. The safety property is **geometry rather than trust** —
+   scatter may only stand in the four 4x4 quadrants, so row 4 and column 4 of every room stay clear
+   and a plus-shaped path always crosses edge to edge. No roll of the hash can seal an exit. The
+   flood-fill validator confirms it over all six zones, but it could not fail in the first place.
+
+   `sceneryOf` is now the one accessor both sides read: authored scenery if a room has any, otherwise
+   what grew there. **A room that was authored keeps exactly what it was given** — mixing the two
+   would put hand-placed props in competition for tiles with generated ones.
+
+   Two fixtures had to change, and the reason is worth keeping: `tilemap.test.ts` and
+   `pathfind.test.ts` both defaulted their synthetic rooms to `sector: 'forest'`, which had been an
+   arbitrary choice and suddenly meant something. Both now use `inside`, because a test about block
+   geometry should not be growing bushes into its own assertions.
+
+   **Still open in this row:** sector transition tiles, rivers and bridges, and the city drawn as
+   streets between buildings.
 
 ## 5a. Portals are for magic and distance — seams are for steps
 

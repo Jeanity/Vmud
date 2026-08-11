@@ -20,7 +20,7 @@ import {
   type Sector,
   type Zone,
 } from './world.ts';
-import { SCENERY, type SceneryKind } from './scenery.ts';
+import { SCENERY, scatterFor, type RoomScenery, type SceneryKind } from './scenery.ts';
 
 export const TILE_SIZE = 32;
 
@@ -289,6 +289,19 @@ export function stairPlacement(
  * {@link Tile.Prop} for the ordinary case and {@link Tile.Blocker} for the opaque one, which is the
  * only difference between them: both stop movement, and only `Blocker` stops sight.
  */
+/**
+ * Everything standing in a room — what was authored, or what the wilderness grew there.
+ *
+ * **The one accessor both sides must use.** The server stamps footprints out of this and the client
+ * draws sprites from it; if either read `room.scenery` directly it would see the authored list and
+ * miss the scatter, and the two would disagree about which tiles are solid — a player walking
+ * through a bush the server says is there, which is the exact desync the whole "a prop is a rule"
+ * argument exists to prevent.
+ */
+export function sceneryOf(room: Room): readonly RoomScenery[] {
+  return scatterFor(room.id, room.sector, room.scenery);
+}
+
 export function sceneryTile(kind: SceneryKind): number {
   return SCENERY[kind].opaque ? Tile.Blocker : Tile.Prop;
 }
@@ -472,9 +485,10 @@ export function buildZoneTilemap(zone: Zone, level = 0): TileGrid {
   // told to do. Authoring is stopped from getting there at all by `scenerySiting`, which the
   // worldgen validator runs and which knows where the flights are.
   for (const room of rooms) {
-    if (!room.scenery?.length) continue;
+    const standing = sceneryOf(room);
+    if (standing.length === 0) continue;
     const origin = roomOrigins.get(room.id)!;
-    for (const prop of room.scenery) {
+    for (const prop of standing) {
       const spec = SCENERY[prop.kind];
       if (!spec) continue;
       const kind = sceneryTile(prop.kind);

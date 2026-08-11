@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { SCENERY, SCENERY_KINDS, isSceneryKind, sceneryNamed, type RoomScenery } from './scenery.ts';
+import { SCENERY, SCENERY_KINDS, isSceneryKind, scatterFor, sceneryNamed, type RoomScenery } from './scenery.ts';
 import {
   ROOM_TILES,
   STAIR_TILES,
@@ -244,3 +244,87 @@ describe('naming a prop', () => {
     }
   });
 });
+
+describe('what the wilderness grows on its own', () => {
+  const ROOMS = Array.from({ length: 600 }, (_, i) => 40000 + i);
+
+  it('never touches the centre row or column, which is why it can never wall a room in', () => {
+    // The safety property, asserted as geometry rather than trusted to the flood-fill validator.
+    // Row 4 and column 4 stay clear in every room, so a plus-shaped path always crosses edge to
+    // edge in both directions - no roll of the hash can seal an exit or cut a room in half.
+    const mid = (ROOM_TILES - 1) / 2;
+    for (const id of ROOMS) {
+      for (const sector of ['forest', 'field', 'hills', 'swamp']) {
+        for (const prop of scatterFor(id, sector, undefined)) {
+          const spec = SCENERY[prop.kind];
+          const clearsColumn = prop.tx + spec.width <= mid || prop.tx > mid;
+          const clearsRow = prop.ty + spec.depth <= mid || prop.ty > mid;
+          assert.ok(clearsColumn, `room ${id} ${prop.kind} at ${prop.tx} crosses the centre column`);
+          assert.ok(clearsRow, `room ${id} ${prop.kind} at ${prop.ty} crosses the centre row`);
+        }
+      }
+    }
+  });
+
+  it('always fits inside the room', () => {
+    for (const id of ROOMS) {
+      for (const sector of ['forest', 'field', 'hills', 'swamp']) {
+        for (const prop of scatterFor(id, sector, undefined)) {
+          const spec = SCENERY[prop.kind];
+          assert.ok(prop.tx >= 0 && prop.tx + spec.width <= ROOM_TILES, `${prop.kind} tx ${prop.tx}`);
+          assert.ok(prop.ty >= 0 && prop.ty + spec.depth <= ROOM_TILES, `${prop.kind} ty ${prop.ty}`);
+        }
+      }
+    }
+  });
+
+  it('never overlaps itself, because one prop stands per quadrant', () => {
+    for (const id of ROOMS) {
+      const taken = new Set<number>();
+      for (const prop of scatterFor(id, 'forest', undefined)) {
+        const spec = SCENERY[prop.kind];
+        for (let dy = 0; dy < spec.depth; dy++) {
+          for (let dx = 0; dx < spec.width; dx++) {
+            const cell = (prop.ty + dy) * ROOM_TILES + prop.tx + dx;
+            assert.ok(!taken.has(cell), `room ${id}: two props share ${prop.tx + dx},${prop.ty + dy}`);
+            taken.add(cell);
+          }
+        }
+      }
+    }
+  });
+
+  it('is the same answer every time, for every player and every restart', () => {
+    // No RNG stream, no order dependence: a pure function of the room id, which is what lets the
+    // server and every client agree about which tiles are solid without a byte on the wire.
+    for (const id of ROOMS.slice(0, 50)) {
+      assert.deepEqual(scatterFor(id, 'forest', undefined), scatterFor(id, 'forest', undefined));
+    }
+  });
+
+  it('leaves the tended places alone', () => {
+    for (const sector of ['inside', 'city', 'road', 'mountain', 'cave', 'desert', 'water']) {
+      assert.deepEqual(scatterFor(41000, sector, undefined), [], `${sector} should stay clear`);
+    }
+  });
+
+  it('gives an authored room exactly what it was authored, and grows nothing beside it', () => {
+    // An author who dressed a room owns it. Mixing the two would put hand-placed props in
+    // competition for tiles with generated ones, which is a collision rule nobody wants to debug.
+    const authored: RoomScenery[] = [{ kind: 'fountain', tx: 3, ty: 3 }];
+    assert.deepEqual(scatterFor(41000, 'forest', authored), authored);
+  });
+
+  it('leaves some rooms empty, so a forest does not read as a regular pattern', () => {
+    const empty = ROOMS.filter((id) => scatterFor(id, 'forest', undefined).length === 0).length;
+    assert.ok(empty > ROOMS.length * 0.1, `only ${empty} clearings in ${ROOMS.length} rooms`);
+    assert.ok(empty < ROOMS.length * 0.5, `${empty} of ${ROOMS.length} rooms are bare`);
+  });
+
+  it('actually puts something in most of the wilderness', () => {
+    // The point of the slice. If this drops to nothing the forest is lawn again.
+    const dressed = ROOMS.filter((id) => scatterFor(id, 'forest', undefined).length > 0).length;
+    assert.ok(dressed > ROOMS.length * 0.5, `only ${dressed} of ${ROOMS.length} rooms grew anything`);
+  });
+});
+

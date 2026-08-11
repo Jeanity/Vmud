@@ -26,6 +26,7 @@ import {
   ROOM_TILES,
   SCENERY,
   SCENERY_KINDS,
+  sceneryOf,
   parseArtId,
   TILE_SIZE,
   Tile,
@@ -2897,8 +2898,10 @@ export class WorldScene extends Phaser.Scene {
     const underProp = new Set<number>();
     for (const room of zone.rooms) {
       const origin = grid.roomOrigins.get(room.id);
-      if (!origin || !room.scenery?.length) continue;
-      for (const prop of room.scenery) {
+      if (!origin) continue;
+      const standing = sceneryOf(room);
+      if (standing.length === 0) continue;
+      for (const prop of standing) {
         const spec = SCENERY[prop.kind];
         if (!spec) continue;
         for (let dy = 0; dy < spec.depth; dy++) {
@@ -2973,7 +2976,7 @@ export class WorldScene extends Phaser.Scene {
       // one tile and is drawn two tall, the upper tile overhanging the ground behind it. Anchoring
       // at the bottom is what makes that overhang land in the right place, and it is the same edge
       // `groundDepth` sorts on, so the picture and the sorting agree by construction.
-      for (const prop of room.scenery ?? []) {
+      for (const prop of sceneryOf(room)) {
         const spec = SCENERY[prop.kind];
         if (!spec) continue;
         const left = (origin.tx + prop.tx) * TILE_SIZE;
