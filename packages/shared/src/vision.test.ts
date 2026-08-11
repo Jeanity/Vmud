@@ -7,8 +7,11 @@ import {
   ROOM_TILES,
   Tile,
   buildZoneTilemap,
+  createTileGrid,
   roomCentre,
+  setTile,
   tileAt,
+  tileAtIndex,
   type TileGrid,
 } from './tilemap.ts';
 import {
@@ -50,28 +53,19 @@ function makeZone(rooms: readonly Partial<Room>[]): Zone {
 function asciiGrid(rows: readonly string[]): TileGrid {
   const height = rows.length;
   const width = rows[0]!.length;
-  const tiles = new Uint8Array(width * height);
-  const rooms = new Int32Array(width * height).fill(-1);
+  // Built through the engine's own constructor rather than by assembling typed arrays here. The grid
+  // is sparse chunks now, and a fixture that reached past the accessors would be testing a shape the
+  // engine no longer has — and could not allocate the chunks a write outside a room block needs.
+  const grid = createTileGrid({ width, height, roomOrigins: new Map([[1, { tx: 0, ty: 0 }]]) });
   for (let ty = 0; ty < height; ty++) {
     const row = rows[ty]!;
     assert.equal(row.length, width, 'ascii rows must be the same length');
     for (let tx = 0; tx < width; tx++) {
       if (row[tx] === '#') continue;
-      const index = ty * width + tx;
-      tiles[index] = Tile.Floor;
-      rooms[index] = 1;
+      setTile(grid, tx, ty, Tile.Floor, 4 /* forest, matching `makeZone` below */);
     }
   }
-  return {
-    width,
-    height,
-    level: 0,
-    tiles,
-    sectors: new Uint8Array(width * height),
-    rooms,
-    roomOrigins: new Map([[1, { tx: 0, ty: 0 }]]),
-    gap: 2,
-  };
+  return grid;
 }
 
 /** An open field of floor, `size` on a side. */
@@ -287,9 +281,15 @@ describe('computeVisible — light through a corridor mouth', () => {
   // you stood at a corridor mouth with a torch and the next room was pure black. Shadowcasting over
   // tiles needs no special case for a doorway — light spills through the opening because that is
   // simply where the unobstructed rays go.
+  //
+  // **`cave`, not the file's default `forest`, and that is M0's doing.** A corridor between two rooms
+  // is now the answer for ground that has walls — interiors, caves, cities — while two adjacent
+  // *outdoor* rooms merge along their whole shared edge and have no mouth to speak of. This suite is
+  // about the mouth and the wall beside it, so its fixture has to be somewhere that still has one.
+  // The merged case is pinned in `tilemap.test.ts` under 'the width of an opening'.
   const zone = makeZone([
-    { id: 1, pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 2 } } },
-    { id: 2, pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 1 } } },
+    { id: 1, sector: 'cave', pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 2 } } },
+    { id: 2, sector: 'cave', pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 1 } } },
   ]);
 
   const grid = buildZoneTilemap(zone);
@@ -394,7 +394,7 @@ describe('computeVisible — doors', () => {
     // The door itself is still lit while shut — walls are revealed by any ray that reaches them, so
     // the barrier is visible rather than being an unexplained hole in the light.
     const doorTile = shut.width * from.ty + ROOM_TILES;
-    assert.equal(shut.tiles[doorTile], Tile.Door);
+    assert.equal(tileAtIndex(shut, doorTile), Tile.Door);
     assert.ok(throughShut.has(doorTile), 'you can see the door you cannot see through');
   });
 });

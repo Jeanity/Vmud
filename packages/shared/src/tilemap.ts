@@ -8,10 +8,43 @@
  * Layout: each room becomes a square block of floor on a fixed stride, leaving a gap between
  * neighbours. Exits carve a connector across that gap. Rooms with no exit between them stay
  * separated by void, so the zone's real topology is visible at a glance.
+ *
+ * ## Storage is sparse; the coordinate space is not — M0
+ *
+ * A grid used to hold three dense arrays sized to the level's **bounding box**, and a bounding box
+ * is not an occupancy. Measured on the shipped world: zone 317 "The Roads of the Heartland" puts the
+ * 58 rooms of its level 7 inside a 5364x8760-tile box and so asked for **225.9 MB** of typed arrays
+ * to describe 4,698 tiles of floor — 521.1 MB across the zone's eleven levels, against a 16 KB
+ * working set. Tiles now live in **{@link CHUNK_TILES}-square chunks allocated on first write**: two
+ * `Uint8Array`s per chunk, 512 bytes together, held in a `Map` keyed `(ty >> 4) << 16 | (tx >> 4)`.
+ * Nothing is allocated for a region nobody wrote to, so a grid costs what its rooms cost and the
+ * bounding box stops being a bill.
+ *
+ * The chunk edge is a **fixed power of two** rather than the migration plan's per-grid stride cell,
+ * for two reasons. A power of two resolves a tile with two shifts and two masks and no division, and
+ * {@link tileAt} is the hot path — {@link canStand} asks it four times per movement step, and a
+ * shadowcast asks it once per cell of every ray it walks. And a *fixed* edge is one layout for both
+ * projections: the classic stride is 12 and a seamless one is 10, while carves and seams deliberately
+ * write into the gap *between* room blocks, so a chunk boundary must not care which projection put a
+ * tile there. It costs nothing against a stride-sized chunk on a dense level — a 12x12 cell holds
+ * 144 tiles at 2 bytes either way — and at most three extra chunks around an isolated room.
+ *
+ * **Nothing about the coordinate space moved.** `width`, `height`, the tile index `ty * width + tx`,
+ * {@link TILE_SIZE}, {@link TileGrid.roomOrigins} and everything derived from them mean exactly what
+ * they meant before: the `seen` bitsets on the server and in every client are sized `width * height`,
+ * indexed by that formula, and travel over the wire in that shape. Only the storage under the
+ * accessors changed.
+ *
+ * Two things stopped being stored at all. **Room ownership is derived** — a tile belongs to the room
+ * whose block covers it, one division by the stride and one `Map` lookup, so the `Int32Array` that
+ * held a 4-byte room id for every tile of the bounding box is gone entirely. And **a sector is
+ * stored as `index + 1`**, so that a cell nobody wrote reads back as "no sector" instead of as
+ * `SECTOR_INDEX[0]`, which is `inside`; see {@link sectorAt}.
  */
 
 import {
   DIRECTION_DELTA,
+  OPPOSITE,
   boundsOf,
   type Direction,
   type Door,
@@ -55,7 +88,12 @@ export const ROOM_STRIDE = ROOM_TILES + ROOM_GAP;
  */
 export const SEAM_GAP = 1;
 
-/** Width of the opening carved between two linked rooms. Odd, to centre on the room. */
+/**
+ * Width of the opening carved between two linked rooms. Odd, to centre on the room.
+ *
+ * The **default**, not the only answer, since M0: two linked *outdoor* rooms merge along their whole
+ * shared edge instead. See {@link connectorSpan}.
+ */
 export const CONNECTOR_WIDTH = 3;
 
 /**
@@ -132,18 +170,103 @@ function doorTile(door: Door): number {
   return door.closed ? Tile.Door : Tile.DoorOpen;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Sparse storage                                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Edge of a storage chunk, in tiles. A power of two — see the module header for why it is fixed
+ * rather than tracking the grid's own stride.
+ */
+export const CHUNK_TILES = 16;
+
+/** `log2(CHUNK_TILES)`. Kept beside it so the two can never drift apart. */
+const CHUNK_SHIFT = 4;
+
+/** `CHUNK_TILES - 1`, the within-chunk offset mask. */
+const CHUNK_MASK = CHUNK_TILES - 1;
+
+const CHUNK_CELLS = CHUNK_TILES * CHUNK_TILES;
+
+/**
+ * One allocated square of a grid. 512 bytes, and the only thing on a grid that scales with area.
+ *
+ * `kinds` and `sectors` are separate arrays rather than interleaved because every hot read wants one
+ * of them and not the other: collision and vision read kinds and never sectors, and the painter
+ * reads sectors only for the tiles it is already drawing.
+ */
+interface TileChunk {
+  /** {@link Tile} value per cell, row-major within the chunk. 0 is `Void`, which is the right blank. */
+  readonly kinds: Uint8Array;
+  /** Sector index **plus one** per cell, so that 0 means "nothing here". See {@link sectorAt}. */
+  readonly sectors: Uint8Array;
+}
+
+/**
+ * The answer {@link sectorAt} gives for a cell no room, corridor or seam ever wrote.
+ *
+ * **This is the fix for a latent bug, not a tidy-up.** `sectors` used to be a zero-filled dense array
+ * that only occupied cells were written into, and 0 is a real sector: `SECTOR_INDEX[0]` is `inside`.
+ * So every void cell in the world claimed to be an interior floor. That was invisible while the void
+ * was skipped by everything that read it, and it becomes wrong the moment anything *dresses* the gaps
+ * — which is the entire point of the 3D plan's Layer B. Storing `index + 1` costs nothing (there are
+ * 16 sectors and a byte holds 255) and makes "no sector here" a value callers have to name.
+ */
+export const NO_SECTOR = -1;
+
+/**
+ * The chunk key for a tile: `(ty >> 4) << 16 | (tx >> 4)`.
+ *
+ * Packed into one integer rather than looked up through a per-grid `chunksAcross`, so the resolve
+ * needs no field off the grid and no division. It is safe up to 65,536 chunks — 1,048,576 tiles — on
+ * an axis; the largest level in the shipped world is 8,760 tiles tall, and a grid that big would have
+ * failed on the dense arrays this replaced long before it collided here.
+ *
+ * Callers must have bounds-checked `tx` and `ty` first: a negative coordinate would fold onto some
+ * other chunk's key rather than reporting itself.
+ */
+function chunkKey(tx: number, ty: number): number {
+  return ((ty >> CHUNK_SHIFT) << 16) | (tx >> CHUNK_SHIFT);
+}
+
+/** Offset of a tile inside its own chunk. */
+function chunkOffset(tx: number, ty: number): number {
+  return ((ty & CHUNK_MASK) << CHUNK_SHIFT) | (tx & CHUNK_MASK);
+}
+
 export interface TileGrid {
   readonly width: number;
   readonly height: number;
   readonly level: number;
-  /** `Tile` value per cell, row-major. */
-  readonly tiles: Uint8Array;
-  /** Sector index per cell, for choosing artwork. Void cells carry the sector of no room. */
-  readonly sectors: Uint8Array;
-  /** Owning room id per cell, or -1. Drives "which room am I in" without a spatial query. */
-  readonly rooms: Int32Array;
+  /**
+   * Allocated chunks, keyed by {@link chunkKey}. Absent means "all void, no sector", which is the
+   * overwhelming majority of any real level's bounding box.
+   *
+   * Exposed rather than hidden because {@link gridBytes} has to count it and because the type stays a
+   * plain data record — several call sites build a variant grid with `{ ...grid, roomOrigins }`, and
+   * a class with private state would break them. Read it through {@link tileAt} and
+   * {@link sectorAt}; write it through {@link setTile}.
+   */
+  readonly chunks: Map<number, TileChunk>;
+  /**
+   * Room id per **room cell**, keyed `(cellY << 16) | cellX` where a cell is one room-block stride.
+   *
+   * This is what replaced the `Int32Array` of a room id per tile. Ownership was never anything but
+   * "the block this tile is inside" — nothing except the room-interior pass ever wrote that array —
+   * so it is cheaper to answer the question than to store 4 bytes per tile of bounding box for it.
+   * See {@link roomAtTile}.
+   */
+  readonly cells: ReadonlyMap<number, RoomId>;
   /** Tile-space origin of each room block on this level. */
   readonly roomOrigins: ReadonlyMap<RoomId, { readonly tx: number; readonly ty: number }>;
+  /**
+   * Every flight of stairs stamped into this level, with the room and exit it came from.
+   *
+   * The stamp used to write three tile kinds and discard `exit.to` with everything else, so the grid
+   * knew a room had *a* staircase and nothing about where it went — and a stairwell you can walk up
+   * needs the far room, not a decorative block. Rooms in zone order, `up` before `down`.
+   */
+  readonly stairs: readonly StairBlock[];
   /**
    * Tiles between adjacent room blocks on this grid — {@link ROOM_GAP} for the classic projection,
    * {@link SEAM_GAP} for a seamless zone. Carried on the grid because door geometry is *derived*,
@@ -168,7 +291,148 @@ export interface TileGrid {
  * server's `legacy-fog.ts`, named for what it is and dated to be deleted with the field it reads.
  */
 
-/** Stable sector ordering so the numeric ids in `TileGrid.sectors` mean the same thing everywhere. */
+/** The room-block stride this grid was laid out on: nine tiles of floor plus its own gap. */
+function strideOf(grid: TileGrid): number {
+  return ROOM_TILES + grid.gap;
+}
+
+/** Room-cell key, matching {@link TileGrid.cells}. */
+function cellKeyOf(cellX: number, cellY: number): number {
+  return (cellY << 16) | cellX;
+}
+
+/**
+ * An empty grid, ready to be stamped into.
+ *
+ * Exported because a hand-built fixture is a legitimate second caller — `vision.test.ts` and
+ * `pathfind.test.ts` both need geometry {@link buildZoneTilemap} cannot produce (a lone pillar, a
+ * wall with a slit in it, a maze) and used to assemble the typed arrays themselves. There is one
+ * constructor now, so a fixture cannot invent a grid whose `cells` disagree with its `roomOrigins`.
+ *
+ * `roomOrigins` are expected on stride multiples, because that is what {@link roomAtTile} inverts.
+ * An origin off the stride still lands in *some* cell and the last room written to that cell wins,
+ * which is the same answer the dense array gave when two rooms shared a position.
+ */
+export function createTileGrid(init: {
+  readonly width: number;
+  readonly height: number;
+  readonly level?: number;
+  readonly gap?: number;
+  readonly roomOrigins?: ReadonlyMap<RoomId, { readonly tx: number; readonly ty: number }>;
+  readonly stairs?: readonly StairBlock[];
+}): TileGrid {
+  const gap = init.gap ?? ROOM_GAP;
+  const stride = ROOM_TILES + gap;
+  const roomOrigins = init.roomOrigins ?? new Map<RoomId, { readonly tx: number; readonly ty: number }>();
+  const cells = new Map<number, RoomId>();
+  for (const [id, origin] of roomOrigins) {
+    cells.set(cellKeyOf(Math.floor(origin.tx / stride), Math.floor(origin.ty / stride)), id);
+  }
+  return {
+    width: init.width,
+    height: init.height,
+    level: init.level ?? 0,
+    chunks: new Map<number, TileChunk>(),
+    cells,
+    roomOrigins,
+    stairs: init.stairs ?? [],
+    gap,
+  };
+}
+
+/**
+ * Writes one tile, allocating its chunk if this is the first thing ever written there.
+ *
+ * The allocate-on-write is what makes a carve free to reach outside the room that ordered it: a
+ * corridor is cut into the gap and a seam is stamped along a shared edge, both of which routinely
+ * land in a chunk no room block touched. Resolving the owning chunk per write, rather than handing
+ * carves a pre-sized region, is what means a chunk boundary is never a thing anyone has to think
+ * about.
+ *
+ * Omitting `sector` leaves whatever sector the cell already carried, which is what the three passes
+ * that re-kind an existing floor tile want — stairs, scenery and {@link setDoorTiles} all change what
+ * a tile *is* without changing what ground it stands on.
+ */
+export function setTile(grid: TileGrid, tx: number, ty: number, kind: number, sector?: number): void {
+  if (tx < 0 || ty < 0 || tx >= grid.width || ty >= grid.height) return;
+  const key = chunkKey(tx, ty);
+  let chunk = grid.chunks.get(key);
+  if (!chunk) {
+    chunk = { kinds: new Uint8Array(CHUNK_CELLS), sectors: new Uint8Array(CHUNK_CELLS) };
+    grid.chunks.set(key, chunk);
+  }
+  const offset = chunkOffset(tx, ty);
+  chunk.kinds[offset] = kind;
+  if (sector !== undefined) chunk.sectors[offset] = sector + 1;
+}
+
+export function tileAt(grid: TileGrid, tx: number, ty: number): number {
+  if (tx < 0 || ty < 0 || tx >= grid.width || ty >= grid.height) return Tile.Void;
+  const chunk = grid.chunks.get(chunkKey(tx, ty));
+  if (!chunk) return Tile.Void;
+  return chunk.kinds[chunkOffset(tx, ty)] ?? Tile.Void;
+}
+
+/**
+ * The same read, from a tile index.
+ *
+ * Indices are the currency of everything that crosses the wire — `seen` bitsets, the `door` message's
+ * changed-tile list, the lit set — so the callers that speak in them should not each have to
+ * re-derive `tx` and `ty` and get the division right.
+ */
+export function tileAtIndex(grid: TileGrid, index: number): number {
+  if (index < 0 || index >= grid.width * grid.height) return Tile.Void;
+  const tx = index % grid.width;
+  return tileAt(grid, tx, (index - tx) / grid.width);
+}
+
+/**
+ * Which sector's artwork a tile wears, or {@link NO_SECTOR} where nothing was ever laid down.
+ *
+ * Callers that draw must decide what void looks like rather than being handed `inside` by accident —
+ * see {@link NO_SECTOR} for the bug that answer used to cause.
+ */
+export function sectorAt(grid: TileGrid, tx: number, ty: number): number {
+  if (tx < 0 || ty < 0 || tx >= grid.width || ty >= grid.height) return NO_SECTOR;
+  const chunk = grid.chunks.get(chunkKey(tx, ty));
+  if (!chunk) return NO_SECTOR;
+  const stored = chunk.sectors[chunkOffset(tx, ty)] ?? 0;
+  return stored === 0 ? NO_SECTOR : stored - 1;
+}
+
+/**
+ * Which room a tile-space point belongs to, or -1 in a corridor, a seam or the void.
+ *
+ * Derived rather than stored: a tile is a room's when it falls inside that room's 9x9 block, and the
+ * block's position is the stride times the cell. A corridor, a seam and a corner all fall in the gap
+ * and so belong to nobody, which is the answer the dense array gave too — it was only ever written by
+ * the room-interior pass.
+ */
+export function roomAtTile(grid: TileGrid, tx: number, ty: number): RoomId | -1 {
+  if (tx < 0 || ty < 0 || tx >= grid.width || ty >= grid.height) return -1;
+  const stride = strideOf(grid);
+  const cellX = Math.floor(tx / stride);
+  const cellY = Math.floor(ty / stride);
+  if (tx - cellX * stride >= ROOM_TILES || ty - cellY * stride >= ROOM_TILES) return -1;
+  return grid.cells.get(cellKeyOf(cellX, cellY)) ?? -1;
+}
+
+/**
+ * Bytes of tile storage this grid has actually allocated.
+ *
+ * Counted by the structure itself rather than sampled from the process, because `process.memoryUsage`
+ * moves with the garbage collector and would make the ceiling a flaky test. It counts the chunk
+ * payload and nothing else: `roomOrigins`, `cells` and `stairs` are one entry per room or per vertical
+ * exit, so they scale with the *content* of a level and were never the 268.9 MB problem — the dense
+ * arrays scaled with its empty bounding box, and those are what this replaced.
+ */
+export function gridBytes(grid: TileGrid): number {
+  let bytes = 0;
+  for (const chunk of grid.chunks.values()) bytes += chunk.kinds.byteLength + chunk.sectors.byteLength;
+  return bytes;
+}
+
+/** Stable sector ordering so the numeric ids in a grid's sectors mean the same thing everywhere. */
 export const SECTOR_INDEX: readonly Sector[] = [
   'inside', 'city', 'road', 'field', 'forest', 'hills', 'mountain', 'swamp',
   'desert', 'arctic', 'cave', 'shallow_water', 'deep_water', 'underwater', 'air', 'astral',
@@ -179,6 +443,18 @@ const SECTOR_TO_INDEX = new Map<Sector, number>(SECTOR_INDEX.map((s, i) => [s, i
 export function sectorIndex(sector: Sector): number {
   return SECTOR_TO_INDEX.get(sector) ?? 3;
 }
+
+/**
+ * The sectors that are **open ground** — the ones two neighbouring rooms may merge across.
+ *
+ * Deliberately not "everything that is not `inside`". A cave, a city street and a building interior
+ * all have walls that a doorway is cut through, and a nine-tile-wide hole in a cave wall is not a
+ * cave. These six are the ones where the boundary between two rooms is a line on a map and nothing a
+ * body could walk into. See {@link connectorSpan}.
+ */
+const OUTDOOR_SECTORS: ReadonlySet<Sector> = new Set<Sector>([
+  'field', 'forest', 'road', 'hills', 'swamp', 'desert',
+]);
 
 /**
  * World-pixel centre of a tile. Movement always targets centres, never corners.
@@ -219,6 +495,26 @@ export interface StairOffset {
   readonly dx: number;
   /** Tiles south of it. */
   readonly dy: number;
+}
+
+/**
+ * One flight of stairs, as the grid remembers it.
+ *
+ * **`to` is the field that used to be thrown away.** The stamp wrote `Tile.StairsUp` over nine cells
+ * and kept nothing else, so a renderer could tell a room had a flight and could not tell where it
+ * went — and a real stairwell is a thing joining two rooms, not a texture. Keeping the exit's target
+ * here costs one number per vertical exit (9,138 in the whole world) and is what a later milestone
+ * builds the geometry of a shaft from.
+ */
+export interface StairBlock {
+  /** The room whose floor this flight is stamped into. */
+  readonly room: RoomId;
+  readonly dir: 'up' | 'down';
+  /** The room at the other end — the exit's `to`. */
+  readonly to: RoomId;
+  /** Tile-space top-left of the {@link STAIR_TILES}-square block. */
+  readonly tx: number;
+  readonly ty: number;
 }
 
 /**
@@ -283,12 +579,53 @@ export function stairPlacement(
   return { up, down };
 }
 
+/** The flights a room contributes to the grid, in tile space. Placement is unchanged; only kept. */
+function stairBlocksOf(room: Room, origin: { tx: number; ty: number }): StairBlock[] {
+  const up = room.exits.up;
+  const down = room.exits.down;
+  const placement = stairPlacement(room.id, !!up, !!down);
+  const out: StairBlock[] = [];
+  if (up && placement.up) {
+    out.push({
+      room: room.id,
+      dir: 'up',
+      to: up.to,
+      tx: origin.tx + placement.up.dx,
+      ty: origin.ty + placement.up.dy,
+    });
+  }
+  if (down && placement.down) {
+    out.push({
+      room: room.id,
+      dir: 'down',
+      to: down.to,
+      tx: origin.tx + placement.down.dx,
+      ty: origin.ty + placement.down.dy,
+    });
+  }
+  return out;
+}
+
 /**
- * The tile a prop's footprint becomes — V8d.
+ * The flight whose block covers this tile, if any.
  *
- * {@link Tile.Prop} for the ordinary case and {@link Tile.Blocker} for the opaque one, which is the
- * only difference between them: both stop movement, and only `Blocker` stops sight.
+ * A linear scan of {@link TileGrid.stairs}, which is one entry per vertical exit on the level — 58
+ * for the largest level in the shipped world. A caller that wanted this per tile over a whole grid
+ * would want an index instead, and should build one rather than making this pretend to be one.
  */
+export function stairAt(grid: TileGrid, tx: number, ty: number): StairBlock | undefined {
+  for (const stair of grid.stairs) {
+    if (tx >= stair.tx && tx < stair.tx + STAIR_TILES && ty >= stair.ty && ty < stair.ty + STAIR_TILES) {
+      return stair;
+    }
+  }
+  return undefined;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Scenery                                                                     */
+/* -------------------------------------------------------------------------- */
+
 /**
  * Everything standing in a room — what was authored, or what the wilderness grew there.
  *
@@ -302,6 +639,12 @@ export function sceneryOf(room: Room): readonly RoomScenery[] {
   return scatterFor(room.id, room.sector, room.scenery);
 }
 
+/**
+ * The tile a prop's footprint becomes — V8d.
+ *
+ * {@link Tile.Prop} for the ordinary case and {@link Tile.Blocker} for the opaque one, which is the
+ * only difference between them: both stop movement, and only `Blocker` stops sight.
+ */
 export function sceneryTile(kind: SceneryKind): number {
   return SCENERY[kind].opaque ? Tile.Blocker : Tile.Prop;
 }
@@ -376,6 +719,10 @@ export function scenerySiting(room: Room): string | undefined {
   return undefined;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Building a grid                                                             */
+/* -------------------------------------------------------------------------- */
+
 /**
  * Builds the tile grid for one Z level of a zone.
  *
@@ -399,64 +746,61 @@ export function buildZoneTilemap(zone: Zone, level = 0): TileGrid {
   //
   // Only non-portal exits between geometric neighbours are carved, so every corridor lies between
   // two cells that are themselves on this level — tightening the bounds cannot push one off-grid.
+  //
+  // The width and height are still the *bounding box*, and deliberately: they are the coordinate
+  // space the `seen` bitsets and every tile index on the wire are expressed in. What the sparse
+  // chunks changed is that nothing is allocated for the empty parts of it.
   const bounds = boundsOf(rooms);
   const cellsWide = bounds.maxX - bounds.minX + 1;
   const cellsHigh = bounds.maxY - bounds.minY + 1;
   const width = cellsWide * stride;
   const height = cellsHigh * stride;
 
-  const tiles = new Uint8Array(width * height);
-  const sectors = new Uint8Array(width * height);
-  const roomsAt = new Int32Array(width * height).fill(-1);
   const roomOrigins = new Map<RoomId, { tx: number; ty: number }>();
-
-  const originOf = (room: Room) => ({
-    tx: (room.pos.x - bounds.minX) * stride,
-    ty: (room.pos.y - bounds.minY) * stride,
-  });
-
+  const stairs: StairBlock[] = [];
   const byId = new Map<RoomId, Room>();
-  for (const room of rooms) byId.set(room.id, room);
+  for (const room of rooms) {
+    const origin = {
+      tx: (room.pos.x - bounds.minX) * stride,
+      ty: (room.pos.y - bounds.minY) * stride,
+    };
+    roomOrigins.set(room.id, origin);
+    byId.set(room.id, room);
+    // Both flights decided together — see `stairPlacement` for why they cannot be decided separately.
+    stairs.push(...stairBlocksOf(room, origin));
+  }
+
+  const grid = createTileGrid({ width, height, level, gap, roomOrigins, stairs });
 
   // Room interiors.
   for (const room of rooms) {
-    const origin = originOf(room);
-    roomOrigins.set(room.id, origin);
+    const origin = roomOrigins.get(room.id)!;
     const sector = sectorIndex(room.sector);
     for (let dy = 0; dy < ROOM_TILES; dy++) {
       for (let dx = 0; dx < ROOM_TILES; dx++) {
-        const index = (origin.ty + dy) * width + origin.tx + dx;
-        tiles[index] = Tile.Floor;
-        sectors[index] = sector;
-        roomsAt[index] = room.id;
+        setTile(grid, origin.tx + dx, origin.ty + dy, Tile.Floor, sector);
       }
     }
   }
 
-  // Connectors, and stairs for vertical links.
+  // Stairs, over the floor they stand on. Stamped inside the room block, which `carve` never writes
+  // into (its cells are all in the gap), so the two passes cannot fight over a tile whatever order
+  // the rooms come in.
+  for (const stair of stairs) {
+    const kind = stair.dir === 'up' ? Tile.StairsUp : Tile.StairsDown;
+    for (let dy = 0; dy < STAIR_TILES; dy++) {
+      for (let dx = 0; dx < STAIR_TILES; dx++) setTile(grid, stair.tx + dx, stair.ty + dy, kind);
+    }
+  }
+
+  // Connectors.
   for (const room of rooms) {
     const origin = roomOrigins.get(room.id)!;
     const sector = sectorIndex(room.sector);
 
-    // Vertical exits, both at once — see `stairPlacement` for why they cannot be decided separately.
-    // Stamped inside the room block, which `carve` never writes into (its cells are all in the gap),
-    // so the two passes cannot fight over a tile whatever order the rooms come in.
-    const stairs = stairPlacement(room.id, !!room.exits.up, !!room.exits.down);
-    for (const [offset, kind] of [
-      [stairs.up, Tile.StairsUp],
-      [stairs.down, Tile.StairsDown],
-    ] as const) {
-      if (!offset) continue;
-      for (let dy = 0; dy < STAIR_TILES; dy++) {
-        for (let dx = 0; dx < STAIR_TILES; dx++) {
-          tiles[(origin.ty + offset.dy + dy) * width + origin.tx + offset.dx + dx] = kind;
-        }
-      }
-    }
-
     for (const [dir, exit] of Object.entries(room.exits) as [Direction, Room['exits'][Direction]][]) {
       if (!exit) continue;
-      // Handled above, together.
+      // Vertical links are stairs, handled above.
       if (dir === 'up' || dir === 'down') continue;
 
       // Portals and links whose far side is not on this level get no corridor; they are
@@ -472,11 +816,11 @@ export function buildZoneTilemap(zone: Zone, level = 0): TileGrid {
 
       const delta = DIRECTION_DELTA[dir];
       const kind = exit.door ? doorTile(exit.door) : Tile.Connector;
-      carve(tiles, sectors, width, height, origin, delta[0], delta[1], kind, sector);
+      carve(grid, origin, delta[0], delta[1], kind, sector, connectorSpan(room, target, dir));
     }
   }
 
-  if (seamless) stampSeams(rooms, roomOrigins, tiles, sectors, width, height);
+  if (seamless) stampSeams(rooms, roomOrigins, grid);
 
   // Scenery last, and only over plain floor — V8d. A prop is authored as a room-relative offset and
   // so cannot reach the gap where doors and seams live, but it *can* be written over a staircase,
@@ -496,16 +840,51 @@ export function buildZoneTilemap(zone: Zone, level = 0): TileGrid {
         for (let dx = 0; dx < spec.width; dx++) {
           const tx = origin.tx + prop.tx + dx;
           const ty = origin.ty + prop.ty + dy;
-          if (tx < 0 || ty < 0 || tx >= width || ty >= height) continue;
-          const index = ty * width + tx;
-          if (tiles[index] !== Tile.Floor) continue;
-          tiles[index] = kind;
+          if (tileAt(grid, tx, ty) !== Tile.Floor) continue;
+          setTile(grid, tx, ty, kind);
         }
       }
     }
   }
 
-  return { width, height, level, tiles, sectors, rooms: roomsAt, roomOrigins, gap };
+  return grid;
+}
+
+/**
+ * How wide the opening between two linked rooms is cut — M0's one deliberate change to what the world
+ * looks like.
+ *
+ * Every link used to be a {@link CONNECTOR_WIDTH} neck, so the world was a lattice of nine-tile
+ * squares joined by three-tile corridors repeating on a hard twelve-tile beat, with two to four of
+ * those beats on screen at any time. That is right for a building and wrong for a field: two adjacent
+ * meadows do not meet through a doorway. **When both rooms are {@link OUTDOOR_SECTORS} the whole
+ * shared edge is carved**, so adjacent outdoor rooms merge into one continuous walkable ground and the
+ * lattice disappears for the biomes that were most obviously hurt by it.
+ *
+ * Two exceptions, and both are load-bearing:
+ *
+ * 1. **A door keeps its width, from either side.** A nine-tile-wide doorway is not a door, and the
+ *    check reads *both* exits because 5 links in the shipped world have a door on one side and a
+ *    plain exit facing it back. Widening the plain side would leave the door standing in the middle
+ *    of an opening you could walk round, which is worse than either answer on its own —
+ *    {@link CARVE_RANK} resolves the *kind* of a contested cell and can do nothing about a cell the
+ *    other side never contested.
+ * 2. **Seamless zones never reach here.** Their borders are stamped as pairs by {@link stampSeams},
+ *    which already fills an open edge completely.
+ *
+ * Symmetric in its two rooms, so the two sides of a two-way exit carve the same strip and the result
+ * does not depend on the order the zone data lists rooms in.
+ *
+ * The design cost, stated plainly because it is a choice and not a fix: outdoor room-to-room movement
+ * loses its pinch point. The room is still the unit of interest management and of prose, and
+ * `stepRoom` still enforces one-way exits on the typed command, so nothing about MUD semantics moves.
+ */
+function connectorSpan(from: Room, to: Room, dir: Direction): number {
+  if (from.exits[dir]?.door) return CONNECTOR_WIDTH;
+  const back = to.exits[OPPOSITE[dir]];
+  if (back && !back.portal && back.to === from.id && back.door) return CONNECTOR_WIDTH;
+  if (!OUTDOOR_SECTORS.has(from.sector) || !OUTDOOR_SECTORS.has(to.sector)) return CONNECTOR_WIDTH;
+  return ROOM_TILES;
 }
 
 /**
@@ -517,8 +896,8 @@ export function buildZoneTilemap(zone: Zone, level = 0): TileGrid {
  * gate — placed on the same cells `doorwayTiles` derives at run time, which is the invariant that
  * lets the door open and shut — with the rest of the seam left solid as the wall the door lives in;
  * and no exit leaves the whole seam solid, the void doing quietly what a tree line or a house wall
- * will do in paint once V8b dresses it. Seam tiles belong to no room (`-1`), exactly as corridors
- * always have: you are in the room you left until you stand somewhere real.
+ * will do in paint once V8b dresses it. Seam tiles belong to no room, exactly as corridors always
+ * have: you are in the room you left until you stand somewhere real.
  *
  * The corner cells where four blocks meet belong to no pair, so they get their own rule: floor only
  * when all four rooms exist and all four seams around the corner are open floor — an open plaza's
@@ -528,19 +907,10 @@ export function buildZoneTilemap(zone: Zone, level = 0): TileGrid {
 function stampSeams(
   rooms: readonly Room[],
   roomOrigins: ReadonlyMap<RoomId, { tx: number; ty: number }>,
-  tiles: Uint8Array,
-  sectors: Uint8Array,
-  width: number,
-  height: number,
+  grid: TileGrid,
 ): void {
   const at = new Map<string, Room>();
   for (const room of rooms) at.set(`${room.pos.x},${room.pos.y}`, room);
-  const stamp = (tx: number, ty: number, kind: number, sector: number): void => {
-    if (tx < 0 || ty < 0 || tx >= width || ty >= height) return;
-    const index = ty * width + tx;
-    tiles[index] = kind;
-    sectors[index] = sector;
-  };
 
   /** The open seam between a pair leans on the outdoor side's ground; `inside` never spills out. */
   const seamSector = (a: Room, b: Room): number =>
@@ -557,7 +927,7 @@ function stampSeams(
       const neighbour = at.get(`${room.pos.x + dx},${room.pos.y + dy}`);
       if (!neighbour) continue;
       const out = room.exits[dir];
-      const back = neighbour.exits[REVERSE_DIR[dir]];
+      const back = neighbour.exits[OPPOSITE[dir]];
       const exit = out && !out.portal && out.to === neighbour.id ? out : undefined;
       const ret = back && !back.portal && back.to === room.id ? back : undefined;
       const door = exit?.door ?? ret?.door;
@@ -580,7 +950,7 @@ function stampSeams(
         // the client can choose which; the seam takes the **indoor** side's sector when there is
         // one, because a building's outside wall belongs to the building.
         const wall = sectorIndex(room.sector === 'inside' ? room.sector : neighbour.sector);
-        for (const { tx, ty } of cells) stamp(tx, ty, Tile.Blocker, wall);
+        for (const { tx, ty } of cells) setTile(grid, tx, ty, Tile.Blocker, wall);
         continue;
       }
       const sector = seamSector(room, neighbour);
@@ -590,12 +960,12 @@ function stampSeams(
         // building read as a door floating in a gap. The wall is laid across the whole shared edge
         // and the gate stamped over its middle, which is what a door in a wall actually is.
         const wall = sectorIndex(room.sector === 'inside' ? room.sector : neighbour.sector);
-        for (const { tx, ty } of cells) stamp(tx, ty, Tile.Blocker, wall);
+        for (const { tx, ty } of cells) setTile(grid, tx, ty, Tile.Blocker, wall);
         for (const { tx, ty } of connectorCells(origin, dx, dy, SEAM_GAP)) {
-          stamp(tx, ty, doorTile(door), sector);
+          setTile(grid, tx, ty, doorTile(door), sector);
         }
       } else {
-        for (const { tx, ty } of cells) stamp(tx, ty, Tile.Floor, sector);
+        for (const { tx, ty } of cells) setTile(grid, tx, ty, Tile.Floor, sector);
         openSeams.add(`${room.pos.x},${room.pos.y},${dir}`);
       }
     }
@@ -615,14 +985,12 @@ function stampSeams(
     // V8b: a corner where any seam is shut is the post the walls meet at, and it is drawn rather
     // than left as a hole. Only a corner with open floor on all four sides stays plaza.
     if (!allOpen) {
-      stamp(origin.tx + ROOM_TILES, origin.ty + ROOM_TILES, Tile.Blocker, sectorIndex(quad[0]!.sector));
+      setTile(grid, origin.tx + ROOM_TILES, origin.ty + ROOM_TILES, Tile.Blocker, sectorIndex(quad[0]!.sector));
       continue;
     }
-    stamp(origin.tx + ROOM_TILES, origin.ty + ROOM_TILES, Tile.Floor, seamSector(quad[0]!, quad[1]!));
+    setTile(grid, origin.tx + ROOM_TILES, origin.ty + ROOM_TILES, Tile.Floor, seamSector(quad[0]!, quad[1]!));
   }
 }
-
-const REVERSE_DIR: Readonly<Record<'east' | 'south', Direction>> = { east: 'west', south: 'north' };
 
 /**
  * The gap cells the opening between a room block and its neighbour occupies, in tile space.
@@ -632,29 +1000,34 @@ const REVERSE_DIR: Readonly<Record<'east' | 'south', Direction>> = { east: 'west
  * this file exists to avoid — the server would open six tiles and a client seven, and the seventh
  * would be a tile the client walks through and the server does not.
  *
- * Vertical links have a zero horizontal delta and occupy no gap at all; they get a stair marker on
- * the room's centre tile instead, so this yields nothing for them.
+ * `span` is the width of the opening across the shared edge, centred on it: {@link CONNECTOR_WIDTH}
+ * for a doorway and {@link ROOM_TILES} for two outdoor rooms that merge. Doors are always the former,
+ * which is why {@link doorwayTiles} takes the default and must keep taking it.
+ *
+ * Vertical links have a zero horizontal delta and occupy no gap at all; they get a stair block inside
+ * the room instead, so this yields nothing for them.
  */
 function connectorCells(
   origin: { tx: number; ty: number },
   dx: number,
   dy: number,
   gap = ROOM_GAP,
+  span = CONNECTOR_WIDTH,
 ): { tx: number; ty: number }[] {
   if (dx === 0 && dy === 0) return [];
-  const offset = (ROOM_TILES - CONNECTOR_WIDTH) / 2;
+  const offset = (ROOM_TILES - span) / 2;
   const cells: { tx: number; ty: number }[] = [];
 
   for (let step = 0; step < gap; step++) {
-    for (let span = 0; span < CONNECTOR_WIDTH; span++) {
+    for (let across = 0; across < span; across++) {
       if (dx !== 0) {
         cells.push({
           tx: dx > 0 ? origin.tx + ROOM_TILES + step : origin.tx - 1 - step,
-          ty: origin.ty + offset + span,
+          ty: origin.ty + offset + across,
         });
       } else {
         cells.push({
-          tx: origin.tx + offset + span,
+          tx: origin.tx + offset + across,
           ty: dy > 0 ? origin.ty + ROOM_TILES + step : origin.ty - 1 - step,
         });
       }
@@ -695,22 +1068,18 @@ const CARVE_RANK: Readonly<Record<number, number>> = {
  * Idempotent, and order-independent between the two sides of an exit — see {@link CARVE_RANK}.
  */
 function carve(
-  tiles: Uint8Array,
-  sectors: Uint8Array,
-  width: number,
-  height: number,
+  grid: TileGrid,
   origin: { tx: number; ty: number },
   dx: number,
   dy: number,
   kind: number,
   sector: number,
+  span: number,
 ): void {
-  for (const { tx, ty } of connectorCells(origin, dx, dy)) {
-    if (tx < 0 || ty < 0 || tx >= width || ty >= height) continue;
-    const index = ty * width + tx;
-    if ((CARVE_RANK[tiles[index] ?? Tile.Void] ?? 0) >= (CARVE_RANK[kind] ?? 0)) continue;
-    tiles[index] = kind;
-    sectors[index] = sector;
+  for (const { tx, ty } of connectorCells(origin, dx, dy, ROOM_GAP, span)) {
+    if (tx < 0 || ty < 0 || tx >= grid.width || ty >= grid.height) continue;
+    if ((CARVE_RANK[tileAt(grid, tx, ty)] ?? 0) >= (CARVE_RANK[kind] ?? 0)) continue;
+    setTile(grid, tx, ty, kind, sector);
   }
 }
 
@@ -736,8 +1105,10 @@ export function setDoorTiles(
   const kind = closed ? Tile.Door : Tile.DoorOpen;
   const changed: number[] = [];
   for (const index of doorwayTiles(grid, roomId, dir)) {
-    if (grid.tiles[index] === kind) continue;
-    grid.tiles[index] = kind;
+    const tx = index % grid.width;
+    const ty = (index - tx) / grid.width;
+    if (tileAt(grid, tx, ty) === kind) continue;
+    setTile(grid, tx, ty, kind);
     changed.push(index);
   }
   return changed;
@@ -758,21 +1129,9 @@ export function doorwayTiles(grid: TileGrid, roomId: RoomId, dir: Direction): nu
   const found: number[] = [];
   for (const { tx, ty } of connectorCells(origin, dx, dy, grid.gap)) {
     if (tx < 0 || ty < 0 || tx >= grid.width || ty >= grid.height) continue;
-    const index = ty * grid.width + tx;
-    if (isDoorTile(grid.tiles[index] ?? Tile.Void)) found.push(index);
+    if (isDoorTile(tileAt(grid, tx, ty))) found.push(ty * grid.width + tx);
   }
   return found;
-}
-
-/** Which room a tile-space point belongs to, or -1 in a corridor or the void. */
-export function roomAtTile(grid: TileGrid, tx: number, ty: number): RoomId | -1 {
-  if (tx < 0 || ty < 0 || tx >= grid.width || ty >= grid.height) return -1;
-  return grid.rooms[ty * grid.width + tx] ?? -1;
-}
-
-export function tileAt(grid: TileGrid, tx: number, ty: number): number {
-  if (tx < 0 || ty < 0 || tx >= grid.width || ty >= grid.height) return Tile.Void;
-  return grid.tiles[ty * grid.width + tx] ?? Tile.Void;
 }
 
 /** Walkability at a world-pixel position, used by both the server and client predictor. */

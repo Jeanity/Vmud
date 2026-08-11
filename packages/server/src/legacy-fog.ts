@@ -31,7 +31,14 @@ import {
  * in the gap. Both sides of a two-way exit carve the same strip, so a scan would also hand back the
  * stub of a one-way exit pointing *into* this room — tiles the old model never revealed from here.
  * A migration must not grant ground the rule it is migrating from would have refused, so this walks
- * the same exits, in the same order, with the same offsets `buildZoneTilemap`'s `carve` uses.
+ * the same exits, in the same order, with the offsets that rule was written against.
+ *
+ * **{@link CONNECTOR_WIDTH} is hardcoded here on purpose, and it is no longer what the carve does.**
+ * M0 made the opening between two *outdoor* rooms the full nine-tile edge, so `buildZoneTilemap` now
+ * cuts a wider strip than this walks. That is the correct direction and this must not follow: a
+ * migrated save may hold only what the old rule revealed, never more, and the tiles named here are
+ * still real walkable ground inside the wider opening. Copying the new width in would hand a
+ * migrating player three extra rows of every outdoor border they had never stood near.
  *
  * Rooms not on this grid — another level, another zone — return nothing, exactly as the old
  * per-grid reveal map did by omission.

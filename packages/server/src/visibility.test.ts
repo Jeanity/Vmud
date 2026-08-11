@@ -38,6 +38,13 @@ import { GameWorld } from './world.ts';
  * Level 0's grid is two blocks wide and level 1's is one, which is the point of the fixture: the
  * centre tile of the first room block is the same *coordinate* on both and a different tile *index*
  * on each. A stale visible set is therefore detectable rather than merely suspected.
+ *
+ * **The hollows are `cave` rather than `forest`, and M0 is why.** Two linked *outdoor* rooms now
+ * merge along their whole shared edge — there is no wall left beside the opening for light to be
+ * stopped by, and 'spills through the corridor mouth and nowhere else' below has nowhere to point at.
+ * A hollow with rock walls keeps the three-tile mouth this suite was written against, so the subject
+ * stays the *wiring* — that the simulation hands the shadowcaster this player's own Place grid, walls
+ * and all — instead of quietly becoming a test of the new carve rule.
  */
 function testZone(): Zone {
   // **Every room here is `dark`, and that is now a statement rather than a default.** Natural room light
@@ -50,7 +57,7 @@ function testZone(): Zone {
       zone: 700,
       name: 'West Hollow',
       flags: ['dark'],
-      sector: 'forest',
+      sector: 'cave',
       pos: { x: 0, y: 0, z: 0 },
       exits: { east: { to: 7002 }, up: { to: 7003, portal: true } },
     },
@@ -59,7 +66,7 @@ function testZone(): Zone {
       zone: 700,
       name: 'East Hollow',
       flags: ['dark'],
-      sector: 'forest',
+      sector: 'cave',
       pos: { x: 1, y: 0, z: 0 },
       exits: { west: { to: 7001 } },
     },
@@ -68,7 +75,7 @@ function testZone(): Zone {
       zone: 700,
       name: 'A Rope Bridge',
       flags: ['dark'],
-      sector: 'forest',
+      sector: 'cave',
       pos: { x: 0, y: 0, z: 1 },
       exits: { down: { to: 7001, portal: true } },
     },

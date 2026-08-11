@@ -18,7 +18,15 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
-import { ROOM_TILES, buildZoneTilemap, isWalkable, roomCentre, tileAt, type Zone } from '@mygame/shared';
+import {
+  ROOM_TILES,
+  buildZoneTilemap,
+  isWalkable,
+  roomAtTile,
+  roomCentre,
+  tileAt,
+  type Zone,
+} from '@mygame/shared';
 
 import { WORLD_DIR, loadZone } from './world.ts';
 import { applyZoneOverride, loadZoneOverrides } from './zone-overrides.ts';
@@ -48,7 +56,8 @@ function roomsReachableByTile(zone: Zone, level: number, from: number): Set<numb
   }
   const rooms = new Set<number>();
   for (const index of seen) {
-    const room = grid.rooms[index] ?? -1;
+    const tx = index % grid.width;
+    const room = roomAtTile(grid, tx, (index - tx) / grid.width);
     if (room !== -1) rooms.add(room);
   }
   return rooms;
@@ -139,11 +148,13 @@ describe('the seamless world is still the room graph — V8b, against the shippe
     let blockers = 0;
     for (const level of levels) {
       const grid = buildZoneTilemap(zone, level);
-      for (let index = 0; index < grid.tiles.length; index++) {
-        const tile = grid.tiles[index]!;
-        if (tile === 7 /* Tile.Blocker */) {
-          blockers += 1;
-          assert.equal(isWalkable(tile), false, 'a blocker that let anybody through');
+      for (let ty = 0; ty < grid.height; ty++) {
+        for (let tx = 0; tx < grid.width; tx++) {
+          const tile = tileAt(grid, tx, ty);
+          if (tile === 7 /* Tile.Blocker */) {
+            blockers += 1;
+            assert.equal(isWalkable(tile), false, 'a blocker that let anybody through');
+          }
         }
       }
     }

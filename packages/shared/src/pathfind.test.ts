@@ -12,8 +12,10 @@ import {
   Tile,
   buildZoneTilemap,
   canStand,
+  createTileGrid,
   isWalkable,
   roomCentre,
+  setTile,
   tileAt,
   type TileGrid,
 } from './tilemap.ts';
@@ -88,28 +90,18 @@ function ringZone(): Zone {
 function asciiGrid(rows: readonly string[]): TileGrid {
   const height = rows.length;
   const width = rows[0]!.length;
-  const tiles = new Uint8Array(width * height);
-  const rooms = new Int32Array(width * height).fill(-1);
+  // Built through the engine's own constructor rather than by assembling typed arrays here: the grid
+  // is sparse chunks now, and a fixture that wrote past the accessors would never allocate them.
+  const grid = createTileGrid({ width, height, roomOrigins: new Map([[1, { tx: 0, ty: 0 }]]) });
   for (let ty = 0; ty < height; ty++) {
     const row = rows[ty]!;
     assert.equal(row.length, width, 'ascii rows must be the same length');
     for (let tx = 0; tx < width; tx++) {
       if (row[tx] === '#') continue;
-      const index = ty * width + tx;
-      tiles[index] = Tile.Floor;
-      rooms[index] = 1;
+      setTile(grid, tx, ty, Tile.Floor, 0 /* inside, matching `makeZone` above */);
     }
   }
-  return {
-    width,
-    height,
-    level: 0,
-    tiles,
-    sectors: new Uint8Array(width * height),
-    rooms,
-    roomOrigins: new Map([[1, { tx: 0, ty: 0 }]]),
-    gap: 2,
-  };
+  return grid;
 }
 
 /* -------------------------------------------------------------------------- */

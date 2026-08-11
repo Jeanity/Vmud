@@ -29,14 +29,17 @@ import {
   creatureSheets,
   sceneryOf,
   parseArtId,
+  NO_SECTOR,
   TILE_SIZE,
   Tile,
   buildZoneTilemap,
   describeStance,
   normaliseIntent,
   samePlace,
+  sectorAt,
   setDoorTiles,
   stepMovement,
+  tileAt,
   type AffectView,
   MAX_LEVEL,
   type Equipped,
@@ -2947,9 +2950,14 @@ export class WorldScene extends Phaser.Scene {
     for (let ty = 0; ty < grid.height; ty++) {
       for (let tx = 0; tx < grid.width; tx++) {
         const index = ty * grid.width + tx;
-        const tile = grid.tiles[index] ?? Tile.Void;
+        const tile = tileAt(grid, tx, ty);
         if (tile === Tile.Void) continue;
-        const sector = grid.sectors[index] ?? 3;
+        // Read through the accessor because the grid's storage is sparse chunks now, not one array
+        // per attribute. `NO_SECTOR` cannot reach here — every cell that holds a non-void kind was
+        // written with the ground it stands on — but a drawn tile must resolve to *some* sheet, and
+        // `field` is the same fallback this line has always used.
+        const painted = sectorAt(grid, tx, ty);
+        const sector = painted === NO_SECTOR ? 3 : painted;
         const art = underProp.has(index)
           ? (SECTOR_ART[sector] ?? FALLBACK_ART)
           : this.artFor(tile, sector);
@@ -3529,7 +3537,8 @@ export class WorldScene extends Phaser.Scene {
       for (const index of changed) {
         const tx = index % grid.width;
         const ty = Math.floor(index / grid.width);
-        const art = this.artFor(grid.tiles[index] ?? Tile.Void, grid.sectors[index] ?? 3);
+        const painted = sectorAt(grid, tx, ty);
+        const art = this.artFor(tileAt(grid, tx, ty), painted === NO_SECTOR ? 3 : painted);
         const frame = art.frames[hashTile(tx, ty) % art.frames.length] ?? 10;
         map.batchDrawFrame(art.sheet, frame, tx * TILE_SIZE, ty * TILE_SIZE, 1, art.tint ?? 0xffffff);
       }

@@ -11,6 +11,7 @@ import {
   boundsOf,
   doorwayTiles,
   isWalkable,
+  tileAtIndex,
   type Room,
   type RoomExit,
   type Zone,
@@ -472,14 +473,14 @@ describe('GameWorld — doors', () => {
     assert.ok(doorway);
     const tiles = doorwayTiles(grid, 5001, 'east');
     assert.ok(tiles.length > 0, 'the fixture really does carve a doorway');
-    for (const index of tiles) assert.equal(grid.tiles[index], Tile.Door);
+    for (const index of tiles) assert.equal(tileAtIndex(grid, index), Tile.Door);
 
     const changed = world.setDoorClosed(doorway, false);
 
     assert.equal(doorway.near.door.closed, false);
     assert.equal(doorway.far?.door.closed, false, 'the far side moved too');
-    for (const index of tiles) assert.equal(grid.tiles[index], Tile.DoorOpen);
-    assert.ok(isWalkable(grid.tiles[tiles[0]!]!), 'and the tiles are walkable now');
+    for (const index of tiles) assert.equal(tileAtIndex(grid, index), Tile.DoorOpen);
+    assert.ok(isWalkable(tileAtIndex(grid, tiles[0]!)), 'and the tiles are walkable now');
 
     // Reported per side, and the shared strip is only counted once — the second side finds it done.
     assert.deepEqual(changed.map((c) => c.side.roomId), [5001, 5002]);
@@ -498,7 +499,7 @@ describe('GameWorld — doors', () => {
     const grid = world.grid({ zone: 500, level: 0 });
     assert.ok(grid);
     for (const index of doorwayTiles(grid, 5001, 'east')) {
-      assert.equal(grid.tiles[index], Tile.DoorOpen);
+      assert.equal(tileAtIndex(grid, index), Tile.DoorOpen);
     }
   });
 
@@ -571,7 +572,7 @@ describe('GameWorld — locks while no key exists', () => {
     const tiles = doorwayTiles(grid, 5001, 'east');
     assert.ok(tiles.length > 0);
     for (const index of tiles) {
-      assert.equal(grid.tiles[index], Tile.Door, 'the grid is carved shut, so movement is still refused');
+      assert.equal(tileAtIndex(grid, index), Tile.Door, 'the grid is carved shut, so movement is still refused');
     }
   });
 
@@ -587,7 +588,7 @@ describe('GameWorld — locks while no key exists', () => {
     const grid = world.grid({ zone: 500, level: 0 });
     assert.ok(grid);
     for (const index of doorwayTiles(grid, 5001, 'east')) {
-      assert.equal(grid.tiles[index], Tile.DoorOpen, 'openable, which a held lock would have refused');
+      assert.equal(tileAtIndex(grid, index), Tile.DoorOpen, 'openable, which a held lock would have refused');
     }
   });
 });

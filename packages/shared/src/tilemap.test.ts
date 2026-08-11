@@ -3,24 +3,34 @@ import { describe, it } from 'node:test';
 
 import {
   arrivalTile,
+  CHUNK_TILES,
   CONNECTOR_WIDTH,
+  NO_SECTOR,
   PLAYER_SPEED,
   ROOM_GAP,
   ROOM_STRIDE,
   ROOM_TILES,
+  SECTOR_INDEX,
   TILE_SIZE,
   Tile,
   buildZoneTilemap,
+  createTileGrid,
   doorwayTiles,
+  gridBytes,
   isWalkable,
   normaliseIntent,
   roomAtTile,
   roomCentre,
+  sectorAt,
+  sectorIndex,
   STAIR_TILES,
   setDoorTiles,
+  setTile,
+  stairAt,
   stairPlacement,
   stepMovement,
   tileAt,
+  tileAtIndex,
   type StairOffset,
 } from './tilemap.ts';
 import { boundsOf, type Door, type Room, type Zone } from './world.ts';
@@ -276,7 +286,7 @@ describe('doors as geometry', () => {
 
   it('flips only the doorway, and says which tiles changed', () => {
     const grid = buildZoneTilemap(gatedPair(true));
-    const before = grid.tiles.slice();
+    const before = allTiles(grid);
 
     const opened = setDoorTiles(grid, 1, 'east', false);
     assert.equal(opened.length, ROOM_GAP * CONNECTOR_WIDTH, 'the whole carved strip, and no more');
@@ -284,12 +294,12 @@ describe('doors as geometry', () => {
       [...opened].sort((a, b) => a - b),
       [...doorwayTiles(grid, 1, 'east')].sort((a, b) => a - b),
     );
-    for (const index of opened) assert.equal(grid.tiles[index], Tile.DoorOpen);
+    for (const index of opened) assert.equal(tileAtIndex(grid, index), Tile.DoorOpen);
 
     // Everything else is untouched — no floor overwritten, no void carved into.
     for (let i = 0; i < before.length; i++) {
       if (opened.includes(i)) continue;
-      assert.equal(grid.tiles[i], before[i], `tile ${i} changed and should not have`);
+      assert.equal(tileAtIndex(grid, i), before[i], `tile ${i} changed and should not have`);
     }
   });
 
@@ -317,13 +327,13 @@ describe('doors as geometry', () => {
       { id: 2, pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 1 } } },
     ]);
     const grid = buildZoneTilemap(zone);
-    const before = grid.tiles.slice();
+    const before = allTiles(grid);
 
     assert.deepEqual(setDoorTiles(grid, 1, 'east', true), [], 'a plain connector is not a door');
     assert.deepEqual(setDoorTiles(grid, 1, 'north', true), [], 'no exit at all');
     assert.deepEqual(setDoorTiles(grid, 1, 'up', true), [], 'a vertical link carves no strip');
     assert.deepEqual(setDoorTiles(grid, 999, 'east', true), [], 'a room not on this grid');
-    assert.deepEqual([...grid.tiles], [...before]);
+    assert.deepEqual(allTiles(grid), before);
   });
 });
 
@@ -439,8 +449,20 @@ describe('stairs', () => {
 /** How many tiles of one kind the whole grid holds. */
 function countTiles(grid: ReturnType<typeof buildZoneTilemap>, kind: number): number {
   let n = 0;
-  for (const t of grid.tiles) if (t === kind) n++;
+  for (let ty = 0; ty < grid.height; ty++) {
+    for (let tx = 0; tx < grid.width; tx++) if (tileAt(grid, tx, ty) === kind) n++;
+  }
   return n;
+}
+
+/**
+ * Every tile kind on the grid, by index — the snapshot the dense `tiles` array used to hand out for
+ * free. Kept as a plain array so a failure prints a tile index that means what the wire means.
+ */
+function allTiles(grid: ReturnType<typeof buildZoneTilemap>): number[] {
+  const out: number[] = [];
+  for (let index = 0; index < grid.width * grid.height; index++) out.push(tileAtIndex(grid, index));
+  return out;
 }
 
 /** A door, shut and unlocked unless told otherwise. */
@@ -649,7 +671,7 @@ describe('buildZoneTilemap, seamless', () => {
     // And the door opens through the same machinery every corridor door uses.
     const changed = setDoorTiles(grid, 1, 'east', false);
     assert.equal(changed.length, CONNECTOR_WIDTH);
-    assert.ok(fromWest.every((index) => grid.tiles[index] === Tile.DoorOpen));
+    assert.ok(fromWest.every((index) => tileAtIndex(grid, index) === Tile.DoorOpen));
   });
 
   it('keeps seam tiles roomless, so crossing announces the arrival room and nothing else', () => {
@@ -706,7 +728,8 @@ describe('buildZoneTilemap, seamless', () => {
       }
       const reached = new Set<number>();
       for (const index of seen) {
-        const room = grid.rooms[index] ?? -1;
+        const tx = index % grid.width;
+        const room = roomAtTile(grid, tx, (index - tx) / grid.width);
         if (room !== -1) reached.add(room);
       }
       return [...reached].sort();
@@ -718,5 +741,390 @@ describe('buildZoneTilemap, seamless', () => {
     // Shut the door: the tiles must seal exactly what the graph would — the inn, and nothing else.
     setDoorTiles(grid, 4, 'north', true);
     assert.deepEqual(roomsReached(), [1, 2, 3, 4, 5], 'the shut door seals the inn and nothing else');
+  });
+});
+
+/**
+ * The width of an opening — M0's one deliberate change to what the world looks like.
+ *
+ * Every link used to be a three-tile neck, which made the world a lattice of nine-tile squares on a
+ * hard eleven-tile beat with two to four beats on screen at any time. Two adjacent meadows do not meet
+ * through a doorway, so **two linked outdoor rooms now merge along their whole shared edge** and
+ * everything else keeps the neck. The exceptions are what these tests are mostly for: a door is still
+ * a door however open the ground around it, and a seamless zone's borders were never carved here.
+ */
+describe('the width of an opening', () => {
+  /** The gap cells between the room at cell (0,0) and its eastern neighbour, row by row. */
+  function eastSeam(grid: ReturnType<typeof buildZoneTilemap>): number[][] {
+    const rows: number[][] = [];
+    for (let ty = 0; ty < ROOM_TILES; ty++) {
+      const row: number[] = [];
+      for (let step = 0; step < ROOM_GAP; step++) row.push(tileAt(grid, ROOM_TILES + step, ty));
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  /** How many of the nine rows of the shared edge are open at all. */
+  function openRows(grid: ReturnType<typeof buildZoneTilemap>): number {
+    return eastSeam(grid).filter((row) => row.every((tile) => isWalkable(tile))).length;
+  }
+
+  const pair = (a: Room['sector'], b: Room['sector'], door?: Door): Zone =>
+    makeZone([
+      { id: 1, sector: a, pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 2, ...(door ? { door } : {}) } } },
+      { id: 2, sector: b, pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 1, ...(door ? { door } : {}) } } },
+    ]);
+
+  it('merges two outdoor rooms along the whole shared edge', () => {
+    const grid = buildZoneTilemap(pair('forest', 'forest'));
+    assert.equal(openRows(grid), ROOM_TILES, 'every row of the shared edge is walkable ground');
+    for (const row of eastSeam(grid)) {
+      for (const tile of row) assert.equal(tile, Tile.Connector);
+    }
+  });
+
+  it('does it for every outdoor sector, and for none of the others', () => {
+    // Named one by one rather than as "not inside", because a cave, a street and a room all have
+    // walls that a doorway is cut through, and a nine-tile hole in a cave wall is not a cave.
+    for (const sector of ['field', 'forest', 'road', 'hills', 'swamp', 'desert'] as const) {
+      assert.equal(openRows(buildZoneTilemap(pair(sector, sector))), ROOM_TILES, `${sector} should merge`);
+    }
+    for (const sector of ['inside', 'city', 'cave', 'mountain', 'arctic', 'shallow_water'] as const) {
+      assert.equal(
+        openRows(buildZoneTilemap(pair(sector, sector))),
+        CONNECTOR_WIDTH,
+        `${sector} should keep its doorway`,
+      );
+    }
+  });
+
+  it('keeps the neck where only one side is outdoors', () => {
+    // A field running up to a house meets its wall. Merging on one room's say-so would open a
+    // nine-tile hole in the other's.
+    assert.equal(openRows(buildZoneTilemap(pair('forest', 'inside'))), CONNECTOR_WIDTH);
+    assert.equal(openRows(buildZoneTilemap(pair('inside', 'forest'))), CONNECTOR_WIDTH);
+  });
+
+  it('keeps a door at door width, because a nine-tile doorway is not a door', () => {
+    const grid = buildZoneTilemap(pair('forest', 'forest', door({})));
+    assert.equal(openRows(grid), 0, 'a shut door is not walkable ground');
+    const gate = eastSeam(grid).filter((row) => row.every((tile) => tile === Tile.Door));
+    assert.equal(gate.length, CONNECTOR_WIDTH, 'exactly a connector-wide gate');
+    for (const [ty, row] of eastSeam(grid).entries()) {
+      if (row.every((tile) => tile === Tile.Door)) continue;
+      for (const tile of row) assert.equal(tile, Tile.Void, `the edge beside the gate at ty=${ty}`);
+    }
+    // And the runtime derives the same cells it was carved on, which is what lets it open.
+    assert.equal(doorwayTiles(grid, 1, 'east').length, ROOM_GAP * CONNECTOR_WIDTH);
+  });
+
+  it('keeps the neck when only the far side declares the door', () => {
+    // 5 links in the shipped world are exactly this shape: a door on one side, a plain exit facing it
+    // back. `CARVE_RANK` settles which *kind* a contested cell ends up as and can do nothing about a
+    // cell the other side never contested — so a plain side that widened would leave the door
+    // standing in the middle of an opening you walk straight around.
+    const oneSided = makeZone([
+      { id: 1, sector: 'forest', pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 2, door: door({}) } } },
+      { id: 2, sector: 'forest', pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 1 } } },
+    ]);
+    const grid = buildZoneTilemap(oneSided);
+    assert.equal(openRows(grid), 0, 'nothing walkable beside the gate');
+    const gate = eastSeam(grid).filter((row) => row.every((tile) => tile === Tile.Door));
+    assert.equal(gate.length, CONNECTOR_WIDTH);
+
+    // Same shape stated from the far room, which is the side that would have widened.
+    const reversed = makeZone([
+      { id: 1, sector: 'forest', pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 2 } } },
+      { id: 2, sector: 'forest', pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 1, door: door({}) } } },
+    ]);
+    assert.equal(openRows(buildZoneTilemap(reversed)), 0);
+  });
+
+  it('does not widen for a one-way exit into a room that is not outdoors', () => {
+    // Only one side carves, and it still has to ask both rooms — the width is a property of the pair.
+    const oneWay = makeZone([
+      { id: 1, sector: 'forest', pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 2 } } },
+      { id: 2, sector: 'cave', pos: { x: 1, y: 0, z: 0 } },
+    ]);
+    assert.equal(openRows(buildZoneTilemap(oneWay)), CONNECTOR_WIDTH);
+  });
+
+  it('merges north-south as readily as east-west', () => {
+    const grid = buildZoneTilemap(
+      makeZone([
+        { id: 1, sector: 'field', pos: { x: 0, y: 0, z: 0 }, exits: { south: { to: 2 } } },
+        { id: 2, sector: 'field', pos: { x: 0, y: 1, z: 0 }, exits: { north: { to: 1 } } },
+      ]),
+    );
+    for (let tx = 0; tx < ROOM_TILES; tx++) {
+      for (let step = 0; step < ROOM_GAP; step++) {
+        assert.equal(tileAt(grid, tx, ROOM_TILES + step), Tile.Connector, `column ${tx}`);
+      }
+    }
+  });
+
+  it('leaves the merged ground belonging to no room, exactly as a corridor does', () => {
+    // The room is still the unit of interest management: you are in the room you left until you stand
+    // somewhere real. Widening the opening must not quietly hand the gap to one of the two rooms.
+    const grid = buildZoneTilemap(pair('forest', 'forest'));
+    for (let ty = 0; ty < ROOM_TILES; ty++) {
+      assert.equal(roomAtTile(grid, ROOM_TILES, ty), -1, `merged cell at ty=${ty} belongs to nobody`);
+    }
+    assert.equal(roomAtTile(grid, ROOM_TILES - 1, 4), 1);
+    assert.equal(roomAtTile(grid, ROOM_STRIDE, 4), 2);
+  });
+
+  it('is a function of the pair, not of the order the zone lists them in', () => {
+    const forward = buildZoneTilemap(pair('forest', 'forest'));
+    const reversed = buildZoneTilemap(
+      makeZone([
+        { id: 2, sector: 'forest', pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 1 } } },
+        { id: 1, sector: 'forest', pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 2 } } },
+      ]),
+    );
+    assert.deepEqual(eastSeam(reversed), eastSeam(forward));
+  });
+
+  it('leaves a seamless zone’s borders to stampSeams, which already fills them', () => {
+    // Seamless zones never reach the carve at all. The check that matters is the door case: a gate in
+    // a seam is still a gate, whatever the two sectors are.
+    const seamless = (rooms: readonly Partial<Room>[]): Zone => ({ ...makeZone(rooms), seamless: true });
+    const gated: Door = { name: 'a field gate', closed: true, locked: false };
+    const grid = buildZoneTilemap(
+      seamless([
+        { id: 1, sector: 'field', pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 2, door: gated } } },
+        { id: 2, sector: 'field', pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 1, door: gated } } },
+      ]),
+    );
+    assert.equal(grid.gap, 1, 'still the seam stride');
+    let doors = 0;
+    let walls = 0;
+    for (let ty = 0; ty < ROOM_TILES; ty++) {
+      const tile = tileAt(grid, ROOM_TILES, ty);
+      if (tile === Tile.Door) doors++;
+      else if (tile === Tile.Blocker) walls++;
+    }
+    assert.equal(doors, CONNECTOR_WIDTH, 'the gate is still connector-wide');
+    assert.equal(walls, ROOM_TILES - CONNECTOR_WIDTH, 'and the rest of the seam is still the wall it sits in');
+  });
+});
+
+/**
+ * Sectors on the grid — and the void that used to claim to be an interior.
+ *
+ * `sectors` was a zero-filled dense array only occupied cells were written into, and `SECTOR_INDEX[0]`
+ * is `inside`. So every void cell in the world said it was an interior floor: invisible while nothing
+ * read the void, and wrong the moment anything dresses the gaps.
+ */
+describe('sectorAt', () => {
+  it('answers with the room’s own sector on its floor', () => {
+    const grid = buildZoneTilemap(makeZone([{ id: 1, sector: 'swamp', pos: { x: 0, y: 0, z: 0 } }]));
+    assert.equal(sectorAt(grid, 4, 4), sectorIndex('swamp'));
+    assert.equal(SECTOR_INDEX[sectorAt(grid, 4, 4)], 'swamp');
+  });
+
+  it('says NO_SECTOR for the void, rather than the first row of the table', () => {
+    // The bug, stated as a test: `inside` is sector 0, so a zero-filled array cannot tell "an interior
+    // floor" from "nothing was ever laid here".
+    const grid = buildZoneTilemap(
+      makeZone([
+        { id: 1, sector: 'inside', pos: { x: 0, y: 0, z: 0 } },
+        { id: 2, sector: 'inside', pos: { x: 1, y: 0, z: 0 } },
+      ]),
+    );
+    assert.equal(sectorIndex('inside'), 0, 'the collision this exists to break');
+    assert.equal(sectorAt(grid, 4, 4), 0, 'a real interior floor still reads as sector 0');
+    assert.equal(tileAt(grid, ROOM_TILES, 4), Tile.Void, 'fixture: the gap is void, the rooms are unlinked');
+    assert.equal(sectorAt(grid, ROOM_TILES, 4), NO_SECTOR, 'and the void says so');
+    assert.notEqual(NO_SECTOR, sectorIndex('inside'));
+  });
+
+  it('says NO_SECTOR off the edge of the map', () => {
+    const grid = buildZoneTilemap(makeZone([{ id: 1 }]));
+    assert.equal(sectorAt(grid, -1, 0), NO_SECTOR);
+    assert.equal(sectorAt(grid, 0, -1), NO_SECTOR);
+    assert.equal(sectorAt(grid, 9999, 0), NO_SECTOR);
+  });
+
+  it('leaves the ground alone when a tile is only re-kinded', () => {
+    // Stairs, scenery and an opening door all change what a tile *is* without changing what it stands
+    // on. A stair block that lost its sector would be drawn on nothing.
+    const grid = buildZoneTilemap(
+      makeZone([{ id: 7, sector: 'cave', pos: { x: 0, y: 0, z: 0 }, exits: { down: { to: 99 } } }]),
+    );
+    const stair = grid.stairs[0]!;
+    assert.equal(tileAt(grid, stair.tx, stair.ty), Tile.StairsDown);
+    assert.equal(sectorAt(grid, stair.tx, stair.ty), sectorIndex('cave'));
+  });
+});
+
+/**
+ * Stairs, as data rather than as three tile kinds.
+ *
+ * The placement machinery is unchanged and tested above — this is about what the grid *remembers* of
+ * it. The stamp used to write nine cells and discard `exit.to`, so nothing downstream could tell where
+ * a flight went without going back to the room graph, which is not enough to build a stairwell from.
+ */
+describe('what the grid remembers about a staircase', () => {
+  it('keeps the room, the direction and the target of every flight', () => {
+    const grid = buildZoneTilemap(
+      makeZone([{ id: 7, pos: { x: 0, y: 0, z: 0 }, exits: { up: { to: 98 }, down: { to: 99 } } }]),
+    );
+    assert.equal(grid.stairs.length, 2);
+    const up = grid.stairs.find((s) => s.dir === 'up');
+    const down = grid.stairs.find((s) => s.dir === 'down');
+    assert.equal(up?.room, 7);
+    assert.equal(up?.to, 98, 'the target the stamp used to throw away');
+    assert.equal(down?.to, 99);
+  });
+
+  it('puts the block where stairPlacement said, in tile space', () => {
+    const grid = buildZoneTilemap(
+      makeZone([{ id: 4242, pos: { x: 1, y: 0, z: 0 }, exits: { up: { to: 98 } } }]),
+    );
+    const origin = grid.roomOrigins.get(4242)!;
+    const placement = stairPlacement(4242, true, false);
+    const stair = grid.stairs[0]!;
+    assert.equal(stair.tx, origin.tx + placement.up!.dx);
+    assert.equal(stair.ty, origin.ty + placement.up!.dy);
+    // And the tiles agree with the record, which is the invariant a later stairwell builder needs.
+    for (let dy = 0; dy < STAIR_TILES; dy++) {
+      for (let dx = 0; dx < STAIR_TILES; dx++) {
+        assert.equal(tileAt(grid, stair.tx + dx, stair.ty + dy), Tile.StairsUp);
+        assert.equal(stairAt(grid, stair.tx + dx, stair.ty + dy), stair);
+      }
+    }
+    assert.equal(stairAt(grid, origin.tx, origin.ty + ROOM_TILES + 1), undefined, 'nothing in the gap');
+  });
+
+  it('records nothing for a room with no vertical exit', () => {
+    const grid = buildZoneTilemap(makeZone([{ id: 7, pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 9 } } }]));
+    assert.deepEqual(grid.stairs, []);
+    assert.equal(stairAt(grid, 4, 4), undefined);
+  });
+
+  it('records a vertical exit even when its far room is on another level', () => {
+    // Which is the normal case: `up` leads to a different Place, and that is exactly why there is no
+    // corridor to carve and why the target had to be kept somewhere.
+    const grid = buildZoneTilemap(
+      makeZone([
+        { id: 1, pos: { x: 0, y: 0, z: 0 }, exits: { up: { to: 2 } } },
+        { id: 2, pos: { x: 0, y: 0, z: 1 } },
+      ]),
+      0,
+    );
+    assert.deepEqual(grid.stairs.map((s) => [s.room, s.dir, s.to]), [[1, 'up', 2]]);
+  });
+});
+
+/**
+ * Sparse storage.
+ *
+ * The property that matters is **laziness**: a grid must cost what its rooms cost and not what its
+ * bounding box costs, because the bounding box is what made zone 317's level 7 ask for 225.9 MB of
+ * typed arrays to describe 58 rooms. `tilemap-memory.test.ts` in the server package puts the ceiling
+ * on the real zone; these are the structural invariants, with no world data needed.
+ */
+describe('sparse chunk storage', () => {
+  /** A zone of `count` rooms, each `spacing` cells further east than the last. */
+  const strungOut = (count: number, spacing: number): Zone =>
+    makeZone(
+      Array.from({ length: count }, (_, i) => ({
+        id: i + 1,
+        pos: { x: i * spacing, y: 0, z: 0 },
+      })),
+    );
+
+  it('allocates nothing at all for a grid nobody has written to', () => {
+    const grid = createTileGrid({ width: 4096, height: 4096 });
+    assert.equal(grid.chunks.size, 0);
+    assert.equal(gridBytes(grid), 0, 'a 16-million-tile bounding box costs nothing until it is used');
+    assert.equal(tileAt(grid, 2000, 2000), Tile.Void, 'and reads back as void everywhere');
+    assert.equal(sectorAt(grid, 2000, 2000), NO_SECTOR);
+  });
+
+  it('costs what the rooms cost, not what the bounding box costs', () => {
+    // **The headline.** Two rooms 400 cells apart span a 4411x11 tile box — 48,521 tiles, 291,126
+    // bytes of the dense arrays this replaced — and hold exactly as much floor as two rooms side by
+    // side. The allocation must follow the floor.
+    const near = buildZoneTilemap(strungOut(2, 1));
+    const far = buildZoneTilemap(strungOut(2, 400));
+
+    assert.ok(far.width > 4000, `fixture: the far pair spans ${far.width} tiles`);
+    assert.equal(gridBytes(far), gridBytes(near), 'the same two rooms cost the same either way');
+    assert.ok(
+      gridBytes(far) * 40 < far.width * far.height * 2,
+      `${gridBytes(far)} B against a ${far.width}x${far.height} box`,
+    );
+  });
+
+  it('grows in step with the room count and nothing else', () => {
+    const one = gridBytes(buildZoneTilemap(strungOut(1, 400)));
+    const ten = gridBytes(buildZoneTilemap(strungOut(10, 400)));
+    assert.ok(one > 0, 'a room does allocate something');
+    assert.equal(ten, one * 10, 'ten rooms that share no chunk cost ten times one');
+  });
+
+  it('allocates a chunk for a carve that lands between two rooms', () => {
+    // Carves and seams write into the gap, which routinely belongs to a chunk no room block touched.
+    // Nothing may have to know that: the write allocates.
+    const grid = createTileGrid({ width: 64, height: 64 });
+    const between = CHUNK_TILES * 2 + 3;
+    assert.equal(tileAt(grid, between, between), Tile.Void);
+    setTile(grid, between, between, Tile.Connector, sectorIndex('road'));
+    assert.equal(grid.chunks.size, 1);
+    assert.equal(tileAt(grid, between, between), Tile.Connector);
+    assert.equal(sectorAt(grid, between, between), sectorIndex('road'));
+  });
+
+  it('allocates once per chunk, however many times it is written', () => {
+    const grid = createTileGrid({ width: 64, height: 64 });
+    setTile(grid, 0, 0, Tile.Floor, 0);
+    const first = gridBytes(grid);
+    for (let i = 0; i < CHUNK_TILES; i++) setTile(grid, i, i, Tile.Floor, 0);
+    assert.equal(gridBytes(grid), first, 'the whole chunk was already there');
+    setTile(grid, CHUNK_TILES, 0, Tile.Floor, 0);
+    assert.equal(gridBytes(grid), first * 2, 'and the next one is a second allocation');
+  });
+
+  it('ignores a write off the edge of the map instead of allocating for it', () => {
+    // A carve at the boundary asks for cells outside the grid, and a chunk map with no bounds check
+    // would happily allocate for coordinates no tile index can name.
+    const grid = createTileGrid({ width: 32, height: 32 });
+    setTile(grid, -1, 5, Tile.Floor, 0);
+    setTile(grid, 5, -1, Tile.Floor, 0);
+    setTile(grid, 32, 5, Tile.Floor, 0);
+    setTile(grid, 5, 999, Tile.Floor, 0);
+    assert.equal(grid.chunks.size, 0);
+    assert.equal(tileAt(grid, -1, 5), Tile.Void);
+  });
+
+  it('reads and writes the same cell whichever way it is addressed', () => {
+    // `tileAtIndex` is what the wire-facing callers use — `seen` bitsets, the `door` message's changed
+    // list — so it has to agree with `tileAt` on every cell, chunk boundaries included.
+    const grid = buildZoneTilemap(strungOut(3, 2));
+    for (let ty = 0; ty < grid.height; ty++) {
+      for (let tx = 0; tx < grid.width; tx++) {
+        assert.equal(tileAtIndex(grid, ty * grid.width + tx), tileAt(grid, tx, ty), `${tx},${ty}`);
+      }
+    }
+    assert.equal(tileAtIndex(grid, -1), Tile.Void);
+    assert.equal(tileAtIndex(grid, grid.width * grid.height), Tile.Void);
+  });
+
+  it('spans chunk boundaries without a seam of its own', () => {
+    // A room block is 9 tiles on a stride of 11 and a chunk is 16, so blocks straddle chunks at every
+    // third room. A boundary that lost a tile would read as a wall down the middle of a floor.
+    const grid = buildZoneTilemap(strungOut(6, 1));
+    for (const [id, origin] of grid.roomOrigins) {
+      for (let dy = 0; dy < ROOM_TILES; dy++) {
+        for (let dx = 0; dx < ROOM_TILES; dx++) {
+          assert.equal(tileAt(grid, origin.tx + dx, origin.ty + dy), Tile.Floor, `room ${id} at ${dx},${dy}`);
+          assert.equal(roomAtTile(grid, origin.tx + dx, origin.ty + dy), id);
+        }
+      }
+    }
+    assert.ok(grid.width > CHUNK_TILES * 3, 'fixture: the grid really does span several chunks');
   });
 });
