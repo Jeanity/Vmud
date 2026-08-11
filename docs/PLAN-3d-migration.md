@@ -4,6 +4,43 @@
 
 ---
 
+## Amendments — 2026-08-12, at the close of M1
+
+*The plan below is kept as written. What follows corrects it against the tree it now describes.*
+
+**M0 and M1 are delivered** (commits `7069ef3`, `9eab6b8`), both by delegated agents, both verified
+independently against the full suite. M0: sparse 16x16 chunk storage — zone 317 fell from 521 MB
+dense to 214 KB (x2,553) — plus the sector-0-void fix, stair metadata kept with `exit.to`, outdoor
+rooms merging along their whole shared edge, and `space.ts` (in `shared`, not the §3 client
+placement: the client has no test runner, and an axis map is a determinism contract). M1's headline
+was that **§6-M1's own narrative was stale**: the baseline already held a suffix tier, graph
+diffusion and a Duris sector harvest, and the world was at 0.2% defaulted before a line changed. The
+real repairs were the rule order (landscape now outranks road/city — 4,427 rooms, 9.5% of the world,
+changed sector) and an empirically-validated diffusion seed policy (zone-name guesses scored 48% on
+held-out harvest truth; the graph vote scores 65–69%, so zone-tier rooms are now correctable).
+
+**§2's figures re-measured.** `scene.ts` is **5,339 lines**, not 539 — the file grew 10x under two
+weeks of V-track work after this plan was written. The salvage list survives unchanged and its
+anchors are: `SNAP_DISTANCE` :213, `wireNetwork` :2112–2297 (~186 lines of message handlers now, up
+from ~51), the input→`steer` mapping :4444, the prediction/reconciliation block :4444–4530, and
+`hashTile` :5286. `net.ts` is 91 lines (was 84) and still carries over verbatim. `log.ts` is **241
+lines** (was 55) — it grew the channel system and is *more* worth keeping, exactly as §2 predicted.
+The ~85% figure still holds in spirit; the absolute discard is simply far larger.
+
+**The write-off shrank in kind, not just in count.** Work landed since the plan deliberately put its
+decisions in `shared`, where no pixel lives: `creatureSheets`/`mobpick` (a creature's look chosen
+from its name — exactly what selects a 3D model), `scenery.ts` + `scatterFor` (what stands in a
+room, that it is solid, deterministic placement), the seam ruling (`RoomExit.seam`), and M0's
+`space.ts`. Only the sheet-staging halves are LPC-specific. The §5 art section's write-off maths is
+unchanged; the *mechanics* write-off is near zero.
+
+**One §4 correction for M2:** the edge-classification table predates seams. 5,328 of the world's
+portals now carry `seam: true` — fiction-wise ordinary crossings whose entire point is not
+announcing themselves — so a seam edge must NOT classify as `portal` (the emissive ring would
+re-grow everything the seam work removed). The M2 implementation records the decision it takes.
+
+---
+
 ## 1. Direct answer
 
 **Yes — with Three.js (r185, MIT), on the Vite build you already have.** You can get the reference image's register: the steep 60–70° perspective camera, blue-teal night ambient, a lit clearing walled by conifers, rain streaks, soft moon shadows, an emissive portal ring, and a small character seen from above. Realistically you land at **80–90% of that frame for outdoor forest rooms**, and the shortfall will be in the *softness* of the foliage — the reference's painterly leaf masses are hand-painted texture work that no free asset pack ships and that I cannot promise you will reproduce from shader tricks alone. That is the one genuinely uncertain item in this plan and I flag it again in §7. Everything else in that screenshot — the lighting, the fog, the rain, the shadows, the portal glow, the tone grade — is renderer configuration you will get right in a few weeks, not art you have to buy. The much bigger honest caveat is not about the forest at all: **forest is 8.6% of your world** (measured). `inside` 15.2%, `cave` 10.6% and `city` 9.9% together are 35.7%, and those rooms need a *second* rendering mode (roofs, roof culling, interior lights, no sky, no weather), not a colour-palette variant. This plan schedules that early rather than pretending it's a table row.
