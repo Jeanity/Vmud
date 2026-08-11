@@ -453,7 +453,53 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-### Start here — where 2026-08-10 ended: the world stopped asking to be clicked, and things stand in it
+### Start here — 2026-08-11: the project pivots to the 3D client
+
+**The owner turned the project on 2026-08-11, and it reverses a standing ruling.** Since 2026-08-07
+this file and the roadmap have said *"think about it, build none of it yet"* about the 3D client, on
+the reasoning that everything being built was the proof of concept that the mechanics survive the
+port. That proof is substantially delivered — combat, skills, spells, quests, shops, accounts,
+seams, scenery and search all exist, and all of them live in `shared`/`server` where no pixel does.
+
+The trigger was the owner declining to fetch an animal pack: *"before we get all hung up on getting
+LPC images that aren't going to be used in the end anyway."* That is
+[PLAN-3d-migration.md](PLAN-3d-migration.md) §2's own conclusion reached independently — **"the LPC
+investment is a write-off. Not partially — entirely."**
+
+**Read the plan before doing anything.** It is 275 lines, it is thorough, and it already answers the
+questions somebody starting fresh will ask. Two amendments it needs:
+
+1. **§2 prices the port against a 539-line `scene.ts`. It is 5,330 lines today.** The salvage list —
+   `net.ts`, `log.ts`, the prediction/reconciliation block, `hashTile` — is still right. The effort
+   table under it is not, and should be re-measured before any milestone gets a date.
+2. **What is *not* a write-off is bigger than the plan assumed**, because a week of work since has
+   gone into renderer-agnostic decisions rather than pixels. `mobpick` classifies a creature from
+   its name (*"this is a lizard, this is a troll"*) which is exactly what selects a 3D model;
+   `scenery.ts` says what stands in a room, that it is solid, and how scatter is derived
+   deterministically. Only the sheet-staging half of each is LPC-specific.
+
+**Start at M0 and M1, neither of which is 3D work.** No Three.js, no new dependency:
+
+- **M0** — rewrite `tilemap.ts` into sparse per-stride-cell chunks. The current whole-zone render
+  texture cannot open zone 317 (358 rooms would need 218,496 × 288,384 px).
+- **M1** — repair `inferSector` in `worldgen/src/terrain.ts`, which first-match-wins a regex over the
+  room name and then defaults to `field`. The plan puts this before any GPU work deliberately:
+  sector stops being cosmetic and becomes art direction.
+
+Both are worth doing whatever the renderer is, which is what makes them the right first step and what
+keeps the turn reversible.
+
+**Left in flight on the 2D client**, all committed and working, none of it blocking:
+
+- 1,238 mobs carry a `body/head` sprite key. 68% human, then troll, lizard, orc, goblin. Live.
+- The kobold heads were broken three ways and are fixed; see the commit for the one worth
+  remembering — two places resolved a sprite key into layers and only one knew about creatures.
+- **The push has been failing with HTTP 403 since mid-afternoon.** Seven commits are local only.
+  Nothing is lost; it needs a GitHub credential refreshed.
+
+---
+
+### Before that — where 2026-08-10 ended: the world stopped asking to be clicked, and things stand in it
 
 **Seven slices landed, all pushed, `main` at `9e6ff1f`.** In order:
 
