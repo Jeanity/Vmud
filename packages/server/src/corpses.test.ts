@@ -119,6 +119,46 @@ describe('what a death leaves', () => {
   });
 });
 
+describe('what a body will not give up', () => {
+  it('leaves a hidden thing behind, however thoroughly the body is looted', () => {
+    // ITEM_SECRET, and the whole point of `search`. If `loot` stripped it out with everything else
+    // the verb would be decorative: you would get the needle by walking over the corpse.
+    const f = fixture();
+    assert.ok(f.mob);
+    const secret = { ...thing('needle', 1), hidden: true as const };
+    const corpse = makeCorpse(f.yard, f.mob, false, [thing('rope', 2), secret]);
+
+    const result = lootCorpse(corpse, emptyInventory());
+    assert.deepEqual(result.taken.map((i) => i.id), ['rope'], 'the ordinary thing came out');
+    assert.deepEqual(result.left.map((i) => i.id), ['needle'], 'the hidden one did not');
+    assert.deepEqual(corpse.contents.map((i) => i.id), ['needle']);
+  });
+
+  it('keeps reading as worth searching while it holds one, which is the only clue there is', () => {
+    // `looted` is derived from contents being empty, and a hidden item is still contents - so the
+    // body stays a pile of bones rather than a picked-clean single bone. That sprite is the one
+    // signal a player has that there is more in there.
+    const f = fixture();
+    assert.ok(f.mob);
+    const corpse = makeCorpse(f.yard, f.mob, false, [{ ...thing('needle', 1), hidden: true as const }]);
+    lootCorpse(corpse, emptyInventory());
+    assert.equal(corpse.looted, false);
+    assert.equal(corpseSprite(corpse), 'corpse', 'still worth searching');
+  });
+
+  it('gives it up once it is no longer hidden', () => {
+    // The other half: revealing is what makes it lootable, so the two verbs compose rather than the
+    // flag being a permanent lock.
+    const f = fixture();
+    assert.ok(f.mob);
+    const corpse = makeCorpse(f.yard, f.mob, false, [{ ...thing('needle', 1), hidden: true as const }]);
+    corpse.contents[0] = thing('needle', 1); // what `reveal` does
+    const result = lootCorpse(corpse, emptyInventory());
+    assert.deepEqual(result.taken.map((i) => i.id), ['needle']);
+    assert.equal(corpse.looted, true);
+  });
+});
+
 describe('the looted sprite', () => {
   it('is a pile of bones while it holds something, then a single bone', () => {
     // The owner's rule: a picked-clean corpse must look picked clean, so "has anyone been here" is

@@ -340,7 +340,6 @@ import {
   groundSprite,
   groundViewOf,
   itemsIn,
-  type GroundItem,
   visibleItemsIn,
   nearestMatching,
   takeItem,
@@ -4310,24 +4309,6 @@ function stripLeadingArticle(name: string): string {
 }
 
 /**
- * `rescue <ally>` — **Phase 19 slice 4**, and the first ability that makes grouping mean something
- * mechanically: taking a blow meant for somebody else. `rescue()` (`actoff.c:7261`), transcribed;
- * the mechanism is `rescueFrom` in `combat.ts` and the threat-standing decision is documented there.
- *
- * What stays the source's, verbatim where a player can read it: the refusals ("What about fleeing
- * instead?", "How can you rescue someone you are trying to kill?", "But nobody is fighting them?" —
- * the last costing nothing, no lag and no roll), one attacker peeled per use, one round of lag paid
- * on the *attempt*, and the messages. **Dropped and named as dropped**: `ROOM_SINGLE_FILE` (the flag
- * is not harvested — no room in our world carries it), the Guardian's `rescue all` (classes are
- * Phase 21), and the blind check, which our visibility gate already is — a rescuee you cannot see is
- * a rescuee `resolveTarget` will not resolve.
- *
- * **The notch shape is the opposite of bash and kick's, and it is kept that way on purpose.** Their
- * roll is `!notch && miss` — learning forces the blow home. Rescue's is `notch || roll > skill` —
- * learning forces the fumble, and the `||` short-circuits so a notching attempt never rolls for
- * success at all. See `RESCUE_NOTCH_CHANCE` for the full note.
- */
-/**
  * `search` — `do_search` (`actobj.c:5771`), and both of the owner's asks for it.
  *
  * Three things it can be pointed at, and the third is ours rather than the source's:
@@ -4357,15 +4338,26 @@ function doSearch(player: Player, rest: string): void {
   }
 
   const room = sim.room(player.roomId);
-  // Where the hidden things are. The room, unless a container was named — in which case its
-  // contents, and the two refusals that get you there.
+  // Where the hidden things are. The room, unless something with an inside was named — and there are
+  // two kinds of inside, because a corpse is not a ground item here. It has its own store, its own
+  // reach rule and its own name matching, all of which `loot` already owns; searching a body has to
+  // go through the same three or `search sentry` and `loot sentry` would disagree about which of the
+  // three dead guards on the floor they mean.
   let pool: Item[];
-  let container: GroundItem | undefined;
+  let searched: Corpse | undefined;
   if (word && sceneryNamed(room?.scenery, word) === undefined) {
-    container = itemsIn(ground, player.roomId).find((entry) => wordsFor(entry.item).includes(word));
-    if (!container) return fail();
-    if (!container.held) return fail();
-    pool = container.held.contents.map((stack: Stack) => stack.item);
+    const bodies = corpsesIn(graveyard, player.roomId)
+      .filter((corpse) => withinReach(corpse, player.x, player.y))
+      .filter((corpse) => corpseAnswersTo(corpse, word));
+    searched = bodies[0];
+    if (searched) {
+      pool = searched.contents;
+    } else {
+      const container = itemsIn(ground, player.roomId).find((entry) => wordsFor(entry.item).includes(word));
+      // One sentence for "no such thing" and "that has no inside" — the source's own conflation.
+      if (!container?.held) return fail();
+      pool = container.held.contents.map((stack: Stack) => stack.item);
+    }
   } else {
     pool = itemsIn(ground, player.roomId).map((entry) => entry.item);
   }
@@ -4382,7 +4374,7 @@ function doSearch(player: Player, rest: string): void {
     // A character with no rolled scores predates Phase 20b; treat them as unremarkable rather than
     // refusing the verb, which would make `search` silently dead for every pre-phase body.
     if (!findsIt(combatRng, scores?.int ?? 10, scores?.wis ?? 10)) continue;
-    reveal(item);
+    reveal(item, searched);
     send(player.id, { t: 'log', channel: 'room', text: `You find ${item.name}&N!` });
     actToRoom(player, 'room', (who) => `${capitalise(who)} finds ${item.name}&N!`);
     return; // one find per search
@@ -4390,8 +4382,23 @@ function doSearch(player: Player, rest: string): void {
   fail();
 }
 
-/** Clears `hidden` on the ground entry holding this item, or inside whatever container holds it. */
-function reveal(found: Item): void {
+/**
+ * Clears `hidden` wherever the thing is — a corpse, a ground entry, or a container on the floor.
+ *
+ * The corpse is passed in rather than searched for because `Corpse.contents` is a **mutable array**
+ * that `lootCorpse` reassigns, so the body holding an item is not discoverable by identity the way a
+ * ground entry is. Splicing in place is also what keeps `looted` honest: the flag is derived from
+ * `contents.length`, and a rebuilt array would have to re-derive it.
+ */
+function reveal(found: Item, corpse?: Corpse): void {
+  if (corpse) {
+    const index = corpse.contents.indexOf(found);
+    if (index >= 0) {
+      const { hidden: _gone, ...rest } = found;
+      corpse.contents[index] = rest;
+      return;
+    }
+  }
   for (const entry of ground.values()) {
     if (entry.item === found) {
       const { hidden: _gone, ...rest } = entry.item;
@@ -4411,6 +4418,24 @@ function reveal(found: Item): void {
   }
 }
 
+/**
+ * `rescue <ally>` — **Phase 19 slice 4**, and the first ability that makes grouping mean something
+ * mechanically: taking a blow meant for somebody else. `rescue()` (`actoff.c:7261`), transcribed;
+ * the mechanism is `rescueFrom` in `combat.ts` and the threat-standing decision is documented there.
+ *
+ * What stays the source's, verbatim where a player can read it: the refusals ("What about fleeing
+ * instead?", "How can you rescue someone you are trying to kill?", "But nobody is fighting them?" —
+ * the last costing nothing, no lag and no roll), one attacker peeled per use, one round of lag paid
+ * on the *attempt*, and the messages. **Dropped and named as dropped**: `ROOM_SINGLE_FILE` (the flag
+ * is not harvested — no room in our world carries it), the Guardian's `rescue all` (classes are
+ * Phase 21), and the blind check, which our visibility gate already is — a rescuee you cannot see is
+ * a rescuee `resolveTarget` will not resolve.
+ *
+ * **The notch shape is the opposite of bash and kick's, and it is kept that way on purpose.** Their
+ * roll is `!notch && miss` — learning forces the blow home. Rescue's is `notch || roll > skill` —
+ * learning forces the fumble, and the `||` short-circuits so a notching attempt never rolls for
+ * success at all. See `RESCUE_NOTCH_CHANCE` for the full note.
+ */
 function doRescue(player: Player, rest: string): void {
   const term = rest.trim();
   if (!term) {

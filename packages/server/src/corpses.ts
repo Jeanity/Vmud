@@ -273,6 +273,14 @@ export function lootCorpse(corpse: Corpse, bag: Inventory): LootResult {
   const left: Item[] = [];
   let inventory = bag;
   for (const item of corpse.contents) {
+    // **Not found yet, so not yours yet** — `ITEM_SECRET`, and the whole point of `search`. A body
+    // stripped by `loot` would otherwise hand over the thing somebody was meant to have to look for,
+    // which would make the verb decorative. It stays in `left`, so the corpse also stays unlooted
+    // and keeps being drawn as a pile — which is the visible clue that there is more in it.
+    if (item.hidden === true) {
+      left.push(item);
+      continue;
+    }
     const result = carry(inventory, item);
     if ('stacks' in result) {
       inventory = result;

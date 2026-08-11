@@ -71,6 +71,20 @@ export interface AuthoredLoot {
    * authored before this existed.
    */
   readonly percent?: number;
+  /**
+   * **In the body, and not listed until somebody searches it** — `ITEM_SECRET`, and the close of the
+   * owner's 2026-08-06 ask: *"hidden items in corpses, found by searching."*
+   *
+   * Only honoured on a **carried** row. A worn one is contradictory and is ignored rather than
+   * refused: gear is visibly worn while the mob is alive — you can see the sword in its hand — so a
+   * hidden helmet would be a lie the moment anybody looked at the wearer, and a hidden thing that is
+   * only hidden after death would be a different mechanic wearing this field's name.
+   *
+   * Composes with {@link percent}: a row can be both rare *and* hidden, which is the shape a real
+   * secret wants — most bodies never had it, and the ones that did give it up only to somebody who
+   * looks. The rarity is rolled at spawn and the concealment is permanent until found.
+   */
+  readonly hidden?: true;
 }
 
 /**
@@ -420,8 +434,9 @@ export function outfitFor(
     // The spawn-time lottery: this instance either carries it or never had it.
     if (row.percent !== undefined && dropRoll && !dropRoll(row.percent)) continue;
     const item = instantiate(template);
+    // Worn gear is visibly worn, so `hidden` is carried-only — see the field's own note.
     if (row.slot) worn.push({ slot: row.slot, item });
-    else carried.push(item);
+    else carried.push(row.hidden === true ? { ...item, hidden: true } : item);
   }
   return { worn, carried, missing };
 }

@@ -1,5 +1,5 @@
 {
- "next": 9000008,
+ "next": 9000009,
  "items": {
   "9000000": {
    "vnum": 9000000,
@@ -170,6 +170,24 @@
    "cost": 1,
    "stackLimit": 1,
    "at": "2026-08-10T00:00:00.000Z",
+   "by": "panel"
+  },
+  "9000008": {
+   "vnum": 9000008,
+   "keywords": [
+    "tally",
+    "scrap",
+    "oilcloth",
+    "warden"
+   ],
+   "name": "&+ya warden's tally, folded small&N",
+   "roomLine": "&+yA scrap of oiled cloth lies here, folded to the size of a thumbnail.&N",
+   "type": 9,
+   "ac": 0,
+   "size": 1,
+   "cost": 1,
+   "stackLimit": 1,
+   "at": "2026-08-11T00:00:00.000Z",
    "by": "panel"
   }
  }

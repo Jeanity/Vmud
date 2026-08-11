@@ -85,6 +85,31 @@ describe('the mob overlay', () => {
     assert.deepEqual(outfit.missing, [999]);
   });
 
+  it('marks a carried row hidden, so search is the only way it comes out', () => {
+    const outfit = outfitFor({ loot: [{ vnum: 100, hidden: true }] }, CATALOGUE, instantiate);
+    assert.equal(outfit.carried[0]?.hidden, true);
+  });
+
+  it('ignores hidden on a worn row, because worn gear is visibly worn', () => {
+    // A hidden helmet would be a lie the moment anybody looked at the wearer. Ignored rather than
+    // refused: the row is still a legitimate piece of kit, it just cannot also be a secret.
+    const outfit = outfitFor({ loot: [{ vnum: 100, slot: 'head', hidden: true }] }, CATALOGUE, instantiate);
+    assert.equal(outfit.worn[0]?.item.hidden, undefined);
+  });
+
+  it('leaves an ordinary row alone rather than writing hidden: false onto it', () => {
+    // exactOptionalPropertyTypes: absent means ordinary, and every item in the world is ordinary.
+    const outfit = outfitFor({ loot: [{ vnum: 100 }] }, CATALOGUE, instantiate);
+    assert.ok(!('hidden' in (outfit.carried[0] ?? {})));
+  });
+
+  it('composes rarity with concealment - most bodies never had it, and the rest keep it quiet', () => {
+    const dropped = outfitFor({ loot: [{ vnum: 100, percent: 50, hidden: true }] }, CATALOGUE, instantiate, () => true);
+    assert.equal(dropped.carried[0]?.hidden, true);
+    const missed = outfitFor({ loot: [{ vnum: 100, percent: 50, hidden: true }] }, CATALOGUE, instantiate, () => false);
+    assert.equal(missed.carried.length, 0, 'a rare row that did not drop is not a hidden row');
+  });
+
   it('gives every instance its own copy', () => {
     const first = outfitFor({ loot: [{ vnum: 100 }] }, CATALOGUE, instantiate);
     const second = outfitFor({ loot: [{ vnum: 100 }] }, CATALOGUE, instantiate);
