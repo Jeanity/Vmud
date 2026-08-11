@@ -248,20 +248,40 @@ describe('naming a prop', () => {
 describe('what the wilderness grows on its own', () => {
   const ROOMS = Array.from({ length: 600 }, (_, i) => 40000 + i);
 
-  it('never touches the centre row or column, which is why it can never wall a room in', () => {
-    // The safety property, asserted as geometry rather than trusted to the flood-fill validator.
-    // Row 4 and column 4 stay clear in every room, so a plus-shaped path always crosses edge to
-    // edge in both directions - no roll of the hash can seal an exit or cut a room in half.
-    const mid = (ROOM_TILES - 1) / 2;
+  it('never stands where a body can arrive, which is the bug the owner walked into', () => {
+    // Owner, 2026-08-11: "I was stuck behind the log in the top left corner and couldn't move."
+    // `arrivalTile` spreads an entering body laterally across tiles 1..7 of the edge it came
+    // through, so the ring one tile in from each wall is where people appear - and a 3-wide log at
+    // tiles 1..3 is a body standing inside a prop. The centre cross alone never protected that.
+    const RESERVED = (t: number): boolean => t === 1 || t === ROOM_TILES - 2 || t === (ROOM_TILES - 1) / 2;
     for (const id of ROOMS) {
       for (const sector of ['forest', 'field', 'hills', 'swamp']) {
         for (const prop of scatterFor(id, sector, undefined)) {
           const spec = SCENERY[prop.kind];
-          const clearsColumn = prop.tx + spec.width <= mid || prop.tx > mid;
-          const clearsRow = prop.ty + spec.depth <= mid || prop.ty > mid;
-          assert.ok(clearsColumn, `room ${id} ${prop.kind} at ${prop.tx} crosses the centre column`);
-          assert.ok(clearsRow, `room ${id} ${prop.kind} at ${prop.ty} crosses the centre row`);
+          for (let dy = 0; dy < spec.depth; dy++) {
+            for (let dx = 0; dx < spec.width; dx++) {
+              const tx = prop.tx + dx;
+              const ty = prop.ty + dy;
+              assert.ok(!RESERVED(tx), `room ${id}: ${prop.kind} occupies reserved column ${tx}`);
+              assert.ok(!RESERVED(ty), `room ${id}: ${prop.kind} occupies reserved row ${ty}`);
+            }
+          }
         }
+      }
+    }
+  });
+
+  it('never leaves a one-tile channel against a wall', () => {
+    // The second half of the same report. A prop one tile in from the wall leaves 32px for a 20px
+    // collision box - passable on paper, a wedge in practice, and worst at a corner. Reserving the
+    // ring at inset 1 means the gap to any wall is always two tiles or more.
+    for (const id of ROOMS) {
+      for (const prop of scatterFor(id, 'forest', undefined)) {
+        const spec = SCENERY[prop.kind];
+        assert.ok(prop.tx >= 2, `room ${id}: ${prop.kind} leaves a ${prop.tx}-tile channel to the west wall`);
+        assert.ok(prop.ty >= 2, `room ${id}: ${prop.kind} leaves a ${prop.ty}-tile channel to the north wall`);
+        assert.ok(ROOM_TILES - (prop.tx + spec.width) >= 2, `room ${id}: ${prop.kind} too close to the east wall`);
+        assert.ok(ROOM_TILES - (prop.ty + spec.depth) >= 2, `room ${id}: ${prop.kind} too close to the south wall`);
       }
     }
   });

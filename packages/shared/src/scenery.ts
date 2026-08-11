@@ -197,31 +197,43 @@ export function isSceneryKind(value: unknown): value is SceneryKind {
  * loose scenery on top of that reads as clutter rather than as terrain.
  */
 const SCATTER_BY_SECTOR: Readonly<Record<string, readonly SceneryKind[]>> = {
-  forest: ['stump', 'log', 'bush', 'bush'],
+  forest: ['stump', 'bush', 'bush', 'toadstools'],
   field: ['bush', 'stump'],
   hills: ['bush', 'stump'],
-  swamp: ['stump', 'toadstools', 'log'],
+  swamp: ['stump', 'toadstools', 'toadstools', 'bush'],
 };
 
 /**
- * The quadrants a scattered prop may stand in — everything except the centre row and column.
+ * The four blocks a scattered prop may stand in.
  *
- * **This is the safety property, and it is worth stating as a rule rather than trusting to a test.**
- * Row 4 and column 4 of every room stay clear, so a plus-shaped path always crosses the room from
- * edge to edge in both directions. No combination of scatter can therefore cut a room in half or
- * seal an exit, whatever the hash rolls — the flood-fill validator in `seamless.test.ts` confirms
- * it, but the geometry means it cannot fail in the first place.
+ * **This is the safety property, and the first version of it was wrong in play.** The owner walked
+ * into a bog room from the north and could not move: *"I was stuck behind the log in the top left
+ * corner."* The rule then was only that the centre row and column stayed clear, which guarantees a
+ * plus-shaped path across the room and is not enough, for two reasons the room itself showed.
  *
- * Each quadrant is 4x4, which is why the widest scatter prop is the 3x2 log.
+ * **Arrival is not the centre.** {@link tilemap.arrivalTile} spreads an entering body *laterally*
+ * across tiles 1 to 7 of the edge it came through — so walking in from the north can put you on
+ * tile 1, and a 3-wide log occupying tiles 1 to 3 is a body standing inside a prop. Nothing about
+ * the centre cross prevents that.
+ *
+ * **And a one-tile gap is not a corridor.** A prop one tile in from the wall leaves a 32px channel
+ * for a 20px collision box ({@link tilemap.PLAYER_RADIUS}): passable on paper, a wedge in practice,
+ * and worst exactly where you have to turn a corner.
+ *
+ * So the clear set is now everything the player might arrive on or need to walk down — **the ring
+ * one tile in from each wall, and the centre cross** — which leaves four 2x2 blocks. A prop must fit
+ * inside one. That is why {@link SCATTER_BY_SECTOR} holds nothing wider than two tiles, and why the
+ * log stays in the catalogue for *authoring* (where a human can see the room) but is not scattered.
  */
-const QUADRANTS: readonly { readonly tx: number; readonly ty: number }[] = [
-  { tx: 0, ty: 0 },
-  { tx: 5, ty: 0 },
-  { tx: 0, ty: 5 },
+const SCATTER_BLOCKS: readonly { readonly tx: number; readonly ty: number }[] = [
+  { tx: 2, ty: 2 },
+  { tx: 5, ty: 2 },
+  { tx: 2, ty: 5 },
   { tx: 5, ty: 5 },
 ];
 
-const QUADRANT_TILES = 4;
+/** Each block is 2x2 — the space left once the arrival ring and the centre cross are reserved. */
+const SCATTER_BLOCK_TILES = 2;
 
 /** A hash of the room id and a salt. Same shape as the client's tile scatter, and for the reason. */
 function hashRoom(roomId: number, salt: number): number {
@@ -267,20 +279,24 @@ export function scatterFor(
   if (count === 0) return [];
 
   const out: RoomScenery[] = [];
-  const usedQuadrants = new Set<number>();
+  const usedBlocks = new Set<number>();
   for (let i = 0; i < count; i++) {
-    const quadrant = hashRoom(roomId, i * 2 + 1) % QUADRANTS.length;
-    if (usedQuadrants.has(quadrant)) continue; // one prop per quadrant; a clash simply thins it
-    usedQuadrants.add(quadrant);
+    const block = hashRoom(roomId, i * 2 + 1) % SCATTER_BLOCKS.length;
+    if (usedBlocks.has(block)) continue; // one prop per block; a clash simply thins the room
+    usedBlocks.add(block);
 
     const kind = palette[hashRoom(roomId, i * 2 + 2) % palette.length];
     if (!kind) continue;
     const spec = SCENERY[kind];
-    const corner = QUADRANTS[quadrant]!;
+    // A palette entry too big for a block would silently overflow into the arrival ring, which is
+    // the exact bug this rule exists to stop. Skipped rather than clamped: a prop that quietly
+    // moved somewhere legal would hide the authoring mistake.
+    if (spec.width > SCATTER_BLOCK_TILES || spec.depth > SCATTER_BLOCK_TILES) continue;
+    const corner = SCATTER_BLOCKS[block]!;
     // Jitter inside the quadrant so props are not all pinned to the same corner of every room.
     const slack = {
-      x: Math.max(0, QUADRANT_TILES - spec.width),
-      y: Math.max(0, QUADRANT_TILES - spec.depth),
+      x: Math.max(0, SCATTER_BLOCK_TILES - spec.width),
+      y: Math.max(0, SCATTER_BLOCK_TILES - spec.depth),
     };
     out.push({
       kind,
