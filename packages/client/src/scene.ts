@@ -643,6 +643,27 @@ const BODY_Z = 10;
  */
 const CREATURE_HEAD_Z = 12;
 
+/**
+ * Every sheet a body is built from before anything is worn — **the one resolution, used twice.**
+ *
+ * `characterLayers` builds the stack and `redressWearers` decides who to rebuild when a texture
+ * lands, and the two must agree about what a sprite key means. They did not: the redress check read
+ * `SPRITE_LAYERS` raw, so a `body/head` creature key fell through to the human row and matched
+ * neither its own body nor its own head. Nothing was ever rebuilt, so a kobold kept whatever
+ * happened to be loaded the instant it was first drawn.
+ *
+ * A creature wears the human row's placeholder clothes over its own body, because undressed is not
+ * a state this game has.
+ */
+function baseSheetsFor(sprite: string): readonly string[] {
+  const creature = sprite.includes('/') ? creatureSheets(sprite) : undefined;
+  if (!creature) return SPRITE_LAYERS[sprite] ?? SPRITE_LAYERS['human'] ?? [];
+  const outfit = (SPRITE_LAYERS['human'] ?? []).slice(1);
+  return creature.head === undefined
+    ? [creature.body, ...outfit]
+    : [creature.body, ...outfit, creature.head];
+}
+
 const SPRITE_LAYERS: Readonly<Record<string, readonly string[]>> = {
   /** Every player. Phase 15 derives this list from what they are wearing instead of naming it here. */
   human: ['body-human-male', 'legs-slacks-green', 'torso-longsleeve-forest'],
@@ -4204,8 +4225,12 @@ export class WorldScene extends Phaser.Scene {
     for (const entity of this.entities.values()) {
       const worn = entity.view.wearing ? Object.values(entity.view.wearing) : [];
       const wearsIt = worn.some((id) => id === key || layerKeysFor(id).some((layer) => layer.key === key));
-      const base = SPRITE_LAYERS[entity.view.sprite] ?? SPRITE_LAYERS['human'] ?? [];
-      if (wearsIt || base.includes(key)) this.redressEntity(entity);
+      // **The same resolution `characterLayers` uses, or a creature is never redressed.** This asked
+      // `SPRITE_LAYERS` directly, which for a `body/head` key falls through to the human row — so
+      // when `body-male` and `head-shape-lizard-male` finished loading, no kobold matched and none
+      // was rebuilt. They kept the partial stack they were first drawn with, which is why the
+      // settlement was full of headless bodies and then of headless clothes.
+      if (wearsIt || baseSheetsFor(entity.view.sprite).includes(key)) this.redressEntity(entity);
     }
   }
 
@@ -4262,18 +4287,29 @@ export class WorldScene extends Phaser.Scene {
     // `SPRITE_LAYERS`: `human` is every player and `sentry` is the one hand-dressed mob, and
     // neither has a slash in it, so the two vocabularies cannot collide.
     const creature = sprite.includes('/') ? creatureSheets(sprite) : undefined;
-    const base = creature ? [creature.body] : (SPRITE_LAYERS[sprite] ?? SPRITE_LAYERS['human'] ?? []);
+    // **A creature wears the same placeholder outfit an undressed human does.** The first version
+    // handed back the body alone, and the owner's screenshot of the kobold settlement is what that
+    // looks like: a room of naked headless figures. Undressed is not a state this game has — every
+    // body is either wearing its own kit or wearing the stand-in — so a creature takes the human
+    // row's clothes and swaps only the body under them.
+    const outfit = (SPRITE_LAYERS['human'] ?? []).slice(1);
+    const base = creature ? [creature.body, ...outfit] : (SPRITE_LAYERS[sprite] ?? SPRITE_LAYERS['human'] ?? []);
     if (!creature && !SPRITE_LAYERS[sprite]) {
       this.log.write('error', `No artwork for "${sprite}"; drawing it as a plain human.`);
     }
     // The head is not clothing and is not the body, so it is its own layer at its own plane: just
-    // above the body and far below a hat, which must still go over it. Queued through `ensureSheet`
-    // like everything else, so a head that has not finished loading leaves a bald figure for a
-    // frame rather than Phaser's magenta placeholder.
-    const headLayer =
-      creature?.head !== undefined && this.ensureSheet(creature.head)
-        ? [{ sheet: creature.head, z: CREATURE_HEAD_Z }]
-        : [];
+    // above the body and far below a hat, which must still go over it.
+    //
+    // **`ensureSheet` returns `void`.** It queues a texture; it does not report whether one is
+    // ready. The first version read it as a boolean — `creature.head && this.ensureSheet(head) ? …`
+    // — which is always falsy, so the head layer was never added and every kobold in the settlement
+    // was decapitated. Queue for the side effect, then ask the texture manager the question the
+    // queue cannot answer.
+    let headLayer: { sheet: string; z: number }[] = [];
+    if (creature?.head !== undefined) {
+      this.ensureSheet(creature.head);
+      if (this.textures.exists(creature.head)) headLayer = [{ sheet: creature.head, z: CREATURE_HEAD_Z }];
+    }
 
     // The body always comes first and is never worn — it is what the clothes go on. Taking only the
     // first entry of the base stack rather than all of it is what drops the placeholder outfit.
