@@ -11,6 +11,7 @@ import {
   groundSprite,
   groundViewOf,
   itemsIn,
+  visibleItemsIn,
   nearestMatching,
   resetGroundIds,
   takeItem,
@@ -192,6 +193,42 @@ describe('a container put down is still full', () => {
  * The reason it matters is not tidiness. `reset.ts` caps object instances world-wide and counts what
  * is lying on floors, so a room of discards holds a zone's repop at its ceiling.
  */
+describe('a thing nobody has found yet', () => {
+  it('is on the floor, and is not in the list anybody is shown', () => {
+    // ITEM_SECRET. The raw list is what `search` and the operator's panel read; every player-facing
+    // path takes the filtered one, or the needle would be drawn on the floor, answer to `get needle`
+    // and be listed by `look` - three ways of handing over the thing you had to look for.
+    const ground: Ground = new Map();
+    resetGroundIds();
+    dropItem(ground, item('dagger'), at(0, 0));
+    dropItem(ground, { ...item('needle'), hidden: true }, at(0, 0));
+
+    assert.equal(itemsIn(ground, 6001).length, 2, 'both are really there');
+    assert.deepEqual(visibleItemsIn(ground, 6001).map((e) => e.item.id), ['dagger']);
+  });
+
+  it('rots on the ordinary clock, so a corpse rotting does not litter the world', () => {
+    // The owner's question, 2026-08-11: when a corpse rots with a hidden thing still in it, does the
+    // thing pile up for ever? No - the corpse spills its contents onto the floor with the ordinary
+    // decay clock and the flag rides along on the item, so it lands hidden, stays findable by
+    // `search` for as long as any dropped thing lasts, and is then collected like anything else.
+    const ground: Ground = new Map();
+    resetGroundIds();
+    dropItem(ground, { ...item('needle'), hidden: true }, at(0, 0));
+
+    // It warns on the way past like any other dropped thing - being hidden does not exempt it
+    // from the clock, which is the whole answer to the litter question.
+    advanceGround(ground, GROUND_DECAY_MS - 100);
+    assert.equal(ground.size, 1, 'still there, still hidden');
+    assert.equal(visibleItemsIn(ground, 6001).length, 0, 'and still not shown to anyone');
+    assert.equal(itemsIn(ground, 6001).length, 1, 'but searchable the whole time');
+
+    const events = advanceGround(ground, 200);
+    assert.deepEqual(events.map((e) => e.kind), ['gone']);
+    assert.equal(ground.size, 0, 'nothing accumulates');
+  });
+});
+
 describe('decay', () => {
   it('gives a dropped thing the full clock, and takes it away when the clock runs out', () => {
     const ground: Ground = new Map();
