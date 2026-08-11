@@ -224,8 +224,14 @@ const SCATTER_BY_SECTOR: Readonly<Record<string, readonly SceneryKind[]>> = {
  * one tile in from each wall, and the centre cross** — which leaves four 2x2 blocks. A prop must fit
  * inside one. That is why {@link SCATTER_BY_SECTOR} holds nothing wider than two tiles, and why the
  * log stays in the catalogue for *authoring* (where a human can see the room) but is not scattered.
+ *
+ * **Exported for M2.** `roomScene.ts` places its landmark slot in one of these same four blocks, and
+ * it has to be *these* four rather than a second list that agrees today: the law they encode — the
+ * arrival ring and the centre cross stay walkable — is a safety property, and the whole-world
+ * invariant sweep checks it against this constant. Two lists would let a landmark drift into the
+ * doorway a player arrives through and the test would still pass.
  */
-const SCATTER_BLOCKS: readonly { readonly tx: number; readonly ty: number }[] = [
+export const SCATTER_BLOCKS: readonly { readonly tx: number; readonly ty: number }[] = [
   { tx: 2, ty: 2 },
   { tx: 5, ty: 2 },
   { tx: 2, ty: 5 },
@@ -233,7 +239,7 @@ const SCATTER_BLOCKS: readonly { readonly tx: number; readonly ty: number }[] = 
 ];
 
 /** Each block is 2x2 — the space left once the arrival ring and the centre cross are reserved. */
-const SCATTER_BLOCK_TILES = 2;
+export const SCATTER_BLOCK_TILES = 2;
 
 /** A hash of the room id and a salt. Same shape as the client's tile scatter, and for the reason. */
 function hashRoom(roomId: number, salt: number): number {

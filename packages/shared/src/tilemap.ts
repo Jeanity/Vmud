@@ -451,8 +451,14 @@ export function sectorIndex(sector: Sector): number {
  * all have walls that a doorway is cut through, and a nine-tile-wide hole in a cave wall is not a
  * cave. These six are the ones where the boundary between two rooms is a line on a map and nothing a
  * body could walk into. See {@link connectorSpan}.
+ *
+ * **Exported for M2, and there must never be a second copy.** `roomScene.ts` runs connected
+ * components over exactly this predicate — "does the walkable ground merge across this boundary" is
+ * the same question here and there, and a scene that grouped rooms the carve did not merge would
+ * describe ground the collision grid does not have. A private duplicate is the drift this export
+ * exists to prevent.
  */
-const OUTDOOR_SECTORS: ReadonlySet<Sector> = new Set<Sector>([
+export const OUTDOOR_SECTORS: ReadonlySet<Sector> = new Set<Sector>([
   'field', 'forest', 'road', 'hills', 'swamp', 'desert',
 ]);
 
@@ -878,8 +884,13 @@ export function buildZoneTilemap(zone: Zone, level = 0): TileGrid {
  * The design cost, stated plainly because it is a choice and not a fix: outdoor room-to-room movement
  * loses its pinch point. The room is still the unit of interest management and of prose, and
  * `stepRoom` still enforces one-way exits on the typed command, so nothing about MUD semantics moves.
+ *
+ * **Exported for M2 for the same reason {@link OUTDOOR_SECTORS} is.** `roomScene.ts` reports a
+ * corridor mouth's width per edge, and the only correct width is the one this function hands the
+ * carve. A scene that re-derived it would eventually disagree by two tiles and put a tree line across
+ * a doorway.
  */
-function connectorSpan(from: Room, to: Room, dir: Direction): number {
+export function connectorSpan(from: Room, to: Room, dir: Direction): number {
   if (from.exits[dir]?.door) return CONNECTOR_WIDTH;
   const back = to.exits[OPPOSITE[dir]];
   if (back && !back.portal && back.to === from.id && back.door) return CONNECTOR_WIDTH;
