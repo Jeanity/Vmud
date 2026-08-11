@@ -28,6 +28,7 @@
  * npm run mobsweep -- --words              # free pass only, instant
  * npm run mobsweep -- --model qwen2.5:14b  # and ask the model about the rest
  * npm run mobsweep -- --model qwen2.5:14b --limit 40   # a trial first, which is the honest order
+ * npm run mobsweep -- --model llama3.1:8b --cpu       # when something else owns the GPU
  * ```
  */
 
@@ -38,6 +39,8 @@ import { BODY_SHAPES, HEAD_SHAPES, creatureSheets } from '@mygame/shared';
 
 import {
   bodyFromWords,
+  namesAPerson,
+  plainName,
   buildMobPrompt,
   readMobAnswer,
   shapeFromWords,
@@ -98,7 +101,7 @@ function readOverrides(): OverrideFile {
  * timeouts to discover Ollama is not running. An answer that is merely unusable returns nothing and
  * that one creature is left for a human.
  */
-async function askOllama(model: string, prompt: string): Promise<string | undefined> {
+async function askOllama(model: string, prompt: string, onCpu: boolean): Promise<string | undefined> {
   let response: Response;
   try {
     response = await fetch(`${OLLAMA_URL}/api/generate`, {
@@ -109,7 +112,12 @@ async function askOllama(model: string, prompt: string): Promise<string | undefi
         prompt,
         stream: false,
         keep_alive: '30m',
-        options: { temperature: 0, num_predict: 16 },
+        // **`num_gpu: 0` forces CPU**, and it exists because the GPU is not always ours. Found
+        // 2026-08-11: ComfyUI was holding 6.9 GB of a 12 GB card at 100% utilisation, so an 8B
+        // model (4.9 GB) could not load at all and the sweep timed out on its first question with
+        // nothing to say about why. CPU is several times slower per question and does not care
+        // what else is running, which for an offline bulk job is the better trade.
+        options: { temperature: 0, num_predict: 16, ...(onCpu ? { num_gpu: 0 } : {}) },
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
@@ -135,6 +143,7 @@ async function main(): Promise<void> {
   const model = flag('model');
   const limit = Number(flag('limit') ?? Number.POSITIVE_INFINITY);
   const dryRun = argv.includes('--dry-run');
+  const onCpu = argv.includes('--cpu');
 
   if (!wordsOnly && !model) {
     console.error('usage: mobsweep --words | --model <name> [--limit N] [--dry-run]');
@@ -187,10 +196,20 @@ async function main(): Promise<void> {
     console.log(`[mobsweep] asking ${model} about ${queue.length}…`);
     let done = 0;
     for (const m of queue) {
-      const answer = await askOllama(model, buildMobPrompt(m, HEAD_SHAPES));
-      const shape = answer ? readMobAnswer(answer, HEAD_SHAPES) : undefined;
-      if (shape && assign(m, shape)) byModel++;
+      const answer = await askOllama(model, buildMobPrompt(m, HEAD_SHAPES), onCpu);
+      const raw = answer ? readMobAnswer(answer, HEAD_SHAPES) : undefined;
+      // A job is not a species. See ROLE_WORDS for the 103 people this caught wearing a
+      // monster's head on the first full run.
+      const shape = raw && raw !== 'human' && namesAPerson(m) ? 'human' : raw;
+      const took = shape !== undefined && assign(m, shape);
+      if (took) byModel++;
       else refused++;
+      // Every decision printed while the run is small enough to read. A bulk assignment nobody
+      // eyeballed is a bulk assignment nobody trusts, and the first forty are where a bad prompt
+      // shows itself.
+      if (queue.length <= 60) {
+        console.log(`  ${plainName(m.name).slice(0, 38).padEnd(38)} -> ${took ? String(shape) : `(refused: ${String(answer ?? 'no answer').trim().slice(0, 24)})`}`);
+      }
       if (++done % 50 === 0) console.log(`[mobsweep]   ${done}/${queue.length}…`);
     }
   }

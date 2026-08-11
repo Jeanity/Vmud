@@ -114,6 +114,12 @@
  "1451": {
   "sprite": "male/lizard"
  },
+ "1455": {
+  "sprite": "male/human"
+ },
+ "1456": {
+  "sprite": "male/human"
+ },
  "1457": {
   "sprite": "muscular/lizard"
  },
@@ -126,11 +132,173 @@
  "1802": {
   "sprite": "muscular/troll"
  },
+ "1804": {
+  "sprite": "muscular/troll"
+ },
+ "1805": {
+  "sprite": "muscular/troll"
+ },
+ "1810": {
+  "sprite": "male/human"
+ },
  "1815": {
   "sprite": "male/lizard"
  },
  "1819": {
   "sprite": "muscular/troll"
+ },
+ "2007": {
+  "sprite": "male/human"
+ },
+ "2008": {
+  "sprite": "male/human"
+ },
+ "2009": {
+  "sprite": "muscular/human"
+ },
+ "2010": {
+  "sprite": "child/human"
+ },
+ "2011": {
+  "sprite": "male/human"
+ },
+ "2012": {
+  "sprite": "male/human"
+ },
+ "2015": {
+  "sprite": "male/human"
+ },
+ "2019": {
+  "sprite": "male/human"
+ },
+ "2020": {
+  "sprite": "male/human"
+ },
+ "2022": {
+  "sprite": "male/goblin"
+ },
+ "2024": {
+  "sprite": "male/human"
+ },
+ "2025": {
+  "sprite": "male/human"
+ },
+ "2026": {
+  "sprite": "male/human"
+ },
+ "2027": {
+  "sprite": "male/human"
+ },
+ "2028": {
+  "sprite": "male/human"
+ },
+ "2029": {
+  "sprite": "male/human"
+ },
+ "2030": {
+  "sprite": "male/human"
+ },
+ "2031": {
+  "sprite": "male/human"
+ },
+ "2032": {
+  "sprite": "male/human"
+ },
+ "2033": {
+  "sprite": "male/human"
+ },
+ "2034": {
+  "sprite": "male/human"
+ },
+ "2035": {
+  "sprite": "teen/human"
+ },
+ "2036": {
+  "sprite": "teen/human"
+ },
+ "2038": {
+  "sprite": "male/human"
+ },
+ "3724": {
+  "sprite": "male/human"
+ },
+ "3725": {
+  "sprite": "muscular/human"
+ },
+ "3726": {
+  "sprite": "male/human"
+ },
+ "3727": {
+  "sprite": "teen/human"
+ },
+ "3728": {
+  "sprite": "teen/human"
+ },
+ "3729": {
+  "sprite": "male/human"
+ },
+ "3730": {
+  "sprite": "male/human"
+ },
+ "3731": {
+  "sprite": "male/human"
+ },
+ "3732": {
+  "sprite": "male/human"
+ },
+ "3733": {
+  "sprite": "male/human"
+ },
+ "3734": {
+  "sprite": "male/human"
+ },
+ "3735": {
+  "sprite": "male/pig"
+ },
+ "3737": {
+  "sprite": "male/human"
+ },
+ "3738": {
+  "sprite": "male/human"
+ },
+ "3739": {
+  "sprite": "male/human"
+ },
+ "3740": {
+  "sprite": "male/human"
+ },
+ "3741": {
+  "sprite": "male/human"
+ },
+ "3742": {
+  "sprite": "male/human"
+ },
+ "3743": {
+  "sprite": "male/human"
+ },
+ "3744": {
+  "sprite": "male/human"
+ },
+ "3745": {
+  "sprite": "male/human"
+ },
+ "3746": {
+  "sprite": "male/human"
+ },
+ "3747": {
+  "sprite": "child/human"
+ },
+ "3748": {
+  "sprite": "male/human"
+ },
+ "3808": {
+  "sprite": "male/human"
+ },
+ "3819": {
+  "sprite": "male/human"
+ },
+ "3821": {
+  "sprite": "male/human"
  },
  "4001": {
   "sprite": "male/goblin"
@@ -146,6 +314,12 @@
  },
  "4011": {
   "sprite": "male/goblin"
+ },
+ "4012": {
+  "sprite": "male/human"
+ },
+ "4013": {
+  "sprite": "muscular/human"
  },
  "4014": {
   "sprite": "male/lizard"
@@ -171,11 +345,359 @@
  "4023": {
   "sprite": "male/lizard"
  },
+ "4025": {
+  "sprite": "male/troll"
+ },
+ "4026": {
+  "sprite": "male/orc"
+ },
+ "4027": {
+  "sprite": "muscular/orc"
+ },
  "4030": {
   "sprite": "male/goblin"
  },
  "4031": {
   "sprite": "muscular/goblin"
+ },
+ "4038": {
+  "sprite": "male/human"
+ },
+ "4400": {
+  "sprite": "male/troll"
+ },
+ "4403": {
+  "sprite": "male/troll"
+ },
+ "4460": {
+  "sprite": "male/human"
+ },
+ "4510": {
+  "sprite": "muscular/troll"
+ },
+ "4630": {
+  "sprite": "male/orc"
+ },
+ "4640": {
+  "sprite": "muscular/human"
+ },
+ "4660": {
+  "sprite": "male/human"
+ },
+ "4690": {
+  "sprite": "male/human"
+ },
+ "4817": {
+  "sprite": "muscular/human"
+ },
+ "4819": {
+  "sprite": "male/human"
+ },
+ "4822": {
+  "sprite": "male/human"
+ },
+ "4823": {
+  "sprite": "muscular/lizard"
+ },
+ "4824": {
+  "sprite": "teen/human"
+ },
+ "4825": {
+  "sprite": "male/human"
+ },
+ "4826": {
+  "sprite": "male/human"
+ },
+ "4827": {
+  "sprite": "child/human"
+ },
+ "4828": {
+  "sprite": "male/human"
+ },
+ "4830": {
+  "sprite": "male/human"
+ },
+ "4831": {
+  "sprite": "male/lizard"
+ },
+ "4834": {
+  "sprite": "muscular/lizard"
+ },
+ "5003": {
+  "sprite": "male/troll"
+ },
+ "5019": {
+  "sprite": "male/human"
+ },
+ "5024": {
+  "sprite": "male/human"
+ },
+ "5028": {
+  "sprite": "male/human"
+ },
+ "5029": {
+  "sprite": "male/troll"
+ },
+ "5045": {
+  "sprite": "male/troll"
+ },
+ "8000": {
+  "sprite": "male/human"
+ },
+ "8001": {
+  "sprite": "male/human"
+ },
+ "8003": {
+  "sprite": "male/human"
+ },
+ "8008": {
+  "sprite": "male/human"
+ },
+ "8010": {
+  "sprite": "male/human"
+ },
+ "8014": {
+  "sprite": "teen/human"
+ },
+ "8015": {
+  "sprite": "muscular/human"
+ },
+ "8016": {
+  "sprite": "male/human"
+ },
+ "8019": {
+  "sprite": "male/human"
+ },
+ "8020": {
+  "sprite": "child/human"
+ },
+ "8021": {
+  "sprite": "male/human"
+ },
+ "8022": {
+  "sprite": "male/human"
+ },
+ "8023": {
+  "sprite": "male/human"
+ },
+ "8024": {
+  "sprite": "male/human"
+ },
+ "8025": {
+  "sprite": "muscular/human"
+ },
+ "8026": {
+  "sprite": "muscular/human"
+ },
+ "8028": {
+  "sprite": "male/human"
+ },
+ "8029": {
+  "sprite": "muscular/human"
+ },
+ "8033": {
+  "sprite": "male/human"
+ },
+ "8034": {
+  "sprite": "muscular/human"
+ },
+ "8035": {
+  "sprite": "muscular/human"
+ },
+ "8036": {
+  "sprite": "male/human"
+ },
+ "8037": {
+  "sprite": "muscular/human"
+ },
+ "8038": {
+  "sprite": "male/human"
+ },
+ "8040": {
+  "sprite": "male/skeleton"
+ },
+ "8044": {
+  "sprite": "male/human"
+ },
+ "8045": {
+  "sprite": "male/human"
+ },
+ "8047": {
+  "sprite": "male/human"
+ },
+ "8048": {
+  "sprite": "male/human"
+ },
+ "8049": {
+  "sprite": "male/human"
+ },
+ "8055": {
+  "sprite": "male/human"
+ },
+ "8300": {
+  "sprite": "male/human"
+ },
+ "8303": {
+  "sprite": "male/human"
+ },
+ "8304": {
+  "sprite": "male/human"
+ },
+ "8307": {
+  "sprite": "male/human"
+ },
+ "8308": {
+  "sprite": "male/troll"
+ },
+ "8309": {
+  "sprite": "male/human"
+ },
+ "8310": {
+  "sprite": "male/human"
+ },
+ "8311": {
+  "sprite": "male/human"
+ },
+ "8313": {
+  "sprite": "male/human"
+ },
+ "8315": {
+  "sprite": "male/minotaur"
+ },
+ "8316": {
+  "sprite": "male/skeleton"
+ },
+ "8317": {
+  "sprite": "male/orc"
+ },
+ "8318": {
+  "sprite": "male/human"
+ },
+ "8321": {
+  "sprite": "male/human"
+ },
+ "8326": {
+  "sprite": "child/human"
+ },
+ "8327": {
+  "sprite": "male/troll"
+ },
+ "8328": {
+  "sprite": "male/human"
+ },
+ "8329": {
+  "sprite": "male/human"
+ },
+ "8330": {
+  "sprite": "teen/human"
+ },
+ "8331": {
+  "sprite": "male/human"
+ },
+ "8334": {
+  "sprite": "male/human"
+ },
+ "8336": {
+  "sprite": "male/human"
+ },
+ "9300": {
+  "sprite": "male/human"
+ },
+ "9302": {
+  "sprite": "muscular/human"
+ },
+ "9303": {
+  "sprite": "male/human"
+ },
+ "9304": {
+  "sprite": "male/human"
+ },
+ "9305": {
+  "sprite": "muscular/human"
+ },
+ "9306": {
+  "sprite": "male/human"
+ },
+ "9307": {
+  "sprite": "muscular/human"
+ },
+ "9309": {
+  "sprite": "male/human"
+ },
+ "9310": {
+  "sprite": "male/human"
+ },
+ "9311": {
+  "sprite": "muscular/human"
+ },
+ "9316": {
+  "sprite": "male/human"
+ },
+ "9319": {
+  "sprite": "male/human"
+ },
+ "9320": {
+  "sprite": "teen/human"
+ },
+ "9321": {
+  "sprite": "male/boarman"
+ },
+ "9322": {
+  "sprite": "muscular/human"
+ },
+ "9323": {
+  "sprite": "male/human"
+ },
+ "9324": {
+  "sprite": "male/human"
+ },
+ "9325": {
+  "sprite": "male/human"
+ },
+ "9326": {
+  "sprite": "male/human"
+ },
+ "9327": {
+  "sprite": "male/human"
+ },
+ "9328": {
+  "sprite": "male/human"
+ },
+ "9330": {
+  "sprite": "male/human"
+ },
+ "9331": {
+  "sprite": "muscular/human"
+ },
+ "9332": {
+  "sprite": "male/human"
+ },
+ "9333": {
+  "sprite": "male/human"
+ },
+ "9336": {
+  "sprite": "teen/human"
+ },
+ "9337": {
+  "sprite": "muscular/human"
+ },
+ "9338": {
+  "sprite": "muscular/human"
+ },
+ "9343": {
+  "sprite": "male/wolf"
+ },
+ "9368": {
+  "sprite": "male/human"
+ },
+ "9369": {
+  "sprite": "male/human"
+ },
+ "9370": {
+  "sprite": "male/human"
+ },
+ "9371": {
+  "sprite": "teen/human"
  },
  "11502": {
   "sprite": "muscular/troll"
@@ -221,6 +743,12 @@
  },
  "11526": {
   "sprite": "muscular/troll"
+ },
+ "11527": {
+  "sprite": "muscular/human"
+ },
+ "11528": {
+  "sprite": "male/troll"
  },
  "11529": {
   "sprite": "muscular/troll"
@@ -297,6 +825,24 @@
  "11561": {
   "sprite": "muscular/troll"
  },
+ "11580": {
+  "sprite": "male/human"
+ },
+ "11581": {
+  "sprite": "male/human"
+ },
+ "11582": {
+  "sprite": "male/human"
+ },
+ "11583": {
+  "sprite": "muscular/human"
+ },
+ "11584": {
+  "sprite": "male/human"
+ },
+ "11585": {
+  "sprite": "male/human"
+ },
  "11587": {
   "sprite": "muscular/troll"
  },
@@ -366,6 +912,9 @@
  "11627": {
   "sprite": "muscular/troll"
  },
+ "11630": {
+  "sprite": "male/lizard"
+ },
  "11632": {
   "sprite": "muscular/troll"
  },
@@ -393,8 +942,380 @@
  "11641": {
   "sprite": "muscular/troll"
  },
+ "12000": {
+  "sprite": "male/wolf"
+ },
+ "12025": {
+  "sprite": "male/troll"
+ },
+ "12026": {
+  "sprite": "male/troll"
+ },
+ "12027": {
+  "sprite": "muscular/frankenstein"
+ },
+ "12801": {
+  "sprite": "male/human"
+ },
+ "13000": {
+  "sprite": "teen/human"
+ },
+ "13001": {
+  "sprite": "muscular/human"
+ },
+ "13002": {
+  "sprite": "teen/human"
+ },
+ "13003": {
+  "sprite": "teen/human"
+ },
+ "13004": {
+  "sprite": "teen/human"
+ },
+ "13005": {
+  "sprite": "teen/human"
+ },
+ "13006": {
+  "sprite": "teen/human"
+ },
+ "13007": {
+  "sprite": "teen/human"
+ },
+ "13008": {
+  "sprite": "teen/human"
+ },
+ "13009": {
+  "sprite": "teen/human"
+ },
+ "13010": {
+  "sprite": "teen/human"
+ },
+ "13014": {
+  "sprite": "male/human"
+ },
+ "13018": {
+  "sprite": "male/human"
+ },
+ "13019": {
+  "sprite": "male/human"
+ },
+ "13020": {
+  "sprite": "male/human"
+ },
+ "13021": {
+  "sprite": "male/human"
+ },
+ "13022": {
+  "sprite": "male/human"
+ },
+ "13024": {
+  "sprite": "male/human"
+ },
+ "13028": {
+  "sprite": "male/human"
+ },
+ "13029": {
+  "sprite": "male/human"
+ },
+ "13030": {
+  "sprite": "teen/human"
+ },
+ "14004": {
+  "sprite": "male/human"
+ },
+ "14005": {
+  "sprite": "male/human"
+ },
+ "14006": {
+  "sprite": "male/human"
+ },
+ "14007": {
+  "sprite": "male/human"
+ },
+ "14008": {
+  "sprite": "male/human"
+ },
+ "14009": {
+  "sprite": "teen/human"
+ },
+ "14010": {
+  "sprite": "male/troll"
+ },
+ "14011": {
+  "sprite": "male/human"
+ },
+ "14013": {
+  "sprite": "male/human"
+ },
+ "14014": {
+  "sprite": "teen/human"
+ },
+ "14015": {
+  "sprite": "male/human"
+ },
+ "14016": {
+  "sprite": "male/human"
+ },
+ "14020": {
+  "sprite": "male/human"
+ },
+ "14042": {
+  "sprite": "male/human"
+ },
+ "14044": {
+  "sprite": "male/human"
+ },
+ "14046": {
+  "sprite": "male/human"
+ },
+ "14058": {
+  "sprite": "male/human"
+ },
+ "14067": {
+  "sprite": "muscular/human"
+ },
+ "14069": {
+  "sprite": "male/human"
+ },
+ "14070": {
+  "sprite": "male/human"
+ },
+ "14073": {
+  "sprite": "male/human"
+ },
+ "14074": {
+  "sprite": "male/goblin"
+ },
+ "14604": {
+  "sprite": "child/human"
+ },
+ "14605": {
+  "sprite": "male/human"
+ },
+ "14608": {
+  "sprite": "male/human"
+ },
+ "14609": {
+  "sprite": "male/human"
+ },
+ "14610": {
+  "sprite": "male/human"
+ },
+ "14611": {
+  "sprite": "male/human"
+ },
+ "14612": {
+  "sprite": "child/human"
+ },
+ "14613": {
+  "sprite": "child/human"
+ },
+ "14614": {
+  "sprite": "muscular/human"
+ },
+ "14618": {
+  "sprite": "male/orc"
+ },
+ "14619": {
+  "sprite": "muscular/troll"
+ },
+ "15108": {
+  "sprite": "male/human"
+ },
+ "15109": {
+  "sprite": "male/human"
+ },
+ "15112": {
+  "sprite": "male/skeleton"
+ },
+ "15114": {
+  "sprite": "male/troll"
+ },
+ "15115": {
+  "sprite": "muscular/human"
+ },
+ "15125": {
+  "sprite": "male/troll"
+ },
+ "23406": {
+  "sprite": "male/human"
+ },
+ "23407": {
+  "sprite": "male/human"
+ },
+ "23408": {
+  "sprite": "male/human"
+ },
+ "23409": {
+  "sprite": "child/human"
+ },
+ "23410": {
+  "sprite": "male/human"
+ },
+ "23411": {
+  "sprite": "male/human"
+ },
+ "23412": {
+  "sprite": "male/human"
+ },
+ "23413": {
+  "sprite": "male/human"
+ },
+ "23414": {
+  "sprite": "male/human"
+ },
+ "23415": {
+  "sprite": "teen/human"
+ },
+ "23417": {
+  "sprite": "male/human"
+ },
+ "23419": {
+  "sprite": "child/human"
+ },
+ "23426": {
+  "sprite": "male/human"
+ },
+ "23427": {
+  "sprite": "male/human"
+ },
+ "23428": {
+  "sprite": "male/human"
+ },
+ "23429": {
+  "sprite": "male/human"
+ },
+ "23430": {
+  "sprite": "male/human"
+ },
+ "23431": {
+  "sprite": "teen/human"
+ },
+ "23432": {
+  "sprite": "male/human"
+ },
+ "23434": {
+  "sprite": "male/human"
+ },
+ "23435": {
+  "sprite": "male/human"
+ },
+ "23436": {
+  "sprite": "male/human"
+ },
  "23445": {
   "sprite": "muscular/troll"
+ },
+ "23459": {
+  "sprite": "male/human"
+ },
+ "23464": {
+  "sprite": "child/lizard"
+ },
+ "23471": {
+  "sprite": "male/troll"
+ },
+ "23472": {
+  "sprite": "male/human"
+ },
+ "23490": {
+  "sprite": "child/goblin"
+ },
+ "23491": {
+  "sprite": "male/goblin"
+ },
+ "23493": {
+  "sprite": "male/troll"
+ },
+ "23494": {
+  "sprite": "male/human"
+ },
+ "23495": {
+  "sprite": "male/human"
+ },
+ "23496": {
+  "sprite": "child/human"
+ },
+ "23499": {
+  "sprite": "male/human"
+ },
+ "23500": {
+  "sprite": "male/human"
+ },
+ "23501": {
+  "sprite": "male/human"
+ },
+ "23502": {
+  "sprite": "male/goblin"
+ },
+ "23504": {
+  "sprite": "male/goblin"
+ },
+ "23505": {
+  "sprite": "muscular/troll"
+ },
+ "23506": {
+  "sprite": "male/human"
+ },
+ "23508": {
+  "sprite": "muscular/human"
+ },
+ "23510": {
+  "sprite": "child/human"
+ },
+ "23511": {
+  "sprite": "male/human"
+ },
+ "23512": {
+  "sprite": "male/human"
+ },
+ "23513": {
+  "sprite": "male/human"
+ },
+ "23514": {
+  "sprite": "male/human"
+ },
+ "23515": {
+  "sprite": "male/human"
+ },
+ "23516": {
+  "sprite": "male/human"
+ },
+ "23517": {
+  "sprite": "male/human"
+ },
+ "23518": {
+  "sprite": "male/human"
+ },
+ "23519": {
+  "sprite": "male/human"
+ },
+ "23520": {
+  "sprite": "male/human"
+ },
+ "23521": {
+  "sprite": "male/human"
+ },
+ "23522": {
+  "sprite": "child/human"
+ },
+ "23523": {
+  "sprite": "male/human"
+ },
+ "23524": {
+  "sprite": "male/human"
+ },
+ "23525": {
+  "sprite": "male/human"
+ },
+ "23527": {
+  "sprite": "male/human"
+ },
+ "26001": {
+  "sprite": "male/human"
+ },
+ "26002": {
+  "sprite": "male/human"
  },
  "26004": {
   "sprite": "muscular/troll"
@@ -408,22 +1329,1492 @@
  "26011": {
   "sprite": "muscular/troll"
  },
+ "26200": {
+  "sprite": "male/human"
+ },
+ "26201": {
+  "sprite": "male/human"
+ },
+ "26202": {
+  "sprite": "muscular/human"
+ },
+ "26203": {
+  "sprite": "male/human"
+ },
+ "26205": {
+  "sprite": "male/human"
+ },
+ "26206": {
+  "sprite": "male/human"
+ },
+ "26207": {
+  "sprite": "male/human"
+ },
+ "26208": {
+  "sprite": "male/human"
+ },
+ "26210": {
+  "sprite": "muscular/human"
+ },
+ "26218": {
+  "sprite": "male/human"
+ },
+ "26219": {
+  "sprite": "male/human"
+ },
+ "26220": {
+  "sprite": "male/human"
+ },
+ "26221": {
+  "sprite": "male/human"
+ },
+ "26222": {
+  "sprite": "male/human"
+ },
+ "26225": {
+  "sprite": "male/human"
+ },
+ "26228": {
+  "sprite": "male/human"
+ },
+ "26229": {
+  "sprite": "male/human"
+ },
+ "26230": {
+  "sprite": "male/human"
+ },
+ "26231": {
+  "sprite": "male/human"
+ },
+ "26233": {
+  "sprite": "male/human"
+ },
+ "26402": {
+  "sprite": "male/minotaur"
+ },
+ "26403": {
+  "sprite": "male/human"
+ },
+ "26404": {
+  "sprite": "male/human"
+ },
+ "26405": {
+  "sprite": "muscular/human"
+ },
+ "26406": {
+  "sprite": "male/lizard"
+ },
+ "26407": {
+  "sprite": "male/human"
+ },
+ "26408": {
+  "sprite": "male/human"
+ },
+ "26409": {
+  "sprite": "male/human"
+ },
+ "26410": {
+  "sprite": "male/human"
+ },
+ "26411": {
+  "sprite": "male/human"
+ },
+ "26416": {
+  "sprite": "child/human"
+ },
+ "26417": {
+  "sprite": "male/human"
+ },
+ "34400": {
+  "sprite": "muscular/troll"
+ },
+ "34401": {
+  "sprite": "muscular/troll"
+ },
+ "34402": {
+  "sprite": "muscular/human"
+ },
+ "34403": {
+  "sprite": "muscular/troll"
+ },
+ "34404": {
+  "sprite": "muscular/human"
+ },
+ "34405": {
+  "sprite": "muscular/human"
+ },
+ "34406": {
+  "sprite": "muscular/human"
+ },
+ "34407": {
+  "sprite": "male/human"
+ },
+ "34408": {
+  "sprite": "male/human"
+ },
+ "34409": {
+  "sprite": "male/human"
+ },
+ "34410": {
+  "sprite": "muscular/human"
+ },
+ "34411": {
+  "sprite": "muscular/troll"
+ },
+ "34412": {
+  "sprite": "muscular/human"
+ },
+ "34413": {
+  "sprite": "muscular/human"
+ },
+ "34415": {
+  "sprite": "muscular/troll"
+ },
+ "34416": {
+  "sprite": "male/minotaur"
+ },
+ "34418": {
+  "sprite": "male/human"
+ },
+ "34419": {
+  "sprite": "male/human"
+ },
+ "34420": {
+  "sprite": "muscular/human"
+ },
+ "34421": {
+  "sprite": "muscular/human"
+ },
+ "34422": {
+  "sprite": "child/human"
+ },
+ "34423": {
+  "sprite": "child/human"
+ },
+ "34424": {
+  "sprite": "child/human"
+ },
+ "34425": {
+  "sprite": "muscular/human"
+ },
+ "34428": {
+  "sprite": "male/human"
+ },
+ "34430": {
+  "sprite": "muscular/troll"
+ },
+ "34431": {
+  "sprite": "muscular/human"
+ },
+ "34432": {
+  "sprite": "muscular/troll"
+ },
+ "34434": {
+  "sprite": "male/human"
+ },
+ "34438": {
+  "sprite": "male/human"
+ },
+ "34439": {
+  "sprite": "male/human"
+ },
+ "34440": {
+  "sprite": "teen/human"
+ },
+ "34441": {
+  "sprite": "male/human"
+ },
+ "34442": {
+  "sprite": "male/human"
+ },
+ "34443": {
+  "sprite": "male/human"
+ },
+ "34444": {
+  "sprite": "male/human"
+ },
+ "34445": {
+  "sprite": "male/human"
+ },
+ "34446": {
+  "sprite": "male/human"
+ },
+ "34476": {
+  "sprite": "teen/human"
+ },
+ "35200": {
+  "sprite": "child/human"
+ },
+ "35201": {
+  "sprite": "male/minotaur"
+ },
+ "35202": {
+  "sprite": "muscular/human"
+ },
+ "35203": {
+  "sprite": "male/minotaur"
+ },
+ "35204": {
+  "sprite": "male/human"
+ },
+ "35205": {
+  "sprite": "teen/human"
+ },
+ "35206": {
+  "sprite": "male/human"
+ },
+ "35207": {
+  "sprite": "child/human"
+ },
+ "35208": {
+  "sprite": "male/human"
+ },
+ "35209": {
+  "sprite": "male/human"
+ },
+ "35210": {
+  "sprite": "male/human"
+ },
+ "35211": {
+  "sprite": "male/human"
+ },
+ "35212": {
+  "sprite": "child/human"
+ },
+ "35213": {
+  "sprite": "male/human"
+ },
+ "35214": {
+  "sprite": "male/human"
+ },
+ "35215": {
+  "sprite": "male/troll"
+ },
+ "35217": {
+  "sprite": "male/minotaur"
+ },
+ "35218": {
+  "sprite": "male/human"
+ },
+ "35219": {
+  "sprite": "male/human"
+ },
+ "35221": {
+  "sprite": "male/human"
+ },
+ "35222": {
+  "sprite": "male/human"
+ },
+ "35223": {
+  "sprite": "male/human"
+ },
+ "35224": {
+  "sprite": "male/human"
+ },
+ "35225": {
+  "sprite": "male/human"
+ },
+ "35227": {
+  "sprite": "male/human"
+ },
+ "35228": {
+  "sprite": "male/human"
+ },
+ "35229": {
+  "sprite": "muscular/human"
+ },
+ "35230": {
+  "sprite": "muscular/human"
+ },
+ "35231": {
+  "sprite": "male/human"
+ },
+ "35232": {
+  "sprite": "male/human"
+ },
+ "35233": {
+  "sprite": "child/human"
+ },
+ "35234": {
+  "sprite": "child/human"
+ },
+ "35236": {
+  "sprite": "male/human"
+ },
+ "35237": {
+  "sprite": "male/minotaur"
+ },
+ "35238": {
+  "sprite": "male/human"
+ },
+ "35239": {
+  "sprite": "male/minotaur"
+ },
+ "35242": {
+  "sprite": "child/human"
+ },
+ "35263": {
+  "sprite": "male/human"
+ },
+ "35279": {
+  "sprite": "male/human"
+ },
+ "35286": {
+  "sprite": "male/pig"
+ },
+ "40050": {
+  "sprite": "muscular/human"
+ },
+ "40051": {
+  "sprite": "muscular/human"
+ },
+ "40052": {
+  "sprite": "male/human"
+ },
+ "40053": {
+  "sprite": "male/human"
+ },
+ "40054": {
+  "sprite": "male/human"
+ },
+ "40055": {
+  "sprite": "male/human"
+ },
+ "40056": {
+  "sprite": "male/human"
+ },
+ "40064": {
+  "sprite": "male/human"
+ },
+ "40065": {
+  "sprite": "muscular/human"
+ },
+ "40067": {
+  "sprite": "male/human"
+ },
+ "40068": {
+  "sprite": "male/human"
+ },
+ "40069": {
+  "sprite": "male/human"
+ },
+ "40070": {
+  "sprite": "male/human"
+ },
+ "40071": {
+  "sprite": "male/human"
+ },
+ "40073": {
+  "sprite": "male/troll"
+ },
+ "40074": {
+  "sprite": "male/minotaur"
+ },
+ "40075": {
+  "sprite": "muscular/human"
+ },
+ "40076": {
+  "sprite": "male/human"
+ },
+ "40200": {
+  "sprite": "male/human"
+ },
+ "40201": {
+  "sprite": "male/human"
+ },
+ "40202": {
+  "sprite": "male/human"
+ },
+ "40203": {
+  "sprite": "child/human"
+ },
+ "40204": {
+  "sprite": "child/human"
+ },
+ "40205": {
+  "sprite": "child/human"
+ },
+ "40206": {
+  "sprite": "male/human"
+ },
+ "40215": {
+  "sprite": "male/human"
+ },
+ "40216": {
+  "sprite": "muscular/human"
+ },
+ "40217": {
+  "sprite": "muscular/human"
+ },
+ "40218": {
+  "sprite": "male/human"
+ },
+ "40219": {
+  "sprite": "child/human"
+ },
+ "40220": {
+  "sprite": "male/human"
+ },
+ "40221": {
+  "sprite": "male/human"
+ },
+ "40222": {
+  "sprite": "male/human"
+ },
+ "40223": {
+  "sprite": "male/human"
+ },
+ "40224": {
+  "sprite": "male/human"
+ },
+ "40225": {
+  "sprite": "male/human"
+ },
+ "40226": {
+  "sprite": "male/human"
+ },
+ "40227": {
+  "sprite": "male/human"
+ },
+ "40228": {
+  "sprite": "male/orc"
+ },
+ "40229": {
+  "sprite": "male/human"
+ },
+ "40230": {
+  "sprite": "male/human"
+ },
+ "40253": {
+  "sprite": "male/human"
+ },
+ "40254": {
+  "sprite": "male/orc"
+ },
+ "40255": {
+  "sprite": "male/orc"
+ },
+ "40256": {
+  "sprite": "male/human"
+ },
+ "40257": {
+  "sprite": "male/human"
+ },
+ "40258": {
+  "sprite": "male/human"
+ },
+ "40259": {
+  "sprite": "male/human"
+ },
+ "40260": {
+  "sprite": "male/orc"
+ },
+ "40261": {
+  "sprite": "male/orc"
+ },
+ "40262": {
+  "sprite": "male/human"
+ },
+ "40263": {
+  "sprite": "male/orc"
+ },
+ "66002": {
+  "sprite": "muscular/goblin"
+ },
+ "66003": {
+  "sprite": "muscular/human"
+ },
+ "66009": {
+  "sprite": "male/human"
+ },
+ "66012": {
+  "sprite": "male/human"
+ },
+ "66015": {
+  "sprite": "male/human"
+ },
+ "66016": {
+  "sprite": "male/human"
+ },
+ "66017": {
+  "sprite": "male/human"
+ },
+ "66018": {
+  "sprite": "male/human"
+ },
+ "66019": {
+  "sprite": "male/troll"
+ },
+ "66020": {
+  "sprite": "male/troll"
+ },
+ "66021": {
+  "sprite": "male/human"
+ },
+ "66022": {
+  "sprite": "muscular/human"
+ },
+ "66023": {
+  "sprite": "male/human"
+ },
+ "66024": {
+  "sprite": "male/human"
+ },
+ "66025": {
+  "sprite": "male/human"
+ },
+ "66026": {
+  "sprite": "male/human"
+ },
+ "66027": {
+  "sprite": "muscular/human"
+ },
+ "66028": {
+  "sprite": "male/human"
+ },
+ "66030": {
+  "sprite": "male/human"
+ },
+ "66031": {
+  "sprite": "male/human"
+ },
+ "66034": {
+  "sprite": "male/human"
+ },
+ "66035": {
+  "sprite": "male/human"
+ },
+ "66036": {
+  "sprite": "male/human"
+ },
+ "66037": {
+  "sprite": "male/human"
+ },
+ "66038": {
+  "sprite": "male/human"
+ },
+ "66039": {
+  "sprite": "male/human"
+ },
+ "66040": {
+  "sprite": "male/human"
+ },
+ "66041": {
+  "sprite": "male/human"
+ },
+ "66046": {
+  "sprite": "male/human"
+ },
+ "66048": {
+  "sprite": "muscular/human"
+ },
+ "66050": {
+  "sprite": "muscular/goblin"
+ },
+ "66051": {
+  "sprite": "muscular/goblin"
+ },
+ "66053": {
+  "sprite": "muscular/human"
+ },
  "70048": {
   "sprite": "muscular/troll"
+ },
+ "70066": {
+  "sprite": "muscular/troll"
+ },
+ "70068": {
+  "sprite": "male/human"
+ },
+ "70082": {
+  "sprite": "male/troll"
+ },
+ "70900": {
+  "sprite": "male/human"
+ },
+ "70901": {
+  "sprite": "male/human"
+ },
+ "70902": {
+  "sprite": "male/human"
+ },
+ "70903": {
+  "sprite": "male/human"
+ },
+ "70904": {
+  "sprite": "male/human"
+ },
+ "70905": {
+  "sprite": "male/human"
+ },
+ "70906": {
+  "sprite": "male/human"
+ },
+ "70907": {
+  "sprite": "male/orc"
+ },
+ "70908": {
+  "sprite": "male/troll"
+ },
+ "70909": {
+  "sprite": "male/goblin"
+ },
+ "70910": {
+  "sprite": "male/human"
+ },
+ "70911": {
+  "sprite": "male/human"
+ },
+ "70912": {
+  "sprite": "male/human"
+ },
+ "70914": {
+  "sprite": "male/troll"
+ },
+ "70915": {
+  "sprite": "male/troll"
+ },
+ "70916": {
+  "sprite": "male/pig"
+ },
+ "70917": {
+  "sprite": "male/troll"
+ },
+ "70918": {
+  "sprite": "male/human"
+ },
+ "70919": {
+  "sprite": "male/human"
+ },
+ "70920": {
+  "sprite": "male/troll"
+ },
+ "70921": {
+  "sprite": "male/troll"
+ },
+ "70923": {
+  "sprite": "male/human"
+ },
+ "70924": {
+  "sprite": "muscular/human"
+ },
+ "70925": {
+  "sprite": "male/human"
+ },
+ "70926": {
+  "sprite": "male/human"
+ },
+ "70927": {
+  "sprite": "male/human"
+ },
+ "70928": {
+  "sprite": "male/human"
+ },
+ "70929": {
+  "sprite": "male/skeleton"
+ },
+ "70930": {
+  "sprite": "male/human"
+ },
+ "70931": {
+  "sprite": "male/human"
+ },
+ "70933": {
+  "sprite": "male/human"
+ },
+ "70934": {
+  "sprite": "male/human"
+ },
+ "70937": {
+  "sprite": "male/human"
+ },
+ "70938": {
+  "sprite": "male/orc"
+ },
+ "70940": {
+  "sprite": "teen/human"
+ },
+ "70942": {
+  "sprite": "teen/human"
+ },
+ "74000": {
+  "sprite": "male/human"
+ },
+ "74001": {
+  "sprite": "male/human"
+ },
+ "74002": {
+  "sprite": "child/human"
+ },
+ "74003": {
+  "sprite": "male/human"
+ },
+ "74004": {
+  "sprite": "male/human"
+ },
+ "74005": {
+  "sprite": "male/human"
+ },
+ "74006": {
+  "sprite": "male/human"
+ },
+ "74007": {
+  "sprite": "male/human"
+ },
+ "74008": {
+  "sprite": "male/human"
+ },
+ "74009": {
+  "sprite": "male/skeleton"
+ },
+ "74010": {
+  "sprite": "male/orc"
+ },
+ "74011": {
+  "sprite": "male/human"
+ },
+ "74012": {
+  "sprite": "male/human"
+ },
+ "74013": {
+  "sprite": "male/boarman"
+ },
+ "74018": {
+  "sprite": "male/troll"
+ },
+ "74019": {
+  "sprite": "male/human"
+ },
+ "74020": {
+  "sprite": "male/human"
+ },
+ "74021": {
+  "sprite": "male/human"
+ },
+ "74022": {
+  "sprite": "male/human"
+ },
+ "74035": {
+  "sprite": "male/troll"
+ },
+ "74036": {
+  "sprite": "male/human"
+ },
+ "74037": {
+  "sprite": "male/human"
+ },
+ "74038": {
+  "sprite": "male/troll"
+ },
+ "74039": {
+  "sprite": "male/troll"
+ },
+ "74040": {
+  "sprite": "male/troll"
+ },
+ "74041": {
+  "sprite": "male/troll"
+ },
+ "74042": {
+  "sprite": "male/troll"
+ },
+ "74043": {
+  "sprite": "male/human"
+ },
+ "74044": {
+  "sprite": "child/human"
+ },
+ "74045": {
+  "sprite": "child/human"
+ },
+ "74046": {
+  "sprite": "male/human"
+ },
+ "74055": {
+  "sprite": "male/troll"
+ },
+ "74056": {
+  "sprite": "male/human"
+ },
+ "74057": {
+  "sprite": "male/human"
+ },
+ "74058": {
+  "sprite": "male/human"
+ },
+ "74059": {
+  "sprite": "male/troll"
+ },
+ "74060": {
+  "sprite": "male/human"
+ },
+ "74061": {
+  "sprite": "male/human"
+ },
+ "74065": {
+  "sprite": "male/human"
+ },
+ "74066": {
+  "sprite": "teen/human"
+ },
+ "74067": {
+  "sprite": "male/human"
+ },
+ "74068": {
+  "sprite": "male/human"
+ },
+ "74069": {
+  "sprite": "male/human"
+ },
+ "74070": {
+  "sprite": "male/human"
+ },
+ "74071": {
+  "sprite": "male/human"
+ },
+ "74072": {
+  "sprite": "teen/human"
+ },
+ "74073": {
+  "sprite": "male/boarman"
+ },
+ "74074": {
+  "sprite": "male/human"
+ },
+ "74075": {
+  "sprite": "child/human"
+ },
+ "74081": {
+  "sprite": "male/human"
+ },
+ "74082": {
+  "sprite": "muscular/human"
+ },
+ "74083": {
+  "sprite": "male/human"
+ },
+ "74084": {
+  "sprite": "male/human"
+ },
+ "74085": {
+  "sprite": "male/human"
+ },
+ "74086": {
+  "sprite": "male/human"
+ },
+ "74087": {
+  "sprite": "male/human"
+ },
+ "74088": {
+  "sprite": "child/human"
+ },
+ "74089": {
+  "sprite": "male/human"
+ },
+ "74090": {
+  "sprite": "male/human"
+ },
+ "74092": {
+  "sprite": "male/human"
+ },
+ "74093": {
+  "sprite": "teen/human"
+ },
+ "74094": {
+  "sprite": "teen/human"
+ },
+ "74095": {
+  "sprite": "male/skeleton"
+ },
+ "74096": {
+  "sprite": "teen/human"
+ },
+ "74097": {
+  "sprite": "teen/human"
+ },
+ "74098": {
+  "sprite": "male/troll"
+ },
+ "74099": {
+  "sprite": "teen/human"
+ },
+ "74100": {
+  "sprite": "teen/human"
+ },
+ "74101": {
+  "sprite": "male/human"
+ },
+ "74102": {
+  "sprite": "male/human"
+ },
+ "74103": {
+  "sprite": "male/human"
+ },
+ "74104": {
+  "sprite": "male/human"
+ },
+ "74105": {
+  "sprite": "male/human"
+ },
+ "74106": {
+  "sprite": "male/human"
+ },
+ "74107": {
+  "sprite": "male/skeleton"
+ },
+ "74108": {
+  "sprite": "male/human"
+ },
+ "74109": {
+  "sprite": "male/human"
+ },
+ "74110": {
+  "sprite": "muscular/troll"
+ },
+ "74111": {
+  "sprite": "male/human"
+ },
+ "74112": {
+  "sprite": "male/skeleton"
+ },
+ "74114": {
+  "sprite": "male/human"
+ },
+ "74115": {
+  "sprite": "male/minotaur"
+ },
+ "74116": {
+  "sprite": "male/minotaur"
+ },
+ "74117": {
+  "sprite": "male/minotaur"
+ },
+ "74118": {
+  "sprite": "male/troll"
+ },
+ "74119": {
+  "sprite": "male/human"
+ },
+ "74120": {
+  "sprite": "male/human"
+ },
+ "74121": {
+  "sprite": "male/human"
+ },
+ "74122": {
+  "sprite": "male/human"
+ },
+ "74123": {
+  "sprite": "muscular/human"
+ },
+ "74124": {
+  "sprite": "male/human"
+ },
+ "74125": {
+  "sprite": "male/human"
+ },
+ "74126": {
+  "sprite": "male/human"
+ },
+ "74140": {
+  "sprite": "male/human"
+ },
+ "74141": {
+  "sprite": "male/human"
+ },
+ "74142": {
+  "sprite": "male/human"
+ },
+ "74143": {
+  "sprite": "male/human"
+ },
+ "74144": {
+  "sprite": "child/human"
+ },
+ "74145": {
+  "sprite": "male/human"
+ },
+ "74146": {
+  "sprite": "muscular/human"
+ },
+ "74147": {
+  "sprite": "male/human"
+ },
+ "74148": {
+  "sprite": "male/human"
+ },
+ "74149": {
+  "sprite": "child/human"
+ },
+ "74150": {
+  "sprite": "male/human"
+ },
+ "74151": {
+  "sprite": "male/human"
+ },
+ "74152": {
+  "sprite": "male/minotaur"
+ },
+ "74153": {
+  "sprite": "male/orc"
+ },
+ "74154": {
+  "sprite": "male/orc"
+ },
+ "74155": {
+  "sprite": "male/orc"
+ },
+ "74156": {
+  "sprite": "male/human"
+ },
+ "74157": {
+  "sprite": "muscular/minotaur"
+ },
+ "74158": {
+  "sprite": "male/human"
+ },
+ "74159": {
+  "sprite": "male/orc"
+ },
+ "74160": {
+  "sprite": "male/human"
+ },
+ "74161": {
+  "sprite": "male/human"
+ },
+ "74162": {
+  "sprite": "child/human"
+ },
+ "74163": {
+  "sprite": "male/human"
  },
  "74164": {
   "sprite": "male/rabbit"
  },
+ "74165": {
+  "sprite": "male/human"
+ },
+ "74166": {
+  "sprite": "male/human"
+ },
+ "74167": {
+  "sprite": "male/human"
+ },
+ "74168": {
+  "sprite": "male/human"
+ },
+ "74169": {
+  "sprite": "male/human"
+ },
+ "74170": {
+  "sprite": "male/human"
+ },
+ "74171": {
+  "sprite": "child/human"
+ },
+ "74172": {
+  "sprite": "muscular/human"
+ },
+ "74173": {
+  "sprite": "male/human"
+ },
+ "74174": {
+  "sprite": "male/human"
+ },
+ "74175": {
+  "sprite": "male/human"
+ },
+ "74176": {
+  "sprite": "teen/human"
+ },
+ "74179": {
+  "sprite": "male/human"
+ },
+ "74180": {
+  "sprite": "muscular/human"
+ },
+ "74181": {
+  "sprite": "male/troll"
+ },
+ "74182": {
+  "sprite": "male/human"
+ },
+ "74184": {
+  "sprite": "child/human"
+ },
+ "74185": {
+  "sprite": "male/human"
+ },
+ "74186": {
+  "sprite": "muscular/minotaur"
+ },
+ "74187": {
+  "sprite": "male/human"
+ },
+ "74188": {
+  "sprite": "male/human"
+ },
+ "74189": {
+  "sprite": "male/human"
+ },
+ "74190": {
+  "sprite": "male/troll"
+ },
+ "74191": {
+  "sprite": "male/troll"
+ },
+ "74192": {
+  "sprite": "male/human"
+ },
+ "74193": {
+  "sprite": "male/human"
+ },
+ "74194": {
+  "sprite": "male/human"
+ },
+ "74195": {
+  "sprite": "male/human"
+ },
+ "74196": {
+  "sprite": "male/human"
+ },
+ "74197": {
+  "sprite": "male/human"
+ },
+ "74198": {
+  "sprite": "male/human"
+ },
+ "74199": {
+  "sprite": "male/human"
+ },
+ "74200": {
+  "sprite": "male/human"
+ },
+ "74201": {
+  "sprite": "male/human"
+ },
+ "74202": {
+  "sprite": "male/troll"
+ },
+ "74203": {
+  "sprite": "male/skeleton"
+ },
+ "74204": {
+  "sprite": "male/human"
+ },
+ "74205": {
+  "sprite": "male/human"
+ },
+ "74206": {
+  "sprite": "male/human"
+ },
+ "74207": {
+  "sprite": "male/human"
+ },
+ "74208": {
+  "sprite": "male/human"
+ },
+ "74209": {
+  "sprite": "male/troll"
+ },
+ "74210": {
+  "sprite": "male/human"
+ },
+ "74211": {
+  "sprite": "male/human"
+ },
+ "74212": {
+  "sprite": "muscular/human"
+ },
+ "74214": {
+  "sprite": "male/human"
+ },
+ "74215": {
+  "sprite": "child/human"
+ },
+ "74217": {
+  "sprite": "male/human"
+ },
+ "74218": {
+  "sprite": "male/human"
+ },
+ "74219": {
+  "sprite": "male/human"
+ },
+ "74220": {
+  "sprite": "male/minotaur"
+ },
+ "74221": {
+  "sprite": "teen/human"
+ },
  "74222": {
   "sprite": "male/minotaur"
  },
+ "74223": {
+  "sprite": "male/human"
+ },
+ "74224": {
+  "sprite": "teen/human"
+ },
+ "74225": {
+  "sprite": "muscular/human"
+ },
+ "74226": {
+  "sprite": "child/human"
+ },
+ "74227": {
+  "sprite": "child/human"
+ },
+ "74228": {
+  "sprite": "teen/human"
+ },
+ "74229": {
+  "sprite": "male/human"
+ },
+ "74230": {
+  "sprite": "male/human"
+ },
+ "74231": {
+  "sprite": "male/minotaur"
+ },
+ "74233": {
+  "sprite": "male/human"
+ },
+ "74234": {
+  "sprite": "male/human"
+ },
+ "74236": {
+  "sprite": "male/human"
+ },
+ "74237": {
+  "sprite": "muscular/human"
+ },
+ "74238": {
+  "sprite": "male/minotaur"
+ },
+ "74239": {
+  "sprite": "muscular/human"
+ },
+ "74240": {
+  "sprite": "teen/human"
+ },
+ "74241": {
+  "sprite": "male/human"
+ },
+ "74242": {
+  "sprite": "male/troll"
+ },
+ "74244": {
+  "sprite": "muscular/human"
+ },
+ "74245": {
+  "sprite": "child/human"
+ },
+ "74247": {
+  "sprite": "male/skeleton"
+ },
+ "74248": {
+  "sprite": "male/human"
+ },
+ "74250": {
+  "sprite": "male/troll"
+ },
+ "74252": {
+  "sprite": "male/troll"
+ },
+ "74254": {
+  "sprite": "male/troll"
+ },
+ "74257": {
+  "sprite": "male/goblin"
+ },
+ "74258": {
+  "sprite": "male/human"
+ },
+ "75018": {
+  "sprite": "male/goblin"
+ },
+ "75019": {
+  "sprite": "male/goblin"
+ },
+ "75020": {
+  "sprite": "muscular/human"
+ },
+ "75021": {
+  "sprite": "male/human"
+ },
+ "75022": {
+  "sprite": "muscular/human"
+ },
+ "75023": {
+  "sprite": "male/human"
+ },
+ "75024": {
+  "sprite": "male/lizard"
+ },
+ "75025": {
+  "sprite": "male/goblin"
+ },
+ "75026": {
+  "sprite": "male/troll"
+ },
+ "88802": {
+  "sprite": "male/human"
+ },
+ "88803": {
+  "sprite": "male/human"
+ },
+ "88804": {
+  "sprite": "male/human"
+ },
+ "88805": {
+  "sprite": "male/human"
+ },
+ "88806": {
+  "sprite": "male/human"
+ },
+ "88807": {
+  "sprite": "male/human"
+ },
+ "88808": {
+  "sprite": "male/human"
+ },
+ "88809": {
+  "sprite": "male/human"
+ },
+ "88810": {
+  "sprite": "male/human"
+ },
+ "88817": {
+  "sprite": "male/human"
+ },
+ "88818": {
+  "sprite": "child/human"
+ },
+ "88819": {
+  "sprite": "male/human"
+ },
+ "88822": {
+  "sprite": "child/human"
+ },
+ "90005": {
+  "sprite": "male/human"
+ },
+ "90013": {
+  "sprite": "male/human"
+ },
+ "90014": {
+  "sprite": "muscular/troll"
+ },
+ "90015": {
+  "sprite": "muscular/human"
+ },
+ "90016": {
+  "sprite": "muscular/human"
+ },
+ "90017": {
+  "sprite": "muscular/troll"
+ },
+ "90018": {
+  "sprite": "muscular/troll"
+ },
+ "90022": {
+  "sprite": "male/human"
+ },
+ "90023": {
+  "sprite": "muscular/troll"
+ },
+ "90026": {
+  "sprite": "muscular/human"
+ },
+ "90027": {
+  "sprite": "muscular/troll"
+ },
+ "90031": {
+  "sprite": "muscular/human"
+ },
+ "92002": {
+  "sprite": "male/human"
+ },
+ "92003": {
+  "sprite": "male/human"
+ },
+ "92004": {
+  "sprite": "male/human"
+ },
+ "92005": {
+  "sprite": "male/human"
+ },
+ "92006": {
+  "sprite": "male/human"
+ },
+ "92011": {
+  "sprite": "male/orc"
+ },
+ "92016": {
+  "sprite": "muscular/troll"
+ },
  "92017": {
   "sprite": "muscular/troll"
+ },
+ "92019": {
+  "sprite": "muscular/troll"
+ },
+ "92020": {
+  "sprite": "male/human"
+ },
+ "92021": {
+  "sprite": "muscular/human"
+ },
+ "92022": {
+  "sprite": "male/human"
+ },
+ "92040": {
+  "sprite": "muscular/human"
+ },
+ "92041": {
+  "sprite": "muscular/human"
+ },
+ "92044": {
+  "sprite": "muscular/human"
+ },
+ "92045": {
+  "sprite": "male/orc"
+ },
+ "92046": {
+  "sprite": "male/orc"
+ },
+ "92047": {
+  "sprite": "male/goblin"
+ },
+ "92050": {
+  "sprite": "male/orc"
+ },
+ "92073": {
+  "sprite": "male/orc"
+ },
+ "92074": {
+  "sprite": "muscular/troll"
+ },
+ "92082": {
+  "sprite": "child/lizard"
+ },
+ "92086": {
+  "sprite": "male/orc"
+ },
+ "92090": {
+  "sprite": "male/human"
+ },
+ "92093": {
+  "sprite": "male/human"
  },
  "96002": {
   "sprite": "muscular/troll"
  },
  "96003": {
+  "sprite": "muscular/troll"
+ },
+ "96004": {
   "sprite": "muscular/troll"
  },
  "96009": {
@@ -432,26 +2823,144 @@
  "96010": {
   "sprite": "muscular/troll"
  },
+ "96019": {
+  "sprite": "muscular/troll"
+ },
+ "96022": {
+  "sprite": "muscular/human"
+ },
+ "96023": {
+  "sprite": "muscular/troll"
+ },
+ "96024": {
+  "sprite": "muscular/human"
+ },
+ "96025": {
+  "sprite": "muscular/troll"
+ },
+ "96027": {
+  "sprite": "muscular/troll"
+ },
+ "96029": {
+  "sprite": "muscular/troll"
+ },
+ "96032": {
+  "sprite": "muscular/human"
+ },
+ "96033": {
+  "sprite": "muscular/human"
+ },
+ "96038": {
+  "sprite": "muscular/human"
+ },
+ "96040": {
+  "sprite": "muscular/troll"
+ },
+ "96041": {
+  "sprite": "muscular/troll"
+ },
+ "96042": {
+  "sprite": "muscular/human"
+ },
+ "96043": {
+  "sprite": "muscular/troll"
+ },
+ "96046": {
+  "sprite": "male/human"
+ },
+ "96048": {
+  "sprite": "muscular/troll"
+ },
+ "96050": {
+  "sprite": "muscular/troll"
+ },
+ "96053": {
+  "sprite": "male/human"
+ },
+ "96055": {
+  "sprite": "muscular/human"
+ },
+ "96056": {
+  "sprite": "muscular/troll"
+ },
+ "96063": {
+  "sprite": "male/human"
+ },
+ "96064": {
+  "sprite": "muscular/human"
+ },
+ "96065": {
+  "sprite": "muscular/human"
+ },
+ "96066": {
+  "sprite": "muscular/troll"
+ },
  "96071": {
   "sprite": "muscular/troll"
  },
  "96072": {
   "sprite": "muscular/troll"
  },
+ "96077": {
+  "sprite": "male/human"
+ },
  "96401": {
   "sprite": "male/lizard"
+ },
+ "96402": {
+  "sprite": "male/human"
  },
  "96406": {
   "sprite": "male/lizard"
  },
+ "96407": {
+  "sprite": "male/human"
+ },
  "96409": {
   "sprite": "male/lizard"
+ },
+ "96410": {
+  "sprite": "male/human"
+ },
+ "96411": {
+  "sprite": "male/human"
+ },
+ "96412": {
+  "sprite": "male/human"
+ },
+ "96417": {
+  "sprite": "child/pig"
+ },
+ "96418": {
+  "sprite": "male/human"
+ },
+ "96424": {
+  "sprite": "male/human"
+ },
+ "96430": {
+  "sprite": "muscular/human"
+ },
+ "96433": {
+  "sprite": "male/human"
+ },
+ "96442": {
+  "sprite": "male/human"
+ },
+ "96444": {
+  "sprite": "male/lizard"
+ },
+ "97000": {
+  "sprite": "male/human"
+ },
+ "97001": {
+  "sprite": "male/human"
  },
  "97002": {
   "name": "the stone artist",
   "room": "An artist is here ranting and raving at his half-cut sculpture.",
   "at": "2026-08-10T00:00:00.000Z",
-  "by": "tordraken"
+  "by": "tordraken",
+  "sprite": "male/human"
  },
  "97003": {
   "loot": [
@@ -460,70 +2969,619 @@
     "slot": "mainHand"
    }
   ],
-  "at": "2026-08-09T05:27:05.751Z"
+  "at": "2026-08-09T05:27:05.751Z",
+  "sprite": "male/orc"
+ },
+ "97004": {
+  "sprite": "male/human"
+ },
+ "97005": {
+  "sprite": "muscular/human"
+ },
+ "97006": {
+  "sprite": "male/human"
+ },
+ "97007": {
+  "sprite": "male/human"
  },
  "97008": {
   "name": "a Priest of the First Ascension",
   "room": "A Priest of the First Ascension is here for the dinner banquet.",
   "at": "2026-08-10T00:00:00.000Z",
-  "by": "tordraken"
+  "by": "tordraken",
+  "sprite": "male/human"
+ },
+ "97009": {
+  "sprite": "male/human"
+ },
+ "97010": {
+  "sprite": "male/human"
  },
  "97011": {
   "name": "a garden attendant",
   "room": "An attendant is here sweeping salt from the path.",
   "at": "2026-08-10T00:00:00.000Z",
-  "by": "tordraken"
+  "by": "tordraken",
+  "sprite": "male/human"
+ },
+ "97012": {
+  "sprite": "male/human"
+ },
+ "97013": {
+  "sprite": "male/human"
+ },
+ "97014": {
+  "sprite": "male/human"
+ },
+ "97015": {
+  "sprite": "male/human"
+ },
+ "97016": {
+  "sprite": "teen/human"
  },
  "97017": {
   "name": "an off-duty patrol guard",
   "room": "An off-duty patrol guard wanders the salt garden, taking in the view.",
   "at": "2026-08-10T00:00:00.000Z",
-  "by": "tordraken"
+  "by": "tordraken",
+  "sprite": "muscular/human"
+ },
+ "97020": {
+  "sprite": "male/human"
+ },
+ "97021": {
+  "sprite": "male/human"
+ },
+ "97022": {
+  "sprite": "muscular/human"
+ },
+ "97023": {
+  "sprite": "male/human"
+ },
+ "97024": {
+  "sprite": "muscular/human"
+ },
+ "97025": {
+  "sprite": "muscular/human"
+ },
+ "97026": {
+  "sprite": "male/human"
  },
  "97027": {
   "name": "the clergy's representative",
   "room": "A representative of the castle clergy is here awaiting the start of the banquet.",
   "at": "2026-08-10T00:00:00.000Z",
-  "by": "tordraken"
+  "by": "tordraken",
+  "sprite": "male/human"
+ },
+ "97028": {
+  "sprite": "male/human"
+ },
+ "97029": {
+  "sprite": "male/human"
+ },
+ "97030": {
+  "sprite": "male/human"
+ },
+ "97031": {
+  "sprite": "male/human"
+ },
+ "97032": {
+  "sprite": "child/human"
+ },
+ "97033": {
+  "sprite": "male/human"
+ },
+ "97034": {
+  "sprite": "male/human"
+ },
+ "97035": {
+  "sprite": "male/human"
+ },
+ "97037": {
+  "sprite": "male/human"
+ },
+ "97038": {
+  "sprite": "male/human"
+ },
+ "97039": {
+  "sprite": "male/human"
+ },
+ "97040": {
+  "sprite": "male/human"
+ },
+ "97041": {
+  "sprite": "male/human"
  },
  "97042": {
   "name": "the High Priest's attendant",
   "room": "The High Priest's attendant stands quietly.",
   "at": "2026-08-10T00:00:00.000Z",
-  "by": "tordraken"
+  "by": "tordraken",
+  "sprite": "male/human"
+ },
+ "97043": {
+  "sprite": "muscular/human"
+ },
+ "97044": {
+  "sprite": "muscular/human"
+ },
+ "97045": {
+  "sprite": "muscular/human"
+ },
+ "97046": {
+  "sprite": "muscular/human"
+ },
+ "97047": {
+  "sprite": "muscular/human"
+ },
+ "97048": {
+  "sprite": "muscular/human"
+ },
+ "97049": {
+  "sprite": "muscular/human"
+ },
+ "97050": {
+  "sprite": "muscular/human"
+ },
+ "97051": {
+  "sprite": "male/human"
  },
  "97054": {
   "sprite": "male/wolf"
  },
+ "97056": {
+  "sprite": "male/skeleton"
+ },
+ "97057": {
+  "sprite": "muscular/human"
+ },
+ "97058": {
+  "sprite": "muscular/human"
+ },
+ "97059": {
+  "sprite": "muscular/human"
+ },
+ "97060": {
+  "sprite": "muscular/human"
+ },
+ "97061": {
+  "sprite": "male/troll"
+ },
+ "97062": {
+  "sprite": "muscular/human"
+ },
+ "97063": {
+  "sprite": "male/human"
+ },
+ "97064": {
+  "sprite": "muscular/human"
+ },
+ "200000": {
+  "sprite": "male/human"
+ },
+ "200001": {
+  "sprite": "male/human"
+ },
+ "200003": {
+  "sprite": "male/human"
+ },
+ "200004": {
+  "sprite": "male/orc"
+ },
+ "200005": {
+  "sprite": "male/orc"
+ },
+ "200006": {
+  "sprite": "muscular/human"
+ },
+ "200007": {
+  "sprite": "male/troll"
+ },
+ "200008": {
+  "sprite": "male/orc"
+ },
+ "200009": {
+  "sprite": "muscular/human"
+ },
+ "200010": {
+  "sprite": "muscular/human"
+ },
+ "200011": {
+  "sprite": "muscular/human"
+ },
+ "200013": {
+  "sprite": "muscular/human"
+ },
+ "200015": {
+  "sprite": "muscular/human"
+ },
+ "200017": {
+  "sprite": "muscular/human"
+ },
+ "200018": {
+  "sprite": "muscular/human"
+ },
+ "200019": {
+  "sprite": "muscular/human"
+ },
+ "200022": {
+  "sprite": "muscular/human"
+ },
+ "200023": {
+  "sprite": "muscular/human"
+ },
+ "200025": {
+  "sprite": "muscular/human"
+ },
+ "200027": {
+  "sprite": "muscular/human"
+ },
+ "200028": {
+  "sprite": "muscular/human"
+ },
+ "200029": {
+  "sprite": "muscular/human"
+ },
+ "200030": {
+  "sprite": "muscular/human"
+ },
+ "200033": {
+  "sprite": "muscular/human"
+ },
+ "200034": {
+  "sprite": "muscular/human"
+ },
+ "200035": {
+  "sprite": "muscular/human"
+ },
+ "200036": {
+  "sprite": "muscular/human"
+ },
+ "200039": {
+  "sprite": "male/skeleton"
+ },
+ "200040": {
+  "sprite": "male/human"
+ },
+ "200043": {
+  "sprite": "male/human"
+ },
+ "200045": {
+  "sprite": "male/human"
+ },
+ "200047": {
+  "sprite": "male/human"
+ },
+ "200048": {
+  "sprite": "male/human"
+ },
+ "200049": {
+  "sprite": "male/human"
+ },
+ "200050": {
+  "sprite": "male/minotaur"
+ },
+ "200051": {
+  "sprite": "male/skeleton"
+ },
+ "200052": {
+  "sprite": "male/human"
+ },
+ "200054": {
+  "sprite": "male/lizard"
+ },
+ "200055": {
+  "sprite": "male/human"
+ },
+ "200057": {
+  "sprite": "male/lizard"
+ },
+ "200058": {
+  "sprite": "male/skeleton"
+ },
+ "200060": {
+  "sprite": "male/troll"
+ },
+ "200061": {
+  "sprite": "male/human"
+ },
+ "200062": {
+  "sprite": "male/human"
+ },
+ "200064": {
+  "sprite": "male/human"
+ },
+ "200066": {
+  "sprite": "male/human"
+ },
+ "200067": {
+  "sprite": "male/human"
+ },
  "200068": {
   "sprite": "male/lizard"
+ },
+ "200069": {
+  "sprite": "male/human"
+ },
+ "200070": {
+  "sprite": "child/human"
+ },
+ "200071": {
+  "sprite": "child/human"
+ },
+ "200073": {
+  "sprite": "male/human"
+ },
+ "200074": {
+  "sprite": "male/human"
+ },
+ "200075": {
+  "sprite": "male/human"
+ },
+ "200077": {
+  "sprite": "muscular/human"
+ },
+ "200078": {
+  "sprite": "child/human"
+ },
+ "200079": {
+  "sprite": "child/human"
+ },
+ "200080": {
+  "sprite": "child/human"
+ },
+ "200081": {
+  "sprite": "child/human"
+ },
+ "200082": {
+  "sprite": "child/human"
+ },
+ "200083": {
+  "sprite": "child/human"
+ },
+ "200084": {
+  "sprite": "child/human"
+ },
+ "200085": {
+  "sprite": "child/human"
+ },
+ "200086": {
+  "sprite": "child/human"
+ },
+ "200087": {
+  "sprite": "child/human"
+ },
+ "200088": {
+  "sprite": "child/human"
+ },
+ "200093": {
+  "sprite": "male/human"
+ },
+ "200096": {
+  "sprite": "child/lizard"
+ },
+ "200106": {
+  "sprite": "child/mouse"
+ },
+ "200119": {
+  "sprite": "male/human"
+ },
+ "200120": {
+  "sprite": "male/human"
+ },
+ "200121": {
+  "sprite": "muscular/human"
+ },
+ "200122": {
+  "sprite": "child/human"
+ },
+ "200123": {
+  "sprite": "male/human"
+ },
+ "200124": {
+  "sprite": "male/human"
+ },
+ "200127": {
+  "sprite": "male/human"
+ },
+ "200128": {
+  "sprite": "male/human"
+ },
+ "200131": {
+  "sprite": "male/human"
+ },
+ "200133": {
+  "sprite": "male/human"
+ },
+ "200134": {
+  "sprite": "male/human"
+ },
+ "200143": {
+  "sprite": "male/human"
+ },
+ "200146": {
+  "sprite": "child/goblin"
+ },
+ "200147": {
+  "sprite": "male/orc"
+ },
+ "200154": {
+  "sprite": "male/human"
+ },
+ "200155": {
+  "sprite": "male/troll"
  },
  "200160": {
   "sprite": "male/wolf"
  },
+ "200163": {
+  "sprite": "male/human"
+ },
+ "200164": {
+  "sprite": "male/human"
+ },
  "200165": {
   "sprite": "male/lizard"
  },
+ "200166": {
+  "sprite": "child/troll"
+ },
+ "200169": {
+  "sprite": "muscular/troll"
+ },
  "200170": {
+  "sprite": "male/minotaur"
+ },
+ "200172": {
+  "sprite": "male/lizard"
+ },
+ "200173": {
   "sprite": "male/minotaur"
  },
  "200174": {
   "sprite": "muscular/troll"
  },
+ "200180": {
+  "sprite": "male/human"
+ },
+ "200181": {
+  "sprite": "child/human"
+ },
+ "200191": {
+  "sprite": "male/human"
+ },
+ "200200": {
+  "sprite": "male/human"
+ },
+ "200202": {
+  "sprite": "male/human"
+ },
  "200209": {
   "sprite": "male/lizard"
+ },
+ "200210": {
+  "sprite": "muscular/human"
+ },
+ "200211": {
+  "sprite": "muscular/human"
+ },
+ "200212": {
+  "sprite": "child/human"
+ },
+ "200213": {
+  "sprite": "child/human"
+ },
+ "200214": {
+  "sprite": "child/human"
+ },
+ "200215": {
+  "sprite": "child/human"
+ },
+ "200216": {
+  "sprite": "child/human"
+ },
+ "200217": {
+  "sprite": "child/human"
+ },
+ "200218": {
+  "sprite": "child/human"
+ },
+ "200219": {
+  "sprite": "child/human"
+ },
+ "200220": {
+  "sprite": "child/human"
+ },
+ "200221": {
+  "sprite": "child/human"
+ },
+ "200222": {
+  "sprite": "child/human"
+ },
+ "200223": {
+  "sprite": "child/human"
+ },
+ "200225": {
+  "sprite": "male/human"
+ },
+ "200226": {
+  "sprite": "male/human"
+ },
+ "200228": {
+  "sprite": "muscular/orc"
  },
  "200229": {
   "sprite": "male/lizard"
  },
+ "200240": {
+  "sprite": "muscular/troll"
+ },
  "200241": {
   "sprite": "muscular/troll"
+ },
+ "200245": {
+  "sprite": "male/zombie"
+ },
+ "200248": {
+  "sprite": "child/orc"
+ },
+ "200249": {
+  "sprite": "muscular/human"
  },
  "200250": {
   "sprite": "muscular/troll"
  },
+ "200251": {
+  "sprite": "male/lizard"
+ },
+ "200260": {
+  "sprite": "child/human"
+ },
+ "200261": {
+  "sprite": "child/human"
+ },
+ "200262": {
+  "sprite": "child/human"
+ },
+ "200264": {
+  "sprite": "male/orc"
+ },
  "200267": {
   "sprite": "male/lizard"
+ },
+ "200282": {
+  "sprite": "male/orc"
+ },
+ "200285": {
+  "sprite": "male/orc"
+ },
+ "200294": {
+  "sprite": "male/human"
+ },
+ "200296": {
+  "sprite": "muscular/troll"
+ },
+ "200299": {
+  "sprite": "muscular/troll"
+ },
+ "200312": {
+  "sprite": "male/orc"
+ },
+ "200313": {
+  "sprite": "muscular/human"
+ },
+ "200315": {
+  "sprite": "male/human"
+ },
+ "200318": {
+  "sprite": "male/human"
+ },
+ "9000005": {
+  "sprite": "male/lizard"
+ },
+ "9000006": {
+  "sprite": "male/pig"
  },
  "9000007": {
   "loot": [
@@ -533,7 +3591,119 @@
     "percent": 2
    }
   ],
-  "at": "2026-08-07T08:48:30.059Z"
+  "at": "2026-08-07T08:48:30.059Z",
+  "sprite": "male/human"
+ },
+ "9000010": {
+  "sprite": "male/human"
+ },
+ "9000011": {
+  "sprite": "muscular/human"
+ },
+ "9000012": {
+  "sprite": "male/goblin"
+ },
+ "9000014": {
+  "sprite": "muscular/human"
+ },
+ "9000015": {
+  "sprite": "muscular/human"
+ },
+ "9000016": {
+  "sprite": "male/human"
+ },
+ "9000020": {
+  "sprite": "child/goblin"
+ },
+ "9000021": {
+  "sprite": "child/rabbit"
+ },
+ "9000022": {
+  "sprite": "male/goblin"
+ },
+ "9000024": {
+  "sprite": "male/troll"
+ },
+ "9000026": {
+  "sprite": "male/human"
+ },
+ "9000029": {
+  "sprite": "child/goblin"
+ },
+ "9000030": {
+  "sprite": "male/human"
+ },
+ "9000031": {
+  "sprite": "male/human"
+ },
+ "9000032": {
+  "sprite": "male/human"
+ },
+ "9000033": {
+  "sprite": "child/goblin"
+ },
+ "9000037": {
+  "sprite": "male/human"
+ },
+ "9000038": {
+  "sprite": "male/human"
+ },
+ "9000040": {
+  "sprite": "male/human"
+ },
+ "9000043": {
+  "sprite": "male/goblin"
+ },
+ "9000054": {
+  "sprite": "male/human"
+ },
+ "9000055": {
+  "sprite": "male/human"
+ },
+ "9000056": {
+  "sprite": "male/human"
+ },
+ "9000057": {
+  "sprite": "male/human"
+ },
+ "9000058": {
+  "sprite": "muscular/human"
+ },
+ "9000059": {
+  "sprite": "muscular/human"
+ },
+ "9000060": {
+  "sprite": "male/human"
+ },
+ "9000061": {
+  "sprite": "male/minotaur"
+ },
+ "9000062": {
+  "sprite": "male/human"
+ },
+ "9000063": {
+  "sprite": "male/human"
+ },
+ "9000064": {
+  "sprite": "muscular/human"
+ },
+ "9000065": {
+  "sprite": "male/human"
+ },
+ "9000066": {
+  "sprite": "male/human"
+ },
+ "9000067": {
+  "sprite": "male/orc"
+ },
+ "9000068": {
+  "sprite": "male/orc"
+ },
+ "9000069": {
+  "sprite": "male/human"
+ },
+ "9000070": {
+  "sprite": "male/rat"
  },
  "9000071": {
   "loot": [
@@ -542,7 +3712,17 @@
    }
   ],
   "at": "2026-08-10T00:00:00.000Z",
-  "by": "phase-26"
+  "by": "phase-26",
+  "sprite": "male/rat"
+ },
+ "9000072": {
+  "sprite": "male/human"
+ },
+ "9000073": {
+  "sprite": "male/human"
+ },
+ "9000074": {
+  "sprite": "male/human"
  },
  "9000075": {
   "loot": [
@@ -557,13 +3737,20 @@
    }
   ],
   "at": "2026-08-10T00:00:00.000Z",
-  "by": "phase-27"
+  "by": "phase-27",
+  "sprite": "male/human"
+ },
+ "9000076": {
+  "sprite": "male/human"
  },
  "9000078": {
   "sprite": "male/pig"
  },
  "9000079": {
   "sprite": "male/wolf"
+ },
+ "9000080": {
+  "sprite": "male/rat"
  },
  "9000081": {
   "loot": [
@@ -574,7 +3761,11 @@
    }
   ],
   "at": "2026-08-10T00:00:00.000Z",
-  "by": "phase-27b"
+  "by": "phase-27b",
+  "sprite": "male/human"
+ },
+ "9000082": {
+  "sprite": "male/human"
  },
  "9000083": {
   "loot": [
@@ -584,10 +3775,20 @@
    }
   ],
   "at": "2026-08-10T00:00:00.000Z",
-  "by": "phase-27b"
+  "by": "phase-27b",
+  "sprite": "male/rabbit"
+ },
+ "9000084": {
+  "sprite": "muscular/lizard"
+ },
+ "9000085": {
+  "sprite": "male/troll"
  },
  "9000086": {
   "sprite": "male/zombie"
+ },
+ "9000087": {
+  "sprite": "male/skeleton"
  },
  "9000088": {
   "loot": [
@@ -597,6 +3798,10 @@
    }
   ],
   "at": "2026-08-10T00:00:00.000Z",
-  "by": "phase-27b"
+  "by": "phase-27b",
+  "sprite": "male/pig"
+ },
+ "9000089": {
+  "sprite": "male/human"
  }
 }
