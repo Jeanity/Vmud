@@ -26,6 +26,7 @@ import {
   ROOM_TILES,
   SCENERY,
   SCENERY_KINDS,
+  creatureSheets,
   sceneryOf,
   parseArtId,
   TILE_SIZE,
@@ -633,6 +634,14 @@ const KIT_Z: Readonly<Record<string, number>> = {
  * behind-body layer arrived the body could simply be painted first; now it competes like the rest.
  */
 const BODY_Z = 10;
+
+/**
+ * Where a creature's head shape sits — just over the body, far under a hat.
+ *
+ * Not in {@link KIT_Z}, because that table is worn *slots* and a face is not one. A hat at 60
+ * must still cover this, which is the whole reason it is a low number rather than a high one.
+ */
+const CREATURE_HEAD_Z = 12;
 
 const SPRITE_LAYERS: Readonly<Record<string, readonly string[]>> = {
   /** Every player. Phase 15 derives this list from what they are wearing instead of naming it here. */
@@ -4246,10 +4255,25 @@ export class WorldScene extends Phaser.Scene {
    */
   private characterLayers(sprite: string, facing: Direction, wearing?: Readonly<Record<string, string>>): Phaser.GameObjects.Image[] {
     const dressed = wearing && Object.keys(wearing).length > 0;
-    const base = SPRITE_LAYERS[sprite] ?? SPRITE_LAYERS['human'] ?? [];
-    if (!SPRITE_LAYERS[sprite]) {
+
+    // **A creature key resolves before the hardcoded table is consulted.** `mobpick` stores what a
+    // mob looks like as `body/head` — two of the pack's own words — and `creatureSheets` turns that
+    // into staged sheets, choosing the head variant this body has. Everything else still comes from
+    // `SPRITE_LAYERS`: `human` is every player and `sentry` is the one hand-dressed mob, and
+    // neither has a slash in it, so the two vocabularies cannot collide.
+    const creature = sprite.includes('/') ? creatureSheets(sprite) : undefined;
+    const base = creature ? [creature.body] : (SPRITE_LAYERS[sprite] ?? SPRITE_LAYERS['human'] ?? []);
+    if (!creature && !SPRITE_LAYERS[sprite]) {
       this.log.write('error', `No artwork for "${sprite}"; drawing it as a plain human.`);
     }
+    // The head is not clothing and is not the body, so it is its own layer at its own plane: just
+    // above the body and far below a hat, which must still go over it. Queued through `ensureSheet`
+    // like everything else, so a head that has not finished loading leaves a bald figure for a
+    // frame rather than Phaser's magenta placeholder.
+    const headLayer =
+      creature?.head !== undefined && this.ensureSheet(creature.head)
+        ? [{ sheet: creature.head, z: CREATURE_HEAD_Z }]
+        : [];
 
     // The body always comes first and is never worn — it is what the clothes go on. Taking only the
     // first entry of the base stack rather than all of it is what drops the placeholder outfit.
@@ -4268,11 +4292,12 @@ export class WorldScene extends Phaser.Scene {
           // starter kit predates the index, so it keeps the painter's order 15a chose, expressed
           // as z values on the same scale.
           { sheet: base[0] ?? 'body-human-male', z: BODY_Z },
+          ...headLayer,
           ...Object.entries(wearing).flatMap(([slot, id]) => this.sheetsFor(id, KIT_Z[slot] ?? 50)),
         ]
           .sort((a, b) => a.z - b.z)
           .map((layer) => layer.sheet)
-      : base;
+      : [...base, ...headLayer.map((layer) => layer.sheet)];
 
     // **The base stack passes the same gate the worn stack always has.** `sheetsFor` refuses to
     // name a texture Phaser lacks; this map used to hand the body's own sheets over unguarded, and

@@ -22,7 +22,8 @@
     "artassign": "node --disable-warning=ExperimentalWarning packages/worldgen/src/artassign.ts",
     "artsweep": "node --disable-warning=ExperimentalWarning packages/worldgen/src/artsweep.ts",
     "colourassign": "node --disable-warning=ExperimentalWarning packages/worldgen/src/colourassign.ts",
-    "creaturegen": "node --disable-warning=ExperimentalWarning packages/worldgen/src/creaturegen.ts"
+    "creaturegen": "node --disable-warning=ExperimentalWarning packages/worldgen/src/creaturegen.ts",
+    "mobsweep": "node --disable-warning=ExperimentalWarning packages/worldgen/src/mobsweep.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

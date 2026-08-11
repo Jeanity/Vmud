@@ -6,7 +6,452 @@
    "cure_light"
   ],
   "at": "2026-08-07T04:54:00.594Z",
-  "by": "slice3-drive"
+  "by": "slice3-drive",
+  "sprite": "male/lizard"
+ },
+ "1401": {
+  "sprite": "male/lizard"
+ },
+ "1402": {
+  "sprite": "male/lizard"
+ },
+ "1403": {
+  "sprite": "male/lizard"
+ },
+ "1404": {
+  "sprite": "male/lizard"
+ },
+ "1410": {
+  "sprite": "muscular/lizard"
+ },
+ "1411": {
+  "sprite": "muscular/lizard"
+ },
+ "1413": {
+  "sprite": "male/lizard"
+ },
+ "1414": {
+  "sprite": "male/lizard"
+ },
+ "1415": {
+  "sprite": "male/lizard"
+ },
+ "1416": {
+  "sprite": "muscular/lizard"
+ },
+ "1417": {
+  "sprite": "male/lizard"
+ },
+ "1419": {
+  "sprite": "male/lizard"
+ },
+ "1420": {
+  "sprite": "male/lizard"
+ },
+ "1421": {
+  "sprite": "male/lizard"
+ },
+ "1422": {
+  "sprite": "child/lizard"
+ },
+ "1423": {
+  "sprite": "muscular/lizard"
+ },
+ "1425": {
+  "sprite": "male/lizard"
+ },
+ "1426": {
+  "sprite": "male/lizard"
+ },
+ "1428": {
+  "sprite": "male/lizard"
+ },
+ "1429": {
+  "sprite": "male/lizard"
+ },
+ "1430": {
+  "sprite": "male/lizard"
+ },
+ "1431": {
+  "sprite": "male/lizard"
+ },
+ "1432": {
+  "sprite": "male/lizard"
+ },
+ "1434": {
+  "sprite": "male/lizard"
+ },
+ "1435": {
+  "sprite": "muscular/lizard"
+ },
+ "1437": {
+  "sprite": "male/lizard"
+ },
+ "1439": {
+  "sprite": "muscular/lizard"
+ },
+ "1441": {
+  "sprite": "male/lizard"
+ },
+ "1442": {
+  "sprite": "male/lizard"
+ },
+ "1443": {
+  "sprite": "male/lizard"
+ },
+ "1444": {
+  "sprite": "male/lizard"
+ },
+ "1445": {
+  "sprite": "male/lizard"
+ },
+ "1446": {
+  "sprite": "male/lizard"
+ },
+ "1447": {
+  "sprite": "male/lizard"
+ },
+ "1451": {
+  "sprite": "male/lizard"
+ },
+ "1457": {
+  "sprite": "muscular/lizard"
+ },
+ "1800": {
+  "sprite": "muscular/troll"
+ },
+ "1801": {
+  "sprite": "muscular/troll"
+ },
+ "1802": {
+  "sprite": "muscular/troll"
+ },
+ "1815": {
+  "sprite": "male/lizard"
+ },
+ "1819": {
+  "sprite": "muscular/troll"
+ },
+ "4001": {
+  "sprite": "male/goblin"
+ },
+ "4008": {
+  "sprite": "male/orc"
+ },
+ "4009": {
+  "sprite": "male/orc"
+ },
+ "4010": {
+  "sprite": "child/goblin"
+ },
+ "4011": {
+  "sprite": "male/goblin"
+ },
+ "4014": {
+  "sprite": "male/lizard"
+ },
+ "4016": {
+  "sprite": "male/goblin"
+ },
+ "4017": {
+  "sprite": "male/goblin"
+ },
+ "4018": {
+  "sprite": "muscular/goblin"
+ },
+ "4019": {
+  "sprite": "male/goblin"
+ },
+ "4020": {
+  "sprite": "male/goblin"
+ },
+ "4021": {
+  "sprite": "male/goblin"
+ },
+ "4023": {
+  "sprite": "male/lizard"
+ },
+ "4030": {
+  "sprite": "male/goblin"
+ },
+ "4031": {
+  "sprite": "muscular/goblin"
+ },
+ "11502": {
+  "sprite": "muscular/troll"
+ },
+ "11503": {
+  "sprite": "muscular/troll"
+ },
+ "11504": {
+  "sprite": "muscular/troll"
+ },
+ "11505": {
+  "sprite": "muscular/troll"
+ },
+ "11506": {
+  "sprite": "muscular/troll"
+ },
+ "11507": {
+  "sprite": "muscular/troll"
+ },
+ "11509": {
+  "sprite": "muscular/troll"
+ },
+ "11510": {
+  "sprite": "muscular/troll"
+ },
+ "11511": {
+  "sprite": "muscular/troll"
+ },
+ "11512": {
+  "sprite": "muscular/troll"
+ },
+ "11513": {
+  "sprite": "muscular/troll"
+ },
+ "11516": {
+  "sprite": "muscular/troll"
+ },
+ "11524": {
+  "sprite": "muscular/troll"
+ },
+ "11525": {
+  "sprite": "muscular/troll"
+ },
+ "11526": {
+  "sprite": "muscular/troll"
+ },
+ "11529": {
+  "sprite": "muscular/troll"
+ },
+ "11530": {
+  "sprite": "muscular/troll"
+ },
+ "11531": {
+  "sprite": "muscular/troll"
+ },
+ "11535": {
+  "sprite": "muscular/troll"
+ },
+ "11536": {
+  "sprite": "muscular/troll"
+ },
+ "11537": {
+  "sprite": "muscular/troll"
+ },
+ "11538": {
+  "sprite": "muscular/troll"
+ },
+ "11540": {
+  "sprite": "muscular/troll"
+ },
+ "11541": {
+  "sprite": "muscular/troll"
+ },
+ "11542": {
+  "sprite": "muscular/troll"
+ },
+ "11543": {
+  "sprite": "muscular/troll"
+ },
+ "11544": {
+  "sprite": "muscular/troll"
+ },
+ "11545": {
+  "sprite": "muscular/troll"
+ },
+ "11546": {
+  "sprite": "muscular/troll"
+ },
+ "11549": {
+  "sprite": "muscular/troll"
+ },
+ "11552": {
+  "sprite": "muscular/troll"
+ },
+ "11553": {
+  "sprite": "muscular/troll"
+ },
+ "11554": {
+  "sprite": "muscular/troll"
+ },
+ "11555": {
+  "sprite": "muscular/troll"
+ },
+ "11556": {
+  "sprite": "muscular/troll"
+ },
+ "11557": {
+  "sprite": "muscular/troll"
+ },
+ "11558": {
+  "sprite": "muscular/troll"
+ },
+ "11559": {
+  "sprite": "muscular/troll"
+ },
+ "11560": {
+  "sprite": "muscular/troll"
+ },
+ "11561": {
+  "sprite": "muscular/troll"
+ },
+ "11587": {
+  "sprite": "muscular/troll"
+ },
+ "11588": {
+  "sprite": "muscular/troll"
+ },
+ "11590": {
+  "sprite": "muscular/troll"
+ },
+ "11591": {
+  "sprite": "muscular/troll"
+ },
+ "11592": {
+  "sprite": "muscular/troll"
+ },
+ "11601": {
+  "sprite": "muscular/troll"
+ },
+ "11602": {
+  "sprite": "muscular/troll"
+ },
+ "11603": {
+  "sprite": "muscular/troll"
+ },
+ "11605": {
+  "sprite": "muscular/troll"
+ },
+ "11606": {
+  "sprite": "muscular/troll"
+ },
+ "11608": {
+  "sprite": "muscular/troll"
+ },
+ "11609": {
+  "sprite": "muscular/troll"
+ },
+ "11610": {
+  "sprite": "muscular/troll"
+ },
+ "11611": {
+  "sprite": "muscular/troll"
+ },
+ "11617": {
+  "sprite": "muscular/troll"
+ },
+ "11618": {
+  "sprite": "muscular/troll"
+ },
+ "11619": {
+  "sprite": "muscular/troll"
+ },
+ "11620": {
+  "sprite": "muscular/troll"
+ },
+ "11621": {
+  "sprite": "muscular/troll"
+ },
+ "11622": {
+  "sprite": "muscular/troll"
+ },
+ "11623": {
+  "sprite": "muscular/troll"
+ },
+ "11624": {
+  "sprite": "muscular/troll"
+ },
+ "11627": {
+  "sprite": "muscular/troll"
+ },
+ "11632": {
+  "sprite": "muscular/troll"
+ },
+ "11633": {
+  "sprite": "muscular/troll"
+ },
+ "11634": {
+  "sprite": "muscular/troll"
+ },
+ "11635": {
+  "sprite": "muscular/troll"
+ },
+ "11636": {
+  "sprite": "muscular/troll"
+ },
+ "11637": {
+  "sprite": "muscular/troll"
+ },
+ "11638": {
+  "sprite": "muscular/troll"
+ },
+ "11639": {
+  "sprite": "muscular/troll"
+ },
+ "11641": {
+  "sprite": "muscular/troll"
+ },
+ "23445": {
+  "sprite": "muscular/troll"
+ },
+ "26004": {
+  "sprite": "muscular/troll"
+ },
+ "26005": {
+  "sprite": "muscular/troll"
+ },
+ "26006": {
+  "sprite": "muscular/troll"
+ },
+ "26011": {
+  "sprite": "muscular/troll"
+ },
+ "70048": {
+  "sprite": "muscular/troll"
+ },
+ "74164": {
+  "sprite": "male/rabbit"
+ },
+ "74222": {
+  "sprite": "male/minotaur"
+ },
+ "92017": {
+  "sprite": "muscular/troll"
+ },
+ "96002": {
+  "sprite": "muscular/troll"
+ },
+ "96003": {
+  "sprite": "muscular/troll"
+ },
+ "96009": {
+  "sprite": "muscular/troll"
+ },
+ "96010": {
+  "sprite": "muscular/troll"
+ },
+ "96071": {
+  "sprite": "muscular/troll"
+ },
+ "96072": {
+  "sprite": "muscular/troll"
+ },
+ "96401": {
+  "sprite": "male/lizard"
+ },
+ "96406": {
+  "sprite": "male/lizard"
+ },
+ "96409": {
+  "sprite": "male/lizard"
+ },
+ "97002": {
+  "name": "the stone artist",
+  "room": "An artist is here ranting and raving at his half-cut sculpture.",
+  "at": "2026-08-10T00:00:00.000Z",
+  "by": "tordraken"
  },
  "97003": {
   "loot": [
@@ -16,6 +461,69 @@
    }
   ],
   "at": "2026-08-09T05:27:05.751Z"
+ },
+ "97008": {
+  "name": "a Priest of the First Ascension",
+  "room": "A Priest of the First Ascension is here for the dinner banquet.",
+  "at": "2026-08-10T00:00:00.000Z",
+  "by": "tordraken"
+ },
+ "97011": {
+  "name": "a garden attendant",
+  "room": "An attendant is here sweeping salt from the path.",
+  "at": "2026-08-10T00:00:00.000Z",
+  "by": "tordraken"
+ },
+ "97017": {
+  "name": "an off-duty patrol guard",
+  "room": "An off-duty patrol guard wanders the salt garden, taking in the view.",
+  "at": "2026-08-10T00:00:00.000Z",
+  "by": "tordraken"
+ },
+ "97027": {
+  "name": "the clergy's representative",
+  "room": "A representative of the castle clergy is here awaiting the start of the banquet.",
+  "at": "2026-08-10T00:00:00.000Z",
+  "by": "tordraken"
+ },
+ "97042": {
+  "name": "the High Priest's attendant",
+  "room": "The High Priest's attendant stands quietly.",
+  "at": "2026-08-10T00:00:00.000Z",
+  "by": "tordraken"
+ },
+ "97054": {
+  "sprite": "male/wolf"
+ },
+ "200068": {
+  "sprite": "male/lizard"
+ },
+ "200160": {
+  "sprite": "male/wolf"
+ },
+ "200165": {
+  "sprite": "male/lizard"
+ },
+ "200170": {
+  "sprite": "male/minotaur"
+ },
+ "200174": {
+  "sprite": "muscular/troll"
+ },
+ "200209": {
+  "sprite": "male/lizard"
+ },
+ "200229": {
+  "sprite": "male/lizard"
+ },
+ "200241": {
+  "sprite": "muscular/troll"
+ },
+ "200250": {
+  "sprite": "muscular/troll"
+ },
+ "200267": {
+  "sprite": "male/lizard"
  },
  "9000007": {
   "loot": [
@@ -51,6 +559,12 @@
   "at": "2026-08-10T00:00:00.000Z",
   "by": "phase-27"
  },
+ "9000078": {
+  "sprite": "male/pig"
+ },
+ "9000079": {
+  "sprite": "male/wolf"
+ },
  "9000081": {
   "loot": [
    {
@@ -72,6 +586,9 @@
   "at": "2026-08-10T00:00:00.000Z",
   "by": "phase-27b"
  },
+ "9000086": {
+  "sprite": "male/zombie"
+ },
  "9000088": {
   "loot": [
    {
@@ -81,41 +598,5 @@
   ],
   "at": "2026-08-10T00:00:00.000Z",
   "by": "phase-27b"
- },
- "97002": {
-  "name": "the stone artist",
-  "room": "An artist is here ranting and raving at his half-cut sculpture.",
-  "at": "2026-08-10T00:00:00.000Z",
-  "by": "tordraken"
- },
- "97008": {
-  "name": "a Priest of the First Ascension",
-  "room": "A Priest of the First Ascension is here for the dinner banquet.",
-  "at": "2026-08-10T00:00:00.000Z",
-  "by": "tordraken"
- },
- "97011": {
-  "name": "a garden attendant",
-  "room": "An attendant is here sweeping salt from the path.",
-  "at": "2026-08-10T00:00:00.000Z",
-  "by": "tordraken"
- },
- "97017": {
-  "name": "an off-duty patrol guard",
-  "room": "An off-duty patrol guard wanders the salt garden, taking in the view.",
-  "at": "2026-08-10T00:00:00.000Z",
-  "by": "tordraken"
- },
- "97027": {
-  "name": "the clergy's representative",
-  "room": "A representative of the castle clergy is here awaiting the start of the banquet.",
-  "at": "2026-08-10T00:00:00.000Z",
-  "by": "tordraken"
- },
- "97042": {
-  "name": "the High Priest's attendant",
-  "room": "The High Priest's attendant stands quietly.",
-  "at": "2026-08-10T00:00:00.000Z",
-  "by": "tordraken"
  }
 }
