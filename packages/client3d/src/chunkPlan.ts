@@ -114,6 +114,36 @@ export interface ChunkPlanInput {
    * two answers to "is this door shut" in one client.
    */
   readonly doorClosed: Readonly<Partial<Record<Cardinal, boolean>>>;
+  /**
+   * What closes a roofed room off at the top — M6, and ignored entirely for a room with sky over it.
+   *
+   * - `slab` — the grey lid. A cave's rock ceiling, an inn's boards, and the flat top of any building
+   *   with a storey above it. This is the default and it is what makes *"no sky from an interior"*
+   *   true for every roofed room in the world with no art assets in the build at all.
+   * - `kit` — `interior.ts` is putting a tiled gable here instead, so the slab would poke through it:
+   *   the roof's own eaves sit at 2.5 m and rise inward, and a 3.2 m slab would break the surface a
+   *   metre in from each edge.
+   * - `open` — **the player is under this lid.** Nothing is drawn: not the slab, not the roof.
+   *
+   * A single three-valued field rather than two booleans because the three states are exclusive and
+   * a pair of flags admits a fourth combination that has no meaning.
+   */
+  readonly roof?: 'slab' | 'kit' | 'open';
+  /**
+   * True when `interior.ts` is dressing this room's walls with village modules.
+   *
+   * The grey `edge`/`barrier` boxes are then **not drawn**, and that is a suppression rather than an
+   * overlay because the two do not nest: the box occupies 0 to 0.6 m outward of the boundary line and
+   * the panel occupies 0.14 m in to 0.47 m out, so each protrudes past the other and a street would
+   * see a grey slab standing behind its own plaster.
+   *
+   * The safety argument is that this is only ever true when the caller has the geometry: `world3d.ts`
+   * sets it from `VillageSet.available`, which is false until every wall module of the room's own
+   * palette is registered. `traversal.test.ts` sweeps every solid edge in the world **both ways** and
+   * asserts the side is covered end to end either way, because a dressed room with a missing module
+   * is a room you can see into.
+   */
+  readonly dressed?: boolean;
 }
 
 /** Ramp rise over its three-metre run, in metres. A slope, where a stairwell is a ladder. */
@@ -236,6 +266,15 @@ const HALF_ROOM = ROOM_METRES / 2;
 export function planChunk(input: ChunkPlanInput): readonly Placement[] {
   const { scene, origin, elevation, gap, faded } = input;
   const sector = scene.biome.sector;
+  const roofed = scene.enclosure.roofed;
+  // M6. A roofed room's walls stop at the ceiling; a barrier's extra 0.6 m of height would poke
+  // through the lid, and it does not need it — the *thickness* is the correctness requirement the
+  // plan names ("you must not see into a room you cannot reach") and a lid is a better answer to
+  // "you must not see over it" than another two thirds of a metre ever was.
+  const headroom = roofed ? DIMENSIONS.ceilingHeight : undefined;
+  // The village dresses `inside` rooms only; a cave keeps its rock boxes at the sector's own colour,
+  // which is the brief's ruling — caves are not kit territory.
+  const dressed = input.dressed === true && roofed && sector === 'inside';
   const x0 = metresOfTile(origin.tx);
   const z0 = metresOfTile(origin.ty);
   const cx = x0 + HALF_ROOM;
@@ -334,10 +373,14 @@ export function planChunk(input: ChunkPlanInput): readonly Placement[] {
     // The wall, or the two segments of it either side of the mouth.
     const wall: Archetype = edge.solid ? (edge.kind === 'barrier' ? 'barrier' : 'edge') : 'edge';
     const thickness = wall === 'barrier' ? DIMENSIONS.barrierThickness : DIMENSIONS.edgeThickness;
-    const height = wall === 'barrier' ? DIMENSIONS.barrierHeight : DIMENSIONS.edgeHeight;
+    const height = headroom ?? (wall === 'barrier' ? DIMENSIONS.barrierHeight : DIMENSIONS.edgeHeight);
     const wallY = elevation + height / 2;
     const wallOut = thickness / 2;
-    if (span <= 0) {
+    if (dressed) {
+      // Suppressed, not overlaid — see `ChunkPlanInput.dressed`. Everything else on this side (the
+      // mouth strip above, the door leaf and the ring below) is unaffected: the village kit dresses
+      // walls and floors, and a door is a door in a plastered room exactly as it is in a grey one.
+    } else if (span <= 0) {
       // The whole side. Overlong by a thickness at each end so the four corners close.
       const length = ROOM_METRES + 2 * thickness;
       put(
@@ -451,6 +494,24 @@ export function planChunk(input: ChunkPlanInput): readonly Placement[] {
     }
     planStair(put, feature, x0, z0, elevation, scene);
     planStairGlow(put, feature, x0, z0, elevation);
+  }
+
+  /* ----------------------------------------------------------------- the lid */
+
+  // M6, and the whole of §6-M6's *"without seeing sky"* in nine lines. The slab spans the room block
+  // **plus the gap**, so two neighbouring interiors have a continuous ceiling across the corridor
+  // between them rather than a strip of sky over the doorway — the same argument the mouth strips
+  // make on the floor, in the other direction, and the one place a lid must be wider than its room.
+  if (roofed && (input.roof ?? 'slab') === 'slab') {
+    put(
+      'ceiling',
+      cx,
+      elevation + DIMENSIONS.ceilingHeight + DIMENSIONS.ceilingThickness / 2,
+      cz,
+      ROOM_METRES + gapMetres,
+      DIMENSIONS.ceilingThickness,
+      ROOM_METRES + gapMetres,
+    );
   }
 
   return out;

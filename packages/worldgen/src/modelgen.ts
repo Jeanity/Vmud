@@ -1,24 +1,46 @@
 /**
- * `modelgen` — the Quaternius *Stylized Nature MegaKit* import. M5b's first line, and the offline
- * half of *"build my game in a world that looks like that"*.
+ * `modelgen` — the Quaternius kit import. M5b's first line and the offline half of *"build my game in
+ * a world that looks like that"*; M6's second source dir, and the offline half of the interiors.
  *
  * ```
  * node --disable-warning=ExperimentalWarning packages/worldgen/src/modelgen.ts
  * node --disable-warning=ExperimentalWarning packages/worldgen/src/modelgen.ts --dry
  * node --disable-warning=ExperimentalWarning packages/worldgen/src/modelgen.ts --source D:/MyGame/assets/quaternius/nature
  * GAME_NATURE_KIT=D:/MyGame/assets/quaternius/nature node ... /modelgen.ts
+ *
+ * node --disable-warning=ExperimentalWarning packages/worldgen/src/modelgen.ts --village
+ * GAME_VILLAGE_KIT=D:/MyGame/assets/quaternius/village node ... /modelgen.ts --village
  * ```
  *
  * **Invoked with `node` directly and deliberately given no `package.json` script**, exactly as
  * `treegen.ts` is and for the same reason: `CLAUDE.md` gotcha 6 — npm eats unknown flags, and
  * `--source …` through a nested `npm run --workspace` never reaches this file.
  *
- * ## Where the kit is, and why that is a flag
+ * ## Two kits, one importer — M6
+ *
+ * The *Medieval Village MegaKit* arrives the same way the nature kit did and is imported by the same
+ * code, parameterised by a {@link KitProfile}: where the source is, where the output goes, how a
+ * texture file becomes an id, and which prefix names a family. Everything else — the normal-map drop,
+ * the image reindex, the URI rewrite, the sorted manifest, the byte-identical re-run — is shared,
+ * because those are properties of *the importer* rather than of either kit, and a second copy of them
+ * would be a second place for the determinism to rot.
+ *
+ * The nature profile's emitted bytes are unchanged by the parameterisation, which
+ * `modelgen.test.ts` asserts by re-running the same catalogue build it always has.
+ *
+ * ## Where a kit is, and why that is a flag
  *
  * `assets/**` is git-ignored, so **a worktree has no `assets/` directory at all**. That is the same
  * hole `artgen.ts`/`creaturegen.ts` fell into with the LPC pack and it is answered the same way:
- * {@link SOURCE} is `--source`, else `$GAME_NATURE_KIT`, else the repo's own `assets/quaternius/nature`.
- * From a worktree, point it at the main checkout — `--source D:/MyGame/assets/quaternius/nature`.
+ * the source is `--source`, else the profile's environment variable (`$GAME_NATURE_KIT` /
+ * `$GAME_VILLAGE_KIT`), else the repo's own `assets/quaternius/<kit>`. From a worktree, point it at
+ * the main checkout — `--source D:/MyGame/assets/quaternius/nature`.
+ *
+ * The village pack ships its glTF one directory deeper than the nature pack does — the itch download
+ * unpacks as `village/Medieval Village MegaKit[Standard]/glTF` — so {@link gltfDirOf} accepts either
+ * the directory holding `glTF` or its parent. That is a convenience with a hard edge: it descends
+ * **only** when exactly one child holds a `glTF`, so a source directory with two packs in it is an
+ * error rather than a coin toss.
  *
  * ## Copy-and-manifest, and the compression that is deliberately *not* here
  *
@@ -77,13 +99,16 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const OUT_DIR = join(REPO_ROOT, 'packages', 'client3d', 'public', 'models', 'nature');
+const MODELS_DIR = join(REPO_ROOT, 'packages', 'client3d', 'public', 'models');
 
 /**
  * Bumped in lockstep with `client3d/src/kit.ts`'s `KIT_MANIFEST_VERSION`. A stale import fails
  * loudly at boot rather than oddly three chunks later.
  */
 export const KIT_MANIFEST_VERSION = 1;
+
+/** The same, for `client3d/src/village.ts`'s `VILLAGE_MANIFEST_VERSION`. Its own number, its own kit. */
+export const VILLAGE_MANIFEST_VERSION = 1;
 
 /* -------------------------------------------------------------------------- */
 /* The shape of a glTF, narrowed to what this file reads                        */
@@ -196,13 +221,79 @@ export const KIT_FAMILIES = [
 
 export type KitFamily = (typeof KIT_FAMILIES)[number];
 
-export function kitFamily(id: string): KitFamily | 'unknown' {
-  let best: KitFamily | 'unknown' = 'unknown';
-  for (const family of KIT_FAMILIES) {
+/** Longest prefix wins, over whichever family list the profile carries. */
+function familyOf(id: string, families: readonly string[]): string {
+  let best = 'unknown';
+  for (const family of families) {
     if (!id.startsWith(family)) continue;
     if (best === 'unknown' || family.length > best.length) best = family;
   }
   return best;
+}
+
+export function kitFamily(id: string): KitFamily | 'unknown' {
+  return familyOf(id, KIT_FAMILIES) as KitFamily | 'unknown';
+}
+
+/* ------------------------------------------------------------------ the village */
+
+/**
+ * The village kit's families. Longest prefix wins, and three pairs need it:
+ * `door-frame` before `door`, `stairs` before `stair`, `window-shutters` before `window`.
+ */
+export const VILLAGE_FAMILIES = [
+  'balcony',
+  'corner',
+  'door',
+  'door-frame',
+  'floor',
+  'hole-cover',
+  'overhang',
+  'prop',
+  'roof',
+  'stair',
+  'stairs',
+  'wall',
+  'window',
+  'window-shutters',
+] as const;
+
+export function villageFamily(id: string): string {
+  return familyOf(id, VILLAGE_FAMILIES);
+}
+
+/**
+ * `T_Plaster_BaseColor.png` to `plaster` — the village pack's own texture naming, undone.
+ *
+ * The nature pack names a texture after the thing it dresses (`Bark_NormalTree.png`) and {@link
+ * kitId} is enough. The village pack uses an Unreal-style channel convention — a `T_` prefix and a
+ * `_BaseColor` / `_Normal` / `_ORM` / `_Roughness` suffix — so passing those straight through would
+ * give the manifest `t-plaster-base-color` and the client a pool key nobody can read. Two literal
+ * affixes are stripped and then it is {@link kitId} again, so the ids stay one function's answer.
+ *
+ * `T_VineLeaf_png.png` is upstream's own typo (the extension is in the stem) and loses its `_png`
+ * here rather than being renamed on disk, because the file name is the join key back to the pack.
+ */
+export function villageTextureId(fileName: string): string {
+  const stem = fileName
+    .replace(/\.[^.]+$/, '')
+    .replace(/^T_/, '')
+    .replace(/_png$/i, '')
+    .replace(/_(BaseColor|Normal|Roughness|ORM)$/i, '');
+  return kitId(stem);
+}
+
+/**
+ * Which of the two roles a village primitive plays.
+ *
+ * Almost everything in this kit is masonry, timber or tile — closed, opaque, single-sided, no sway.
+ * The one exception is the vine, which is an alpha-masked leaf sheet and belongs in exactly the
+ * family `foliage.ts` already has for the nature kit's leaves. `MI_WindowGlass` carries no texture at
+ * all and is handled by the *absence* of a pool key rather than by a third role — see
+ * `client3d/src/prototypes.ts`'s village part table.
+ */
+export function villageRole(textureId: string): 'solid' | 'leaf' {
+  return textureId.startsWith('vine') ? 'leaf' : 'solid';
 }
 
 /**
@@ -221,6 +312,83 @@ const BLOCKING: ReadonlySet<string> = new Set([
   'twisted-tree',
   'rock-medium',
 ]);
+
+/* -------------------------------------------------------------------------- */
+/* Profiles — what differs between the two kits, and nothing else               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One kit, as the four facts that are not shared.
+ *
+ * Everything absent from this interface is deliberately *not* a per-kit decision: the normal-map
+ * drop, the image reindex, the sorted manifest, the per-model directory and the byte-identical
+ * re-run are properties of the importer and are shared by construction.
+ */
+export interface KitProfile {
+  /** `nature` / `village`. Names the output directory, the URL prefix and the flag. */
+  readonly id: string;
+  /** `$GAME_NATURE_KIT` / `$GAME_VILLAGE_KIT`. */
+  readonly env: string;
+  readonly version: number;
+  readonly generator: string;
+  /** Texture file name to manifest id. The two packs name their PNGs differently. */
+  readonly textureId: (fileName: string) => string;
+  readonly role: (textureId: string) => 'solid' | 'leaf';
+  readonly family: (id: string) => string;
+  /** Families whose models stand in the player's way. Empty for a kit nothing scatters. */
+  readonly blocking: ReadonlySet<string>;
+  /** Lines for the `ATTRIBUTION.md`'s "what was changed on the way in" section. */
+  readonly changes: readonly string[];
+  readonly pack: string;
+}
+
+export const NATURE_PROFILE: KitProfile = {
+  id: 'nature',
+  env: 'GAME_NATURE_KIT',
+  version: KIT_MANIFEST_VERSION,
+  generator: 'modelgen.ts from the Quaternius Stylized Nature MegaKit (CC0)',
+  textureId: kitId,
+  role: kitRole,
+  family: kitFamily,
+  blocking: BLOCKING,
+  pack: '**Quaternius — Stylized Nature MegaKit**, textured glTF line, Standard tier.',
+  changes: [
+    '- Normal maps dropped: nothing in `client3d` samples one (every material is a `MeshLambertMaterial`).',
+    '- `images`/`textures` rebuilt and reindexed; image URIs pointed at the shared `textures/` directory.',
+    '- Geometry, accessors and buffer views are the upstream bytes, unmodified.',
+  ],
+};
+
+/**
+ * The Medieval Village MegaKit — M6.
+ *
+ * **Nothing blocks**, and the empty set is the point: `blocks` is the *scatter's* question ("may this
+ * be dropped on open ground?") and no village module is ever scattered. Every one of them is placed
+ * by `client3d/src/interior.ts` from the room IR's own edges, on the boundary line the collision grid
+ * already made solid, so a bulk flag would be answering a question nobody asks.
+ */
+export const VILLAGE_PROFILE: KitProfile = {
+  id: 'village',
+  env: 'GAME_VILLAGE_KIT',
+  version: VILLAGE_MANIFEST_VERSION,
+  generator: 'modelgen.ts from the Quaternius Medieval Village MegaKit (CC0)',
+  textureId: villageTextureId,
+  role: villageRole,
+  family: villageFamily,
+  blocking: new Set(),
+  pack: '**Quaternius — Medieval Village MegaKit**, textured glTF line, Standard tier.',
+  changes: [
+    '- Normal maps, roughness and ORM maps dropped: `client3d` is Lambert throughout and samples none',
+    '  of them. That is 38.1 MB of the pack’s 58.4 MB of PNG, and the largest single saving available',
+    '  before the deferred KTX2 slice.',
+    '- `images`/`textures` rebuilt and reindexed; image URIs pointed at the shared `textures/` directory.',
+    '- Geometry, accessors and buffer views are the upstream bytes, unmodified. No module is rescaled on',
+    '  disk: the 2 m module grid is mapped onto the 9 m room by the renderer’s own `VILLAGE_SCALE`, so',
+    '  the mapping is one named constant in one file rather than a transform baked into 176 buffers.',
+  ],
+};
+
+export const PROFILES: readonly KitProfile[] = [NATURE_PROFILE, VILLAGE_PROFILE];
 
 /* -------------------------------------------------------------------------- */
 /* The manifest, as this file writes it and `client3d/src/kit.ts` reads it      */
@@ -304,6 +472,7 @@ export function pngSize(bytes: Buffer): { width: number; height: number } {
 export function buildCatalogue(
   sources: readonly SourceModel[],
   textureBytes: ReadonlyMap<string, Buffer>,
+  profile: KitProfile = NATURE_PROFILE,
 ): { manifest: KitManifest; gltfs: Map<string, string>; textureFiles: Map<string, string> } {
   const used = new Map<string, number>();
   const textureFiles = new Map<string, string>();
@@ -335,7 +504,7 @@ export function buildCatalogue(
         const baseColour = material.pbrMetallicRoughness?.baseColorTexture;
         const imageIndex = baseColour ? gltf.textures?.[baseColour.index]?.source : undefined;
         const imageUri = imageIndex === undefined ? undefined : gltf.images?.[imageIndex]?.uri;
-        const textureId = imageUri ? kitId(imageUri) : 'none';
+        const textureId = imageUri ? profile.textureId(imageUri) : 'none';
         if (imageIndex !== undefined && !keptImages.includes(imageIndex)) keptImages.push(imageIndex);
         if (imageUri) {
           used.set(textureId, (used.get(textureId) ?? 0) + 1);
@@ -357,7 +526,7 @@ export function buildCatalogue(
 
         parts.push({
           material: material.name,
-          role: kitRole(textureId),
+          role: profile.role(textureId),
           texture: textureId,
           triangles: tris,
           vertices: position?.count ?? 0,
@@ -368,18 +537,18 @@ export function buildCatalogue(
       }
     }
 
-    const family = kitFamily(id);
+    const family = profile.family(id);
     const width = round(maxX - minX);
     const depth = round(maxZ - minZ);
-    const blocks = BLOCKING.has(family);
+    const blocks = profile.blocking.has(family);
     // The *emitted* glTF's size, not the source's: this one has lost its normal-map references and
     // gained rewritten URIs, so it is a different length. `kit.test.ts` compares the manifest's
     // figure against what is on disk, which is the only version of this number worth recording.
-    const text = rewriteGltf(gltf, keptImages);
+    const text = rewriteGltf(gltf, keptImages, profile);
     models.push({
       id,
       family,
-      url: `models/nature/${id}/model.gltf`,
+      url: `models/${profile.id}/${id}/model.gltf`,
       bytes: Buffer.byteLength(text, 'utf8') + source.binBytes,
       triangles,
       width,
@@ -399,7 +568,7 @@ export function buildCatalogue(
     const size = bytes ? pngSize(bytes) : { width: 0, height: 0 };
     return {
       id,
-      url: `models/nature/textures/${id}.png`,
+      url: `models/${profile.id}/textures/${id}.png`,
       bytes: bytes?.byteLength ?? 0,
       width: size.width,
       height: size.height,
@@ -409,8 +578,8 @@ export function buildCatalogue(
 
   return {
     manifest: {
-      version: KIT_MANIFEST_VERSION,
-      generator: 'modelgen.ts from the Quaternius Stylized Nature MegaKit (CC0)',
+      version: profile.version,
+      generator: profile.generator,
       models,
       textures,
     },
@@ -430,14 +599,15 @@ function round(value: number): number {
  * Built as a fresh object in a fixed key order rather than mutated in place, so the JSON this writes
  * is a function of the input and not of whatever order the source happened to serialise its keys in.
  */
-function rewriteGltf(gltf: Gltf, keptImages: readonly number[]): string {
+function rewriteGltf(gltf: Gltf, keptImages: readonly number[], profile: KitProfile): string {
   const imageAt = new Map<number, number>();
   keptImages.forEach((source, index) => imageAt.set(source, index));
 
   const images = keptImages.map((source) => {
     const image = gltf.images?.[source];
     const uri = image?.uri ?? '';
-    return { mimeType: 'image/png', name: image?.name ?? kitId(uri), uri: `../textures/${kitId(uri)}.png` };
+    const id = profile.textureId(uri);
+    return { mimeType: 'image/png', name: image?.name ?? id, uri: `../textures/${id}.png` };
   });
 
   // One texture per kept image, in the same order. The source's own `textures` array carried an
@@ -484,13 +654,35 @@ function flag(name: string): string | undefined {
   return at >= 0 ? process.argv[at + 1] : undefined;
 }
 
-/** `--source`, else `$GAME_NATURE_KIT`, else the repo's own copy. See the header on why. */
-export function sourceDir(): string {
-  const explicit = flag('source') ?? process.env['GAME_NATURE_KIT'];
-  return explicit ? resolve(explicit) : join(REPO_ROOT, 'assets', 'quaternius', 'nature');
+/** `--source`, else the profile's environment variable, else the repo's own copy. See the header. */
+export function sourceDir(profile: KitProfile = NATURE_PROFILE): string {
+  const explicit = flag('source') ?? process.env[profile.env];
+  return explicit ? resolve(explicit) : join(REPO_ROOT, 'assets', 'quaternius', profile.id);
 }
 
-export function readSources(gltfDir: string): { sources: SourceModel[]; textures: Map<string, Buffer> } {
+/**
+ * The directory holding the `.gltf` files, given whatever the owner pointed at.
+ *
+ * `<source>/glTF` when it exists; otherwise the single child that has one — the village pack unpacks
+ * as `village/Medieval Village MegaKit[Standard]/glTF` and typing that bracketed name on a command
+ * line is a trap. It descends only when the choice is unambiguous: two packs under one directory
+ * returns nothing and the caller reports the same "no kit here" error it would for an empty one,
+ * because silently picking the alphabetically-first pack is the kind of help nobody can debug.
+ */
+export function gltfDirOf(source: string): string | undefined {
+  const direct = join(source, 'glTF');
+  if (existsSync(direct)) return direct;
+  if (!existsSync(source)) return undefined;
+  const nested = readdirSync(source, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && existsSync(join(source, entry.name, 'glTF')))
+    .map((entry) => join(source, entry.name, 'glTF'));
+  return nested.length === 1 ? nested[0] : undefined;
+}
+
+export function readSources(
+  gltfDir: string,
+  profile: KitProfile = NATURE_PROFILE,
+): { sources: SourceModel[]; textures: Map<string, Buffer> } {
   const sources: SourceModel[] = [];
   const textures = new Map<string, Buffer>();
   for (const file of readdirSync(gltfDir).sort()) {
@@ -507,22 +699,29 @@ export function readSources(gltfDir: string): { sources: SourceModel[]; textures
   }
   for (const file of readdirSync(gltfDir).sort()) {
     if (!file.toLowerCase().endsWith('.png')) continue;
-    textures.set(kitId(file), readFileSync(join(gltfDir, file)));
+    // Last writer would win on a collision, so the id function must be injective over the pack's
+    // PNGs. It is for both, and the *dropped* channel maps are what would collide if it were not:
+    // `villageTextureId` strips `_Normal` as well as `_BaseColor`, so `T_Plaster_Normal.png` and
+    // `T_Plaster_BaseColor.png` both answer `plaster`. That is deliberate and harmless — only the
+    // base colours are ever referenced by a material, and `buildCatalogue` copies only those — but
+    // it is the reason the base colour must win, so it is read last.
+    const id = profile.textureId(file);
+    if (/_BaseColor\.png$/i.test(file) || !textures.has(id)) textures.set(id, readFileSync(join(gltfDir, file)));
   }
   return { sources, textures };
 }
 
-function attribution(manifest: KitManifest, source: string): string {
+function attribution(manifest: KitManifest, source: string, profile: KitProfile): string {
   const families = new Map<string, number>();
   for (const model of manifest.models) families.set(model.family, (families.get(model.family) ?? 0) + 1);
   return [
-    '# Nature kit attribution',
+    `# ${profile.id} kit attribution`,
     '',
     'Generated by `packages/worldgen/src/modelgen.ts`. Do not edit; re-run the importer.',
     '',
     '## Source',
     '',
-    '**Quaternius — Stylized Nature MegaKit**, textured glTF line, Standard tier.',
+    profile.pack,
     'Licence: **CC0 1.0 Universal** (public domain dedication). No attribution is legally required;',
     'this note exists because `CLAUDE.md` asks every asset folder to say where its contents came from,',
     'and because a contact sheet is worthless if nobody can tell what made it.',
@@ -531,9 +730,7 @@ function attribution(manifest: KitManifest, source: string): string {
     '',
     '## What was changed on the way in',
     '',
-    '- Normal maps dropped: nothing in `client3d` samples one (every material is a `MeshLambertMaterial`).',
-    '- `images`/`textures` rebuilt and reindexed; image URIs pointed at the shared `textures/` directory.',
-    '- Geometry, accessors and buffer views are the upstream bytes, unmodified.',
+    ...profile.changes,
     '',
     '## Contents',
     '',
@@ -556,29 +753,32 @@ function attribution(manifest: KitManifest, source: string): string {
 }
 
 function main(): void {
-  const source = sourceDir();
-  const gltfDir = join(source, 'glTF');
+  const profile = process.argv.includes('--village') ? VILLAGE_PROFILE : NATURE_PROFILE;
+  const outDir = join(MODELS_DIR, profile.id);
+  const source = sourceDir(profile);
+  const gltfDir = gltfDirOf(source);
   const dry = process.argv.includes('--dry');
 
-  if (!existsSync(gltfDir)) {
+  if (!gltfDir) {
     console.error(
-      `no Quaternius nature kit at ${gltfDir}.\n` +
-        `The pack is git-ignored, so a worktree has none: point --source or GAME_NATURE_KIT at the\n` +
+      `no Quaternius ${profile.id} kit under ${source}.\n` +
+        `The pack is git-ignored, so a worktree has none: point --source or ${profile.env} at the\n` +
         `main checkout's copy, e.g.\n` +
         `  node --disable-warning=ExperimentalWarning packages/worldgen/src/modelgen.ts ` +
-        `--source D:/MyGame/assets/quaternius/nature`,
+        `${profile.id === 'village' ? '--village ' : ''}--source D:/MyGame/assets/quaternius/${profile.id}`,
     );
     process.exitCode = 1;
     return;
   }
 
-  const { sources, textures } = readSources(gltfDir);
-  const { manifest, gltfs, textureFiles } = buildCatalogue(sources, textures);
+  const { sources, textures } = readSources(gltfDir, profile);
+  const { manifest, gltfs, textureFiles } = buildCatalogue(sources, textures, profile);
 
   const modelBytes = manifest.models.reduce((n, m) => n + m.bytes, 0);
   const textureTotal = manifest.textures.reduce((n, t) => n + t.bytes, 0);
   console.log(
-    `[modelgen] ${manifest.models.length} models, ${manifest.models.reduce((n, m) => n + m.triangles, 0)} tris, ` +
+    `[modelgen:${profile.id}] ${manifest.models.length} models, ` +
+      `${manifest.models.reduce((n, m) => n + m.triangles, 0)} tris, ` +
       `${(modelBytes / 1024 / 1024).toFixed(1)} MiB of glTF+bin; ` +
       `${manifest.textures.length} textures, ${(textureTotal / 1024 / 1024).toFixed(1)} MiB`,
   );
@@ -595,23 +795,23 @@ function main(): void {
 
   // Cleared rather than merged: a model renamed upstream would otherwise ship for ever beside its
   // replacement, and `kit.test.ts` asserts there is nothing on disk the manifest does not list.
-  rmSync(OUT_DIR, { recursive: true, force: true });
-  mkdirSync(join(OUT_DIR, 'textures'), { recursive: true });
+  rmSync(outDir, { recursive: true, force: true });
+  mkdirSync(join(outDir, 'textures'), { recursive: true });
 
   for (const [id, file] of [...textureFiles].sort()) {
-    copyFileSync(join(gltfDir, file), join(OUT_DIR, 'textures', `${id}.png`));
+    copyFileSync(join(gltfDir, file), join(outDir, 'textures', `${id}.png`));
   }
   for (const model of manifest.models) {
-    const dir = join(OUT_DIR, model.id);
+    const dir = join(outDir, model.id);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'model.gltf'), gltfs.get(model.id) ?? '', 'utf8');
     const original = sources.find((candidate) => kitId(candidate.file) === model.id);
     const binName = original?.gltf.buffers[0]?.uri ?? `${model.id}.bin`;
     copyFileSync(join(gltfDir, binName), join(dir, 'model.bin'));
   }
-  writeFileSync(join(OUT_DIR, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-  writeFileSync(join(OUT_DIR, 'ATTRIBUTION.md'), attribution(manifest, source), 'utf8');
-  console.log(`[modelgen] wrote ${OUT_DIR}`);
+  writeFileSync(join(outDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  writeFileSync(join(outDir, 'ATTRIBUTION.md'), attribution(manifest, source, profile), 'utf8');
+  console.log(`[modelgen:${profile.id}] wrote ${outDir}`);
 }
 
 // Run only as a script. `modelgen.test.ts` imports the pure half above and must not trigger a write.

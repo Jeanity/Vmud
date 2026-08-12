@@ -104,6 +104,9 @@ import { bitsFromBase64, bitsetAdd, bitsetBytes, bitsetHas } from '@mygame/share
 
 import { planChunk, roomElevation, type Placement } from './chunkPlan.ts';
 import { fogStateOf, type FogState } from './fogOfWar.ts';
+import { dressable, hasRoof, occludingSides, planInterior, roofGroups, roofedRoom } from './interior.ts';
+import type { Enclosure } from './indoors.ts';
+import { VillageSet } from './village.ts';
 import {
   METRES_PER_TILE,
   cellOriginTiles,
@@ -156,6 +159,10 @@ interface LoadedChunk {
   state: FogState;
   /** True when the room has a roof over it. Drives the weather gate — no rain indoors or in a cave. */
   roofed: boolean;
+  /** Which lid this room is under, or `undefined` for a room with sky. See `interior.roofGroups`. */
+  group: RoomId | undefined;
+  /** Whether this chunk was built with its lid off — the player is under the same roof. */
+  open: boolean;
   /** Where this chunk's campfire is, if it drew one. Feeds `LightPool.scene`. */
   fire: { x: number; y: number; z: number } | undefined;
   /** Which baked level of detail the trees in this chunk are drawn at. See {@link World3D.update}. */
@@ -165,6 +172,8 @@ interface LoadedChunk {
   scatter: number;
   /** Kit instances — trees excluded, so it reads as "how much understory". `__debug3d.kitInstances`. */
   kit: number;
+  /** Village modules this chunk drew — walls, floor, arches, roof. `__debug3d.villageInstances`. */
+  village: number;
   /** True when this chunk drew a water surface. `__debug3d.waterChunks`. */
   water: boolean;
   readonly meshes: InstancedMesh[];
@@ -189,6 +198,8 @@ export class World3D implements ChunkSink {
   readonly trees = new TreeSet();
   /** The Quaternius kit. Same contract, same gate, a second manifest. See `kit.ts`. */
   readonly kit = new KitSet();
+  /** The Medieval Village kit — M6. A third registry, the same contract. See `village.ts`. */
+  readonly village = new VillageSet();
   private readonly streamer = new ChunkStreamer(this);
   private readonly chunks = new Map<string, LoadedChunk>();
   private readonly scratch = new Object3D();
@@ -223,6 +234,23 @@ export class World3D implements ChunkSink {
   private centreCell: { cellX: number; cellY: number } | undefined;
   /** Live door state, keyed `roomId:dir`. See `ChunkPlanInput.doorClosed` for why it lives outside. */
   private readonly doors = new Map<string, boolean>();
+
+  /* ------------------------------------------------------------------- M6 */
+
+  /**
+   * Which lid each roofed room is under, for this Place. Built once in {@link setPlace}.
+   *
+   * One union-find over the zone's roofed rooms, which is the same shape of work `groundComponents`
+   * already does per Place and costs the same nothing. See `interior.roofGroups` for why a door does
+   * not break a group and a seam does.
+   */
+  private roofOf: ReadonlyMap<RoomId, RoomId> = new Map();
+  /** The group the player is standing under, or `undefined` when they are out in the open. */
+  private openGroup: RoomId | undefined;
+  /** The sides a wall fades on. Re-derived whenever the rig's pitch moves; see `occludingSides`. */
+  private openSides: ReadonlySet<Cardinal> = occludingSides(64).sides;
+  /** Backing field for {@link roofCull}. On, because the cull is the mode and not an effect. */
+  private cullRoofs = true;
 
   /** Where the bloom selection lives, once `main.ts` has built a composer. Absent under test. */
   private glowSet: GlowSet | undefined;
@@ -283,6 +311,13 @@ export class World3D implements ChunkSink {
     this.warpField = warpFieldOf(zone, this.frameOf);
     this.warpField.strength = this.warpOn ? 1 : 0;
     this.tiles = buildZoneTilemap(zone, level);
+    // M6. The roof groups are a property of the Place and of nothing else, so they are built here and
+    // never again — a door swinging does not change one (see `interior.roofGroups`) and neither does
+    // a chunk loading. `roofedRoom` rather than `describeRoom(...).enclosure.roofed` because the
+    // predicate must not depend on a room's *neighbours*: a group is a walk over the graph, and a
+    // membership test that itself read one hop would make the walk quadratic for no new information.
+    this.roofOf = roofGroups(zone, roofedRoom);
+    this.openGroup = undefined;
     this.seen = undefined;
     this.ground = undefined;
     this.doors.clear();
@@ -333,18 +368,29 @@ export class World3D implements ChunkSink {
    * the pool, because the pool counts *wrappers* and the question a dense forest room raises is how
    * many things are in it.
    */
-  scatterCensus(): { trees: number; instances: number; kit: number; water: number } {
+  scatterCensus(): {
+    trees: number;
+    instances: number;
+    kit: number;
+    water: number;
+    village: number;
+    interiors: number;
+  } {
     let trees = 0;
     let instances = 0;
     let kit = 0;
     let water = 0;
+    let village = 0;
+    let interiors = 0;
     for (const chunk of this.chunks.values()) {
       trees += chunk.trees;
       instances += chunk.scatter;
       kit += chunk.kit;
+      village += chunk.village;
+      if (chunk.village > 0) interiors += 1;
       if (chunk.water) water += 1;
     }
-    return { trees, instances, kit, water };
+    return { trees, instances, kit, water, village, interiors };
   }
 
   /* ------------------------------------------------------------- M5b: weather */
@@ -560,6 +606,80 @@ export class World3D implements ChunkSink {
     }
     this.lit = lit;
     this.refreshFog();
+    this.refreshRoof();
+  }
+
+  /* ------------------------------------------------------------- M6: the lid */
+
+  /**
+   * Open the lid the player has just walked under, and close the one they have left.
+   *
+   * **A rebuild, not a visibility flip**, and the choice is deliberate. Hiding the ceiling wrappers
+   * would be cheaper per event and would leave the *walls* solid — the near-wall fade is a material,
+   * and a material is chosen when a bucket is formed. Doing half of it would allow a frame with the
+   * lid off and the south wall opaque, which is a room you are looking into through a wall you cannot
+   * see past: the exact failure the fade exists to prevent, arrived at by optimising the roof.
+   *
+   * The cost is one frame's worth of release-and-acquire on the chunks whose *group* changed, which
+   * is the same path a door already takes and allocates nothing (`traversal.test.ts`'s flat ledger
+   * covers it). It happens once per threshold crossed — a few times a minute at walking pace — and
+   * never at all while a player walks around inside one building, because every room of an inn shares
+   * one group and the comparison below is on the group id rather than on the room.
+   */
+  private refreshRoof(): void {
+    const here = this.here;
+    const group = !this.cullRoofs || here === undefined ? undefined : this.roofOf.get(here);
+    if (group === this.openGroup) return;
+    const was = this.openGroup;
+    this.openGroup = group;
+    for (const chunk of this.chunks.values()) {
+      if (chunk.group === undefined) continue;
+      if (chunk.group !== was && chunk.group !== group) continue;
+      this.rebuild(chunk);
+    }
+  }
+
+  /**
+   * Which of the three light recipes this frame wants — `indoors.ts`'s question, answered from the
+   * room the character is standing in and from nothing else.
+   *
+   * The **sector** rather than the roof group: an inn and the cellar under it are one group and two
+   * different places to be, and a cave mouth that happens to link to a hut should read as a cave
+   * while you are in the cave. `indoors` on a room the MUD flagged but whose sector is outdoor takes
+   * the inn's recipe, which is what that flag has always meant.
+   */
+  get enclosure(): Enclosure {
+    const here = this.here;
+    const room = here === undefined ? undefined : this.roomsById.get(here);
+    if (!room || !roofedRoom(room)) return 'outdoor';
+    return room.sector === 'cave' ? 'cave' : 'inside';
+  }
+
+  /** The lid currently off, for `__debug3d.interior`. `undefined` means the player is out of doors. */
+  get roofGroup(): RoomId | undefined {
+    return this.openGroup;
+  }
+
+  /**
+   * Whether lids come off over the player's head. The **K** key and `__debug3d.interior.cull`.
+   *
+   * M6's own A/B, in the pattern **F** set for the wind and **V** for the warp: the fastest way to
+   * check the acceptance by hand is to switch the thing off and see what it was doing. Turn it off
+   * standing in a tavern and the frame becomes exactly what §6-M6 forbids — *"a camera looking at the
+   * top of a roof"* — which is what makes it obvious that the rest of the time it is not.
+   *
+   * The near-wall fade goes with it, and the two are one switch on purpose: they are one decision
+   * (see `InteriorInput.roofOpen`), and a build with the lid on and the south wall see-through would
+   * be a picture neither mode ever produces.
+   */
+  get roofCull(): boolean {
+    return this.cullRoofs;
+  }
+
+  set roofCull(on: boolean) {
+    if (on === this.cullRoofs) return;
+    this.cullRoofs = on;
+    this.refreshRoof();
   }
 
   /**
@@ -686,11 +806,18 @@ export class World3D implements ChunkSink {
    * canvas aspect's business as much as the rig's. Idempotent and cheap: two uniform writes per
    * understory material and one shadow-camera refit, both of which happen anyway.
    */
-  setCameraFrame(frame: GroundFrame): void {
+  setCameraFrame(frame: GroundFrame, pitchDegrees?: number): void {
     const bands = fadeBandsFor(frame);
     this.pool.setFadeBands(bands.grass, bands.kitLeaf);
     const extents = shadowExtentsFor(frame);
     this.night.setExtents(extents.width, extents.depth);
+    // M6's third consumer of the live pose. `occludingSides` returns the *same set object* at every
+    // pitch under a fixed yaw, so this assignment is a no-op today and costs one comparison; it is
+    // written anyway because the day the yaw opens, the set changes and every wall in the window has
+    // to be rebuilt against the new one. The rebuild is deliberately **not** done here: a wheel notch
+    // is a per-frame event and cycling seventy chunks through the free list on each one would be the
+    // one place in this renderer where a camera move allocates.
+    if (pitchDegrees !== undefined) this.openSides = occludingSides(pitchDegrees).sides;
   }
 
   focus(x: number, y: number, z: number, clearingRadius?: number): void {
@@ -763,11 +890,14 @@ export class World3D implements ChunkSink {
       faded: this.isFaded(address),
       state: this.stateOf(address, room.id),
       roofed: false,
+      group: this.roofOf.get(room.id),
+      open: false,
       fire: undefined,
       lod: this.lodOf(address),
       trees: 0,
       scatter: 0,
       kit: 0,
+      village: 0,
       water: false,
       meshes: [],
       keys: [],
@@ -871,6 +1001,21 @@ export class World3D implements ChunkSink {
     }
 
     const elevation = roomElevation(scene, room.pos.z, frame.level, centreX, centreZ);
+
+    // M6, and the three questions a lid needs answered. **`open` is the group's, not the room's** —
+    // walk into an inn's taproom and the kitchen behind it loses its ceiling too, because they are
+    // one building and a lid that came off room by room would be a roof with a hole travelling
+    // across it. `top` is "is there open air over this cell", which is the one question that needs
+    // the level *above* — the only place in the renderer that looks up, and it looks at the room
+    // index rather than at a chunk, because the level above is hard-culled and has none.
+    const group = chunk.group;
+    const open = group !== undefined && group === this.openGroup;
+    const top = !cells.has(cellKey(room.pos.x, room.pos.y, room.pos.z + 1));
+    // The dressing is gated on the *complete* shell being loadable — see `VillageSet.available` —
+    // and on this not being the level below, which is `prototypes.NEVER_FADED`'s rule for every
+    // other art layer in this renderer.
+    const dressed = !chunk.faded && this.village.available && dressable(scene);
+    chunk.open = open;
     const room3d = planChunk({
       scene,
       origin,
@@ -878,6 +1023,10 @@ export class World3D implements ChunkSink {
       gap: frame.gap,
       faded: chunk.faded,
       doorClosed,
+      // `hasRoof` is asked here and again inside `planInterior`, from the same scene and the same
+      // `top`, because the slab and the gable must never both appear or both be missing.
+      roof: open ? 'open' : dressed && hasRoof(scene, top) ? 'kit' : 'slab',
+      dressed,
     });
 
     // M5a. Two gates, both in the file header: nothing grows on the level below, and nothing grows
@@ -886,6 +1035,7 @@ export class World3D implements ChunkSink {
     chunk.trees = 0;
     chunk.scatter = 0;
     chunk.kit = 0;
+    chunk.village = 0;
     chunk.water = false;
     let placements = room3d;
     if (!chunk.faded && (this.trees.available || this.kit.available)) {
@@ -899,6 +1049,26 @@ export class World3D implements ChunkSink {
           if (placement.archetype === 'kitSolid' || placement.archetype === 'kitLeaf') chunk.kit += 1;
         }
         chunk.scatter = grown.length;
+      }
+    }
+
+    // M6's dressing, on the same gate and after the same filter: a placement whose village module
+    // has not registered is dropped rather than drawn as a box, which is the rule the trees and the
+    // kit already live by. `dressed` above is the *shell's* gate and is all-or-nothing; this filter
+    // is the garnish's and is per placement, so a roof that failed to load costs a roof and not a
+    // house.
+    if (dressed) {
+      const inside = planInterior({
+        scene,
+        origin,
+        elevation,
+        roofOpen: open,
+        top,
+        openSides: this.openSides,
+      }).filter((p) => this.pool.hasGeometry(p.geometry));
+      if (inside.length > 0) {
+        placements = [...placements, ...inside];
+        chunk.village = inside.length;
       }
     }
 

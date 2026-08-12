@@ -116,10 +116,15 @@ import {
   SHAPE_KEYS,
   TREE_VARIANTS_PER_ROOM,
   TREE_PARTS,
+  VILLAGE_PARTS_MAX,
+  VILLAGE_ROLE_CASTS,
+  VILLAGE_WALL_MODELS_PER_ROOM,
+  WALL_OPEN_OPACITY,
   archetypeColour,
   kitRoleOf,
   materialFamily,
   materialKey,
+  villageRoleOf,
   type Archetype,
   type GeometryKey,
   type KitTextureId,
@@ -183,6 +188,11 @@ const CHUNK_BUCKET_CEILING = ARCHETYPES.filter(
     a !== 'trunk' &&
     a !== 'canopy' &&
     a !== 'grass' &&
+    // M6's `villageSolid` is counted against {@link INTERIOR_WRAPPER_CEILING} for the kit's own
+    // reason: it is `interior.ts`'s and is keyed by model rather than by sector. `ceiling` is *not*
+    // carved out — it is a `planChunk` placement like the walls and the ground, it is biome-keyed
+    // like them, and every one of the 108 chunks in the window can genuinely have one.
+    a !== 'villageSolid' &&
     // M5b's four are all counted elsewhere: the kit's two against the scatter term, the puddle
     // against {@link PUDDLE_WRAPPERS}, and water off its own free list. Counting them here as well
     // would charge the ceiling for four wrappers on all seventy chunks, including the thirty-five on
@@ -217,6 +227,21 @@ const SCATTER_WRAPPER_CEILING =
   TREE_VARIANTS_PER_ROOM * TREE_PARTS.length + 1 + KIT_MODELS_PER_ROOM * KIT_PARTS_MAX;
 
 /**
+ * Wrappers one chunk's **interior dressing** can want — M6, derived the same way and from the same
+ * kind of caps.
+ *
+ * A dressed room draws {@link VILLAGE_WALL_MODELS_PER_ROOM} wall models (a plain and a feature) of at
+ * most {@link VILLAGE_PARTS_MAX} primitives each, plus one floor model, one arch, the roof's two
+ * primitives and a chimney. Eleven, and every one of those buckets holds well inside
+ * {@link WRAPPER_CAPACITY}: twelve wall chords, nine floor tiles, four arches, one roof, one chimney.
+ *
+ * `interior.test.ts` sweeps the world and asserts both halves — no room over eleven buckets, no
+ * bucket over thirty-two instances — because a bound that is only an argument is a bound that a
+ * palette edit can quietly break.
+ */
+export const INTERIOR_WRAPPER_CEILING = VILLAGE_WALL_MODELS_PER_ROOM * VILLAGE_PARTS_MAX + 1 + 1 + 2 + 1;
+
+/**
  * The wet-weather decal's own bucket — M5b. One per ground-level chunk, and provably one: every
  * puddle in a room is the same archetype with no sector and no variant, so they are one bucket of at
  * most eight instances in a wrapper that holds thirty-two.
@@ -225,6 +250,25 @@ const SCATTER_WRAPPER_CEILING =
  * reason ground does. See {@link mintAttributed}.
  */
 const PUDDLE_WRAPPERS = 1;
+
+/**
+ * What a *dressed* chunk actually costs — **and the reason M6's second rendering mode is free.**
+ *
+ * The scatter term and the interior term are **mutually exclusive per chunk**, and not by luck: a
+ * room is dressed by `interior.ts` only when it is roofed and `inside`, and every one of the four
+ * tables that grow vegetation (`scatter.ts`'s `TREES_BY_SECTOR`, `GRASS_BY_SECTOR`,
+ * `CLUTTER_BY_SECTOR` and `KIT_BY_SECTOR`) has no `inside` row, while `planPuddles` refuses a roofed
+ * room outright. So no chunk in the world can want both, and charging the pool for their sum would
+ * size it for a room that cannot exist.
+ *
+ * `max(15 + 1, 11) = 16` — the interior fits inside the budget the understory already had, and the
+ * pre-warmed pool does not grow by one wrapper for it. `interior.test.ts` asserts the exclusivity
+ * over all 46,544 rooms rather than leaving it as an argument in a comment.
+ */
+export const DRESSED_WRAPPER_CEILING = Math.max(
+  SCATTER_WRAPPER_CEILING + PUDDLE_WRAPPERS,
+  INTERIOR_WRAPPER_CEILING,
+);
 
 /**
  * Chunks that can carry scatter: the window's own cells, on one level.
@@ -258,14 +302,17 @@ const MARKER_WRAPPERS = 1;
  *
  * So the whole pool is built at startup from a number that is a product of constants: the window can
  * hold {@link MAX_WINDOW_CHUNKS} chunks and a chunk can want {@link CHUNK_BUCKET_CEILING} buckets,
- * plus — M5a — {@link SCATTER_WRAPPER_CEILING} more on each of the {@link SCATTER_CHUNKS} cells that
- * can grow anything. `108 x 9 + 54 x 16 + 2 + 1 = **1,839 wrappers**`, plus the ground's and the
- * water's own free lists: **2,001 wrappers, 7.94 MB of per-instance buffer**, and not one byte more
- * for the rest of the session. (M4's `glow` archetype took the per-chunk ceiling from nine to ten and
- * M5b's carve-outs took it back to nine; click-to-move's `marker` adds the trailing `+ 1`, alongside
- * the bodies rather than inside the per-chunk term — see {@link MARKER_WRAPPERS}; M5a adds the
- * scatter term. **M6 multiplies the chunk count by 1.54**, because the dolly's clamp made the
- * streaming ring 9 x 6 x 2 instead of 7 x 5 x 2 — the whole delta is the ring, not this file.) Measured
+ * plus — M5a — {@link DRESSED_WRAPPER_CEILING} more on each of the {@link SCATTER_CHUNKS} cells that
+ * can grow or be dressed with anything. `108 x 10 + 54 x 16 + 2 + 1 = **1,947 wrappers**`, plus the
+ * ground's and the water's own free lists: **2,109 wrappers, 8.37 MB of per-instance buffer**, and not
+ * one byte more for the rest of the session. (M4's `glow` archetype took the per-chunk ceiling from
+ * nine to ten and M5b's carve-outs took it back to nine; click-to-move's `marker` adds the trailing
+ * `+ 1`, alongside the bodies rather than inside the per-chunk term — see {@link MARKER_WRAPPERS};
+ * M5a adds the scatter term. **The dolly multiplied the chunk count by 1.54**, because its clamp made
+ * the streaming ring 9 x 6 x 2 instead of 7 x 5 x 2 — that whole delta was the ring, not this file.
+ * **M6-interiors adds exactly one**, the `ceiling` archetype every roofed room's lid comes out of;
+ * the *dressing* adds none at all, because {@link DRESSED_WRAPPER_CEILING} is a `max` over two terms
+ * no chunk can want at once.) Measured
  * against the real world, the walk's high-water is a fraction of that, so the headroom is real; the
  * reason to allocate the ceiling anyway is that the ceiling is the thing that can be *reasoned* about,
  * and an empirical high-water is only ever a statement about the zones somebody happened to walk.
@@ -276,7 +323,7 @@ const MARKER_WRAPPERS = 1;
  */
 export const WRAPPER_POOL_SIZE =
   MAX_WINDOW_CHUNKS * CHUNK_BUCKET_CEILING +
-  SCATTER_CHUNKS * (SCATTER_WRAPPER_CEILING + PUDDLE_WRAPPERS) +
+  SCATTER_CHUNKS * DRESSED_WRAPPER_CEILING +
   ENTITY_WRAPPERS +
   MARKER_WRAPPERS;
 
@@ -469,8 +516,25 @@ function partsOf(key: MaterialKey): {
   variant: string | undefined;
   /** M5b: the kit texture a `kit|model|texture` key names. Undefined for every other key shape. */
   texture: KitTextureId | undefined;
+  /** M6: `village|model|texture|open` — the near-wall fade. Never the same thing as `faded`. */
+  open?: boolean;
 } {
   const bits = key.split('|');
+  // `village|wall-plaster-straight|plaster[|open]` — the second marker-led key shape, and it is a
+  // marker for `kit|`'s reason: a village model id and a kit model id are both "a lowercase
+  // hyphenated word" and nothing about the string itself would tell them apart.
+  if (bits[0] === 'village') {
+    return {
+      archetype: 'villageSolid',
+      sector: undefined,
+      // **Not `faded`.** That word means the level below, and the village kit never draws there —
+      // see `prototypes.NEVER_FADED`. This is the near-wall fade and it has its own opacity.
+      faded: false,
+      variant: bits[1],
+      texture: undefined,
+      open: bits[3] === 'open',
+    };
+  }
   // `kit|bush-common-flowers|flowers` — the one key shape with a marker rather than a deduced
   // middle, because a kit model id and a tree variant id are both "a lowercase hyphenated word" and
   // nothing about the string itself would tell them apart.
@@ -573,12 +637,22 @@ export class ScenePool {
     this.state.geometries = this.geometries.size;
 
     for (const key of MATERIAL_KEYS) {
-      const { archetype, sector, faded, variant, texture } = partsOf(key);
+      const { archetype, sector, faded, variant, texture, open } = partsOf(key);
       const kind = archetype as Archetype;
       const material = this.buildMaterial(key, kind, sector, variant);
       if (faded) {
         material.transparent = true;
         material.opacity = FADE_OPACITY;
+      }
+      // M6's near-wall fade. `transparent` and `opacity` are uniforms rather than defines, so the
+      // open twin compiles no program of its own — which is what lets every village wall have one.
+      if (open) {
+        material.transparent = true;
+        material.opacity = WALL_OPEN_OPACITY;
+        // Written but not read back for depth: a wall the camera is behind must not occlude the
+        // *bodies* inside the room, and a transparent surface that still writes depth would sort
+        // them out of the frame even though it is only 42% opaque.
+        material.depthWrite = false;
       }
       const emissive = ARCHETYPE_EMISSIVE[kind];
       if (emissive !== undefined) {
@@ -595,7 +669,16 @@ export class ScenePool {
       this.tints.set(key, fogTintRow(new Color(archetypeColour(kind, sector, variant))));
       // A kit part's shadow behaviour is its *texture's*, not its role's — a 10 cm path stone and a
       // 3 m boulder are both `kitSolid` and only one is worth a draw in the shadow pass.
-      const casts = texture !== undefined ? KIT_TEXTURE_CASTS[texture] : ARCHETYPE_CASTS[kind];
+      // A village part's shadow behaviour is its *role's* — every wall is a wall, where a kit prop's
+      // is its texture's because a path stone and a boulder share one. And an **open** wall never
+      // casts: it is the wall the player is standing behind, and a shadow thrown by something the
+      // frame is deliberately seeing through is a shadow with no visible caster.
+      const casts =
+        kind === 'villageSolid'
+          ? !open && VILLAGE_ROLE_CASTS[villageRoleOf(variant ?? '')]
+          : texture !== undefined
+            ? KIT_TEXTURE_CASTS[texture]
+            : ARCHETYPE_CASTS[kind];
       this.casts.set(key, casts && !faded);
       this.families.set(key, materialFamily(kind, variant));
     }
@@ -635,10 +718,11 @@ export class ScenePool {
     if (family === 'puddle') return createPuddleMaterial(this.wind, this.wet, colour, key);
 
     if (family === 'kitSolid') {
-      // Bark, rock, path stone and mushroom cap. A Lambert with the kit's own texture and its baked
-      // vertex AO, single-sided because every one of these is a closed mesh and a back face is an
-      // overdrawn fragment. **No alpha test**: the kit marks bark `MASK` out of Blender habit and its
-      // bark textures are opaque, so clipping would buy `USE_ALPHATEST` and nothing else.
+      // Bark, rock, path stone and mushroom cap — and, since M6, every village wall, floor, arch,
+      // roof and chimney. A Lambert with the kit's own texture and its baked vertex AO, single-sided
+      // because every one of these is a closed mesh and a back face is an overdrawn fragment. **No
+      // alpha test**: the kit marks bark `MASK` out of Blender habit and its bark textures are
+      // opaque, so clipping would buy `USE_ALPHATEST` and nothing else.
       const material = new MeshLambertMaterial({ color: colour });
       material.map = this.placeholder;
       material.vertexColors = true;

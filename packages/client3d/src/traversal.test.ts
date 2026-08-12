@@ -92,7 +92,9 @@ import {
 } from '@mygame/shared';
 
 import { planChunk } from './chunkPlan.ts';
-import { ROOM_METRES, cellOriginTiles, placeFrame } from './frame.ts';
+import { ROOM_METRES, cellOriginTiles, metresOfTile, placeFrame } from './frame.ts';
+import { occludingSides, planInterior, roleOfPlacement } from './interior.ts';
+import { VILLAGE_METRICS } from './prototypes.ts';
 import { MAX_WINDOW_CHUNKS } from './streamer.ts';
 import { World3D } from './world3d.ts';
 
@@ -116,13 +118,26 @@ const BASELINE_ROOM = 100;
  * | --- | --- | --- |
  * | M5b | 4,680,176 | the kit, the water and the puddles |
  * | M5c | 5,348,404 | `iWarp`'s four floats on every wrapper, and 3.6 KB of subdivided geometry |
- * | M6  | 8,137,908 | **the streaming ring, 70 cells to 108** — `+703` wrappers at 3,968 B |
+ * | M6 camera | 8,137,908 | **the streaming ring, 70 cells to 108** — `+703` wrappers at 3,968 B |
+ * | M6 interiors | 8,582,412 | the `ceiling` archetype (+108 wrappers) and 19 village stand-ins |
  *
- * The M6 delta is `+2,789,504` B, all of it instance buffer and all of it a consequence of one
+ * The camera delta was `+2,789,504` B, all of it instance buffer and all of it a consequence of one
  * decision: the dolly's clamp reaches 48 m at 45°, `streamer.ts` derives the ring from that pose, and
- * `pool.ts` derives its pre-warm from the ring. Nothing here was chosen; the clamp was.
+ * `pool.ts` derives its pre-warm from the ring. Nothing there was chosen; the clamp was.
+ *
+ * **The interiors delta is `+444,504` B and it is two things, both small on purpose.** `+428,544` is
+ * instance buffer: one `ceiling` wrapper for each of the 108 window chunks, which is the lid every
+ * roofed room in the world gets and the whole of what makes *"no sky from an interior"* true without
+ * an art asset in the build. `+15,960` is geometry: nineteen village stand-in boxes at 840 B, the
+ * headless proxy for the eleven real modules (in a browser this term is the modules' own vertex data
+ * — 117,880 triangles across the imported pack, of which the drawn subset is a few thousand).
+ *
+ * What is **not** in that delta is the second rendering mode's dressing, and its absence is the
+ * design: `pool.DRESSED_WRAPPER_CEILING` is `max(scatter + puddle, interior) = max(16, 11)`, because
+ * a room is dressed by `interior.ts` only when it is roofed and `inside`, and none of the four
+ * scatter tables has an `inside` row. Interiors fit inside the budget the understory already had.
  */
-const LEDGER_BYTES = 8_137_908;
+const LEDGER_BYTES = 8_582_412;
 
 describe('M3: streaming a real world with a flat ledger', () => {
   if (!existsSync(ZONES_DIR)) {
@@ -176,6 +191,10 @@ describe('M3: streaming a real world with a flat ledger', () => {
     // and *all* of what a road grows. A flat ledger measured with the understory switched off would
     // be a statement about M5a wearing M5b's version number.
     world.kit.standIn(world.pool);
+    // M6: and so must the village, which after this milestone is *every* bucket an interior chunk
+    // has. A flat ledger measured with the interiors switched off would be a statement about M5c
+    // wearing M6's version number, and 47.2% of the world is roofed or paved.
+    world.village.standIn(world.pool);
     let visited = 0;
     let places = 0;
     let chunkHigh = 0;
@@ -183,6 +202,8 @@ describe('M3: streaming a real world with a flat ledger', () => {
     let scatterHigh = 0;
     let kitHigh = 0;
     let waterHigh = 0;
+    let villageHigh = 0;
+    let interiorHigh = 0;
     let baseline: ReturnType<World3D['ledger']> | undefined;
 
     outer: for (const zone of zones) {
@@ -206,6 +227,8 @@ describe('M3: streaming a real world with a flat ledger', () => {
         scatterHigh = Math.max(scatterHigh, census.instances);
         kitHigh = Math.max(kitHigh, census.kit);
         waterHigh = Math.max(waterHigh, census.water);
+        villageHigh = Math.max(villageHigh, census.village);
+        interiorHigh = Math.max(interiorHigh, census.interiors);
         assert.ok(
           world.chunksLoaded <= MAX_WINDOW_CHUNKS,
           `${world.chunksLoaded} chunks live, over the ${MAX_WINDOW_CHUNKS} bound, at room ${visited}`,
@@ -230,6 +253,8 @@ describe('M3: streaming a real world with a flat ledger', () => {
         `  scatter       trees high-water ${treeHigh}  kit high-water ${kitHigh}  ` +
         `instances high-water ${scatterHigh}\n` +
         `  water         chunks high-water ${waterHigh}\n` +
+        `  interiors     dressed chunks high-water ${interiorHigh}  ` +
+        `village modules high-water ${villageHigh}\n` +
         `  bytes         at room ${BASELINE_ROOM}: ${baseline.bytes}   at room ${visited}: ${end.bytes}\n` +
         `                geometry ${end.geometryBytes} + instance ${end.instanceBytes}` +
         `  textures ${end.textureBytes}`,
@@ -258,6 +283,10 @@ describe('M3: streaming a real world with a flat ledger', () => {
     // M5b: the kit and the water both ran. Without these the flat ledger above would be a statement
     // about a renderer with the understory and the lakes switched off.
     assert.ok(kitHigh > 40, `only ${kitHigh} kit instances at the peak`);
+    // M6: the walk dressed real interiors. Without this the flat ledger above would be a statement
+    // about a renderer with the second mode switched off, which is 47.2% of the world.
+    assert.ok(villageHigh > 40, `only ${villageHigh} village modules at the peak`);
+    assert.ok(interiorHigh > 3, `only ${interiorHigh} chunks were ever dressed as interiors`);
     // Seven colour programs and two depth, fixed at boot and unmoved by a thousand rooms of
     // streaming. See `pool.programKeys` for why `map` and `vertexColors` are in the proxy's key.
     assert.equal(end.programs, 7, 'the material pool grew a program while streaming');
@@ -337,47 +366,121 @@ describe('M3: streaming a real world with a flat ledger', () => {
     assert.ok(checked > 40000, `only ${checked} room origins checked`);
   });
 
-  it('grows solid geometry across every solid edge in the world', () => {
-    let solid = 0;
-    let failures = 0;
-    const examples: string[] = [];
-    for (const zone of zones) {
-      const context = sceneZone(zone);
-      const cells = cellIndex(zone);
-      const frames = new Map<number, ReturnType<typeof placeFrame>>();
-      for (const room of zone.rooms) {
-        let frame = frames.get(room.pos.z);
-        if (!frame) {
-          frame = placeFrame(zone, room.pos.z);
-          frames.set(room.pos.z, frame);
-        }
-        const scene = describeRoom(context, room, neighboursOf(cells, room, rooms), sceneSeed(context, room));
-        const origin = cellOriginTiles(frame, room.pos.x, room.pos.y);
-        const plan = planChunk({ scene, origin, elevation: 0, gap: frame.gap, faded: false, doorClosed: {} });
-        const x0 = origin.tx;
-        const z0 = origin.ty;
-        for (const dir of CARDINALS) {
-          if (!scene.edges[dir].solid) continue;
-          solid += 1;
-          const lateral = dir === 'north' || dir === 'south';
-          const wall = plan.find((p) => {
-            if (p.archetype !== 'edge' && p.archetype !== 'barrier') return false;
-            if (lateral) {
-              const near = dir === 'north' ? z0 : z0 + ROOM_METRES;
-              return Math.abs(p.z - near) < 2 && p.sx >= ROOM_METRES;
-            }
-            const near = dir === 'west' ? x0 : x0 + ROOM_METRES;
-            return Math.abs(p.x - near) < 2 && p.sz >= ROOM_METRES;
+  it('grows solid geometry across every solid edge in the world, dressed or not', () => {
+    // **The correctness property M6 could most easily have broken.** §4 calls a barrier a
+    // *correctness requirement, not aesthetics* — "the player can otherwise see into a room they
+    // cannot reach" — and `chunkPlan`'s `dressed` flag now **suppresses** the grey box on an inside
+    // room's side, because a 0.6 m box and a 0.61 m village panel each protrude past the other and a
+    // street would see grey standing behind its own plaster.
+    //
+    // So the sweep is stronger than M3's in two ways. It runs the whole world **twice**, once with
+    // the village kit absent (grey boxes) and once with it present (village chords), because both are
+    // states a real client is in — the manifest is git-ignored and arrives a second after the first
+    // chunk. And it checks **coverage** rather than the existence of one wall: the union of every
+    // wall interval along the side must span the full nine metres, which is the assertion that
+    // catches three chords where there should be three and a half.
+    for (const dressed of [false, true]) {
+      let solid = 0;
+      let failures = 0;
+      let chords = 0;
+      const examples: string[] = [];
+      for (const zone of zones) {
+        const context = sceneZone(zone);
+        const cells = cellIndex(zone);
+        const frames = new Map<number, ReturnType<typeof placeFrame>>();
+        for (const room of zone.rooms) {
+          let frame = frames.get(room.pos.z);
+          if (!frame) {
+            frame = placeFrame(zone, room.pos.z);
+            frames.set(room.pos.z, frame);
+          }
+          const scene = describeRoom(context, room, neighboursOf(cells, room, rooms), sceneSeed(context, room));
+          const origin = cellOriginTiles(frame, room.pos.x, room.pos.y);
+          const plan = planChunk({
+            scene,
+            origin,
+            elevation: 0,
+            gap: frame.gap,
+            faded: false,
+            doorClosed: {},
+            dressed,
           });
-          if (!wall) {
-            failures += 1;
-            if (examples.length < 10) examples.push(`room ${room.id} ${dir}`);
+          const inside = dressed
+            ? planInterior({
+                scene,
+                origin,
+                elevation: 0,
+                roofOpen: false,
+                top: true,
+                openSides: occludingSides(64).sides,
+              })
+            : [];
+          chords += inside.filter((p) => roleOfPlacement(p) === 'wall').length;
+          const x0 = metresOfTile(origin.tx);
+          const z0 = metresOfTile(origin.ty);
+          for (const dir of CARDINALS) {
+            if (!scene.edges[dir].solid) continue;
+            solid += 1;
+            const lateral = dir === 'north' || dir === 'south';
+            // Where this side's boundary line is, and how far a placement may be from it and still
+            // be part of it. One metre: a grey box's centre sits `thickness / 2` out (0.7 m at most)
+            // and a village panel's origin sits exactly on the line.
+            const line = lateral
+              ? dir === 'north'
+                ? z0
+                : z0 + ROOM_METRES
+              : dir === 'west'
+                ? x0
+                : x0 + ROOM_METRES;
+            const spans: [number, number][] = [];
+            for (const p of [...plan, ...inside]) {
+              const wall =
+                p.archetype === 'edge' || p.archetype === 'barrier' || roleOfPlacement(p) === 'wall';
+              if (!wall) continue;
+              const across = lateral ? p.z : p.x;
+              if (Math.abs(across - line) > 1) continue;
+              // A village chord is rotated, so its run is `sx` scaled onto the module's own 2 m
+              // width; a grey box's run is whichever of `sx`/`sz` lies along the side.
+              const run =
+                p.archetype === 'edge' || p.archetype === 'barrier'
+                  ? lateral
+                    ? p.sx
+                    : p.sz
+                  : p.sx * VILLAGE_METRICS.module;
+              const centre = lateral ? p.x : p.z;
+              spans.push([centre - run / 2, centre + run / 2]);
+            }
+            if (!covers(spans, lateral ? x0 : z0, ROOM_METRES)) {
+              failures += 1;
+              if (examples.length < 10) examples.push(`room ${room.id} ${dir} (dressed=${dressed})`);
+            }
           }
         }
       }
+      console.log(
+        `[M6 solidity] dressed=${dressed}: ${solid} solid edges swept, ${failures} not covered` +
+          (dressed ? `, ${chords} village wall chords planned` : ''),
+      );
+      assert.equal(failures, 0, `solid edges the geometry does not close:\n${examples.join('\n')}`);
+      assert.ok(solid > 50000, `only ${solid} solid edges — the sweep is not reaching the world`);
+      if (dressed) assert.ok(chords > 40000, `only ${chords} village chords — the dressing is not running`);
     }
-    console.log(`[M3 solidity] ${solid} solid edges swept, ${failures} without a wall`);
-    assert.equal(failures, 0, `solid edges with no geometry:\n${examples.join('\n')}`);
-    assert.ok(solid > 50000, `only ${solid} solid edges — the sweep is not reaching the world`);
   });
+
+  /** Whether a set of intervals covers `[from, from + length]` with no gap. Order-independent. */
+  function covers(spans: readonly [number, number][], from: number, length: number): boolean {
+    if (spans.length === 0) return false;
+    const sorted = [...spans].sort((a, b) => a[0] - b[0]);
+    // A millimetre of slack at both ends: a chord's ends are floating-point sums of metres and
+    // tiles, and an assertion that failed on 1e-13 would be an assertion about IEEE 754. `reach`
+    // starts *inside* the interval rather than before it, so a run of chords whose first one begins
+    // exactly at `from` — which is every village side, where the grey box it replaced was overlong
+    // by a wall thickness at each end — is covered rather than rejected on its first span.
+    let reach = from + 1e-3;
+    for (const [start, end] of sorted) {
+      if (start > reach) return false;
+      if (end > reach) reach = end;
+    }
+    return reach >= from + length - 1e-3;
+  }
 });

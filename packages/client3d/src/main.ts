@@ -51,7 +51,8 @@ import { WebGLRenderer } from 'three';
 
 import { TILE_SIZE, samePlace, type Direction, type Place } from '@mygame/shared';
 
-import { DAY_SKY, NIGHT_SKY, clockOf, hourOf, normaliseHour } from './daylight.ts';
+import { DAY_SKY, NIGHT_SKY, clockOf, hourOf, normaliseHour, skyAt } from './daylight.ts';
+import { approach, skyFor, type Enclosure } from './indoors.ts';
 import { Dolly, rememberPose, rememberedPose, type CameraPose } from './dolly.ts';
 import { EntityLayer } from './entities.ts';
 import { metresOfPixel, pixelOfMetres } from './frame.ts';
@@ -153,6 +154,29 @@ void world.kit.load(world.pool).then((problem) => {
       'system',
       `kit: ${world.kit.loaded} models, ${world.kit.triangles} tris, ` +
         `${world.kit.textures} textures (${(world.kit.textureBytes / 1024 / 1024).toFixed(1)} MB)`,
+    );
+  }
+});
+
+/**
+ * M6's boot step: the Medieval Village kit — eleven drawn models and six shared textures.
+ *
+ * Not awaited, and this one has the strongest version of the argument the other two make: **the world
+ * is correct without it.** `chunkPlan` gives every roofed room a lid whether or not this ever
+ * resolves, so a client with no `models/village` on disk shows grey interiors with no sky in them
+ * rather than a hole in the roof. What the kit adds is plaster, boards, arches and tile.
+ *
+ * The gate is all-or-nothing at the *shell* level — `VillageSet.available` is true only when every
+ * wall in every palette and every floor has registered — because `chunkPlan`'s `dressed` flag
+ * suppresses the grey boxes, and half a kit would be half a room's walls missing. See `village.ts`.
+ */
+void world.village.load(world.pool).then((problem) => {
+  if (problem) log.write('error', problem);
+  else {
+    log.write(
+      'system',
+      `village: ${world.village.loaded} models, ${world.village.triangles} tris, ` +
+        `${world.village.textures} textures (${(world.village.textureBytes / 1024 / 1024).toFixed(1)} MB)`,
     );
   }
 });
@@ -308,8 +332,9 @@ pointer.attach(renderer.domElement);
 function applyCameraPose(pose: CameraPose, remember = true): void {
   rig.distance = pose.distance;
   rig.pitch = pose.pitch;
-  // The undergrowth's fade band and the moon's shadow volume, in one call. See `World3D.setCameraFrame`.
-  world.setCameraFrame(rig.ground());
+  // The undergrowth's fade band, the moon's shadow volume and M6's near-wall set, in one call. See
+  // `World3D.setCameraFrame`.
+  world.setCameraFrame(rig.ground(), rig.pitch);
   if (remember) rememberPose({ distance: rig.distance, pitch: rig.pitch });
 }
 
@@ -455,10 +480,35 @@ const wetness = new Wetness();
  */
 let gameHour = 0;
 
-/** Apply a sky: the scene graph takes the lights and the fog, the composer takes the exposure. */
+/**
+ * How far across the threshold the light is — 0 out of doors, 1 fully indoors. M6.
+ *
+ * Held beside `gameHour` rather than inside `World3D` because it is the same *kind* of thing: a
+ * client-side presentation value the server has no opinion about, driven by the frame loop, and one
+ * that a future server clock (for the hour) or a future portal effect (for this) would write through
+ * a named hook rather than by reaching into the scene graph.
+ */
+let indoorBlend = 0;
+let indoorTarget: Enclosure = 'outdoor';
+
+/**
+ * Apply a sky: the scene graph takes the lights and the fog, the composer takes the exposure.
+ *
+ * **The hour is the outdoor state and the enclosure is applied over it**, which is the whole of *"the
+ * daylight keys keep working outside and do nothing weird inside"*: `[`, `]` and `G` move `gameHour`
+ * and call this, and at `indoorBlend === 1` every field of the result is the interior recipe's, so
+ * the keypress is a no-op the player can see is a no-op. Step outside and the hour they chose is
+ * waiting for them.
+ */
 function applySky(hour: number): void {
   gameHour = normaliseHour(hour);
-  const recipe = world.setGameHour(gameHour);
+  // The named hook first — it is what a server clock will one day write, and it records the hour and
+  // applies the outdoor sky. Then the enclosure over the top, which is a second `NightRig.sky` write
+  // and eight more dot products; at `indoorBlend === 0` it is the same recipe object and the second
+  // write is exactly idempotent, which is what keeps a world out of doors identical to M5b's.
+  world.setGameHour(gameHour);
+  const recipe = skyFor(skyAt(gameHour), indoorTarget, indoorBlend);
+  world.night.sky = recipe;
   // The one part of a recipe `night.ts` cannot apply, because the composer is this file's and not the
   // scene graph's — see `NightRig.sky`. 1.6 lifts a moonlit 0.11 into readability and would put a
   // sunlit clearing through the bloom threshold, so it travels with the rest of the recipe.
@@ -536,6 +586,22 @@ function frame(now: number): void {
   } else {
     // No body yet: the login card is still up and the storm has nowhere to be centred.
     rain.enabled = false;
+  }
+  // M6's threshold. The target is the room the character is standing in; the blend walks toward it
+  // and the sky is re-applied only on the frames it actually moved, so a session spent entirely out
+  // of doors costs one comparison a frame and nothing else.
+  const enclosure = world.enclosure;
+  // **The remembered end of the fade is the last interior, not the current room.** Stepping out of a
+  // tavern sets the target to `outdoor`, and `skyFor` has no recipe for that — it would return the
+  // hour's sky outright and the transition would be a cut. So the interior end is held and only the
+  // scalar moves, which also makes a cave mouth into a cellar a fade between the two interiors
+  // through the sky rather than a restart.
+  if (enclosure !== 'outdoor') indoorTarget = enclosure;
+  const wanted = enclosure === 'outdoor' ? 0 : 1;
+  const stepped = approach(indoorBlend, wanted, seconds);
+  if (stepped !== indoorBlend) {
+    indoorBlend = stepped;
+    applySky(gameHour);
   }
   // The ground's memory of the rain. Wall-clock, like the rain's own time, and driven by whether it
   // is *actually* falling rather than by whether the player wants it — step under a roof and the
@@ -931,6 +997,49 @@ const debug = {
   get waterChunks(): number {
     return world.scatterCensus().water;
   },
+
+  /* ------------------------------------------------------------------- M6 */
+
+  /**
+   * The interior mode's whole state, in one object — **the read-out the milestone is judged on.**
+   *
+   * `enclosure` is which of the three light recipes is being asked for, `blend` is how far across the
+   * threshold the light actually is (1 while standing still indoors), and `roofGroup` is the id of
+   * the lid currently off — the smallest room id of the connected roofed component the character is
+   * inside, so two rooms of one inn report the same number and the house next door reports a
+   * different one. `interiors` counts the chunks in the window wearing village modules and
+   * `villageInstances` the modules themselves, which together are the answer to "is anything actually
+   * being dressed" without opening a picture.
+   */
+  get interior(): {
+    enclosure: string;
+    blend: number;
+    roofGroup: number | undefined;
+    cull: boolean;
+    interiors: number;
+    villageInstances: number;
+    villageLoaded: number;
+    dressing: boolean;
+  } {
+    const census = world.scatterCensus();
+    return {
+      enclosure: world.enclosure,
+      blend: Number(indoorBlend.toFixed(3)),
+      roofGroup: world.roofGroup,
+      cull: world.roofCull,
+      interiors: census.interiors,
+      villageInstances: census.village,
+      villageLoaded: world.village.loaded,
+      dressing: world.village.available,
+    };
+  },
+  /** Village textures loaded and the megabytes they cost. The compression slice's second target. */
+  get villageTextures(): { count: number; megabytes: number } {
+    return {
+      count: world.village.textures,
+      megabytes: Number((world.village.textureBytes / 1024 / 1024).toFixed(2)),
+    };
+  },
   /**
    * 0..1. Writable, because *"is the wet response too strong"* is a judgement made by looking and
    * waiting six seconds for a storm to soak in is six seconds too long to hold an opinion.
@@ -1095,6 +1204,16 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
       log.write('system', `camera: ${pose.distance} m at ${pose.pitch}° (default)`);
       return;
     }
+    case 'KeyK':
+      // M6. Puts the lids back on over the player's head — the milestone's A/B, in the pattern **F**
+      // set for the wind and **V** for the warp. Standing in a tavern with it off, the frame is
+      // exactly what §6-M6 forbids; that is the point of the key.
+      world.roofCull = !world.roofCull;
+      log.write(
+        'system',
+        `roof cull: ${world.roofCull ? 'on' : 'off (the lid stays on, and the near wall with it)'}`,
+      );
+      return;
     case 'KeyG': {
       // Jump to whichever of the two the rig is not near. Midnight and noon are the two keys the
       // recipes were authored at, so the flip lands on an authored sky rather than on a blend.
@@ -1110,9 +1229,9 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
 
 log.write(
   'system',
-  'M6 — wheel: zoom (24-48 m)   shift+wheel: tilt (45-64°)   C: camera home.  ' +
+  'M6 — wheel: zoom (24-48 m)   shift+wheel: tilt (45-64°)   C: camera home   K: roof cull.  ' +
     'T: tone mapping   R: rain   B: bloom   F: wind   V: warp   G: day/night   [ ]: sweep the hour.  ' +
-    'Read the frame you like off window.__debug3d.camera.',
+    'Read the frame you like off window.__debug3d.camera and the interior off .interior.',
 );
 
 net.connect();

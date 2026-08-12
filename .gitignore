@@ -19,6 +19,10 @@ data/world/*
 data/world/overrides/settings.json
 # The noticeboards' posts: runtime state the gods write from the panel, `settings.json`'s argument.
 data/world/overrides/boards.json
+# The world clock and every zone's weather: runtime state the server writes on the hour.
+# Committing it would ship one server's Tuesday afternoon to every clone. A missing file
+# boots on the derived Duris calendar, never refuses to start.
+data/world/overrides/worldclock.json
 
 # Per-character save data (explored maps, inventories, worn kit).
 data/players/

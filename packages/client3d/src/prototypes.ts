@@ -491,6 +491,262 @@ export const KIT_GEOMETRY_KEYS: readonly GeometryKey[] = KIT_PARTS.map((part) =>
   kitGeometryKey(part.model, part.texture),
 );
 
+/* -------------------------------------------------------------------------- */
+/* The village — M6                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * **The module grid, measured off the pack before a line of this was written.**
+ *
+ * Every number here came out of a headless bbox sweep over the 176 glTFs (the technique
+ * `modelgen.test.ts` uses: `POSITION` accessor min/max, node transforms composed — and there are
+ * none, every model in this pack is a single node at identity). `village.test.ts` asserts them back
+ * against the generated manifest, so a re-import that moved a module would fail rather than
+ * silently unpick the tiling.
+ *
+ * | measured | value | what it is |
+ * | --- | --- | --- |
+ * | module | **2.000 m** | every `Wall_*` is `x ∈ [-1, 1]`; every `Floor_*` is 2 x 2 |
+ * | wall height | **3.1227 m** | `Wall_Plaster_Straight`, floor to the top of its eave lip |
+ * | wall depth | **0.4065 m** | `z ∈ [-0.314, +0.0924]` — the panel laps 31 cm outward, 9 cm in |
+ * | roof | **9.952 x 10.332 m**, rise **6.001 m** | `Roof_RoundTiles_8x8`, eaves included |
+ *
+ * ## How 2 m modules tile a 9 m room
+ *
+ * They do not, and that is the whole problem: `9 / 2 = 4.5`. What *does* divide our room is **3 m** —
+ * `ROOM_METRES / 3` is exactly three, `CONNECTOR_WIDTH` is exactly three tiles, and every wall run the
+ * IR can produce is either a full 9 m side or a 3 m flank beside a mouth. So a module is scaled to a
+ * **3 m chord** and the tiling is exact with no remainder:
+ *
+ * ```
+ * solid side   [ chord ][ chord ][ chord ]                       3 modules
+ * mouth side   [ chord ][ mouth ][ chord ]                       2 modules + an arch
+ * floor        3 x 3 chords                                      9 modules
+ * ```
+ *
+ * {@link VILLAGE_SCALE} is that factor, `3 / 2 = 1.5`, and it is applied **in the horizontal only**
+ * (X along the run, Z through the wall's thickness; Y untouched). Three consequences, each chosen:
+ *
+ * 1. **The wall stays 3.12 m tall**, so it fits under `LEVEL_SEPARATION`'s four metres with room for
+ *    a ceiling — which a uniform 1.5x would not (4.68 m walls under a 4 m storey is an upper floor
+ *    inside a lower one).
+ * 2. **The wall becomes 0.61 m thick**, which is `DIMENSIONS.edgeThickness` to within a centimetre.
+ *    That is a coincidence and a useful one: the panel occupies exactly the footprint the grey-box
+ *    wall it replaces did.
+ * 3. **The texture stretches 1.5x horizontally.** This is the honest cost and it is why the palette
+ *    is plaster-led: `T_Plaster_BaseColor` is noise and a 50% stretch is invisible in it, while
+ *    `T_UnevenBrick` is a course pattern and shows it. The brick wall is therefore the *minority*
+ *    variant, used by two of the four zone themes, and the windows chosen are the **Thin** ones —
+ *    a thin window stretched by half is a normal window, where a wide one becomes a shopfront.
+ *
+ * The alternative that needs no stretch was measured and rejected: `9 = 4 x 2 + 2 x 0.5` with a
+ * `Corner_Exterior_Brick` quoin (0.531 m) in each half-metre slot tiles a *solid* side exactly, but a
+ * 3 m flank then wants `1 x 2 + 2 x 0.5` and the two 0.5 m slots at a doorway jamb are a corner piece
+ * used as a jamb; it also doubles the wall instances per side and leaves the 2 m floor module with
+ * nothing to tile (`9 / 2` again). One chord length that both the walls and the floor agree on, and
+ * that happens to equal `warp.WARP_CHORD_SPAN` so a bent wall is exactly one displaced module per
+ * chord, was worth 50% of texel density.
+ */
+export const VILLAGE_METRICS = {
+  /** Metres. The `Wall_*` / `Floor_*` module width, measured. */
+  module: 2,
+  /** Metres, floor to the top of the eave lip. The ceiling sits *under* the lip — see `interior.ts`. */
+  wallHeight: 3.1227,
+  wallDepth: 0.4065,
+  /** How far the panel laps past its own plane, outward and inward. `[-0.314, +0.0924]`, measured. */
+  wallOut: 0.314,
+  wallIn: 0.0924,
+  /** `Roof_RoundTiles_8x8`, eaves included. */
+  roofWidth: 9.952,
+  roofDepth: 10.332,
+  /** Ridge height above the model's origin: `height + minY`, i.e. `6.781 - 0.78`. */
+  roofRise: 6.001,
+  /** How far the fascia hangs below the origin. The roof is seated by its wall-plate, not its base. */
+  roofDrop: 0.78,
+  /** `Wall_Arch`: a 6 cm-deep trim arch, 2 m by 3 m. */
+  archHeight: 3,
+} as const;
+
+/**
+ * The textures the village modules wear — nine, and the whole pack shares them.
+ *
+ * `MI_WoodTrim` alone dresses 144 of the 299 primitives. Ids are `modelgen.villageTextureId`'s and
+ * `village.test.ts` asserts this list against the generated manifest, the same contract
+ * {@link KIT_TEXTURES} holds against the nature one.
+ */
+export const VILLAGE_TEXTURES = [
+  'brick',
+  'metal-ornaments',
+  'plaster',
+  'red-brick',
+  'rock-trim',
+  'round-tiles',
+  'uneven-brick',
+  'vine-leaf',
+  'wood-trim',
+] as const;
+
+export type VillageTextureId = (typeof VILLAGE_TEXTURES)[number];
+
+/** What a village module is *for*. Decides where `interior.ts` puts it and whether it casts. */
+export const VILLAGE_ROLES = ['wall', 'arch', 'floor', 'roof', 'prop'] as const;
+
+export type VillageRole = (typeof VILLAGE_ROLES)[number];
+
+/**
+ * The eleven modules the interior mode draws, their parts, and what each is for.
+ *
+ * Eleven of a hundred and seventy-six, and the shortness is a pool decision before it is an art one:
+ * every `(model, texture)` pair is a bucket, and the ceiling in `pool.ts` is `models per room x parts
+ * per model`. What is *absent* is therefore worth naming, because none of it is an oversight:
+ *
+ * - **Stairs.** `Stair_Interior_Solid` is a 4.7 m flight and the IR's stair block is
+ *   `STAIR_TILES` = 3 m square. Squeezing a 4.7 m run into 3 m changes the tread-to-riser ratio into
+ *   something no builder ever made. Flights keep M3's box steps until the stair block is revisited.
+ * - **Doors and door frames.** `DoorFrame_*` is 1.57 m wide against a 3 m carved mouth, so it would
+ *   stand in the middle of an opening the collision grid says is walkable end to end. The mouth gets
+ *   `wall-arch` — 3 m at {@link VILLAGE_SCALE}, exactly the opening — and `chunkPlan`'s existing door
+ *   leaf still swings inside it.
+ * - **Balconies, overhangs, shutters, fences, wagons, vines.** All of them are *placed* things that
+ *   want a rule of their own; none of them is load-bearing for "no sky from an interior". `Prop_Vine*`
+ *   is the one this milestone most regrets: it is an alpha-masked leaf sheet that would sit on
+ *   `foliage.ts`'s existing kit-leaf material with no new program, and a city wall with vines on it is
+ *   most of what makes a street read as lived-in. It is a named gap, not a limitation.
+ * - **`MI_WindowGlass`** — seven primitives, all on `Door_*` leaves, carrying no texture at all
+ *   (`texture: 'none'` in the manifest). Imported and given no pool key, exactly as the nature kit's
+ *   five `Petal_*` are.
+ *
+ * The order is the manifest's, so a diff of this list against a re-import is a diff of the kit.
+ */
+export const VILLAGE_PART_TEXTURES: Readonly<Record<string, readonly VillageTextureId[]>> = {
+  'floor-brick': ['brick'],
+  'floor-uneven-brick': ['uneven-brick'],
+  'floor-wood-dark': ['wood-trim'],
+  'prop-chimney2': ['uneven-brick'],
+  'roof-round-tiles-8x8': ['round-tiles', 'wood-trim'],
+  'wall-arch': ['wood-trim'],
+  'wall-plaster-straight': ['plaster', 'wood-trim'],
+  'wall-plaster-window-wide-flat2': ['plaster', 'wood-trim'],
+  'wall-plaster-wood-grid': ['plaster', 'wood-trim'],
+  'wall-uneven-brick-straight': ['plaster', 'uneven-brick', 'wood-trim'],
+  'wall-uneven-brick-window-thin-round': ['plaster', 'uneven-brick', 'wood-trim'],
+};
+
+export const VILLAGE_MODELS: readonly string[] = Object.keys(VILLAGE_PART_TEXTURES);
+
+/** What each module is for. Derived from the id's own prefix, which is `modelgen.villageFamily`'s. */
+export const VILLAGE_ROLE_OF: Readonly<Record<string, VillageRole>> = {
+  'floor-brick': 'floor',
+  'floor-uneven-brick': 'floor',
+  'floor-wood-dark': 'floor',
+  'prop-chimney2': 'prop',
+  'roof-round-tiles-8x8': 'roof',
+  'wall-arch': 'arch',
+  'wall-plaster-straight': 'wall',
+  'wall-plaster-window-wide-flat2': 'wall',
+  'wall-plaster-wood-grid': 'wall',
+  'wall-uneven-brick-straight': 'wall',
+  'wall-uneven-brick-window-thin-round': 'wall',
+};
+
+export function villageRoleOf(model: string): VillageRole {
+  return VILLAGE_ROLE_OF[model] ?? 'prop';
+}
+
+/**
+ * What is in the shadow render list, by role rather than by texture.
+ *
+ * `KIT_TEXTURE_CASTS` keys on the texture because a kit part's bulk is a fact about the *object* — a
+ * 10 cm path stone and a 3 m boulder are both `rocks`. A village module's bulk is a fact about its
+ * *role*: every wall is a wall. **A floor does not cast**, on `ARCHETYPE_CASTS`'s own argument for
+ * `ground` — a 2 cm slab shadowing the slab beside it is acne with a long name — and neither does the
+ * ceiling, which is `chunkPlan`'s grey slab and never a village module at all.
+ */
+export const VILLAGE_ROLE_CASTS: Readonly<Record<VillageRole, boolean>> = {
+  wall: true,
+  arch: true,
+  floor: false,
+  roof: true,
+  prop: true,
+};
+
+/** `village:wall-plaster-straight:plaster`. Same discipline as {@link kitGeometryKey}. */
+export function villageGeometryKey(model: string, texture: string): GeometryKey {
+  return `village:${model}:${texture}`;
+}
+
+/**
+ * Its material — and the third key shape in this file, with a fourth segment the other two lack.
+ *
+ * `open` is **not** `materialKey`'s `dim`, and conflating the two would be a real bug. `dim` means
+ * *"this is the level below"* and is `prototypes`'s vertical-policy fade; `open` means *"this wall
+ * stands between the camera and the room the player is standing in"* and is `interior.ts`'s
+ * near-wall fade. They are different questions with different opacities, they are never both true —
+ * the village kit dresses nothing on the level below (see {@link NEVER_FADED}) — and giving the
+ * second one its own word is what stops a future reader from "unifying" them.
+ */
+export function villageMaterialKey(model: string, texture: string, open = false): MaterialKey {
+  return `village|${model}|${texture}${open ? '|open' : ''}`;
+}
+
+/** Every `(model, texture)` pair the interior mode can draw: 19 across 11 models. */
+export const VILLAGE_PARTS: readonly { readonly model: string; readonly texture: VillageTextureId }[] = (() => {
+  const out: { model: string; texture: VillageTextureId }[] = [];
+  for (const model of VILLAGE_MODELS) {
+    for (const texture of VILLAGE_PART_TEXTURES[model] ?? []) out.push({ model, texture });
+  }
+  return out;
+})();
+
+export const VILLAGE_GEOMETRY_KEYS: readonly GeometryKey[] = VILLAGE_PARTS.map((part) =>
+  villageGeometryKey(part.model, part.texture),
+);
+
+/**
+ * The wall modules a room may pick from, by role — the palettes `interior.ts` rolls against.
+ *
+ * Two entries per row and the bound is what matters: {@link VILLAGE_WALL_MODELS_PER_ROOM} plain
+ * walls plus one feature wall would make a chunk's bucket count a property of a hash, so a room takes
+ * exactly one plain and one feature and the pool is sized for `2 x` {@link VILLAGE_PARTS_MAX}.
+ */
+export const VILLAGE_WALLS: readonly {
+  readonly plain: string;
+  readonly window: string;
+}[] = [
+  { plain: 'wall-plaster-straight', window: 'wall-plaster-window-wide-flat2' },
+  { plain: 'wall-plaster-wood-grid', window: 'wall-plaster-window-wide-flat2' },
+  { plain: 'wall-uneven-brick-straight', window: 'wall-uneven-brick-window-thin-round' },
+  { plain: 'wall-plaster-straight', window: 'wall-uneven-brick-window-thin-round' },
+];
+
+/** Floor modules, one per zone theme. Boards for a house, brick and flag for a hall. */
+export const VILLAGE_FLOORS: readonly string[] = [
+  'floor-wood-dark',
+  'floor-uneven-brick',
+  'floor-brick',
+  'floor-wood-dark',
+];
+
+/** Distinct wall **models** one room may draw: a plain and a feature. A pool constant. */
+export const VILLAGE_WALL_MODELS_PER_ROOM = 2;
+
+/** Primitives the widest village model has. Three: plaster, brick and timber on one brick wall. */
+export const VILLAGE_PARTS_MAX = 3;
+
+/**
+ * The chord one village module is stretched to, in metres — **the module grid mapping, as one number.**
+ *
+ * Derived, not chosen: `CONNECTOR_WIDTH` tiles is the width of every mouth the collision grid carves
+ * between two indoor rooms, `ROOM_METRES / VILLAGE_CHORD` is exactly three, and `warp.WARP_CHORD_SPAN`
+ * is the same three metres — so one module is one mouth, one side is three modules, and a warped wall
+ * is one displaced module per chord with no subdivision. See {@link VILLAGE_METRICS} for the measured
+ * grid this maps from and for the alternative that was rejected.
+ */
+export const VILLAGE_CHORD = 3;
+
+/** `3 / 2`. Horizontal only — see {@link VILLAGE_METRICS} for why Y is untouched. */
+export const VILLAGE_SCALE = VILLAGE_CHORD / VILLAGE_METRICS.module;
+
 /**
  * Every geometry the pool can ever hold: the shapes it builds, the trees it is handed, and the kit.
  *
@@ -503,6 +759,7 @@ export const GEOMETRY_KEYS: readonly GeometryKey[] = [
   ...SHAPE_KEYS,
   ...TREE_GEOMETRY_KEYS,
   ...KIT_GEOMETRY_KEYS,
+  ...VILLAGE_GEOMETRY_KEYS,
 ];
 
 /* -------------------------------------------------------------------------- */
@@ -533,6 +790,14 @@ export const ARCHETYPES = [
   'kitLeaf',
   'water',
   'puddle',
+  // M6, the second rendering mode. `ceiling` is the grey-box lid every roofed room gets — biome
+  // keyed, because the underside of a cave is not the underside of an inn — and it is what makes
+  // *"no sky from an interior"* true for all 21,978 roofed rooms whether or not the village kit was
+  // ever imported. `villageSolid` is every Quaternius Medieval Village primitive, and it is one
+  // archetype rather than five because the thing that varies between a wall and a floor is where
+  // `interior.ts` puts it, not how the pool draws it.
+  'ceiling',
+  'villageSolid',
 ] as const;
 
 export type Archetype = (typeof ARCHETYPES)[number];
@@ -559,7 +824,16 @@ const VARIANT_KEYED: ReadonlySet<Archetype> = new Set<Archetype>(VARIANT_ARCHETY
  * undergrowth of a fen is not the undergrowth of a heath, and it is the tuft's colour rather than its
  * shape that says which. Nothing else changes with the sector.
  */
-export const BIOME_ARCHETYPES = ['ground', 'edge', 'barrier', 'grass'] as const satisfies readonly Archetype[];
+export const BIOME_ARCHETYPES = [
+  'ground',
+  'edge',
+  'barrier',
+  'grass',
+  // M6. A ceiling is terrain in exactly the sense the other four are: the lid of a cave is wet rock
+  // and the lid of a cellar is boards, and it is the *sector* that says which. It is also the only
+  // one of the five that is only ever seen from **above** at this camera — see `interior.ts`.
+  'ceiling',
+] as const satisfies readonly Archetype[];
 
 const BIOME_KEYED: ReadonlySet<Archetype> = new Set<Archetype>(BIOME_ARCHETYPES);
 
@@ -594,6 +868,13 @@ const NEVER_FADED: ReadonlySet<Archetype> = new Set<Archetype>([
   'kitLeaf',
   'water',
   'puddle',
+  // M6's village modules join them for M5a's reason exactly — **the level below is not dressed** —
+  // and for one of their own. A village wall's only transparent state is `interior.ts`'s near-wall
+  // fade, which means *"you are standing behind this"*; a second transparency meaning *"this is a
+  // storey down"* on the same panel would be two readings of one alpha, and a shaft in Skullport
+  // would be indistinguishable from a wall the camera is looking through. The level below keeps its
+  // grey shell, faded, which is the cliff read M3 designed and M6 must not blur.
+  'villageSolid',
 ]);
 
 /**
@@ -630,6 +911,13 @@ export const ARCHETYPE_GEOMETRY: Readonly<Record<Archetype, GeometryKey>> = {
   kitLeaf: KIT_GEOMETRY_KEYS[0] ?? 'box',
   water: 'waterPlane',
   puddle: 'waterPlane',
+  // M6. A ceiling is a slab like the ground is, but on the plain `box`: the warp does not reach a
+  // roofed room (`warp.ts` measured 22,372 of them at exactly zero displacement), so there is
+  // nothing for a subdivided top face to bend to and 84 triangles a room to pay for it.
+  ceiling: 'box',
+  // The same exception `kitSolid` is: `interior.ts` writes the real key onto the placement and this
+  // is the fallback a reader would expect to find.
+  villageSolid: VILLAGE_GEOMETRY_KEYS[0] ?? 'box',
 };
 
 /**
@@ -685,6 +973,15 @@ export const ARCHETYPE_CASTS: Readonly<Record<Archetype, boolean>> = {
   // A puddle is the same argument at 40 cm.
   water: false,
   puddle: false,
+  // **A ceiling does not cast**, and the reason is the same one `ground` gives with the sign flipped:
+  // when the room is *closed* the ceiling is its roof and the shadow it would throw is already thrown
+  // by the walls under it; when the room is **open** — the player is inside — the slab is not drawn at
+  // all, so a casting flag would only ever matter on the frame it is being culled. Excluding it also
+  // keeps the shadow pass free of the one archetype every interior chunk has.
+  ceiling: false,
+  // The village default. Overridden per model by {@link VILLAGE_ROLE_CASTS}, because "is this worth a
+  // draw in the shadow pass" is a question about a floor slab and not about a kit.
+  villageSolid: true,
 };
 
 /**
@@ -763,7 +1060,7 @@ export function treeMaterialKey(archetype: (typeof VARIANT_ARCHETYPES)[number], 
 export const MATERIAL_KEYS: readonly MaterialKey[] = (() => {
   const keys: MaterialKey[] = [];
   for (const archetype of ARCHETYPES) {
-    if (archetype === 'kitSolid' || archetype === 'kitLeaf') continue;
+    if (archetype === 'kitSolid' || archetype === 'kitLeaf' || archetype === 'villageSolid') continue;
     if (VARIANT_KEYED.has(archetype)) {
       const variantArchetype = archetype as (typeof VARIANT_ARCHETYPES)[number];
       for (const variant of TREE_VARIANTS) {
@@ -779,6 +1076,14 @@ export const MATERIAL_KEYS: readonly MaterialKey[] = (() => {
     }
   }
   for (const part of KIT_PARTS) keys.push(kitMaterialKey(part.model, part.texture));
+  // M6. Every village part twice: as it stands, and open. **Uniformly**, including the floor and the
+  // roof that `interior.ts` will never ask to fade — a table with an exception in it is a table that
+  // will be wrong in one row, which is the argument `ARCHETYPE_CASTS` makes about `receiveShadow`,
+  // and six spare `MeshLambertMaterial`s are a few hundred bytes against that.
+  for (const part of VILLAGE_PARTS) {
+    keys.push(villageMaterialKey(part.model, part.texture));
+    keys.push(villageMaterialKey(part.model, part.texture, true));
+  }
   return keys;
 })();
 
@@ -822,6 +1127,12 @@ export type MaterialFamily = (typeof MATERIAL_FAMILIES)[number];
  */
 export function materialFamily(archetype: Archetype, variant?: string): MaterialFamily {
   if (archetype === 'ground') return 'blend';
+  // M6, and **the reason the second rendering mode costs no program**: a village module is a Lambert
+  // with a texture and a vertex colour, drawn single-sided — which is `kitSolid`'s shape exactly, down
+  // to the two `#define`s (`USE_MAP`, `USE_COLOR_ALPHA`) that are the only things three's cache key
+  // would separate them by. So all 38 village materials join the 83 kit ones on one program. The
+  // *near-wall fade* is `transparent` + `opacity`, both uniforms, so the open twin joins them too.
+  if (archetype === 'villageSolid') return 'kitSolid';
   if (archetype === 'kitSolid') return 'kitSolid';
   if (archetype === 'kitLeaf') return 'kitLeaf';
   if (archetype === 'water') return 'water';
@@ -905,6 +1216,12 @@ const OBJECT_COLOUR: Readonly<Record<Archetype, number>> = {
   // A puddle is a hole in the ground full of sky. Near-black diffuse, and all of its read is in the
   // specular the wet patch adds — the same argument `portal` makes for its own near-black albedo.
   puddle: 0x14181c,
+  // Biome-keyed below; the entry exists because the record is total.
+  ceiling: 0x000000,
+  // White, `kitSolid`'s reasoning verbatim: a village material's colour is its texture, and `diffuse`
+  // multiplies the map, so anything but white would tint the whole Quaternius palette by a number
+  // nobody chose.
+  villageSolid: 0xffffff,
 };
 
 /** What the deep end of a water surface mixes toward. See `water.ts`'s depth fade. */
@@ -937,8 +1254,13 @@ export const EMISSIVE_COLOUR: Readonly<Partial<Record<Archetype, number>>> = {
  * it wrong would also leave an unexplored kit trunk the wrong kind of dark.
  */
 export function archetypeColour(archetype: Archetype, sector: Sector | undefined, variant?: string): number {
+  if (archetype === 'villageSolid') return 0xffffff;
   if (variant !== undefined && TREE_SOURCE[variant as TreeVariant] === 'kit') return 0xffffff;
   if (archetype === 'ground') return SECTOR_COLOUR[sector ?? 'field'].ground;
+  // A lid, and the sector says what it is made of. Darker than the wall that holds it up because the
+  // only face of it this camera ever sees is the *top* — see `interior.ts` — and a roof lit by the
+  // same sky as the wall beneath it at the same value is a building with no silhouette.
+  if (archetype === 'ceiling') return darken(SECTOR_COLOUR[sector ?? 'inside'].dressing, 0.82);
   if (archetype === 'edge') return SECTOR_COLOUR[sector ?? 'field'].dressing;
   // A barrier is the same material as an edge, darkened — thickness is what says "you cannot pass",
   // and a second hue would say something the classification does not mean.
@@ -1045,7 +1367,31 @@ export const DIMENSIONS = {
   /** An undergrowth tuft, in metres. Knee height: enough to catch the moon, not enough to hide a body. */
   grassWidth: 0.55,
   grassHeight: 0.42,
+  /**
+   * Head height in a roofed room, in metres — **and it is `edgeHeight`, which is not a coincidence.**
+   *
+   * The village kit's wall module is 3.1227 m to the top of its eave lip and `Corner_Exterior_Wood`
+   * is exactly 3.000 m to the wall plate, so the kit's own storey height is three metres and M3's
+   * grey wall was already standing at it. The ceiling's underside therefore lands on the number both
+   * halves already agreed on, the 12 cm lip is swallowed inside the slab, and no wall anywhere in
+   * the world had to change height to grow a roof.
+   */
+  ceilingHeight: 3,
+  /** How thick the lid is. Seen only from above, so this is its silhouette rather than its edge. */
+  ceilingThickness: 0.2,
 } as const;
+
+/**
+ * How much of a wall is left when the camera is behind it — **the near-wall fade.**
+ *
+ * Not {@link FADE_OPACITY}. That number means "a storey down" and is tuned so a shaft reads as a
+ * shaft; this one means "you are standing behind this wall" and is tuned so the wall still draws a
+ * line the eye can follow round the room while the floor and the bodies inside are legible through
+ * it. Higher than the vertical fade on purpose: at 0.3 a plaster wall against a dark interior floor
+ * simply disappears and the room loses its shape, which is the failure the fade exists to avoid in
+ * the first place.
+ */
+export const WALL_OPEN_OPACITY = 0.42;
 
 /* -------------------------------------------------------------------------- */
 /* Scatter — the numbers the wrapper ceiling is derived from                   */

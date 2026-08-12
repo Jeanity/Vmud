@@ -216,6 +216,34 @@ function mixPoint(a: Point3, b: Point3, t: number): Point3 {
 }
 
 /**
+ * Two recipes, mixed — the interpolation `skyAt` does between its keys, exported for M6.
+ *
+ * `indoors.ts` crosses a threshold with the same function `daylight.ts` crosses an hour with, and
+ * that is not tidiness: a second interpolator would be a second place for the sRGB-versus-linear
+ * decision above to be taken differently, and a hue that took the linear path across a doorway while
+ * taking the sRGB path across dawn would be two different-looking blends of the same two colours.
+ *
+ * The direction vector is renormalised for `mixPoint`'s reason, which matters more here than it does
+ * between hours: the outdoor sun sits at 41 degrees and the interior key at 72, so half way across a
+ * threshold the unnormalised sum is 4% short and would quietly shrink the shadow volume.
+ */
+export function mixSky(from: SkyRecipe, to: SkyRecipe, t: number): SkyRecipe {
+  const s = Math.min(1, Math.max(0, t));
+  return {
+    name: `${from.name}->${to.name}`,
+    sky: mixHex(from.sky, to.sky, s),
+    ground: mixHex(from.ground, to.ground, s),
+    hemisphere: mix(from.hemisphere, to.hemisphere, s),
+    sun: mixHex(from.sun, to.sun, s),
+    sunIntensity: mix(from.sunIntensity, to.sunIntensity, s),
+    from: mixPoint(from.from, to.from, s),
+    fog: mixHex(from.fog, to.fog, s),
+    fogDensity: mix(from.fogDensity, to.fogDensity, s),
+    exposure: mix(from.exposure, to.exposure, s),
+  };
+}
+
+/**
  * The sky at an hour of the game day.
  *
  * Pure, and exported so `daylight.test.ts` can sweep all twenty-four without a renderer: every field

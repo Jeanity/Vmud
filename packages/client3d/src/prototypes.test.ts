@@ -36,6 +36,9 @@ import {
   TREE_PARTS,
   TREE_VARIANTS,
   VARIANT_ARCHETYPES,
+  VILLAGE_GEOMETRY_KEYS,
+  VILLAGE_MODELS,
+  VILLAGE_PARTS,
   archetypeColour,
   kitMaterialKey,
   kitRoleOf,
@@ -47,11 +50,15 @@ import {
   treePartsOf,
   treeRationOf,
   variantsFrom,
+  villageMaterialKey,
 } from './prototypes.ts';
 import { ScenePool, WRAPPER_POOL_SIZE } from './pool.ts';
 
 /** `kitSolid` and `kitLeaf`. Spelled out rather than derived, for this file's own stated reason. */
 const KIT_ARCHETYPE_COUNT = 2;
+
+/** `villageSolid` — M6's one. Same reason it is a literal: deriving it would let the table widen. */
+const VILLAGE_ARCHETYPE_COUNT = 1;
 
 describe('the pool key set', () => {
   it('has exactly seven built shapes, and the trees and the kit on top of them', () => {
@@ -81,7 +88,14 @@ describe('the pool key set', () => {
     assert.equal(KIT_PARTS.length, 48);
     assert.equal(KIT_GEOMETRY_KEYS.length, 48);
     assert.equal(new Set(KIT_GEOMETRY_KEYS).size, 48);
-    assert.equal(GEOMETRY_KEYS.length, 7 + 153 + 48);
+    // M6's village: eleven of the pack's 176 models, nineteen `(model, texture)` parts. The eleven
+    // are the closed subset the interior mode draws — see `VILLAGE_PART_TEXTURES` for what is
+    // deliberately absent (stairs, door frames, vines, and the seven untextured glass primitives).
+    assert.equal(VILLAGE_MODELS.length, 11);
+    assert.equal(VILLAGE_PARTS.length, 19);
+    assert.equal(VILLAGE_GEOMETRY_KEYS.length, 19);
+    assert.equal(new Set(VILLAGE_GEOMETRY_KEYS).size, 19);
+    assert.equal(GEOMETRY_KEYS.length, 7 + 153 + 48 + 19);
   });
 
   it('gives every kit part a role, and the two roles a family each', () => {
@@ -133,36 +147,50 @@ describe('the pool key set', () => {
     assert.ok(MATERIAL_KEYS.includes(treeMaterialKey('trunk', 'dead-tree-1' as never)));
   });
 
-  it('has exactly 230 materials, and the arithmetic is legible', () => {
-    // Terrain: 4 biome archetypes x 16 sectors = 64, of which `grass` never fades, so
-    // 3 x 16 = 48 with twins (96) plus 16 without = 112.
+  it('has exactly 300 materials, and the arithmetic is legible', () => {
+    // Terrain: 5 biome archetypes x 16 sectors = 80, of which `grass` never fades, so
+    // 4 x 16 = 64 with twins (128) plus 16 without = 144.
     // Trees: 51 real parts across 28 variants, none of which fade.
     // Objects: the remaining 12 archetypes = 12, with twins for all but `self`/`other`/`marker`/
     //   `water`/`puddle` = 19.
     // Kit props: 48 `(model, texture)` parts, none of which fade.
-    // 112 + 51 + 19 + 48 = 230.
+    // Village: 19 parts, each with an **open** twin — the near-wall fade, which is not the vertical
+    //   policy's `dim` and has its own opacity — so 38.
+    // 144 + 51 + 19 + 48 + 38 = 300.
     //
     // 110 at M3. M4 added `glow` and its twin — the stairwell marker — the *whole* of M4's growth,
     // because the emissive ring is a uniform on an existing material and the three-state fog of war is
     // a per-instance colour, so neither multiplied this table. Click-to-move added `marker`: 113.
-    // M5a added 32: eight barks, eight canopies and sixteen undergrowths. M5b adds 85: 35 kit tree
-    // parts, 48 kit prop parts, and the water and puddle surfaces.
+    // M5a added 32: eight barks, eight canopies and sixteen undergrowths. M5b added 85: 35 kit tree
+    // parts, 48 kit prop parts, and the water and puddle surfaces. **M6 adds 70**: the `ceiling`
+    // archetype crossed with the sixteen sectors and twinned (32), and the village's 19 parts
+    // twinned (38). Neither adds a *program* — see the traversal test, which still asserts seven.
     const terrain = (BIOME_ARCHETYPES.length - 1) * SECTORS.length;
     let trees = 0;
     for (const variant of TREE_VARIANTS) trees += treePartsOf(variant).length;
     const objects =
-      ARCHETYPES.length - BIOME_ARCHETYPES.length - VARIANT_ARCHETYPES.length - KIT_ARCHETYPE_COUNT;
-    assert.equal(terrain, 48);
+      ARCHETYPES.length -
+      BIOME_ARCHETYPES.length -
+      VARIANT_ARCHETYPES.length -
+      KIT_ARCHETYPE_COUNT -
+      VILLAGE_ARCHETYPE_COUNT;
+    assert.equal(terrain, 64);
     assert.equal(trees, 51);
     assert.equal(objects, 12);
-    assert.equal(MATERIAL_KEYS.length, 230);
+    assert.equal(MATERIAL_KEYS.length, 300);
     // The `- 5` is `self`, `other`, `marker`, `water` and `puddle` — the object archetypes with no
     // faded twin. Literals rather than `NEVER_FADED.size` on purpose, the same reasoning the file
     // header gives for the whole test: recomputing the exclusion from the table under test would let
     // the table widen silently and this assertion would still agree with it.
     assert.equal(
       MATERIAL_KEYS.length,
-      terrain * 2 + SECTORS.length + trees + objects + (objects - 5) + KIT_PARTS.length,
+      terrain * 2 +
+        SECTORS.length +
+        trees +
+        objects +
+        (objects - 5) +
+        KIT_PARTS.length +
+        VILLAGE_PARTS.length * 2,
     );
   });
 
@@ -177,6 +205,9 @@ describe('the pool key set', () => {
       // The kit's two archetypes are never crossed with a sector: a kit material's identity is its
       // `(model, texture)` pair, which is the third loop below.
       if (archetype === 'kitSolid' || archetype === 'kitLeaf') continue;
+      // Nor is M6's, for the same reason: a village material's identity is its `(model, texture)`
+      // pair plus whether it is the open twin, which is the fourth loop below.
+      if (archetype === 'villageSolid') continue;
       for (const faded of [false, true]) {
         for (const sector of SECTORS) {
           assert.ok(known.has(materialKey(archetype, sector, faded)), `${archetype}/${sector}/${faded}`);
@@ -192,6 +223,14 @@ describe('the pool key set', () => {
     }
     for (const part of KIT_PARTS) {
       assert.ok(known.has(kitMaterialKey(part.model, part.texture)), `${part.model}/${part.texture}`);
+    }
+    for (const part of VILLAGE_PARTS) {
+      for (const open of [false, true]) {
+        assert.ok(
+          known.has(villageMaterialKey(part.model, part.texture, open)),
+          `${part.model}/${part.texture}/${open}`,
+        );
+      }
     }
   });
 
@@ -247,11 +286,18 @@ describe('the pool key set', () => {
     // instead of 12.3 and 32.3 m either side instead of 20.4 (`streamer.ts`). The pool is minted once
     // — that is the flat-ledger acceptance — so the ceiling has to be the worst pose rather than the
     // current one, and 703 more wrappers is what the wider frame costs at boot.
-    assert.equal(WRAPPER_POOL_SIZE, 1839);
-    assert.equal(start.prewarmed, 2001);
+    //
+    // **M6-interiors moves it by exactly 108** — one wrapper per window chunk for the `ceiling`
+    // archetype, the lid every roofed room gets. The *dressing* moves it by nothing: a chunk is
+    // dressed by `interior.ts` only when it is roofed and `inside`, and no scatter table has an
+    // `inside` row, so `pool.DRESSED_WRAPPER_CEILING` is a `max(16, 11)` over two terms no chunk in
+    // the world can want at once. `interior.test.ts` asserts that exclusivity over all 46,544 rooms
+    // rather than leaving it as an argument.
+    assert.equal(WRAPPER_POOL_SIZE, 1947);
+    assert.equal(start.prewarmed, 2109);
     assert.equal(start.blendWrappers, 162, 'ground and water both own their instanced attributes');
-    assert.equal(start.wrappersCreated, 2001, 'all three free lists are whole before anything asks');
-    assert.equal(start.wrappersFree, 2001);
+    assert.equal(start.wrappersCreated, 2109, 'all three free lists are whole before anything asks');
+    assert.equal(start.wrappersFree, 2109);
     assert.equal(start.wrappersLive, 0);
     // Nothing has been loaded, so nothing is on the texture ledger. It is the biggest number in the
     // renderer once the kit lands, and it must be zero until it does.
@@ -416,7 +462,7 @@ describe('the pool key set', () => {
     pool.writeBlend(wall, 0, [1, 1, 1, 1], [1, 1, 1, 1]);
     pool.writeWarp(wall, 0, [1, 1, 1, 1]);
     pool.release(wall);
-    assert.equal(pool.snapshot().wrappersCreated, 2001, 'the split lists must not mint');
+    assert.equal(pool.snapshot().wrappersCreated, 2109, 'the split lists must not mint');
     pool.dispose();
   });
 
@@ -448,7 +494,7 @@ describe('the pool key set', () => {
     const again = pool.acquire('waterPlane', 'water');
     assert.equal(again, water, 'LIFO: the water list gave its own wrapper back');
     pool.release(again);
-    assert.equal(pool.snapshot().wrappersCreated, 2001, 'the three lists must not mint');
+    assert.equal(pool.snapshot().wrappersCreated, 2109, 'the three lists must not mint');
     pool.dispose();
   });
 
