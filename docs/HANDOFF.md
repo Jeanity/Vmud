@@ -453,7 +453,48 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-### Start here — 2026-08-12: the 3D client exists, and the GO/NO-GO awaits the owner
+### Start here — 2026-08-13, end of day: the world has clothes, weather, and rooms with lids
+
+**Nine verified slices landed today, `main` at `d8535bc`** — a tenth (the sky wiring, task #29)
+was in flight when this was written; if `git log` shows a commit past `d8535bc`, it landed too.
+The delegation pattern held all day: opus agents on thorough briefs, independent verification
+(typecheck + full suite + allocation ledger) before every commit, findings preserved in commit
+messages. **Read `git log 34a6ac7..d8535bc` before re-deriving anything.**
+
+- **Art direction ruled** `7f89158` — Quaternius stylized low-poly, owner-confirmed eyes-on. Six
+  packs on disk (723 MB, CC0, `assets/quaternius/`, `PROVENANCE.md`). The M7 armature risk retired
+  headlessly: every rigged file in all packs binds the same 65 joints. AnimLibs 1+2 together cover
+  idle/walk/run/attack/hit/die + casting. *Ultimate Monsters* is not on itch — M7 sourcing open.
+- **M5a** `b9aabdd` ez-trees/foliage/scatter/ground-blend · **M5b** `7c39841` the kit world, water,
+  wetness, daylight recipes · **M5c** `11b7f41` the domain warp (**V** toggles it; town lanes don't
+  move, open road wanders 3.12 m/100 m) · **camera** `688fd11` wheel dolly 24–48 m, Shift+wheel
+  pitch 45–64°, **C** home (owner's baked defaults still pending their pick).
+- **Next-room bodies** `2715df5` — visibility crosses open crossings (doors and darkness still
+  hide; combat reach stays room-scoped). Its found bug — every actor read as a torch, so `look`
+  into dark rooms revealed occupants — fixed in `9280715`.
+- **World clock** `f85b5fb` — Duris hours, calendar and *continuous climate* transcribed (the Diku
+  sky-state machine turned out to be dead code in Duris since 1991). Median precip spell ≈ 6 real
+  minutes. Prose on the room channel; additive `{t:'sky'}` wire message. **Owner decision open:
+  snow particles** — the default climate snows 9× more than it rains.
+- **M6** `d8535bc` — the second rendering mode. Every roofed room has a lid even with no art
+  (19,870 rooms); the Village kit dresses 10,799 of them; roof lids are connected components
+  (doors don't break a lid); **K** toggles the cull. Interior share measured at **47.2%**, not the
+  plan's 35.7% (that figure predates M1's sector repairs).
+
+**Rituals that changed today:** the full suite needs **both**
+`GAME_NATURE_KIT=D:/MyGame/assets/quaternius/nature` and
+`GAME_VILLAGE_KIT=D:/MyGame/assets/quaternius/village` or catalogue tests skip — **2,550 with
+both** is the number. `public/models/` regenerates via treegen + modelgen (`--village` for the
+second kit; exact commands in `.gitignore`'s comment — a fresh worktree needs both runs plus the
+env vars). Supervisor restart: `POST 127.0.0.1:8790/supervisor/api/restart` with any
+`x-admin-token` header — the header's *presence* is the gate. `data/world/overrides/worldclock.json`
+is runtime state, git-ignored like `boards.json`.
+
+**Open threads:** sky wiring (#29, in flight); owner decisions — snow rendering, camera defaults;
+named gaps — field rooms place no lone tree, ranged still wants `look <dir>` before firing at a
+visible neighbour mob, kit-tree decimation heads the deferred compression slice, M7 monsters.
+
+### 2026-08-12: the 3D client exists, and the GO/NO-GO awaits the owner
 
 **Five milestones and mouse input landed in one day, all pushed, `main` at `36e1ff7`.** The plan
 costed M0–M4 at 10–15 focused weeks; it was done by delegated agents (opus for the load-bearing
