@@ -59,7 +59,11 @@
  * A Shift+drag switches follow **off** — one boolean, no third state — because a hand on the camera
  * outranks a rule about where it should be, and because an "on but suspended" mode has to explain
  * itself twice: once when it stops working and once when it starts again. **O** turns it back on, and
- * the log says which of the two just happened. See `dolly.FOLLOW_ON_FRESH` for why it ships off.
+ * the log says which of the two just happened.
+ *
+ * Since M8b the mode ships **on** — `input.cameraRelative` made W mean "away from the camera", which
+ * removed the one thing that made follow-on-by-default a hazard. `dolly.FOLLOW_ON_FRESH` carries the
+ * whole history: who set it off, why, and what retired the reason.
  */
 
 import type { CameraPose } from './dolly.ts';

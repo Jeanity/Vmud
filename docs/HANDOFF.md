@@ -576,13 +576,36 @@ suite is **2,749 green, 0 skipped** with **both** `GAME_NATURE_KIT` and `GAME_VI
   **The price, know it before tuning:** the ledger went **23.5 MB → 45.6 MB**, all of it the disc's
   5,577 extra wrappers. That is what free rotation at a 96 m ceiling costs; if a machine struggles,
   the cheapest lever is `CAMERA_DISTANCE_MAX` — the ring re-derives from it.
-  **One decision waiting for the owner:** `FOLLOW_ON_FRESH = false`, because **W is still
-  world-north**. With follow on, a player facing south presses W, walks toward the camera, and the
-  view spins 180°. Camera-relative movement keys are the honest fix and they change what `steer`
-  means — a waking decision. (Also pre-existing and worth knowing: Shift is `input.ts`'s travel
-  modifier, so orbiting and keyboard-walking are already mutually exclusive.)
+  **That decision is closed.** `FOLLOW_ON_FRESH` was `false` because W was world-north; the owner
+  asked for camera-relative movement the next morning (*"w should always be forward towards what the
+  player is facing"*) and for the camera behind the player, so the objection was retired rather than
+  argued and the constant is now `true`. (Also pre-existing and worth knowing: Shift is `input.ts`'s
+  travel modifier, so orbiting and keyboard-walking are already mutually exclusive.)
+- **Camera-relative movement** — **W is forward.** `input.cameraRelative` rotates the keyboard's steer
+  vector through the rig's yaw before it becomes a `steer`; the server needs no new protocol, because it
+  already derives `facing` from the direction you move (`sim.ts:2049`). At yaw 0 the rotation is the
+  identity **to the bit**, so the boot pose is provably unchanged. Shift+W is still `move north` and
+  always will be — a MUD's exits are cardinal. Click-to-move and hold-to-steer are world-space from a
+  raycast and were not touched.
+  **The trap, and it cost the slice its second half:** camera-relative keys close a feedback loop with
+  follow mode — the camera chases a heading the keys derive from the camera. Measured, **forward
+  converges** but nothing else does: a held sidestep swings the camera through complete revolutions and
+  a held backstep shakes the world ±5° at 30 Hz. So `input.suspendsFollow` **freezes the follow ease
+  while a non-forward key is held** (backing up and sidestepping are defined relative to the camera, so
+  they must not move it) and the camera settles in behind the body on release. That freeze is a stopgap
+  with a named successor: ROADMAP **task #35** gives the simulation a real float heading fed by the
+  camera, which removes the loop at its source — delete the freeze with it.
+  **Left undone on purpose:** the **backpedal moonwalk**. In combat the facing is locked to the
+  opponent, so backing away is a backwards walk playing a forward gait, and there is no backward or
+  strafe clip in either animation library (`anim.CLIPS`: `Walk_Loop`, `Jog_Fwd_Loop`, `Sprint_Loop`, all
+  forward). A negative `timeScale` on the locomotion action is the honest trick, but it needs hysteresis
+  or a body circling an opponent — travelling perpendicular to its facing — flips the gait every frame,
+  which is worse than the moonwalk it replaces. That is latched per-frame animation state across
+  `entities.ts`, `body.ts` and `anim.ts`, so it wants its own slice. **This slice makes it more
+  visible**, not less: with follow on and camera-relative keys, combat now points the camera over your
+  shoulder at the opponent and makes S mean "back away", which is exactly when you would see it.
 
-**The suite ritual changed again:** **2,786 green, 0 skipped**, and it needs *both* kit env vars.
+**The suite ritual changed again:** **2,817 green, 0 skipped**, and it needs *both* kit env vars.
 
 **Morning eyes-on list** (server already restarted; just refresh):
 1. Azder stands in **the Overgrown Field, room 41260** — kobolds in this field and, through

@@ -78,7 +78,7 @@ import { EntityLayer } from './entities.ts';
 import { FollowCamera, OrbitControl } from './orbit.ts';
 import { PlateSet } from './plates.ts';
 import { metresOfPixel, pixelOfMetres } from './frame.ts';
-import { Input, intoFormControl } from './input.ts';
+import { cameraRelative, Input, intoFormControl, suspendsFollow } from './input.ts';
 import { LogPanel } from './log.ts';
 import { LoginGate } from './login.ts';
 import { Marker } from './marker.ts';
@@ -817,16 +817,34 @@ function frame(now: number): void {
   // `pointer.ts`'s header for why this cannot instead wait for the next `pointermove`.
   if (self) pointer.tick(now, self.x, self.y);
 
-  const raw = input.intent();
+  // M8b. The keyboard's four vectors are the **camera's** frame now, so W is "away from the camera",
+  // which with the camera behind you is "the way you are facing" — the owner's own sentence. The
+  // rotation is the identity to the bit at yaw 0, so this line changes nothing at the boot pose; see
+  // `input.cameraRelative`. Deliberately unconditional on follow mode: an orbited camera with
+  // world-locked keys is the thing that feels broken, and it is reachable with follow off.
+  const keys = input.intent();
+  const raw = cameraRelative(keys, rig.yaw);
   // The joystick outranks both the keyboard and a stale server route, exactly as `scene.ts:4431-4438`
   // ranks them: it is a deliberate, held instruction, so it beats a route it has already told the
   // server to drop and it beats the keyboard for the one frame a key goes down before `onManual` has
   // cancelled the drag.
+  //
+  // **And it is not rotated**, because it was never in the camera's frame to begin with: a held
+  // pointer aims from the character to a raycast ground point, both of them world positions, so the
+  // heading is already the world's. Same for click-to-move's route, which the server derives from its
+  // own waypoints. Camera-agnostic by construction — the rotation belongs to the keyboard alone.
   const pointerIntent = pointer.steering ? pointer.intent() : undefined;
   // A key held *across* a click is being ignored by the server for as long as the route lasts, so
   // the intent is zeroed rather than the raw keys: nothing is predicted that the character is not
   // doing, and the `steer 0,0` that goes out reads as a key release rather than as a cancellation.
   const intent = pointerIntent ?? (serverWalking ? { x: 0, y: 0 } : raw);
+  // M8b's second half. Backing up and sidestepping are defined *relative to the camera*, so the camera
+  // must hold still while they are held or it redefines the gesture underneath the hand — measured, and
+  // measured badly: holding D spins the world through complete revolutions and holding S shakes it ±5°
+  // at 30 Hz. `input.suspendsFollow` carries the whole derivation. Only when the keyboard is the thing
+  // actually driving: a held pointer and a server-walked route are world-space and close no loop, so
+  // they must keep the camera swinging in behind the body exactly as they always have.
+  const keysHoldCamera = pointerIntent === undefined && !serverWalking && suspendsFollow(keys);
   if (resendIntent || intent.x !== lastIntentX || intent.y !== lastIntentY) {
     resendIntent = false;
     lastIntentX = intent.x;
@@ -855,7 +873,7 @@ function frame(now: number): void {
     // which at a half-second ease is a visible lag on every corner turned. `self.view.yaw` is M7a's
     // wire float, the same field M7b turns the *body* with; `orbit.ts` owns the fact that the camera
     // eases where the body snaps. A live Shift+drag suspends the chase without disarming the mode.
-    const eased = followCamera.update(rig.yaw, self.view.yaw, seconds, orbit.orbiting);
+    const eased = followCamera.update(rig.yaw, self.view.yaw, seconds, orbit.orbiting || keysHoldCamera);
     if (eased !== undefined) applyCameraYaw(eased);
     rig.follow(x, y, z);
     // The moon's shadow camera and the clearing light take the *same* three numbers the camera did,
@@ -1793,9 +1811,9 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
       return;
     }
     case 'KeyO': {
-      // M8. *"Always having the camera behind my player."* Off by default and one press away — see
-      // `dolly.FOLLOW_ON_FRESH` for why that way round, which is a fact about W being world-north
-      // rather than a doubt about the mode.
+      // M8. *"Always having the camera behind my player."* **On by default since M8b** — the reason it
+      // shipped off was that W was world-north, and `input.cameraRelative` retired it; the key is now
+      // the way *out* of the mode as much as the way in. `dolly.FOLLOW_ON_FRESH` has the history.
       //
       // **O**, because every other letter this client binds is taken (T/R/B/F/G/V/K/C and the two
       // brackets) and Q/E/W/A/S/D belong to movement. Through the same `input.typing` /
@@ -1856,9 +1874,10 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
 log.write(
   'system',
   'M8 — shift+drag: side to side orbits, up and down tilts (45-64°)   wheel: zoom (24-96 m)   ' +
-    'O: camera behind you   C: camera home, facing north   K: roof cull.  ' +
+    'O: camera behind you (on)   C: camera home, facing north   K: roof cull.  ' +
     'T: tone mapping   R: weather   B: bloom   F: wind   V: warp   G: day/night   [ ]: sweep the hour.  ' +
-    'The compass in the corner is which way the frame points — W still walks north whatever it says.  ' +
+    'The compass in the corner is which way the frame points, and W walks that way — but shift+W is ' +
+    'still the exit named north, whatever the compass says.  ' +
     'The sky follows the world clock: G and [ ] hold it, shift+G gives it back, shift+R the weather.  ' +
     'Rain and snow are two fields and the world picks; R forces whichever this place would have.  ' +
     'Read the frame you like off window.__debug3d.camera, the interior off .interior, the clock and ' +

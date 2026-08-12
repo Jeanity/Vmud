@@ -249,11 +249,17 @@ describe('the remembered pose', () => {
     assert.equal(rememberedPose(), undefined, 'half a pose is not a pose');
   });
 
-  it('reads the angle lock’s two-field pose as north with the mode off — M8’s own migration', () => {
+  it('reads the angle lock’s two-field pose as north, with the mode at today’s default', () => {
     // Every machine that has run this client since the angle lock has a `distance,pitch` string in
     // localStorage, and that machine was looking north with no follow mode to speak of. So the
     // shortest possible value is not a corrupt one: it is the owner's own frame, and it must come
     // back to the degree rather than being discarded for want of two fields that did not exist.
+    //
+    // The *mode* deliberately tracks `FOLLOW_ON_FRESH` rather than the era's absent value, which is
+    // why every assertion below reads it symbolically: a string with no fourth field is a machine that
+    // has never expressed an opinion, and it gets today's answer. M8b flipping that default from off
+    // to on must therefore move these rows without editing them — a literal here would have hidden the
+    // change instead of tracking it.
     const { local } = installStorages();
     local.set(CAMERA_STORAGE_KEY, '31.5,52.5');
     assert.deepEqual(rememberedPose(), { distance: 31.5, pitch: 52.5, yaw: 0, follow: DEFAULT_POSE.follow });

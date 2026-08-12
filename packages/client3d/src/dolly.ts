@@ -109,23 +109,35 @@ export interface CameraPose {
 }
 
 /**
- * **Whether a machine with nothing remembered starts with the camera glued behind the player. Off.**
+ * **Whether a machine with nothing remembered starts with the camera glued behind the player. On.**
  *
- * The one constant the brief asked to be reversible, and the argument for the value is not about the
- * camera at all — it is about `input.ts`. W is the world's **north** and Shift+W takes the exit named
- * *north*, at any yaw, because a MUD's directions are cardinal and `move north` is what the server
- * takes. With follow on, the camera sits behind the player and up-the-frame is wherever they last
- * walked — so a player facing south presses W to go north and walks *toward the camera*, which then
- * swings 180° behind them. That is the first thing anybody would try, and it would read as the
- * feature being broken rather than as two features that have not been introduced to each other.
+ * ## It shipped `false`, and the reason was good
  *
- * So: the gesture the owner asked for ships **on** (Shift+drag, always available) and the mode ships
- * **off**, one keypress (**O**) away, with the log line saying so. The honest fix is camera-relative
- * movement keys; that is a gameplay decision, it changes what `steer` means, and it is the owner's to
- * make with their eyes open rather than mine to make while they are asleep. Flip this to `true` when
- * it is made.
+ * M8 set this to `false` and wrote down exactly why, and the argument was not about the camera at all
+ * — it was about `input.ts`. W was the world's **north** at every yaw, because a MUD's directions are
+ * cardinal. With follow on, the camera sits behind the player and up-the-frame is wherever they last
+ * walked, *"so a player facing south presses W to go north and walks toward the camera, which then
+ * swings 180° behind them. That is the first thing anybody would try, and it would read as the feature
+ * being broken rather than as two features that have not been introduced to each other."* The note
+ * ended by naming its own remedy — *"the honest fix is camera-relative movement keys… Flip this to
+ * `true` when it is made"* — and left the decision to the owner rather than taking it overnight.
+ *
+ * ## M8b made it, so the reason is retired
+ *
+ * `input.cameraRelative` rotates the steer vector through the rig's yaw, so W is now *away from the
+ * camera* — which, with the camera behind the player, is the way the player faces. The failure this
+ * constant was guarding against is not merely unlikely now; it is **unreachable**, because the
+ * character can no longer walk toward a camera that is behind them. Follow-on-by-default stopped being
+ * a hazard and became the coherent default: the two features have been introduced.
+ *
+ * The owner asked for the flip in the same breath as the rotation, 2026-08-13 — *"also having the
+ * camera behind the player"*, after *"always having the camera behind my player"* the session before.
+ *
+ * **A machine that remembers a pose still gets what it stored**, follow included: `rememberedPose`
+ * only falls back to this when the field is absent, which means a pre-M8 two- or three-field string.
+ * Turning the mode off is still one press of **O**, and still says so in the log.
  */
-export const FOLLOW_ON_FRESH = false;
+export const FOLLOW_ON_FRESH = true;
 
 /**
  * What a fresh machine starts at, and what a reset returns to.
@@ -135,8 +147,9 @@ export const FOLLOW_ON_FRESH = false;
  * machine with a remembered pose never reads this anyway — the migration keeps the owner's own
  * angle to the degree.
  *
- * **Yaw is north and follow is off**, and both are one edit away — see {@link FOLLOW_ON_FRESH} for
- * the argument, which is about the keyboard rather than about the camera.
+ * **Yaw is north and follow is on** — the yaw because the world was authored under it and because
+ * `input.cameraRelative` is the identity there, the mode because M8b retired the reason it shipped off.
+ * See {@link FOLLOW_ON_FRESH}, whose argument was always about the keyboard rather than the camera.
  */
 export const DEFAULT_POSE: CameraPose = {
   distance: CAMERA_DISTANCE,
@@ -222,11 +235,17 @@ function erase(key: string): void {
  * of 89 degrees out of storage would put the rig somewhere `rig.ts`'s own constructor refuses to go.
  *
  * **Two fields or four, and a two-field value is the owner's own.** The angle lock's era wrote
- * `distance,pitch`; every such string still parses, taking north and follow-off — which is exactly
- * the pose that machine was showing, so the owner's remembered frame survives M8 to the degree, the
- * same promise the `sessionStorage` migration made. Missing fields default rather than voiding the
- * whole value, because a camera that silently forgot its distance over a new field would be a worse
- * bug than the new field is a feature.
+ * `distance,pitch`; every such string still parses, taking north and {@link FOLLOW_ON_FRESH} — so the
+ * distance and pitch that machine was showing survive to the degree, the same promise the
+ * `sessionStorage` migration made. Missing fields default rather than voiding the whole value, because
+ * a camera that silently forgot its distance over a new field would be a worse bug than the new field
+ * is a feature.
+ *
+ * That the *mode* follows the current default rather than the era's is the right way round and is the
+ * reason this reads {@link FOLLOW_ON_FRESH} instead of a literal: a string with no fourth field is a
+ * machine that has never expressed an opinion about follow mode, and it should get today's answer. A
+ * machine that **has** — any four-field string, including one whose fourth field is `0` — keeps what it
+ * chose, which is what makes flipping the default safe for somebody mid-session.
  */
 export function rememberedPose(): CameraPose | undefined {
   const stored = read(CAMERA_STORAGE_KEY);

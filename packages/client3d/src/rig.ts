@@ -47,6 +47,15 @@
  * gameplay decision the owner has not made. The compass is what keeps that honest. It is the obvious
  * next ask and it is not this slice's to take.
  *
+ * ### M8b took it — and only half of it
+ *
+ * *"W should always be forward towards what the player is facing"* (owner, 2026-08-13). So the **glide**
+ * keys are camera-relative now: `input.cameraRelative` rotates the steer vector through {@link
+ * CameraRig.yaw} before it becomes a `steer`, which is a pure function of this file's own angle and
+ * changes nothing at yaw 0. The **travel** keys did not move: Shift+W is still `move north`, because
+ * north is north in the prose, on the map and in every zone file, and the paragraph above is still the
+ * reason. The compass is still what keeps the pair honest.
+ *
  * ## The follow is rigid in position, eased in yaw
  *
  * The camera is the character's position plus an offset, with no positional smoothing at all. The
