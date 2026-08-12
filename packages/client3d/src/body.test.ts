@@ -9,7 +9,10 @@
  */
 
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { Scene, type Bone, type Mesh, type SkinnedMesh } from 'three';
 
@@ -18,6 +21,63 @@ import { EntityLayer } from './entities.ts';
 import { acquireRig, type BodyRig } from './body.ts';
 import { CharacterSet } from './characters.ts';
 import { BODY_POOL_SIZE, BODY_RIG_BYTES, ScenePool } from './pool.ts';
+import { MODEL_FORWARD_OFFSET } from './body.ts';
+
+const MODELS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'models', 'characters');
+
+/** Just enough of a glTF node to walk the rest hierarchy. */
+interface RestNode {
+  readonly name?: string;
+  readonly translation?: readonly number[];
+  readonly rotation?: readonly number[];
+  readonly children?: readonly number[];
+}
+
+/**
+ * A joint's rest position in model space, composing rotation as well as translation.
+ *
+ * The composition is the point. This rig's bones run along their own local Y (it is Unreal's
+ * mannequin naming — `pelvis`, `foot_l`, `ball_l`), so adding translations alone answers a question
+ * about bone *lengths* and says nothing about where anything is. That mistake reads a foot as being
+ * directly above its ankle, which is exactly plausible enough to be believed.
+ */
+function restPositionOf(nodes: readonly RestNode[], name: string): [number, number, number] | undefined {
+  const rotate = (q: readonly number[], v: readonly number[]): [number, number, number] => {
+    const [x, y, z, w] = q as [number, number, number, number];
+    const [vx, vy, vz] = v as [number, number, number];
+    // v + 2q_v x (q_v x v + w v)
+    const tx = 2 * (y * vz - z * vy);
+    const ty = 2 * (z * vx - x * vz);
+    const tz = 2 * (x * vy - y * vx);
+    return [vx + w * tx + (y * tz - z * ty), vy + w * ty + (z * tx - x * tz), vz + w * tz + (x * ty - y * tx)];
+  };
+  let found: [number, number, number] | undefined;
+  const walk = (index: number, origin: [number, number, number], q: readonly number[]): void => {
+    const node = nodes[index];
+    if (!node) return;
+    const local = rotate(q, node.translation ?? [0, 0, 0]);
+    const here: [number, number, number] = [origin[0] + local[0], origin[1] + local[1], origin[2] + local[2]];
+    const nq = compose(q, node.rotation ?? [0, 0, 0, 1]);
+    if (node.name === name) found = here;
+    for (const child of node.children ?? []) walk(child, here, nq);
+  };
+  const compose = (a: readonly number[], b: readonly number[]): number[] => {
+    const [ax, ay, az, aw] = a as [number, number, number, number];
+    const [bx, by, bz, bw] = b as [number, number, number, number];
+    return [
+      aw * bx + ax * bw + ay * bz - az * by,
+      aw * by - ax * bz + ay * bw + az * bx,
+      aw * bz + ax * by - ay * bx + az * bw,
+      aw * bw - ax * bx - ay * by - az * bz,
+    ];
+  };
+  const parented = new Set<number>();
+  nodes.forEach((n) => (n.children ?? []).forEach((c) => parented.add(c)));
+  nodes.forEach((_, i) => {
+    if (!parented.has(i) && !found) walk(i, [0, 0, 0], [0, 0, 0, 1]);
+  });
+  return found;
+}
 
 /** The armature, abbreviated to one joint per region plus a hand for each side. */
 const JOINTS = [
@@ -79,6 +139,43 @@ function heldOf(rig: BodyRig): { bone: string; mesh: Mesh }[] {
   });
   return out;
 }
+
+describe('which way a body faces', () => {
+  it('turns the mesh by the heading plus the vendor offset, not by the heading alone', () => {
+    const { pool, set } = setUp();
+    const rig = acquireRig(set, pool, 'base:Superhero_Male_FullBody')!;
+    rig.dress('base:Superhero_Male_FullBody', [], undefined, undefined);
+    // First call snaps to the wire's yaw; the drawn rotation is that heading, turned to suit a mesh
+    // whose rest forward is +Z. Without the offset every character walks backwards — see
+    // `MODEL_FORWARD_OFFSET`, and the owner who reported it.
+    rig.update(0.016, 0, 0, { gait: 'idle' } as never);
+    assert.equal(rig.drawnYaw, 0, 'the body’s own heading is the wire’s');
+    assert.ok(Math.abs(rig.group.rotation.y - Math.PI) < 1e-9, 'and the mesh is turned to face it');
+    pool.dispose();
+  });
+
+  it('measures the pack’s rest forward off the asset, so a vendor change fails here', (t) => {
+    // The bug this pins was a *stated assumption* — `space.ts` claims these meshes are -Z-forward —
+    // and no amount of reasoning about the renderer would have caught it. Only the file knows.
+    const gltf = join(MODELS_DIR, 'superhero-male-full-body', 'model.gltf');
+    if (!existsSync(gltf)) {
+      t.skip('the character models have not been generated — see .gitignore for the modelgen command');
+      return;
+    }
+    const nodes = (JSON.parse(readFileSync(gltf, 'utf8')) as { nodes: RestNode[] }).nodes;
+    const foot = restPositionOf(nodes, 'foot_l');
+    const ball = restPositionOf(nodes, 'ball_l');
+    assert.ok(foot && ball, 'the Unreal-named rig should carry foot_l and ball_l');
+    // Toes forward of the ankle, and the sign of that is the whole of `MODEL_FORWARD_OFFSET`.
+    const forwardZ = ball![2] - foot![2];
+    assert.ok(
+      Math.abs(forwardZ) > Math.abs(ball![0] - foot![0]),
+      'the toes should lead along Z, not X — the rig is not oriented as this test assumes',
+    );
+    assert.ok(forwardZ > 0, 'the pack faces +Z; if this fails the offset below is stale');
+    assert.equal(MODEL_FORWARD_OFFSET, Math.PI, 'a +Z mesh needs exactly half a turn');
+  });
+});
 
 describe('assembling a body', () => {
   it('clones the whole armature by name and binds every mesh to the one skeleton', () => {

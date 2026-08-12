@@ -61,6 +61,37 @@ import { hiddenMaskFor } from './skin.ts';
 const IDENTITY = new Matrix4();
 
 /**
+ * What to add to a heading to point *this vendor's* mesh along it. **π — measured, not assumed.**
+ *
+ * `space.ts`'s {@link yawOf} says the protocol's yaw is `rotation.y` directly *"for a mesh whose rest
+ * forward is `-Z` — which is Three.js' own convention and the Quaternius packs'"*. The first half is
+ * true and the second half is **false**, which is the whole of the owner's 2026-08-13 report that
+ * their character *"wants to run backwards when I'm moving forwards"* — and it was never about
+ * combat, as the first guess had it, because it is not conditional on anything at all.
+ *
+ * Measured off `superhero-male-full-body/model.gltf` by composing the rest hierarchy's full TRS (the
+ * rig is Unreal-named — `pelvis`, `foot_l`, `ball_l` — and its bones run along local Y, so composing
+ * translations alone answers a different question and answers it wrongly):
+ *
+ * ```
+ *   foot_l  [ 0.114, 0.086, -0.088]
+ *   ball_l  [ 0.114, 0.015,  0.055]      ball - foot = [0, -0.071, +0.142]
+ * ```
+ *
+ * **The toes point `+Z`.** So a body handed a yaw of 0 — due north, `-Z` — stood with its back to
+ * north and walked that way with a forward gait, at every heading, for every character in the world.
+ * The female base body measures the same, so this is the pack's convention rather than one export's
+ * accident.
+ *
+ * It lives here and **not** in `yawOf`, deliberately: the protocol's yaw is a *heading*, correct as
+ * it stands and shared with the camera, the compass and follow mode — all three of which are right
+ * today and would break together if the heading were bent to suit one vendor's mesh. This is the
+ * renderer's own adapter, applied where the mesh meets the scene graph, which is the only place that
+ * knows which way a given asset happens to face.
+ */
+export const MODEL_FORWARD_OFFSET = Math.PI;
+
+/**
  * Where a prop sits in the hand it is held by — **measured, not guessed.**
  *
  * Every bone in this armature runs down its own local `+Y` (each has `position = (0, length, 0)`), and
@@ -232,12 +263,12 @@ export class BodyRig implements PooledRig {
     } else {
       this.yaw = turnToward(this.yaw, wantedYaw, seconds);
     }
-    this.group.rotation.y = this.yaw;
+    this.group.rotation.y = this.yaw + MODEL_FORWARD_OFFSET;
     this.motion.advance(seconds, moved);
     this.animator.apply(this.motion.motion(subject), seconds);
   }
 
-  /** The yaw actually drawn, for `__debug3d`. */
+  /** The heading actually drawn — the *body's*, before {@link MODEL_FORWARD_OFFSET}. For `__debug3d`. */
   get drawnYaw(): number {
     return this.yaw;
   }
