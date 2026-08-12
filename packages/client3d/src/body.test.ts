@@ -16,6 +16,8 @@ import { fileURLToPath } from 'node:url';
 
 import { Scene, type Bone, type Mesh, type SkinnedMesh } from 'three';
 
+import { yawOf } from '@mygame/shared';
+
 import { EntityLayer } from './entities.ts';
 
 import { acquireRig, type BodyRig } from './body.ts';
@@ -400,6 +402,44 @@ describe('a body that arrived before its pack did', () => {
     layer.render(1 / 60, () => 0);
     layer.render(1 / 60, () => 0);
     assert.equal(pool.snapshot().rigsCreated, created);
+    pool.dispose();
+  });
+
+  it('re-derives the yaw on every move, or a walking body freezes the way it arrived', () => {
+    // The moonwalk, in one assertion. `entityMoved` is the high-frequency message and predates M7a:
+    // it carries the cardinal `facing` and no `yaw`. The rig reads `view.yaw` every frame, so a body
+    // whose move updated only `facing` kept the orientation it entered view with — a mob's spawn
+    // 'south' — while walking off in every other direction.
+    const pool = new ScenePool();
+    const set = new CharacterSet();
+    set.standIn(pool, JOINTS, STEMS);
+    const layer = new EntityLayer(new Scene(), pool, set);
+    layer.upsert({
+      id: 7,
+      kind: 'mob' as const,
+      name: 'a kobold youth',
+      sprite: 'human',
+      x: 0,
+      y: 0,
+      facing: 'south' as const,
+      model: 'base:Superhero_Male_FullBody',
+      yaw: Math.PI,
+    });
+
+    layer.moved(7, 100, 0, 'east');
+    const east = layer.viewOf(7);
+    assert.equal(east?.facing, 'east');
+    assert.equal(east?.yaw, yawOf('east'), 'the yaw must travel with the facing it came from');
+
+    layer.moved(7, 100, -100, 'north');
+    assert.equal(layer.viewOf(7)?.yaw, yawOf('north'));
+    // And the pair can never disagree, which is the invariant rather than the four cases.
+    for (const facing of ['north', 'south', 'east', 'west'] as const) {
+      layer.moved(7, 0, 0, facing);
+      const view = layer.viewOf(7);
+      assert.ok(view, 'the body should still be held');
+      assert.equal(view.yaw, yawOf(view.facing), `${facing} disagreed with its own yaw`);
+    }
     pool.dispose();
   });
 

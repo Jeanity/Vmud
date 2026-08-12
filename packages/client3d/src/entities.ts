@@ -50,6 +50,7 @@ import {
   ROOM_TILES,
   TILE_SIZE,
   stepMovement,
+  yawOf,
   type EntityId,
   type EntityView,
   type TileGrid,
@@ -194,13 +195,42 @@ export class EntityLayer {
     this.bodies.delete(id);
   }
 
-  /** Positional delta for a body already held. Unknown ids are dropped, as the 2D client drops them. */
+  /**
+   * The view this layer currently holds for a body — for tests and `__debug3d`, read-only.
+   *
+   * Worth having beyond convenience: the wire delivers a body in one shape (`EntityView`) and then
+   * amends it in another (`entityMoved`'s four fields), so *what the client believes about a body
+   * right now* is a thing neither message states and only this map knows. The moonwalk of
+   * 2026-08-13 lived exactly in that gap — see {@link moved}.
+   */
+  viewOf(id: EntityId): EntityView | undefined {
+    return this.bodies.get(id)?.view;
+  }
+
+  /**
+   * Positional delta for a body already held. Unknown ids are dropped, as the 2D client drops them.
+   *
+   * **`yaw` is re-derived here, and forgetting to was the moonwalk.** The owner, 2026-08-13: *"the
+   * mobs are moonwalking now.. michael jackson would be happy about that but I need them walking
+   * forwards"*. `entityMoved` is the high-frequency message and it predates M7a: it carries the
+   * cardinal `facing` and no `yaw` at all. M7a put `yaw` on the *full* `EntityView`, M7b's rig reads
+   * `view.yaw` every frame — and nothing joined the two, so a body's orientation froze at whatever it
+   * was the moment it entered view (a mob's spawn `'south'`, mostly) and stayed there while the body
+   * walked off in every other direction. It was not the mesh: that offset is measured twice over, by
+   * the rest pose's toes and by the root-motion clip's own travel, and both say `+Z`.
+   *
+   * Deriving rather than plumbing a float through the wire is deliberate and temporary in the right
+   * way: `yawOf` is M7a's own stated *adapter* over a simulation that holds four cardinals, so the
+   * invariant is simply **wherever `facing` is written, `yaw` is written with it**. When the server
+   * grows a real continuous heading, this line prefers that field and the rest of the client does not
+   * move.
+   */
   moved(id: EntityId, x: number, y: number, facing: EntityView['facing']): void {
     const held = this.bodies.get(id);
     if (!held) return;
     held.serverX = x;
     held.serverY = y;
-    held.view = { ...held.view, facing };
+    held.view = { ...held.view, facing, yaw: yawOf(facing) };
   }
 
   /**
