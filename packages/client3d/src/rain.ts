@@ -177,13 +177,19 @@ export class Rain {
   /** Public so a headless test can read the uniforms the frame writes; nothing else touches it. */
   readonly material: ShaderMaterial;
   private readonly centre = new Vector3();
+  /** Drops seeded — the ceiling {@link density} scales, and the buffer that is never reallocated. */
+  private readonly drops: number;
+  private readonly field: InstancedBufferGeometry;
+  private rate = 1;
 
   constructor(count = RAIN_DROPS) {
+    this.drops = count;
     const geometry = new InstancedBufferGeometry();
     geometry.setAttribute('position', new BufferAttribute(QUAD_CORNERS, 3));
     geometry.setIndex(new BufferAttribute(QUAD_INDEX, 1));
     geometry.setAttribute('aSeed', new InstancedBufferAttribute(rainSeeds(count), RAIN_STRIDE));
     geometry.instanceCount = count;
+    this.field = geometry;
 
     this.material = new ShaderMaterial({
       vertexShader: VERTEX,
@@ -227,6 +233,43 @@ export class Rain {
 
   set enabled(on: boolean) {
     this.mesh.visible = on;
+  }
+
+  /** How much of the storm falls, 0..1. One, until something tells it otherwise. */
+  get density(): number {
+    return this.rate;
+  }
+
+  /**
+   * Drops actually drawn this frame — {@link density} of the seeded count.
+   *
+   * The seeds themselves are never reallocated, so this and `aSeed.count` diverge on purpose: the
+   * gap between them is the storm that is not falling.
+   */
+  get drawn(): number {
+    return this.field.instanceCount;
+  }
+
+  /**
+   * Thin the storm — the world's precipitation rate, as drops (`sky.rainDensityOf`).
+   *
+   * **Fewer drops rather than fainter ones**, because that is what a drizzle *is*: fading six
+   * thousand streaks to a fifth of their alpha is a full storm seen through gauze, and the additive
+   * blend would leave the field reading as haze rather than as rain. This draws a **prefix** of the
+   * instance buffer, which thins it evenly for free — a drop's position comes from `hashCell(i)` and
+   * not from `i`, so the first 1,100 indices are already spread across the whole box (`rain.test.ts`
+   * counts them by octile). Nothing is reallocated and nothing is re-uploaded: `instanceCount` is
+   * read at draw time, so this is one integer write and the same single draw call.
+   *
+   * The drops that leave when the rate falls are a random scatter of the field, and the rate itself
+   * only moves when the zone's weather turns — every few game minutes — so the change is never a
+   * visible cut.
+   */
+  set density(value: number) {
+    const clamped = Math.min(1, Math.max(0, Number.isFinite(value) ? value : 1));
+    if (clamped === this.rate) return;
+    this.rate = clamped;
+    this.field.instanceCount = Math.round(this.drops * clamped);
   }
 
   get opacity(): number {

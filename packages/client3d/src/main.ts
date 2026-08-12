@@ -15,6 +15,10 @@
  * server is walking you). Click-to-move gives it a second job: the destination marker is positioned
  * from this same message, never from the click itself — see the handler's own comment.
  *
+ * And since the world clock landed, `sky`: the game hour, the weather and the ambient light over this
+ * character's own zone. See `sky.ts` for the interpolation the handler feeds and the reason the sky
+ * is applied inside the handler rather than on the next frame.
+ *
  * Not wired, each for a reason rather than by omission:
  *
  * | Message | Why not |
@@ -33,9 +37,12 @@
  *
  * At M3 it was a read-only snapshot. **M4 makes half of it writable**, and deliberately: the
  * milestone's whole question is *"does the light match"*, which is answered by a human turning knobs
- * with the reference image beside them. `toneMapping`, `exposure`, `rainEnabled`, `rainOpacity`,
- * `shadowMapSize`, `fogDensity`, `fogColour`, `bloomIntensity` and `bloomThreshold` all take. Nothing
- * in the *simulation* reads any of them; they reach the renderer and stop there.
+ * with the reference image beside them. `toneMapping`, `exposure`, `rainEnabled`, `rainOverride`,
+ * `rainOpacity`, `shadowMapSize`, `fogDensity`, `fogColour`, `bloomIntensity`, `bloomThreshold`,
+ * `hour` and `wetness` all take. Nothing in the *simulation* reads any of them; they reach the
+ * renderer and stop there. Two of them are **overrides** over a fact the server is authoritative
+ * about — `hour` and `rainOverride` — and both say so in `.sky` and `.rainOverride` rather than
+ * silently diverging; see the look keys at the foot of this file.
  *
  * ## The frame, after M4
  *
@@ -49,7 +56,7 @@
 
 import { WebGLRenderer } from 'three';
 
-import { TILE_SIZE, samePlace, type Direction, type Place } from '@mygame/shared';
+import { TILE_SIZE, samePlace, type Direction, type Place, type SkyView } from '@mygame/shared';
 
 import { DAY_SKY, NIGHT_SKY, clockOf, hourOf, normaliseHour, skyAt } from './daylight.ts';
 import { approach, skyFor, type Enclosure } from './indoors.ts';
@@ -66,6 +73,7 @@ import { Grade, TONE_MAPPINGS, type ToneMapping } from './post.ts';
 import { PointerControl, type PointerTarget } from './pointer.ts';
 import { Rain } from './rain.ts';
 import { CAMERA_DISTANCE_MAX, CAMERA_DISTANCE_MIN, CAMERA_PITCH_MAX, CAMERA_PITCH_MIN, CameraRig } from './rig.ts';
+import { SkyClock, stormy, type Falling } from './sky.ts';
 import {
   MAX_WINDOW_CHUNKS,
   RING_COVER,
@@ -442,6 +450,35 @@ net.on('path', (message) => {
   }
 });
 
+/**
+ * The world's clock and the weather over this character — `{t:'sky'}`, and the whole of the slice's
+ * inbound half.
+ *
+ * **Applied here rather than on the next frame, and that is the "no flash of wrong sky" clause.** The
+ * server sends this at `welcome`, immediately after `zone` and *before* the first room description
+ * (`index.ts:10874`) — so the message that says what hour it is arrives before the message that
+ * causes anything to be built. Applying it synchronously means the very first frame that has a world
+ * in it also has the right sky over that world; deferring to the frame loop would put one frame of
+ * midnight in front of an afternoon, at the one moment the player is looking hardest.
+ *
+ * It also arrives on every Place change (weather is per zone, so walking out of a dry wood into a
+ * rainstorm has to say so), on every game hour, whenever the zone's weather turns, and whenever an
+ * operator throws `gameHourMs` — which is how a change of *rate* reaches the interpolation.
+ *
+ * **A message that will not sanitise leaves the held sky running** (`SkyClock.accept`), and so does a
+ * server that never sends one. Neither is an error and neither writes to the log: the log is the
+ * player's, and a malformed frame of weather is not their problem.
+ */
+net.on('sky', (message) => {
+  const now = performance.now();
+  if (!sky.accept(message.view, now)) return;
+  // Under a manual override this is the *same* hour it already was — but the gloom may have moved, so
+  // the sky is re-applied anyway. A storm that darkened the afternoon must still darken the noon the
+  // owner pinned with **G**; the override is over the clock, not over the weather.
+  const hour = sky.hourAt(now);
+  if (hour !== undefined) applySky(hour);
+});
+
 net.on('log', (message) => log.write(message.channel, message.text));
 net.on('rejected', (message) => log.write('error', `Rejected: ${message.reason}`));
 
@@ -452,13 +489,38 @@ net.on('rejected', (message) => log.write('error', `Rejected: ${message.reason}`
 let last = performance.now();
 let fps = 0;
 /**
- * Whether the player wants rain at all, as distinct from whether it is falling.
+ * A human's standing instruction about the rain, or `undefined` for *"whatever the world says"*.
  *
- * Two writers and they must not fight: the **R** key and `__debug3d.rainEnabled` set this, and the
- * frame ANDs it with "is there a roof overhead" before touching the mesh. Letting either writer set
- * `visible` directly would mean stepping into a cave permanently turned the toggle off.
+ * Three writers and they must not fight: the **R** key, `__debug3d.rainEnabled` and — since the world
+ * clock — the served sky. The frame composes them in one place ({@link rainWanted}) and ANDs the
+ * answer with "is there a roof overhead" before touching the mesh. Letting any writer set `visible`
+ * directly would mean stepping into a cave permanently turned the toggle off.
+ *
+ * **`undefined` rather than a boolean default**, so that "nobody has an opinion" is a state the
+ * composition can see: with no served sky it falls through to M4's always-on rain, which is what a
+ * client talking to a server that predates the clock should still do.
  */
-let rainWanted = true;
+let rainOverride: boolean | undefined;
+
+/**
+ * The world's own sky: the last `{t:'sky'}`, when it landed, and whether a human has taken the hour.
+ *
+ * Held here beside `rainOverride` and `gameHour` for the reason all three are — none of it draws, and
+ * the renderer must not own a fact the server is authoritative about. See `sky.ts` for the
+ * interpolation, the snow decision and the storm-light mapping.
+ */
+const sky = new SkyClock();
+
+/**
+ * What the rain should be doing, from the three writers, in precedence order.
+ *
+ * A hard override outranks the world, because that is what pressing **R** while standing in a
+ * downpour has to mean; the world outranks the default, because that is the whole slice; and the
+ * default is `true`, because that is M4's world and the thing an old server must still get.
+ */
+function rainWanted(): boolean {
+  return rainOverride ?? sky.raining ?? true;
+}
 
 /**
  * How wet the world is, and the ramp that gets it there. M5b.
@@ -470,13 +532,16 @@ let rainWanted = true;
 const wetness = new Wetness();
 
 /**
- * The hour of the game day. **A client value, and the reason is recorded rather than assumed.**
+ * The hour of the game day, as last applied. **A server value now, and the note it replaces was
+ * right about how it would arrive.**
  *
- * Verified again while building M5b: `packages/server/src` ticks no game clock — the only `hour`
- * matches are the scheduler's and the noticeboards' wall-clock timestamps, and no wire message
- * carries a time of day. So the world starts at midnight, which is M4's world and the one the
- * lighting was signed off on, and the **G** key and `[`/`]` move it. `World3D.setGameHour` is the
- * named hook a future server clock writes; nothing else would change.
+ * M5b recorded that `packages/server/src` ticked no game clock and that `World3D.setGameHour` was
+ * *"the named hook a future server clock writes; nothing else would change"*. The clock arrived
+ * (`f85b5fb`) and nothing else did change: this is still the one number the lighting is derived
+ * from, and it is now written every frame from `sky.hourAt(now)` instead of only by a keypress.
+ *
+ * It starts at midnight, which is M4's world, and stays there until either a `sky` message or a
+ * keypress moves it — so a client talking to a server that predates the clock is exactly M5b's.
  */
 let gameHour = 0;
 
@@ -494,20 +559,30 @@ let indoorTarget: Enclosure = 'outdoor';
 /**
  * Apply a sky: the scene graph takes the lights and the fog, the composer takes the exposure.
  *
- * **The hour is the outdoor state and the enclosure is applied over it**, which is the whole of *"the
- * daylight keys keep working outside and do nothing weird inside"*: `[`, `]` and `G` move `gameHour`
- * and call this, and at `indoorBlend === 1` every field of the result is the interior recipe's, so
- * the keypress is a no-op the player can see is a no-op. Step outside and the hour they chose is
- * waiting for them.
+ * **Three layers, composed outermost-last, and the order is the design.**
+ *
+ * 1. `skyAt(hour)` — the hour, which is now the world's own and no longer a debug key's.
+ * 2. `stormy(…, sky.gloom)` — the weather over that hour, which dims the key light and opens the
+ *    camera a little. **Outdoor only, and that is the point**: it is folded in *before* the enclosure
+ *    so the interior blend crosses from the storm-lit street to the lamplit room, one interpolation,
+ *    no pop and no second threshold. At `gloom === 0` it returns the hour's own object untouched, so
+ *    a dry world is byte-for-byte M5b's.
+ * 3. `skyFor(…, enclosure, blend)` — M6's threshold, unchanged and unaware that layer 2 exists.
+ *
+ * At `indoorBlend === 1` every field of the result is the interior recipe's, which is still the whole
+ * of *"the daylight keys keep working outside and do nothing weird inside"* — and now also of "the
+ * weather stops at the door", for free, because a storm that could reach inside would have to be a
+ * fourth layer applied after the third.
  */
 function applySky(hour: number): void {
   gameHour = normaliseHour(hour);
-  // The named hook first — it is what a server clock will one day write, and it records the hour and
-  // applies the outdoor sky. Then the enclosure over the top, which is a second `NightRig.sky` write
-  // and eight more dot products; at `indoorBlend === 0` it is the same recipe object and the second
-  // write is exactly idempotent, which is what keeps a world out of doors identical to M5b's.
+  // The named hook first — the one `daylight.ts` promised the server clock would write, and it does.
+  // It records the hour and applies the outdoor sky. Then the weather and the enclosure over the top,
+  // which is a second `NightRig.sky` write and eight more dot products; on a dry day out of doors it
+  // is the same recipe object and the second write is exactly idempotent, which is what keeps a clear
+  // sky identical to M5b's.
   world.setGameHour(gameHour);
-  const recipe = skyFor(skyAt(gameHour), indoorTarget, indoorBlend);
+  const recipe = skyFor(stormy(skyAt(gameHour), sky.gloom), indoorTarget, indoorBlend);
   world.night.sky = recipe;
   // The one part of a recipe `night.ts` cannot apply, because the composer is this file's and not the
   // scene graph's — see `NightRig.sky`. 1.6 lifts a moonlit 0.11 into readability and would put a
@@ -581,15 +656,20 @@ function frame(now: number): void {
     rain.update(now / 1000, x, y, z);
     // Weather is gated on the roof, not on the biome: §4's enclosure class says "3-4 solid wants no
     // weather", and the cheapest honest version of that at grey-box — where there is no ceiling
-    // geometry to hide the sky until M6 — is to stop the rain when the character is under one.
-    rain.enabled = rainWanted && !world.roofed;
+    // geometry to hide the sky until M6 — is to stop the rain when the character is under one. The
+    // *whether* is now the world's (`rainWanted` composes the three writers); the roof gate is
+    // unchanged, which is what keeps the wet ground and the puddles behaving exactly as M5b tuned.
+    rain.enabled = rainWanted() && !world.roofed;
+    // And the *how hard*. A hard **R** on means M4's storm at full strength — the key means "show me
+    // the rain" — while the world's own rate drives everything else. See `sky.rainDensityOf`.
+    rain.density = rainOverride === true ? 1 : (sky.rainDensity ?? 1);
   } else {
     // No body yet: the login card is still up and the storm has nowhere to be centred.
     rain.enabled = false;
   }
-  // M6's threshold. The target is the room the character is standing in; the blend walks toward it
-  // and the sky is re-applied only on the frames it actually moved, so a session spent entirely out
-  // of doors costs one comparison a frame and nothing else.
+  // M6's threshold. The target is the room the character is standing in; the blend walks toward it,
+  // and — with the world clock's hour, below — the sky is re-applied only on the frames one of the
+  // two actually moved. A session standing still out of doors costs two comparisons a frame.
   const enclosure = world.enclosure;
   // **The remembered end of the fade is the last interior, not the current room.** Stepping out of a
   // tavern sets the target to `outdoor`, and `skyFor` has no recipe for that — it would return the
@@ -599,10 +679,18 @@ function frame(now: number): void {
   if (enclosure !== 'outdoor') indoorTarget = enclosure;
   const wanted = enclosure === 'outdoor' ? 0 : 1;
   const stepped = approach(indoorBlend, wanted, seconds);
-  if (stepped !== indoorBlend) {
-    indoorBlend = stepped;
-    applySky(gameHour);
-  }
+  const crossing = stepped !== indoorBlend;
+  if (crossing) indoorBlend = stepped;
+  // The world's clock, scrubbed. `hourAt` is `undefined` when nobody has told us the time — an old
+  // server, or a `welcome` still in flight — and the hour then stays wherever it was, which is M4's
+  // midnight or whatever the owner last pinned. Under a manual override it returns that pin
+  // unchanged, so `moved` is false and the whole sky costs one comparison a frame, exactly as M6's
+  // threshold does. Live, it is quantised to `SKY_HOUR_STEP` so a 75 s hour re-applies about seven
+  // times a second rather than sixty, for a colour step no display can show — see `sky.ts`.
+  const live = sky.hourAt(now);
+  const moved = live !== undefined && live !== gameHour;
+  // One call for both, so an hour that turns on the same frame as a doorway is one write and not two.
+  if (crossing || moved) applySky(live ?? gameHour);
   // The ground's memory of the rain. Wall-clock, like the rain's own time, and driven by whether it
   // is *actually* falling rather than by whether the player wants it — step under a roof and the
   // street outside stays wet, which is right, and the roof you are under dries.
@@ -836,16 +924,39 @@ const debug = {
   set exposure(value: number) {
     grade.exposure = value;
   },
-  /** What the player wants. The rain itself also needs there to be no roof — see the frame loop. */
+  /**
+   * What the rain is being asked to do, from all three writers. The rain itself also needs there to
+   * be no roof — see the frame loop.
+   *
+   * Writing it takes a **hard override**, exactly as pressing **R** does; `rainOverride = null` hands
+   * it back to the world.
+   */
   get rainEnabled(): boolean {
-    return rainWanted;
+    return rainWanted();
   },
   set rainEnabled(on: boolean) {
-    rainWanted = on;
+    rainOverride = on;
+  },
+  /**
+   * The standing instruction, or `null` for *"follow the world"* — the writable form of the **R** and
+   * **Shift+R** pair. Reads `null` on a fresh client, which is why the rain follows the served sky.
+   */
+  get rainOverride(): boolean | null {
+    return rainOverride ?? null;
+  },
+  set rainOverride(value: boolean | null) {
+    rainOverride = value ?? undefined;
   },
   /** Whether it is actually falling right now: `rainEnabled` and no roof. */
   get raining(): boolean {
     return rain.enabled;
+  },
+  /**
+   * How much of the storm is falling, 0..1 — the world's `precip` as drops. One when the world has
+   * no opinion, which is M4's full storm.
+   */
+  get rainDensity(): number {
+    return rain.density;
   },
   get rainOpacity(): number {
     return rain.opacity;
@@ -1051,16 +1162,49 @@ const debug = {
     wetness.value = value;
     world.setWetness(wetness.value);
   },
-  /** The hour of the game day, 0..24. See `World3D.setGameHour`: the server ticks no clock. */
+  /**
+   * The hour of the game day, 0..24, as last applied.
+   *
+   * **Writing it is a manual override**, exactly as pressing `[` is — the same act, so the same
+   * consequence. `__debug3d.sky.live` goes false and stays false until **Shift+G**.
+   */
   get hour(): number {
-    return gameHour;
+    return Number(gameHour.toFixed(4));
   },
   set hour(value: number) {
-    applySky(value);
+    applySky(sky.override(value));
   },
-  /** Which recipe the rig is wearing, by name — `night`, `day`, or a blend like `dawn->day`. */
-  get sky(): string {
-    return world.night.sky?.name ?? 'night';
+  /**
+   * **The read-out this slice is judged on: is the sky the world's, or a human's?**
+   *
+   * `live` is true only while the hour is coming from the server's clock — a served view and no
+   * override. `overridden` is the other half and they are not each other's negation: a client that
+   * has never heard a `sky` message is neither, and that third state is the one to look for when the
+   * sky is stuck at midnight (it means the server predates the clock, or `welcome` has not landed).
+   *
+   * `view` is the last served snapshot verbatim, clamped — the hour and progress the interpolation is
+   * scrubbing from, the date, the weather, and the `wind`/`temp` fields nothing reads yet. `recipe`
+   * is what the rig is actually wearing, which on a wet afternoon reads `dawn->day (storm 0.58)` and
+   * indoors reads `inside`.
+   */
+  get sky(): {
+    live: boolean;
+    overridden: boolean;
+    hour: number;
+    recipe: string;
+    falling: Falling;
+    gloom: number;
+    view: SkyView | undefined;
+  } {
+    return {
+      live: sky.live,
+      overridden: sky.overridden,
+      hour: Number(gameHour.toFixed(4)),
+      recipe: world.night.sky?.name ?? 'night',
+      falling: sky.falling,
+      gloom: Number(sky.gloom.toFixed(3)),
+      view: sky.view,
+    };
   },
   /** The estimated texture memory, beside the ledger, because at M5b it is the biggest number. */
   get textureBytes(): number {
@@ -1128,6 +1272,27 @@ const debug = {
  * M5c's **V** the domain warp, M6's **C** puts the camera back on its authored pose — and M5b's **G**
  * flips day against night, with **[** and **]** sweeping the hour an hour at a time.
  *
+ * ## Since the world clock: the same keys, as *overrides*
+ *
+ * The hour is the server's now, so **G**, **[** and **]** can no longer simply set it — the next
+ * message would take it straight back, and a key that undoes itself in under a second is worse than
+ * no key. So touching any of them **detaches** the hour from the live clock and pins it (`SkyClock`'s
+ * `override`), and `__debug3d.sky.live` goes false so the state is readable rather than guessed at.
+ *
+ * **Shift+G hands it back.** Not a double-tap and not a hold: a chord is one gesture with no timing
+ * window to miss, it is read off `event.shiftKey` at the moment of the press — which is `CLAUDE.md`
+ * gotcha 5b's own prescription, and the trap that gotcha describes is precisely a modifier tested
+ * after the edge was consumed — and it binds no new letter, which matters because every letter bound
+ * here is a letter that can go missing out of the command line. **Shift+R** is its twin for the rain,
+ * for the same reason and by the same rule: the bare letter takes manual control, the shifted one
+ * gives it back to the world.
+ *
+ * **R stays a hard override in both modes.** Pressing it flips whatever is currently falling and
+ * pins that, whether the hour is live or held; the weather and the clock are separate wheels and
+ * grabbing one does not grab the other. Which is also why the `sky` handler re-applies the sky under
+ * an override: the storm's own dimming is the *weather's*, and the pinned hour does not exempt the
+ * frame from it.
+ *
  * M6 adds no other letter on purpose: its two controls are the wheel and Shift+wheel (`dolly.ts`),
  * because a hunt for a frame wants a dial and because every letter bound here is a letter that can
  * go missing out of the command line.
@@ -1161,8 +1326,11 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
   if (input.typing || intoFormControl(event.target)) return;
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.code === 'BracketLeft' || event.code === 'BracketRight') {
-    applySky(gameHour + (event.code === 'BracketRight' ? 1 : -1));
-    log.write('system', `time: ${clockOf(gameHour)} (${world.night.sky?.name ?? 'night'})`);
+    // Stepped from whatever the frame is *showing* rather than from whatever was last pinned, so the
+    // first press off a live clock lands an hour from now and not an hour from midnight.
+    const from = sky.hourAt(performance.now()) ?? gameHour;
+    applySky(sky.override(from + (event.code === 'BracketRight' ? 1 : -1)));
+    log.write('system', `time: ${clockOf(gameHour)} (${world.night.sky?.name ?? 'night'}) — held, shift+G to release`);
     return;
   }
   if (event.repeat) return;
@@ -1175,8 +1343,22 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
       return;
     }
     case 'KeyR':
-      rainWanted = !rainWanted;
-      log.write('system', `rain: ${rainWanted ? 'on' : 'off'}`);
+      if (event.shiftKey) {
+        // Back to the world's weather. Says what it went back *to*, because "released" on its own
+        // leaves the owner unable to tell a dry sky from a broken toggle.
+        rainOverride = undefined;
+        log.write(
+          'system',
+          sky.served
+            ? `rain: the world's — ${sky.falling === 'none' ? 'dry' : sky.falling}`
+            : 'rain: the world has sent no sky, so the default (on) stands',
+        );
+        return;
+      }
+      // A hard override, from whatever is currently being asked for — so the key always flips what
+      // the owner can see, whether that was the world's answer or their own.
+      rainOverride = !rainWanted();
+      log.write('system', `rain: ${rainOverride ? 'on' : 'off'} (held, shift+R to release)`);
       return;
     case 'KeyB':
       grade.bloomIntensity = grade.bloomIntensity > 0 ? 0 : 1.9;
@@ -1215,11 +1397,31 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
       );
       return;
     case 'KeyG': {
-      // Jump to whichever of the two the rig is not near. Midnight and noon are the two keys the
-      // recipes were authored at, so the flip lands on an authored sky rather than on a blend.
+      if (event.shiftKey) {
+        // Back to the world's clock. `resume` is false when there is no clock to go back to — an old
+        // server, or a `welcome` still in flight — and the hour then stays where it was pinned,
+        // because there is nothing truer to return it to. Saying so beats silently doing nothing.
+        const resumed = sky.resume();
+        const live = sky.hourAt(performance.now());
+        if (live !== undefined) applySky(live);
+        log.write(
+          'system',
+          resumed
+            ? `time: ${clockOf(gameHour)} — the world's clock, live`
+            : `time: ${clockOf(gameHour)} — the world has sent no sky; the hour stays as set`,
+        );
+        return;
+      }
+      // Jump to whichever of the two the rig is not near, and hold it there. Midnight and noon are
+      // the two keys the recipes were authored at, so the flip lands on an authored sky rather than
+      // on a blend — which is the whole reason the key exists, and the reason it must pin rather than
+      // let the next `sky` message drag it back off the key seventy-five seconds later.
       const day = gameHour >= 9 && gameHour < 17;
-      applySky(hourOf(day ? NIGHT_SKY : DAY_SKY));
-      log.write('system', `time: ${clockOf(gameHour)} — ${day ? NIGHT_SKY.name : DAY_SKY.name}`);
+      applySky(sky.override(hourOf(day ? NIGHT_SKY : DAY_SKY)));
+      log.write(
+        'system',
+        `time: ${clockOf(gameHour)} — ${day ? NIGHT_SKY.name : DAY_SKY.name} (held, shift+G to release)`,
+      );
       return;
     }
     default:
@@ -1231,7 +1433,8 @@ log.write(
   'system',
   'M6 — wheel: zoom (24-48 m)   shift+wheel: tilt (45-64°)   C: camera home   K: roof cull.  ' +
     'T: tone mapping   R: rain   B: bloom   F: wind   V: warp   G: day/night   [ ]: sweep the hour.  ' +
-    'Read the frame you like off window.__debug3d.camera and the interior off .interior.',
+    'The sky follows the world clock: G and [ ] hold it, shift+G gives it back, shift+R the rain.  ' +
+    'Read the frame you like off window.__debug3d.camera, the interior off .interior, the clock off .sky.',
 );
 
 net.connect();

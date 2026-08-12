@@ -36,12 +36,18 @@
  * *exposure* is per recipe, because 1.6 was chosen to lift a moonlit 0.11 into readability and the
  * same number at noon is a white-out. See {@link SkyRecipe.exposure}.
  *
- * ## The clock the server does not tick
+ * ## The clock, which the server now ticks
  *
- * **Settled 2026-08-13 and re-verified here**: `packages/server/src` has no game-hour clock — the only
- * "hour" matches are the scheduler's and the noticeboards' timestamps. So the hour is a *client* value
- * with a named hook, {@link World3D.setGameHour}, and a debug key to sweep it. When a MUD day/night
- * clock arrives it writes that hook and nothing else in this file changes.
+ * M5b recorded that `packages/server/src` had no game-hour clock, made the hour a *client* value with
+ * a named hook — {@link World3D.setGameHour} — and a debug key to sweep it, and predicted: *"when a
+ * MUD day/night clock arrives it writes that hook and nothing else in this file changes."*
+ *
+ * The clock arrived (`f85b5fb`, *The world keeps time*: a 75 s game hour and Duris' continuous
+ * climate simulation, per zone) and **the prediction held — not one number below moved.** `sky.ts`
+ * turns `{t:'sky'}` into a fractional hour and hands it to that hook; the weather rides over the
+ * result as a small modulation of {@link SkyRecipe.sunIntensity} and {@link SkyRecipe.exposure},
+ * composed in `main.ts` rather than folded in here, because a storm is not an hour. The **G** key and
+ * `[`/`]` survive as *overrides* of the live clock, which is the only thing about them that changed.
  */
 
 import type { Point3 } from './night.ts';

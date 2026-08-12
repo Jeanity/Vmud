@@ -421,17 +421,21 @@ export class World3D implements ChunkSink {
   /* ------------------------------------------------------------- M5b: the hour */
 
   /**
-   * The hour of the game day, 0..24 — the **named hook** M5b owes and the toggle it ships instead.
+   * The hour of the game day, 0..24 — the **named hook** M5b owed, and the one the world clock landed
+   * on exactly as predicted.
    *
-   * *Settled 2026-08-13 and re-verified while building this:* the server ticks no game-hour clock.
-   * The only `hour` matches under `packages/server/src` are the scheduler's and the noticeboards'
-   * wall-clock timestamps, and no message on the wire carries a time of day. So the hour is a client
-   * value, driven by a debug key, and **this method is where a server clock will land** — a `time`
-   * message handler in `main.ts` calling `world.setGameHour(message.hour)` is the whole of that future
-   * change, because everything else is already downstream of this one number.
+   * M5b shipped this against a server that ticked no clock, drove it from a debug key, and wrote:
+   * *"**this method is where a server clock will land** — a message handler in `main.ts` calling
+   * `world.setGameHour(…)` is the whole of that future change, because everything else is already
+   * downstream of this one number."* That is precisely what happened: `main.ts`'s `{t:'sky'}` handler
+   * and its frame loop call this with an hour interpolated by `sky.ts`, and **nothing in this class
+   * changed** — not this method, not `hourOfDay`, not one call site downstream.
    *
    * Writes the whole sky at once (`NightRig.sky`) rather than a colour at a time; `main.ts` picks the
-   * exposure off the returned recipe, because the composer is its and not the scene graph's.
+   * exposure off the returned recipe, because the composer is its and not the scene graph's — and
+   * writes a second time over the top with the weather and the enclosure folded in, which is why
+   * `__debug3d.sky.recipe` can read `dawn->day (storm 0.58)` while this method only ever applied
+   * `dawn->day`. Deliberate: the hour is this class's business and the weather is not.
    */
   setGameHour(hour: number): SkyRecipe {
     const recipe = skyAt(hour);
