@@ -22,10 +22,15 @@ A graphical, multiplayer, top-down / three-quarter-view RPG built on the world o
 - **Client:** Phaser 3 + Vite.
 - **Server:** Node 24, authoritative simulation, WebSocket transport.
 - **Rules:** SRD 5e as the backbone; MUD-style tick-based combat rounds.
-- **Art:** **LPC (Liberated Pixel Cup)** only — one cohesive style, 3/4-view humanoids with layered
-  equipment so worn gear is visible on the character. Creatures LPC lacks get drawn to match rather
-  than borrowed from another style. Licences are CC-BY-SA 3.0 / GPL 3.0 — attribution is mandatory,
-  so every asset folder keeps its upstream `LICENSE` and `AUTHORS` file.
+- **Art:** one cohesive style per client, never mixed. The **3D client** (the game's future) is
+  **Quaternius stylized low-poly** — owner-confirmed 2026-08-13: the world should look like the
+  Stylized Nature MegaKit's own screenshots. Kit models first; anything the kits lack is built to
+  match (ez-tree output restyled to the kit palette) rather than borrowed from another style. CC0,
+  under `assets/quaternius/` (git-ignored; its `PROVENANCE.md` records source and terms). The
+  **2D Phaser client** is **LPC (Liberated Pixel Cup)**, frozen since the 3D pivot — 3/4-view
+  humanoids with layered equipment so worn gear is visible. LPC licences are CC-BY-SA 3.0 /
+  GPL 3.0 — attribution is mandatory, so every asset folder keeps its upstream `LICENSE` and
+  `AUTHORS` file.
 - **Presentation:** hybrid — graphical rooms with a collapsible MUD-style text log for room prose,
   combat rolls and chat.
 

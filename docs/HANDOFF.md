@@ -1,7 +1,7 @@
 # Handoff
 
-_Last updated 2026-08-08, at the end of the owner's marathon play-and-fix night. Read this first;
-it is the shortest path back into the project._
+_Last updated 2026-08-13, the day the world's look was chosen. Read this first; it is the shortest
+path back into the project._
 
 ---
 
@@ -497,6 +497,21 @@ the 2D client's cards once). Azder and Trewe enter fine. A `greybox-check` test 
 reads 0 and pointer clicks do not resolve; front the pane before judging anything visual. Ollama
 inference needs `--cpu` when ComfyUI holds the GPU. `gh auth setup-git` fixed the 403s. CLAUDE.md
 gotcha 8 (no TS parameter properties) came from client3d.
+
+### 2026-08-13: the look is chosen, and its packs are on disk
+
+**"Lets work with that and build my game in a world that looks like that"** — the owner, eyes on
+the Stylized Nature MegaKit. Quaternius stylized low-poly is the 3D world's art style now;
+CLAUDE.md's art rule says so and the plan's §5 carries a dated amendment. Six packs live in
+`assets/quaternius/` (723 MB, CC0, git-ignored, `PROVENANCE.md` notes source and terms): nature,
+village, base characters, fantasy outfits, animation libraries 1 + 2. Acquisition-day findings
+that change later milestones: **the M7 armature risk is retired** — every rigged file in all four
+character/animation packs binds within the same 65 joints by name, diffed headlessly (GLTF is
+JSON, no Blender needed); AnimLib 2 alone lacks walk/run/death, **UAL1 fills it**; *Ultimate
+Monsters* is not on itch, so monster models are still unsourced for M7. **M5 order is a → b → c**:
+M5a (ez-tree, foliage shader, scatter, ground blend — delegated, in flight), then **M5b promoted
+ahead of the warp** — Nature-kit import via gltf-transform, water, wetness, and a daylight recipe
+(M4 tuned only night; the kit's own look is sunlit) — then M5c winds the roads.
 
 ---
 

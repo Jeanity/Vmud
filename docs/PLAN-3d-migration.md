@@ -4,11 +4,11 @@
 
 ---
 
-## Amendments — 2026-08-12, at the close of M1
+## Amendments
 
 *The plan below is kept as written. What follows corrects it against the tree it now describes.*
 
-**M0 and M1 are delivered** (commits `7069ef3`, `9eab6b8`), both by delegated agents, both verified
+**2026-08-12, at the close of M1.** **M0 and M1 are delivered** (commits `7069ef3`, `9eab6b8`), both by delegated agents, both verified
 independently against the full suite. M0: sparse 16x16 chunk storage — zone 317 fell from 521 MB
 dense to 214 KB (x2,553) — plus the sector-0-void fix, stair metadata kept with `exit.to`, outdoor
 rooms merging along their whole shared edge, and `space.ts` (in `shared`, not the §3 client
@@ -38,6 +38,27 @@ unchanged; the *mechanics* write-off is near zero.
 portals now carry `seam: true` — fiction-wise ordinary crossings whose entire point is not
 announcing themselves — so a seam edge must NOT classify as `portal` (the emissive ring would
 re-grow everything the seam work removed). The M2 implementation records the decision it takes.
+
+**2026-08-13, M5 under way — the art direction is confirmed, and the M7 armature risk is dead.**
+The owner confirmed §5's direction eyes-on — *"lets work with that and build my game in a world
+that looks like that"* — so the Quaternius look is a ruling now, not a proposal. All five §5 packs
+are on disk under `assets/quaternius/` (CC0, provenance noted), with three Standard-tier
+corrections to §5's listing figures, measured on disk: the Nature MegaKit's textured GLTF line is
+**68 models**, not 116 (the larger number counts other tiers and formats); *Animation Library 2*
+is **43 clips**, not 130+, and has **no plain walk, run or death** — closed the same hour by
+adding **UAL1 [Standard]** (15.9 MB: `Walk_Loop`, `Jog_Fwd_Loop`, `Sprint_Loop`, `Death01`,
+`Hit_Chest`/`Hit_Head`, and a `Spell_Simple_*` casting set), the two libraries together covering
+M7's whole idle/walk/run/attack/hit/die machine; and *Ultimate Monsters* is **not on itch**
+("invalid game" — likely Patreon-only), so monster models stay an open M7 question. **§6-M7's
+"test in Blender before M5" armature risk is retired without Blender**: GLTF is JSON, so the
+skeletons were diffed headlessly — every rigged file in all four packs (both base bodies, all 24
+outfit parts, all five animation files) binds within the **same 65 joints by name**; zero
+violations; no retargeting project hides inside M7. M5 runs as three slices: **M5a** (ez-tree
+bake, foliage shader, scatter, ground blend — delegated, in flight), **M5b** (kit import, water,
+wetness, and a daylight recipe — M4 tuned only the night, and the kit's own look is sunlit),
+**M5c** (the domain warp, ROADMAP 2026-08-13). M5b goes before M5c on the owner's confirmation:
+the warp displaces kit instances exactly as it displaces grey boxes, so bending the roads loses
+nothing by coming after the world gets its clothes.
 
 ---
 
