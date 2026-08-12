@@ -474,8 +474,9 @@ messages. **Read `git log 34a6ac7..d8535bc` before re-deriving anything.**
   into dark rooms revealed occupants — fixed in `9280715`.
 - **World clock** `f85b5fb` — Duris hours, calendar and *continuous climate* transcribed (the Diku
   sky-state machine turned out to be dead code in Duris since 1991). Median precip spell ≈ 6 real
-  minutes. Prose on the room channel; additive `{t:'sky'}` wire message. **Owner decision open:
-  snow particles** — the default climate snows 9× more than it rains.
+  minutes. Prose on the room channel; additive `{t:'sky'}` wire message. Snow was ruled the same
+  night — *"draw real snow"* — and built: flakes with tumble and wind-slant, crossfading with rain
+  at the freezing point; **R** in any sub-zero zone is a blizzard on demand.
 - **M6** `d8535bc` — the second rendering mode. Every roofed room has a lid even with no art
   (19,870 rooms); the Village kit dresses 10,799 of them; roof lids are connected components
   (doors don't break a lid); **K** toggles the cull. Interior share measured at **47.2%**, not the
@@ -490,9 +491,13 @@ env vars). Supervisor restart: `POST 127.0.0.1:8790/supervisor/api/restart` with
 `x-admin-token` header — the header's *presence* is the gate. `data/world/overrides/worldclock.json`
 is runtime state, git-ignored like `boards.json`.
 
-**Open threads:** sky wiring (#29, in flight); owner decisions — snow rendering, camera defaults;
-named gaps — field rooms place no lone tree, ranged still wants `look <dir>` before firing at a
-visible neighbour mob, kit-tree decimation heads the deferred compression slice, M7 monsters.
+**Open threads:** owner decision — camera defaults (the ceiling since doubled to 96 m on a live
+ask; read the chosen frame off `__debug3d.camera`); named gaps — field rooms place no lone tree,
+ranged still wants `look <dir>` before firing at a visible neighbour mob, kit-tree decimation heads
+the deferred compression slice, M7 monsters, and **the per-zone climate table** — all 14 live zones
+run the modal `temperateCold` row (the join key to Duris' surface map is what the harvest lacks),
+so every zone's wind reads zero and the snow's wind-slant is invisible outside
+`__debug3d.snowWind`; assigning real climate rows is the slice that makes weather geography.
 
 ### 2026-08-12: the 3D client exists, and the GO/NO-GO awaits the owner
 

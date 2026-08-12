@@ -29,18 +29,21 @@
  *
  * ## Which fields are read, and which are carried unread
  *
- * Read: `hour`, `progress` and `hourMs` drive the daylight recipe; `sky` gates the rain
- * ({@link fallingOf}); `precip` scales its density ({@link rainDensityOf}) and, with `light`, decides
- * how much a storm darkens the frame ({@link gloomOf}).
+ * Read: `hour`, `progress` and `hourMs` drive the daylight recipe; `sky` decides which field falls
+ * ({@link fallingOf}); `precip` scales its density ({@link precipDensityOf}) and, with `light`,
+ * decides how much a storm darkens the frame ({@link gloomOf}); `wind` slants the snow
+ * (`snow.Snow.wind`); and `temp` answers *what would fall here if anything did* ({@link wouldFall}),
+ * which is what the **R** key shows when the owner forces weather onto a dry sky.
  *
  * **Available and deliberately unread, named here so the next slice does not have to go looking:**
  *
  * | Field | What it is | What it would drive |
  * |---|---|---|
- * | `wind` | Duris' seven wind bands; 100 is a hurricane | `foliage.WindClock`'s amplitude, and the rain's slant — both are single uniforms already shared by every instance |
- * | `temp` | Degrees Celsius; `<= 0` is *why* `sky` says `snowing` | Breath in cold air, and the snow decision below if it is ever taken on temperature rather than on state |
  * | `sunlight` | `night` / `twilight` / `day`, the source's `IS_DAY` bands | Nothing here — the hour is finer than three bands and the recipe already keys on it. Carried for the HUD |
  * | `day`, `month`, `year` | The 24/35/17 calendar | A date in the HUD; the moon's phase is a function of `day` and the server has already folded it into `light` |
+ *
+ * `wind` is still unread by `foliage.WindClock`, whose amplitude is a constant, and by the rain,
+ * which keeps falling straight down on purpose — `snow.ts`'s header §4 has the argument for both.
  *
  * ## The frame cost, and why the hour is quantised
  *
@@ -94,24 +97,6 @@ export const DEFAULT_HOUR_MS = 75_000;
 export const SKY_HOUR_STEP = 1 / 512;
 
 /**
- * **The snow decision, and it is the owner's — left open on purpose.**
- *
- * The default climate snows nine times more than it rains: 3,781 game hours of a year against 434
- * (measured while the clock was built, `f85b5fb`). So "snow" is not an edge case here, it is the
- * *common* case, and giving it the rain's own long additive streaks is a real visual claim about most
- * of the world's weather. It is also the only thing available today that is not a lie of omission —
- * a snowstorm with a clear sky over it would read as a bug.
- *
- * Flipping this to `false` makes snow fall as nothing at all. Giving snow its **own** particle field
- * — slower, rounder, wind-borne, drifting rather than streaking — is one function: switch `main.ts`
- * on {@link fallingOf} (which already tells the truth about which is falling) and hand `'snow'` to a
- * `Snow` field beside `Rain`. Nothing else in this file or that one would move.
- *
- * The roadmap carries the open question; this constant is where the answer lands.
- */
-export const SNOW_FALLS_AS_RAIN = true;
-
-/**
  * The precipitation rate at which the storm is at full density, and the floor a drizzle keeps.
  *
  * `RAIN_FULL_PRECIP` is the source's own top band — above 80 Duris says *"It's raining really hard
@@ -119,9 +104,31 @@ export const SNOW_FALLS_AS_RAIN = true;
  * have nothing stronger to show either. The floor exists because the bottom band is *"A light drizzle
  * is falling here"* at a rate of 1, and a drizzle drawn with 60 of 6,000 drops is a dry street with a
  * few sparks in it.
+ *
+ * **Both names still say "rain" and both now serve the snow as well**, because the ladder they
+ * describe is the *rate*'s and the rate does not know its own phase: `precipRate` is one field in the
+ * source and `temp` alone splits it (`weather.c:549`). The ceiling in *particles* is where the two
+ * differ, and that lives on each field — `RAIN_DROPS` is 6,000 and `SNOW_FLAKES` 9,000, so a full
+ * blizzard is half again as many things falling as a full downpour. See {@link precipDensityOf}.
  */
 export const RAIN_FULL_PRECIP = 80;
 export const RAIN_DENSITY_MIN = 0.18;
+
+/**
+ * How long rain takes to become snow on screen, in seconds.
+ *
+ * **The transition is the one thing a two-field weather system can get visibly wrong.** Temperature
+ * crossing zero mid-storm is not rare — `weather.ts`'s `wetLadder` has a line for it, *"The rain
+ * turns to snow."* — and the naive wiring swaps `enabled` on two meshes in one frame, which is six
+ * thousand streaks vanishing and nine thousand flakes appearing between two vertical retraces. There
+ * is no reading of that but a glitch.
+ *
+ * So {@link PrecipFade} ramps the two densities past each other instead: for these seconds the rain
+ * thins as the snow thickens, both fields are drawn, and the frame costs **two draw calls instead of
+ * one — for the fade and not a millisecond longer.** 1.6 s is long enough to read as the storm
+ * changing its mind and short enough that nobody stands in it wondering what they are looking at.
+ */
+export const PRECIP_CROSSFADE_SECONDS = 1.6;
 
 /**
  * How far a full storm dims the outdoor recipe, and how far it opens the camera to compensate.
@@ -249,27 +256,156 @@ export function fallingOf(view: SkyView): Falling {
 }
 
 /**
- * Whether the rain field falls for what is coming down. **This is the snow decision, as one branch.**
+ * What would fall here if anything were falling — the world's own split, on `temp` alone.
  *
- * See {@link SNOW_FALLS_AS_RAIN} for the argument and for what changes when the owner takes it.
+ * **The one place the otherwise-unread `temp` earns its passage.** `weather.c:549` decides rain
+ * against snow with `temp > 0` and nothing else does, so under a *dry* sky the honest answer to
+ * *"what weather does this place have"* is already on the wire. That question has exactly one caller:
+ * the **R** key, which forces precipitation onto a sky that is not producing any. Pressing it in a
+ * frozen dry Icewind Dale should not hand the owner a warm summer rain.
+ *
+ * With no view at all it answers `'rain'`, which is M4's world — the client that has heard from no
+ * server still gets the storm it always had.
  */
+export function wouldFall(view: SkyView | undefined): Exclude<Falling, 'none'> {
+  if (!view) return 'rain';
+  return view.temp <= 0 ? 'snow' : 'rain';
+}
+
+/** Whether the rain field falls for what is coming down. Snow has its own field now. */
 export function rainVisibleFor(falling: Falling): boolean {
-  if (falling === 'rain') return true;
-  if (falling === 'snow') return SNOW_FALLS_AS_RAIN;
-  return false;
+  return falling === 'rain';
+}
+
+/** Whether the snow field falls for what is coming down — `rainVisibleFor`'s twin. */
+export function snowVisibleFor(falling: Falling): boolean {
+  return falling === 'snow';
 }
 
 /**
- * How much of the storm falls, 0..1 — the precipitation rate as a fraction of the drop count.
+ * How much of a field falls, 0..1 — the precipitation rate as a fraction of its particle count,
+ * **without asking what phase it is in.**
  *
- * Zero when nothing is coming down, so a caller that ignored the gate would still draw nothing. See
- * {@link RAIN_FULL_PRECIP} for why the ladder tops out at 80 and floors at a fifth: it is the
+ * See {@link RAIN_FULL_PRECIP} for why the ladder tops out at 80 and floors at a fifth: it is the
  * source's own five prose bands, from *"a light drizzle"* to *"raining really hard"*, as a picture.
+ * The phase is not in this function because it is not in the source's either — one `precipRate`,
+ * split by temperature at the moment of drawing.
+ *
+ * Ungated on purpose, and {@link PrecipFade} is why: a storm that stops sends `precip: 0` in the same
+ * message that flips `sky` to `clear`, so a gated reading would collapse the outgoing field to its
+ * floor on the frame the fade begins. The fade holds the strength it was at instead, and this is the
+ * ladder it holds a value from.
  */
-export function rainDensityOf(view: SkyView): number {
-  if (!rainVisibleFor(fallingOf(view))) return 0;
+export function precipDensityOf(view: SkyView): number {
   const rate = clamp(view.precip, 0, 100) / RAIN_FULL_PRECIP;
   return RAIN_DENSITY_MIN + (1 - RAIN_DENSITY_MIN) * Math.min(1, rate);
+}
+
+/**
+ * How much of the *rain* falls, 0..1. The ladder, gated on rain actually being what is coming down.
+ *
+ * Zero when it is snowing or dry, so a caller that ignored the gate would still draw nothing.
+ */
+export function rainDensityOf(view: SkyView): number {
+  return rainVisibleFor(fallingOf(view)) ? precipDensityOf(view) : 0;
+}
+
+/** How much of the *snow* falls, 0..1. {@link rainDensityOf}'s twin, over the same ladder. */
+export function snowDensityOf(view: SkyView): number {
+  return snowVisibleFor(fallingOf(view)) ? precipDensityOf(view) : 0;
+}
+
+/* -------------------------------------------------------------------------- */
+/* The transition                                                              */
+/* -------------------------------------------------------------------------- */
+
+/** One step of a linear ramp toward a target, landing on it exactly. */
+function ramp(from: number, to: number, step: number): number {
+  if (from === to) return to;
+  return from < to ? Math.min(to, from + step) : Math.max(to, from - step);
+}
+
+/**
+ * Rain becoming snow, without a pop — **two weights, ramped past each other.**
+ *
+ * See {@link PRECIP_CROSSFADE_SECONDS} for why this exists at all. The design is deliberately *not* a
+ * single `t` from an outgoing type to an incoming one, because that shape has a hole in it: a
+ * temperature hovering on zero can flip back mid-fade, and *"what was showing"* is then a blend of
+ * two things rather than one of them. Two independent ramps have no such state — each simply walks
+ * toward 1 if it is what the world wants and toward 0 if it is not — and a reversal is the two of
+ * them turning round, which is correct with no case analysis anywhere.
+ *
+ * On a plain switch both move at the same rate in opposite directions, so **the two weights sum to
+ * exactly one for the whole crossing**: the frame never shows more total precipitation than either
+ * storm alone, which is what stops the transition reading as a squall.
+ *
+ * Each weight multiplies a **held** density — the strength that phase was last actually falling at —
+ * rather than the live one. That is the difference between a fade and a two-stage pop: the message
+ * that says *"it is snowing now"* carries the snow's rate and says nothing about the rain's, and a
+ * field reading the live rate would collapse to the floor of the ladder before it had finished
+ * leaving. See {@link precipDensityOf}, which is ungated for exactly this.
+ *
+ * Holds no `three` object and no clock: `main.ts` calls {@link want} with what the composed writers
+ * say and {@link advance} with the frame's own delta, which is what makes the whole transition
+ * headless.
+ *
+ * **It starts empty, so weather always arrives rather than appearing.** Walking out of a dry wood
+ * into a blizzard is a Place change and a `sky` message, and this ramps the field up over the same
+ * 1.6 s rather than switching it on — which is the right answer there, and a mild and deliberate
+ * change to the first second and a half after `welcome`. The *light* is still applied synchronously
+ * in the handler; it is only the particles that arrive.
+ */
+export class PrecipFade {
+  private wanted: Falling = 'none';
+  private rainWeight = 0;
+  private snowWeight = 0;
+  private rainHeld = 0;
+  private snowHeld = 0;
+
+  /** What should be falling and how hard, 0..1. Every frame, from the composed writers. */
+  want(falling: Falling, density: number): void {
+    this.wanted = falling;
+    const held = clamp(Number.isFinite(density) ? density : 0, 0, 1);
+    if (falling === 'rain') this.rainHeld = held;
+    else if (falling === 'snow') this.snowHeld = held;
+  }
+
+  /** Walk both weights one frame toward their targets. `seconds` is the frame delta. */
+  advance(seconds: number): void {
+    const step = Math.max(0, Number.isFinite(seconds) ? seconds : 0) / PRECIP_CROSSFADE_SECONDS;
+    this.rainWeight = ramp(this.rainWeight, this.wanted === 'rain' ? 1 : 0, step);
+    this.snowWeight = ramp(this.snowWeight, this.wanted === 'snow' ? 1 : 0, step);
+  }
+
+  /** What is being asked for, as opposed to what is currently on screen. */
+  get falling(): Falling {
+    return this.wanted;
+  }
+
+  /** The rain field's density this frame — its weight over the strength it last fell at. */
+  get rain(): number {
+    return this.rainWeight * this.rainHeld;
+  }
+
+  /** The snow field's, the same way. */
+  get snow(): number {
+    return this.snowWeight * this.snowHeld;
+  }
+
+  /** The two ramps alone, without the densities. `__debug3d.sky.fade`. */
+  get weights(): { rain: number; snow: number } {
+    return { rain: this.rainWeight, snow: this.snowWeight };
+  }
+
+  /** True only while both fields are on screen — the window in which the weather costs two draws. */
+  get crossing(): boolean {
+    return this.rain > 0 && this.snow > 0;
+  }
+
+  /** Draw calls the weather costs this frame: 0 dry, 1 settled, **2 for the fade and no longer**. */
+  get draws(): number {
+    return (this.rain > 0 ? 1 : 0) + (this.snow > 0 ? 1 : 0);
+  }
 }
 
 /**
@@ -428,15 +564,44 @@ export class SkyClock {
 
   /**
    * Whether the world wants rain drawn, or `undefined` when it has no opinion — which is what lets
-   * `main.ts` write `override ?? world ?? true` and keep M4's always-on rain as the pre-clock default.
+   * `main.ts` fall through to M4's always-on rain as the pre-clock default.
    */
   get raining(): boolean | undefined {
     return this.held ? rainVisibleFor(fallingOf(this.held)) : undefined;
   }
 
-  /** How hard, 0..1, or `undefined` when the world has no opinion. */
+  /** Whether the world wants *snow* drawn. `undefined` for the same reason, and never `true` for it. */
+  get snowing(): boolean | undefined {
+    return this.held ? snowVisibleFor(fallingOf(this.held)) : undefined;
+  }
+
+  /** How hard the rain falls, 0..1, or `undefined` when the world has no opinion. */
   get rainDensity(): number | undefined {
     return this.held ? rainDensityOf(this.held) : undefined;
+  }
+
+  /** How hard the snow falls, 0..1, or `undefined` when the world has no opinion. */
+  get snowDensity(): number | undefined {
+    return this.held ? snowDensityOf(this.held) : undefined;
+  }
+
+  /**
+   * The precipitation rate as a density, **whatever phase it is in** — the fade's own source.
+   *
+   * `undefined` before any sky has been served, so `main.ts` can fall back to M4's full storm.
+   */
+  get density(): number | undefined {
+    return this.held ? precipDensityOf(this.held) : undefined;
+  }
+
+  /** The world's wind speed, Duris' bands. Zero before any sky has been served. `snow.Snow.wind`. */
+  get wind(): number {
+    return this.held?.wind ?? 0;
+  }
+
+  /** What would fall here if anything did — `temp`, and the **R** key's answer on a dry sky. */
+  get would(): Exclude<Falling, 'none'> {
+    return wouldFall(this.held);
   }
 
   /** How much light the weather is eating, 0..1. Zero with no view, so the recipe is untouched. */

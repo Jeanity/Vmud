@@ -73,7 +73,8 @@ import { Grade, TONE_MAPPINGS, type ToneMapping } from './post.ts';
 import { PointerControl, type PointerTarget } from './pointer.ts';
 import { Rain } from './rain.ts';
 import { CAMERA_DISTANCE_MAX, CAMERA_DISTANCE_MIN, CAMERA_PITCH_MAX, CAMERA_PITCH_MIN, CameraRig } from './rig.ts';
-import { SkyClock, stormy, type Falling } from './sky.ts';
+import { PrecipFade, SkyClock, stormy, type Falling } from './sky.ts';
+import { Snow } from './snow.ts';
 import {
   MAX_WINDOW_CHUNKS,
   RING_COVER,
@@ -125,8 +126,20 @@ canvasHost.append(renderer.domElement);
 const grade = new Grade(renderer, world.scene, rig.camera);
 world.setGlowSet(grade.glow);
 
+/**
+ * The two weather fields, side by side and never both settled at once.
+ *
+ * `Snow` is `Rain`'s sibling rather than its subclass and the two share nothing but a shape: one
+ * `InstancedMesh` each, one draw call each, a seeded buffer allocated once and a shader that wraps
+ * the field about the character for free. Which of them is drawn is `fallingOf`'s answer and nothing
+ * else's; {@link precipFade} carries the frames in between. See `snow.ts` for what differs — a disc
+ * instead of a streak, alpha instead of additive, a thirteenth of the fall speed, a per-flake tumble,
+ * and the wind.
+ */
 const rain = new Rain();
+const snow = new Snow();
 world.scene.add(rain.mesh);
+world.scene.add(snow.mesh);
 
 /**
  * M5a's one asynchronous boot step: fetch the baked conifers.
@@ -489,18 +502,37 @@ net.on('rejected', (message) => log.write('error', `Rejected: ${message.reason}`
 let last = performance.now();
 let fps = 0;
 /**
- * A human's standing instruction about the rain, or `undefined` for *"whatever the world says"*.
+ * A human's standing instruction about the weather, or `undefined` for *"whatever the world says"*.
  *
  * Three writers and they must not fight: the **R** key, `__debug3d.rainEnabled` and — since the world
- * clock — the served sky. The frame composes them in one place ({@link rainWanted}) and ANDs the
- * answer with "is there a roof overhead" before touching the mesh. Letting any writer set `visible`
- * directly would mean stepping into a cave permanently turned the toggle off.
+ * clock — the served sky. The frame composes them in one place ({@link precipWanted}) and ANDs the
+ * answer with "is there a roof overhead" before touching either mesh. Letting any writer set
+ * `visible` directly would mean stepping into a cave permanently turned the toggle off.
  *
  * **`undefined` rather than a boolean default**, so that "nobody has an opinion" is a state the
  * composition can see: with no served sky it falls through to M4's always-on rain, which is what a
  * client talking to a server that predates the clock should still do.
+ *
+ * Still a *boolean* now that there are two fields, and deliberately: the owner's question at this key
+ * is *"show me the weather"* / *"get it out of the frame"*, never *"give me snow instead"* — which
+ * one it is remains the world's to say, and the world says it through `fallingOf`.
  */
 let rainOverride: boolean | undefined;
+
+/**
+ * A hand override for the snow's wind, or `undefined` for *"whatever the world says"*.
+ *
+ * **Here because the term is otherwise unviewable, not because a knob is nice to have.** The modal
+ * climate every zone in this world runs (`weather.ts`'s `temperateCold`) is `SEASON_CALM` in three of
+ * its four seasons and `SEASON_BREEZY` in the fourth, both of which random-walk the windspeed by ±2 a
+ * change against a floor of zero — so every zone in the live save sits at **wind 0** and the snow
+ * falls dead vertical. The climates that would blow (`stormyCold`, `arctic`'s chinook, `desert`) are
+ * in `WORLD_WEATHER_ROWS` and assigned to no zone, because the per-zone climate table is deferred.
+ *
+ * So `__debug3d.snowWind = 100` is the only way to see the mapping today, and the same pattern
+ * `rainOverride` uses: `null` hands it back.
+ */
+let windOverride: number | undefined;
 
 /**
  * The world's own sky: the last `{t:'sky'}`, when it landed, and whether a human has taken the hour.
@@ -512,14 +544,52 @@ let rainOverride: boolean | undefined;
 const sky = new SkyClock();
 
 /**
- * What the rain should be doing, from the three writers, in precedence order.
+ * The rain-to-snow crossfade. See `sky.PrecipFade`; it holds four numbers and no `three` object.
+ *
+ * Fed once a frame with what {@link precipWanted} composed and how hard {@link precipDensity} says it
+ * is coming down, then advanced on the frame's own delta. Its two outputs are the two fields'
+ * densities, and while both are above zero the weather costs two draw calls instead of one.
+ */
+const precipFade = new PrecipFade();
+
+/**
+ * **What** should be falling, from the three writers, in precedence order — the type, not a boolean.
  *
  * A hard override outranks the world, because that is what pressing **R** while standing in a
  * downpour has to mean; the world outranks the default, because that is the whole slice; and the
- * default is `true`, because that is M4's world and the thing an old server must still get.
+ * default is rain, because that is M4's world and the thing an old server must still get.
+ *
+ * The override is still the one boolean it always was — *show me weather* / *show me none* — and the
+ * type it resolves to when it is forcing weather on is the world's own if the world has one, and
+ * `sky.would` (which is `temp <= 0`) if it does not. So **R** on a frozen dry night gives snow and on
+ * a warm dry night gives rain, which is what "flip whatever is currently falling" has to mean when
+ * nothing currently is.
+ */
+function precipWanted(): Falling {
+  if (rainOverride === false) return 'none';
+  if (rainOverride === true) return sky.falling !== 'none' ? sky.falling : sky.would;
+  if (!sky.served) return 'rain';
+  return sky.falling;
+}
+
+/**
+ * Whether **anything** is being asked to fall. The **R** key's own question, and `__debug3d`'s.
+ *
+ * Unchanged in meaning from the slice before this one: it composes the same three writers in the
+ * same order. It simply no longer assumes the answer is rain.
  */
 function rainWanted(): boolean {
-  return rainOverride ?? sky.raining ?? true;
+  return precipWanted() !== 'none';
+}
+
+/**
+ * How hard, 0..1 — the precipitation ladder, or M4's full storm under a hard **R** or an old server.
+ *
+ * Phase-blind on purpose (`sky.precipDensityOf`): the rate is one field in the source and the
+ * temperature splits it, so the same number serves whichever field is being handed it.
+ */
+function precipDensity(): number {
+  return rainOverride === true ? 1 : (sky.density ?? 1);
 }
 
 /**
@@ -654,18 +724,31 @@ function frame(now: number): void {
     // in the same frame. Anything else and the shadow volume trails the frame by a tick.
     world.focus(x, y, z);
     rain.update(now / 1000, x, y, z);
+    snow.update(now / 1000, x, y, z);
+    // **What** is falling, and **how hard**, through the crossfade. `precipWanted` composes the three
+    // writers into a type and `precipDensity` into a rate; the fade turns the pair into two
+    // densities, which are equal to the rate for whichever field is settled and split between them
+    // for the second and a half either side of a temperature crossing zero. See `sky.PrecipFade`.
+    precipFade.want(precipWanted(), precipDensity());
+    precipFade.advance(seconds);
     // Weather is gated on the roof, not on the biome: §4's enclosure class says "3-4 solid wants no
     // weather", and the cheapest honest version of that at grey-box — where there is no ceiling
-    // geometry to hide the sky until M6 — is to stop the rain when the character is under one. The
-    // *whether* is now the world's (`rainWanted` composes the three writers); the roof gate is
-    // unchanged, which is what keeps the wet ground and the puddles behaving exactly as M5b tuned.
-    rain.enabled = rainWanted() && !world.roofed;
-    // And the *how hard*. A hard **R** on means M4's storm at full strength — the key means "show me
-    // the rain" — while the world's own rate drives everything else. See `sky.rainDensityOf`.
-    rain.density = rainOverride === true ? 1 : (sky.rainDensity ?? 1);
+    // geometry to hide the sky until M6 — is to stop it when the character is under one. The roof
+    // gate is M4's, unchanged and now applied to both fields, which is what keeps the wet ground and
+    // the puddles behaving exactly as M5b tuned them.
+    const sheltered = world.roofed;
+    rain.enabled = !sheltered && precipFade.rain > 0;
+    snow.enabled = !sheltered && precipFade.snow > 0;
+    rain.density = precipFade.rain;
+    snow.density = precipFade.snow;
+    // The one field the sky documented as available-and-unread that this slice reads. A drift at a
+    // breeze, very nearly horizontal at the source's hurricane — `snow.ts`'s §4 for the mapping, and
+    // for why the rain deliberately does not take the same term yet.
+    snow.wind = windOverride ?? sky.wind;
   } else {
     // No body yet: the login card is still up and the storm has nowhere to be centred.
     rain.enabled = false;
+    snow.enabled = false;
   }
   // M6's threshold. The target is the room the character is standing in; the blend walks toward it,
   // and — with the world clock's hour, below — the sky is re-applied only on the frames one of the
@@ -691,10 +774,17 @@ function frame(now: number): void {
   const moved = live !== undefined && live !== gameHour;
   // One call for both, so an hour that turns on the same frame as a doorway is one write and not two.
   if (crossing || moved) applySky(live ?? gameHour);
-  // The ground's memory of the rain. Wall-clock, like the rain's own time, and driven by whether it
-  // is *actually* falling rather than by whether the player wants it — step under a roof and the
-  // street outside stays wet, which is right, and the roof you are under dries.
-  world.setWetness(wetness.update(now / 1000, rain.enabled));
+  // The ground's memory of the weather. Wall-clock, like the fields' own time, and driven by whether
+  // something is *actually* falling rather than by whether the player wants it — step under a roof
+  // and the street outside stays wet, which is right, and the roof you are under dries.
+  //
+  // **Snow wets the ground on the same ramp the rain does, and that is a choice.** Melt is what
+  // actually happens to snow landing on a trodden street, `wetness.ts`'s three responses (darker,
+  // streaked specular, puddles) are all correct for meltwater, and the alternative — a whitening
+  // term that accumulates on upward faces and would need its own uniform, its own ramp and its own
+  // per-material patch — is a real slice rather than a line. **Frost whitening is named here as a
+  // future nicety and deliberately not built.**
+  world.setWetness(wetness.update(now / 1000, rain.enabled || snow.enabled));
   entities.render(groundAt, warpAt);
 
   world.pool.pulse(now / 1000);
@@ -925,11 +1015,12 @@ const debug = {
     grade.exposure = value;
   },
   /**
-   * What the rain is being asked to do, from all three writers. The rain itself also needs there to
-   * be no roof — see the frame loop.
+   * Whether **weather** is being asked for, from all three writers — rain or snow, whichever the
+   * world has. The field itself also needs there to be no roof — see the frame loop.
    *
    * Writing it takes a **hard override**, exactly as pressing **R** does; `rainOverride = null` hands
-   * it back to the world.
+   * it back to the world. The name is M4's and is kept rather than churned: it is the same one
+   * boolean, and `__debug3d.sky.falling` next to it says which of the two it is turning on.
    */
   get rainEnabled(): boolean {
     return rainWanted();
@@ -947,9 +1038,13 @@ const debug = {
   set rainOverride(value: boolean | null) {
     rainOverride = value ?? undefined;
   },
-  /** Whether it is actually falling right now: `rainEnabled` and no roof. */
+  /** Whether rain is actually falling right now: asked for, of that type, and no roof. */
   get raining(): boolean {
     return rain.enabled;
+  },
+  /** Whether **snow** is actually falling right now. `raining`'s twin, and the common one. */
+  get snowing(): boolean {
+    return snow.enabled;
   },
   /**
    * How much of the storm is falling, 0..1 — the world's `precip` as drops. One when the world has
@@ -958,11 +1053,67 @@ const debug = {
   get rainDensity(): number {
     return rain.density;
   },
+  /** The same for the snow, and the two are complementary while the crossfade is running. */
+  get snowDensity(): number {
+    return snow.density;
+  },
   get rainOpacity(): number {
     return rain.opacity;
   },
   set rainOpacity(value: number) {
     rain.opacity = value;
+  },
+  get snowOpacity(): number {
+    return snow.opacity;
+  },
+  set snowOpacity(value: number) {
+    snow.opacity = value;
+  },
+  /**
+   * The wind the snow is slanting to, in the wire's own units — 100 is the source's hurricane.
+   *
+   * **Writing it is a hard override**, and it is the only way to see the term in this world: every
+   * zone runs the calm modal climate and sits at zero. `__debug3d.snowWind = 100` lays the blizzard
+   * over at 75° off vertical; `snowWindOverride = null` hands it back. See `snow.ts`'s header §4 for
+   * the mapping and `precip.windMetres` for the other end of it.
+   */
+  get snowWind(): number {
+    return snow.wind;
+  },
+  set snowWind(value: number) {
+    windOverride = Number.isFinite(value) ? Math.max(0, value) : undefined;
+  },
+  /** The standing instruction, or `null` for *"follow the world"*. `rainOverride`'s twin. */
+  get snowWindOverride(): number | null {
+    return windOverride ?? null;
+  },
+  set snowWindOverride(value: number | null) {
+    windOverride = value ?? undefined;
+  },
+  /**
+   * The two weather fields as instances: seeded, drawn, and the draw calls they cost this frame.
+   *
+   * **`draws` is the number the transition is judged on.** It is 1 under any settled weather, 0 under
+   * a dry sky, and 2 only while a temperature crossing zero is being carried across — for
+   * `PRECIP_CROSSFADE_SECONDS` and not a frame longer. `windMetres` is the readable end of the
+   * snow's wind mapping: metres a second of lateral drift, against a 2.2 m/s fall.
+   */
+  get precip(): {
+    falling: Falling;
+    draws: number;
+    crossing: boolean;
+    rainDrawn: number;
+    snowDrawn: number;
+    windMetres: number;
+  } {
+    return {
+      falling: precipFade.falling,
+      draws: rain.enabled || snow.enabled ? precipFade.draws : 0,
+      crossing: precipFade.crossing,
+      rainDrawn: rain.enabled ? rain.drawn : 0,
+      snowDrawn: snow.enabled ? snow.drawn : 0,
+      windMetres: Number(snow.windMetres.toFixed(2)),
+    };
   },
   /** Texels a side. Writing it disposes the old shadow map; three builds the new one next frame. */
   get shadowMapSize(): number {
@@ -1183,9 +1334,14 @@ const debug = {
    * sky is stuck at midnight (it means the server predates the clock, or `welcome` has not landed).
    *
    * `view` is the last served snapshot verbatim, clamped — the hour and progress the interpolation is
-   * scrubbing from, the date, the weather, and the `wind`/`temp` fields nothing reads yet. `recipe`
-   * is what the rig is actually wearing, which on a wet afternoon reads `dawn->day (storm 0.58)` and
-   * indoors reads `inside`.
+   * scrubbing from, the date and the weather. `recipe` is what the rig is actually wearing, which on
+   * a wet afternoon reads `dawn->day (storm 0.58)` and indoors reads `inside`.
+   *
+   * The weather half reads in three parts and they answer three different questions. `falling` is
+   * what the **world** says is coming down; `wanted` is what the three writers **composed** out of
+   * that, which differs only under a hard **R**; and `fade` is what is on **screen**, two weights
+   * that sum to one across a crossing and to one alone the rest of the time. `would` is what a dry
+   * sky would produce if it produced anything — `temp <= 0` — which is what **R** shows you.
    */
   get sky(): {
     live: boolean;
@@ -1193,15 +1349,22 @@ const debug = {
     hour: number;
     recipe: string;
     falling: Falling;
+    wanted: Falling;
+    would: Falling;
+    fade: { rain: number; snow: number };
     gloom: number;
     view: SkyView | undefined;
   } {
+    const fade = precipFade.weights;
     return {
       live: sky.live,
       overridden: sky.overridden,
       hour: Number(gameHour.toFixed(4)),
       recipe: world.night.sky?.name ?? 'night',
       falling: sky.falling,
+      wanted: precipWanted(),
+      would: sky.would,
+      fade: { rain: Number(fade.rain.toFixed(3)), snow: Number(fade.snow.toFixed(3)) },
       gloom: Number(sky.gloom.toFixed(3)),
       view: sky.view,
     };
@@ -1268,7 +1431,7 @@ const debug = {
 /* -------------------------------------------------------------------------- */
 
 /**
- * **T** cycles the tone mapping, **R** toggles the rain, **B** toggles the bloom, **F** the wind,
+ * **T** cycles the tone mapping, **R** toggles the weather, **B** toggles the bloom, **F** the wind,
  * M5c's **V** the domain warp, M6's **C** puts the camera back on its authored pose — and M5b's **G**
  * flips day against night, with **[** and **]** sweeping the hour an hour at a time.
  *
@@ -1292,6 +1455,12 @@ const debug = {
  * grabbing one does not grab the other. Which is also why the `sky` handler re-applies the sky under
  * an override: the storm's own dimming is the *weather's*, and the pinned hour does not exempt the
  * frame from it.
+ *
+ * *"Whatever is currently falling"* is now two things rather than one — the owner's snow ruling gave
+ * snow its own field — and the key's meaning is unchanged by construction: it flips a boolean about
+ * **weather**, and which of the two fields that boolean turns on stays the world's answer
+ * (`sky.falling`), or on a dry sky the answer `temp` gives (`sky.would`). Nothing about the gesture,
+ * the chord or the precedence moved.
  *
  * M6 adds no other letter on purpose: its two controls are the wheel and Shift+wheel (`dolly.ts`),
  * because a hunt for a frame wants a dial and because every letter bound here is a letter that can
@@ -1350,15 +1519,22 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
         log.write(
           'system',
           sky.served
-            ? `rain: the world's — ${sky.falling === 'none' ? 'dry' : sky.falling}`
-            : 'rain: the world has sent no sky, so the default (on) stands',
+            ? `weather: the world's — ${sky.falling === 'none' ? 'dry' : sky.falling}`
+            : 'weather: the world has sent no sky, so the default (rain, on) stands',
         );
         return;
       }
       // A hard override, from whatever is currently being asked for — so the key always flips what
-      // the owner can see, whether that was the world's answer or their own.
+      // the owner can see, whether that was the world's answer or their own. Type-aware since snow
+      // got its own field: turning weather *on* shows the world's own phase, or on a dry sky the one
+      // the temperature says this place would have.
       rainOverride = !rainWanted();
-      log.write('system', `rain: ${rainOverride ? 'on' : 'off'} (held, shift+R to release)`);
+      log.write(
+        'system',
+        rainOverride
+          ? `weather: ${precipWanted()} on (held, shift+R to release)`
+          : 'weather: off (held, shift+R to release)',
+      );
       return;
     case 'KeyB':
       grade.bloomIntensity = grade.bloomIntensity > 0 ? 0 : 1.9;
@@ -1432,9 +1608,11 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
 log.write(
   'system',
   'M6 — wheel: zoom (24-48 m)   shift+wheel: tilt (45-64°)   C: camera home   K: roof cull.  ' +
-    'T: tone mapping   R: rain   B: bloom   F: wind   V: warp   G: day/night   [ ]: sweep the hour.  ' +
-    'The sky follows the world clock: G and [ ] hold it, shift+G gives it back, shift+R the rain.  ' +
-    'Read the frame you like off window.__debug3d.camera, the interior off .interior, the clock off .sky.',
+    'T: tone mapping   R: weather   B: bloom   F: wind   V: warp   G: day/night   [ ]: sweep the hour.  ' +
+    'The sky follows the world clock: G and [ ] hold it, shift+G gives it back, shift+R the weather.  ' +
+    'Rain and snow are two fields and the world picks; R forces whichever this place would have.  ' +
+    'Read the frame you like off window.__debug3d.camera, the interior off .interior, the clock and ' +
+    'the weather off .sky, the two fields off .precip.',
 );
 
 net.connect();

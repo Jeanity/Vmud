@@ -27,7 +27,6 @@ import {
   RAIN_DENSITY_MIN,
   RAIN_FULL_PRECIP,
   SKY_HOUR_STEP,
-  SNOW_FALLS_AS_RAIN,
   STORM_EXPOSURE_LIFT,
   STORM_HEMISPHERE_DIM,
   STORM_SUN_DIM,
@@ -39,7 +38,11 @@ import {
   rainDensityOf,
   rainVisibleFor,
   sanitiseSky,
+  snowDensityOf,
+  snowVisibleFor,
   stormy,
+  wouldFall,
+  type Falling,
 } from './sky.ts';
 import { WET_DRY_SECONDS, WET_RISE_SECONDS, Wetness } from './wetness.ts';
 
@@ -278,15 +281,41 @@ describe('what falls out of the sky', () => {
     assert.equal(answered.filter((f) => f !== 'none').length, 2);
   });
 
-  it('draws snow as rain, in exactly one branch, until the owner says otherwise', () => {
-    // **The open decision.** The default climate snows nine times more than it rains — 3,781 game
-    // hours of a year against 434 — so this is the common case and not an edge one. `fallingOf`
-    // above keeps telling the truth about which it is; this is the only place the two are conflated.
-    assert.equal(SNOW_FALLS_AS_RAIN, true);
+  it('sends snow to its own field, and the two gates never both answer', () => {
+    // **The decision, taken.** `SNOW_FALLS_AS_RAIN` is retired rather than flipped: with `Snow`
+    // beside `Rain` the constant would be a lie sitting in the file that says otherwise. What is
+    // left is two gates over one truthful `fallingOf`, and they must partition rather than overlap —
+    // a state that lit both would draw fifteen thousand particles for one storm.
     assert.equal(rainVisibleFor('rain'), true);
-    assert.equal(rainVisibleFor('snow'), SNOW_FALLS_AS_RAIN);
+    assert.equal(rainVisibleFor('snow'), false, 'snow has its own field now');
     assert.equal(rainVisibleFor('none'), false);
-    assert.ok(rainDensityOf(view({ sky: 'snowing', precip: 40, temp: -3 })) > 0);
+    assert.equal(snowVisibleFor('snow'), true);
+    assert.equal(snowVisibleFor('rain'), false);
+    assert.equal(snowVisibleFor('none'), false);
+    for (const state of SKY_STATES) {
+      const falling = fallingOf(view({ sky: state }));
+      assert.ok(
+        !(rainVisibleFor(falling) && snowVisibleFor(falling)),
+        `${state} lit both fields at once`,
+      );
+    }
+    // And the density gates follow the visibility gates exactly, in both directions.
+    assert.ok(snowDensityOf(view({ sky: 'snowing', precip: 40, temp: -3 })) > 0);
+    assert.equal(rainDensityOf(view({ sky: 'snowing', precip: 40, temp: -3 })), 0);
+    assert.ok(rainDensityOf(view({ sky: 'raining', precip: 40, temp: 8 })) > 0);
+    assert.equal(snowDensityOf(view({ sky: 'raining', precip: 40, temp: 8 })), 0);
+  });
+
+  it('answers what would fall here, off `temp` alone, for the R key to show', () => {
+    // The one caller of the field `sky.ts` used to list as unread. `weather.c:549` splits on
+    // `temp > 0` and nothing else does, so this is the world's own answer and not an invention.
+    assert.equal(wouldFall(view({ temp: 18 })), 'rain');
+    assert.equal(wouldFall(view({ temp: 0.1 })), 'rain');
+    assert.equal(wouldFall(view({ temp: 0 })), 'snow', 'zero is snow — the source’s own boundary');
+    assert.equal(wouldFall(view({ temp: -14 })), 'snow');
+    // No world at all is M4's world, which is rain: the client that has heard from no server keeps
+    // the storm it always had.
+    assert.equal(wouldFall(undefined), 'rain');
   });
 
   it('scales the density by the source’s own five prose bands', () => {
@@ -553,17 +582,34 @@ describe('a human takes the wheel', () => {
 /* Wiring, the way `main.ts` does it                                           */
 /* -------------------------------------------------------------------------- */
 
-/** `main.ts`'s `rainWanted()`, restated: a hard override, then the world, then M4's default. */
-function rainWanted(override: boolean | undefined, clock: SkyClock): boolean {
-  return override ?? clock.raining ?? true;
+/**
+ * `main.ts`'s `precipWanted()`, restated: a hard override, then the world, then M4's default.
+ *
+ * The one thing the snow slice changed about the composition is its **return type** — the three
+ * writers now agree on a `Falling` rather than on a boolean, because there are two fields to hand it
+ * to. The precedence, the `undefined`-means-no-opinion rule and the old-server fallback are the
+ * previous slice's, unmoved, and the block below is the previous slice's test with `!== 'none'`
+ * around it.
+ */
+function precipWanted(override: boolean | undefined, clock: SkyClock): Falling {
+  if (override === false) return 'none';
+  if (override === true) return clock.falling !== 'none' ? clock.falling : clock.would;
+  if (!clock.served) return 'rain';
+  return clock.falling;
 }
 
-describe('the rain’s three writers', () => {
+/** `main.ts`'s `rainWanted()`: whether *anything* is being asked to fall. */
+function rainWanted(override: boolean | undefined, clock: SkyClock): boolean {
+  return precipWanted(override, clock) !== 'none';
+}
+
+describe('the weather’s three writers', () => {
   it('rank the override over the world over M4’s default', () => {
     const clock = new SkyClock();
     // Nobody has said anything: M4's world, where the rain is always on.
     assert.equal(rainWanted(undefined, clock), true);
-    // The world says it is a clear afternoon, and the rain stops without anyone pressing anything.
+    assert.equal(precipWanted(undefined, clock), 'rain', 'an old server still gets M4’s rain');
+    // The world says it is a clear afternoon, and the weather stops without anyone pressing anything.
     clock.accept(view({ sky: 'clear' }), 0);
     assert.equal(rainWanted(undefined, clock), false);
     // The world says it is raining.
@@ -575,6 +621,7 @@ describe('the rain’s three writers', () => {
     for (const sky of ['raining', 'snowing', 'very_cloudy'] as const) {
       clock.accept(view({ sky, precip: 70 }), 0);
       assert.equal(rainWanted(override, clock), false, `a ${sky} message beat a hard override`);
+      assert.equal(precipWanted(override, clock), 'none');
     }
     // **Shift+R**: back to the world's, which is a clear sky now.
     override = undefined;
@@ -583,6 +630,31 @@ describe('the rain’s three writers', () => {
     // And **R** off a dry sky forces it on, which is the M4 look on demand at any hour.
     override = !rainWanted(undefined, clock);
     assert.equal(rainWanted(override, clock), true);
+  });
+
+  it('hand the world’s own phase to the override, and `temp`’s answer when there is none', () => {
+    // "R flips whatever is currently falling" is unchanged as a *gesture*; what it can now be
+    // flipping is snow. The type it resolves to is never the key's own choice.
+    const clock = new SkyClock();
+    clock.accept(view({ sky: 'snowing', precip: 55, temp: -6 }), 0);
+    assert.equal(precipWanted(undefined, clock), 'snow', 'the world’s blizzard, unpressed');
+    // **R** in a blizzard turns it off, not into rain.
+    assert.equal(precipWanted(false, clock), 'none');
+    // And **R** again turns the blizzard back on — the same weather, not a different one.
+    assert.equal(precipWanted(true, clock), 'snow');
+
+    // On a *dry* sky the key still has to show something, and `temp` is what says which. A frozen
+    // clear night gives snow…
+    clock.accept(view({ sky: 'clear', precip: 0, temp: -11 }), 0);
+    assert.equal(precipWanted(undefined, clock), 'none');
+    assert.equal(precipWanted(true, clock), 'snow', 'forcing weather on a frozen sky gave rain');
+    // …and a warm one gives rain.
+    clock.accept(view({ sky: 'mostly_clear', precip: 0, temp: 21 }), 0);
+    assert.equal(precipWanted(true, clock), 'rain');
+    // With no served sky at all, both answers are M4's.
+    const fresh = new SkyClock();
+    assert.equal(precipWanted(true, fresh), 'rain');
+    assert.equal(precipWanted(undefined, fresh), 'rain');
   });
 });
 
