@@ -41,10 +41,20 @@ import {
   CAMERA_PITCH_MIN,
 } from './rig.ts';
 
-/** A `sessionStorage` for a headless process. Node has no DOM; the module only needs these three. */
-function installStorage(): Map<string, string> {
+/**
+ * Both storages for a headless process. Node has no DOM; the module only needs three methods of
+ * each. `local` is the live store since the angle lock; `session` exists for the migration the
+ * lock shipped with — a pose remembered in the sessionStorage era must survive the move.
+ */
+function installStorages(): { local: Map<string, string>; session: Map<string, string> } {
+  const local = stubStorage('localStorage');
+  const session = stubStorage('sessionStorage');
+  return { local, session };
+}
+
+function stubStorage(name: 'localStorage' | 'sessionStorage'): Map<string, string> {
   const store = new Map<string, string>();
-  (globalThis as unknown as { sessionStorage: unknown }).sessionStorage = {
+  (globalThis as unknown as Record<string, unknown>)[name] = {
     getItem: (key: string): string | null => store.get(key) ?? null,
     setItem: (key: string, value: string): void => void store.set(key, value),
     removeItem: (key: string): void => void store.delete(key),
@@ -91,12 +101,17 @@ describe('the two mappings', () => {
   });
 
   it('tilts by degrees, in the same direction the dolly pulls back', () => {
-    const out = tiltTo(home, 1);
+    // The authored top of the range, explicitly — DEFAULT_POSE moved to the forward-looking floor
+    // when the owner locked the angle, so it is no longer a pose a tilt can descend from.
+    const authored: CameraPose = { distance: home.distance, pitch: CAMERA_PITCH_MAX };
+    const out = tiltTo(authored, 1);
     assert.ok(Math.abs(out.pitch - (CAMERA_PITCH_MAX - PITCH_DEGREES_PER_NOTCH)) < 1e-9);
-    assert.equal(out.distance, home.distance, 'the shifted wheel must not touch the distance');
+    assert.equal(out.distance, authored.distance, 'the shifted wheel must not touch the distance');
     // Down the range in thirteen notches, and it cannot climb past the authored pose.
-    assert.equal(tiltTo(home, 20).pitch, CAMERA_PITCH_MIN);
-    assert.equal(tiltTo(home, -1).pitch, CAMERA_PITCH_MAX);
+    assert.equal(tiltTo(authored, 20).pitch, CAMERA_PITCH_MIN);
+    assert.equal(tiltTo(authored, -1).pitch, CAMERA_PITCH_MAX);
+    // And the new default already sits on the floor the owner chose.
+    assert.equal(home.pitch, CAMERA_PITCH_MIN);
   });
 
   it('clamps at both ends, and honours a ceiling the ring imposed', () => {
@@ -132,9 +147,10 @@ describe('the Dolly listener', () => {
     dolly.apply(1, false);
     assert.equal(poses.length, 2);
     assert.ok(poses[1]!.distance > poses[0]!.distance, 'the second notch must build on the first');
-    dolly.apply(2, true);
-    assert.equal(poses.length, 3);
-    assert.ok(poses[2]!.pitch < poses[1]!.pitch);
+    // The angle lock: a shifted gesture is refused outright while the owner's ruling stands —
+    // no pose change, no report, exactly like a wheel during typing.
+    assert.equal(dolly.apply(2, true), undefined);
+    assert.equal(poses.length, 2);
   });
 
   it('says nothing when the pose did not actually move', () => {
@@ -163,14 +179,14 @@ describe('the Dolly listener', () => {
 
 describe('the remembered pose', () => {
   it('survives a round trip through storage, rounded to something a human can retype', () => {
-    installStorage();
+    installStorages();
     rememberPose({ distance: 41.234567, pitch: 52.5 });
     const back = rememberedPose();
     assert.deepEqual(back, { distance: 41.23, pitch: 52.5 });
   });
 
   it('forgets the default rather than storing it', () => {
-    const store = installStorage();
+    const { local: store } = installStorages();
     rememberPose({ distance: 44, pitch: 50 });
     assert.ok(store.has(CAMERA_STORAGE_KEY));
     rememberPose(DEFAULT_POSE);
@@ -181,7 +197,7 @@ describe('the remembered pose', () => {
   });
 
   it('clamps and rejects whatever it finds there, because a console can write anything', () => {
-    const store = installStorage();
+    const { local: store } = installStorages();
     store.set(CAMERA_STORAGE_KEY, '900,89');
     assert.deepEqual(rememberedPose(), { distance: CAMERA_DISTANCE_MAX, pitch: CAMERA_PITCH_MAX });
     store.set(CAMERA_STORAGE_KEY, '1,1');
@@ -192,8 +208,22 @@ describe('the remembered pose', () => {
     assert.equal(rememberedPose(), undefined, 'half a pose is not a pose');
   });
 
+  it('migrates a sessionStorage-era pose into localStorage on first read', () => {
+    // The angle lock's whole promise: the pose the owner was looking at when they said "lock that
+    // angle in" was in sessionStorage; the first read after the switch must carry it over exactly,
+    // so their chosen frame becomes permanent without a console ever being opened.
+    const { local, session } = installStorages();
+    session.set(CAMERA_STORAGE_KEY, '31.5,52.5');
+    assert.deepEqual(rememberedPose(), { distance: 31.5, pitch: 52.5 });
+    assert.equal(local.get(CAMERA_STORAGE_KEY), '31.5,52.5', 'migrated, not merely read');
+    assert.equal(session.has(CAMERA_STORAGE_KEY), false, 'and the old home is emptied');
+    // A localStorage value outranks any sessionStorage leftover.
+    session.set(CAMERA_STORAGE_KEY, '96,64');
+    assert.deepEqual(rememberedPose(), { distance: 31.5, pitch: 52.5 });
+  });
+
   it('shrugs when storage throws, which is a partitioned context and not a bug', () => {
-    (globalThis as unknown as { sessionStorage: unknown }).sessionStorage = {
+    const blocked = {
       getItem: (): string => {
         throw new Error('blocked');
       },
@@ -204,6 +234,8 @@ describe('the remembered pose', () => {
         throw new Error('blocked');
       },
     };
+    (globalThis as unknown as Record<string, unknown>)['localStorage'] = blocked;
+    (globalThis as unknown as Record<string, unknown>)['sessionStorage'] = blocked;
     assert.equal(rememberedPose(), undefined);
     rememberPose({ distance: 40, pitch: 50 });
     rememberPose(DEFAULT_POSE);

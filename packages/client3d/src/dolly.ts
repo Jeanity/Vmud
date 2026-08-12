@@ -43,10 +43,17 @@
  * it was wrong.
  */
 
-import { CAMERA_PITCH_DEGREES } from '@mygame/shared';
-
 import { intoFormControl } from './input.ts';
-import { CAMERA_DISTANCE, clampDistance, clampPitch } from './rig.ts';
+import { CAMERA_DISTANCE, CAMERA_PITCH_MIN, clampDistance, clampPitch } from './rig.ts';
+
+/**
+ * The owner's ruling, 2026-08-13, after an evening of tuning: *"the current view Azder is seeing is
+ * what I like.. that angle.. I would still like to be able to zoom in and out but lock that angle
+ * in for now."* So: the wheel still dollies, the tilt is **gated off**, and the pose store moved
+ * from `sessionStorage` to `localStorage` (with a one-way migration) so the exact angle the owner
+ * had on screen when they said it outlives the tab that heard it. Flip this to re-open the tilt.
+ */
+export const PITCH_LOCKED = true;
 
 /**
  * Metres per notch, as a **ratio**. 1.06 — about a twelfth of the range per notch.
@@ -67,7 +74,11 @@ export const DOLLY_RATIO = 1.06;
  */
 export const PITCH_DEGREES_PER_NOTCH = 1.5;
 
-/** Where the pose is remembered. `sessionStorage`, per `login.ts` — a tab's own tuning session. */
+/**
+ * Where the pose is remembered. `localStorage` since the angle lock — a chosen frame is the
+ * owner's property, not a tab's — with a silent read-migration from the `sessionStorage` era so
+ * the very pose the owner locked in survives the switch without anyone reading a console.
+ */
 export const CAMERA_STORAGE_KEY = 'mygame:camera3d';
 
 /** A pose, as it is remembered and as `__debug3d.camera` reads it. */
@@ -76,8 +87,15 @@ export interface CameraPose {
   readonly pitch: number;
 }
 
-/** The pose the world was authored at, and what a reset returns to. */
-export const DEFAULT_POSE: CameraPose = { distance: CAMERA_DISTANCE, pitch: CAMERA_PITCH_DEGREES };
+/**
+ * What a fresh machine starts at, and what a reset returns to.
+ *
+ * Pitch is the clamp's forward-looking floor rather than the authored 64: the owner's whole camera
+ * arc ("lower the angles so we can see more what is in front" → the lock) points down-range, and a
+ * machine with a remembered pose never reads this anyway — the migration keeps the owner's own
+ * angle to the degree.
+ */
+export const DEFAULT_POSE: CameraPose = { distance: CAMERA_DISTANCE, pitch: CAMERA_PITCH_MIN };
 
 /**
  * Notches of wheel in a wheel event, normalised — positive is *away from the viewer*, which zooms out.
@@ -114,7 +132,17 @@ export function tiltTo(from: CameraPose, notches: number): CameraPose {
 /** Wrapped because storage access throws outright in a partitioned or cookie-blocked context. */
 function read(key: string): string | undefined {
   try {
-    return sessionStorage.getItem(key) ?? undefined;
+    const kept = localStorage.getItem(key);
+    if (kept !== null) return kept;
+    // The sessionStorage era's value — the pose the owner was looking at when they locked the
+    // angle. Migrated on first read so it becomes permanent without a console ever being opened.
+    const legacy = sessionStorage.getItem(key);
+    if (legacy !== null) {
+      localStorage.setItem(key, legacy);
+      sessionStorage.removeItem(key);
+      return legacy;
+    }
+    return undefined;
   } catch {
     return undefined;
   }
@@ -122,14 +150,15 @@ function read(key: string): string | undefined {
 
 function write(key: string, value: string): void {
   try {
-    sessionStorage.setItem(key, value);
+    localStorage.setItem(key, value);
   } catch {
-    // A tab that cannot remember simply starts from the default next reload.
+    // A machine that cannot remember simply starts from the default next reload.
   }
 }
 
 function erase(key: string): void {
   try {
+    localStorage.removeItem(key);
     sessionStorage.removeItem(key);
   } catch {
     // Nothing stored, nothing lost.
@@ -224,6 +253,9 @@ export class Dolly {
     // the one place a pose can change, so this is where the refusal has to be true.
     if (this.typing) return undefined;
     if (notches === 0) return undefined;
+    // The angle lock: a shifted wheel changes nothing while the owner's ruling stands. `tiltTo`
+    // stays exported and tested — the instrument is gated, not dismantled.
+    if (shift && PITCH_LOCKED) return undefined;
     const from = this.poseOf?.();
     if (!from) return undefined;
     const next = shift ? tiltTo(from, notches) : dollyTo(from, notches, this.ceilingOf?.());
