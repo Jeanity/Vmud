@@ -25,7 +25,7 @@ function pair(overNear: Partial<Room> = {}, overFar: Partial<Room> = {}) {
   return { near, far };
 }
 
-type Body = { name: string; lightRadius: number };
+type Body = { name: string; carriesLight: boolean };
 
 function deps(rooms: Room[], occupants: Body[] = [], door?: { name: string; closed: boolean }) {
   return {
@@ -95,8 +95,22 @@ describe('the gauntlet, in the source’s order', () => {
 
   it('sees a dark room by the light somebody in it carries', () => {
     const { near, far } = pair({}, { flags: ['dark'] });
-    const outcome = peek(near, 'east', deps([near, far], [{ name: 'a miner', lightRadius: 3 }]));
+    const outcome = peek(near, 'east', deps([near, far], [{ name: 'a miner', carriesLight: true }]));
     assert.equal(outcome.t, 'view');
+  });
+
+  it('does not see a dark room merely because it is occupied', () => {
+    // The bug this pins lived from the feature's birth to 2026-08-13: the gate read `lightRadius > 0`,
+    // and the bare eye's radius is floored at 2 world-wide, so four kobolds in a pitch-dark mine
+    // tunnel were reported in full to anyone who looked in. Occupied and dark must answer `dark` —
+    // an actor is not a torch.
+    const { near, far } = pair({}, { flags: ['dark'] });
+    const bodies = [
+      { name: 'a kobold miner', carriesLight: false },
+      { name: 'a kobold miner', carriesLight: false },
+      { name: 'the mine overseer', carriesLight: false },
+    ];
+    assert.deepEqual(peek(near, 'east', deps([near, far], bodies)), { t: 'dark' });
   });
 });
 
@@ -107,10 +121,10 @@ describe('what is standing there', () => {
       near,
       'east',
       deps([near, far], [
-        { name: 'a member of the Court Patrol', lightRadius: 0 },
-        { name: 'the kobold shaman', lightRadius: 0 },
-        { name: 'a member of the Court Patrol', lightRadius: 0 },
-        { name: 'a member of the Court Patrol', lightRadius: 0 },
+        { name: 'a member of the Court Patrol', carriesLight: false },
+        { name: 'the kobold shaman', carriesLight: false },
+        { name: 'a member of the Court Patrol', carriesLight: false },
+        { name: 'a member of the Court Patrol', carriesLight: false },
       ]),
     );
     assert.equal(outcome.t, 'view');

@@ -166,8 +166,14 @@ export function peek(
   dir: Direction,
   deps: {
     readonly roomOf: (id: RoomId) => Room | undefined;
-    /** Every body standing in a room, with the light it casts — 0 for none. */
-    readonly occupantsOf: (id: RoomId) => readonly { readonly name: string; readonly lightRadius: number }[];
+    /**
+     * Every body standing in a room, and whether it actually **carries** a light. Deliberately not a
+     * radius: `Simulation.recompute` floors every actor's `lightRadius` at the bare eye's 2, so a
+     * radius gate reads "is anybody standing there" and lights every occupied dark room in the world
+     * — which is exactly what this gate did until 2026-08-13. `nearby.carriesLight` is the one
+     * predicate; its docblock records the lie this field used to tell.
+     */
+    readonly occupantsOf: (id: RoomId) => readonly { readonly name: string; readonly carriesLight: boolean }[];
     /** The door governing this exit as `stepRoom` sees it, or nothing where geometry is bare. */
     readonly doorAt: (id: RoomId, dir: Direction) => { readonly name: string; readonly closed: boolean } | undefined;
   },
@@ -185,7 +191,7 @@ export function peek(
   if (far.exits[REVERSE[dir]]?.to !== from.id) return { t: 'one-way' };
 
   const bodies = deps.occupantsOf(far.id);
-  const lit = roomLightsItself(far) || bodies.some((body) => body.lightRadius > 0);
+  const lit = roomLightsItself(far) || bodies.some((body) => body.carriesLight);
   if (!lit) return { t: 'dark' };
 
   const counts = new Map<string, number>();

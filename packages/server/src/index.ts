@@ -292,7 +292,7 @@ import {
   type PlayerRecord,
 } from './players.ts';
 import { QUESTS_FILE, carriedForQuest, consumeBrought, loadQuests, objectivePhrase, questsBy } from './quests.ts';
-import { membershipDiff, roomsSeeingInto, visibleBodies, type CrossingDeps } from './nearby.ts';
+import { carriesLight, membershipDiff, roomsSeeingInto, visibleBodies, type CrossingDeps } from './nearby.ts';
 import { afterLook, directionFrom, nameable, peek, revealShownIn, REVERSE } from './peek.ts';
 import { RANGED_THREAT_FACTOR, breakChance, rollChance, takeMissile, wrongTargetChance } from './ranged.ts';
 import {
@@ -3986,7 +3986,7 @@ function rangedCommand(player: Player, rest: string, thrown: boolean): void {
 function peekDeps() {
   return {
     roomOf: (id: RoomId) => sim.room(id),
-    occupantsOf: (id: RoomId) => [...sim.actorsIn(id)].map((a) => ({ name: a.name, lightRadius: a.lightRadius ?? 0 })),
+    occupantsOf: (id: RoomId) => [...sim.actorsIn(id)].map((a) => ({ name: a.name, carriesLight: carriesLight(a) })),
     doorAt: (id: RoomId, d: Direction) => {
       const doorway = world.doorway(id, d);
       return doorway ? { name: doorway.near.door.name, closed: doorway.near.door.closed } : undefined;
@@ -6368,7 +6368,7 @@ function lookDirection(player: Player, dir: Direction): void {
 
   const outcome = peek(room, dir, {
     roomOf: (id) => sim.room(id),
-    occupantsOf: (id) => [...sim.actorsIn(id)].map((a) => ({ name: a.name, lightRadius: a.lightRadius ?? 0 })),
+    occupantsOf: (id) => [...sim.actorsIn(id)].map((a) => ({ name: a.name, carriesLight: carriesLight(a) })),
     doorAt: (id, d) => {
       const doorway = world.doorway(id, d);
       return doorway ? { name: doorway.near.door.name, closed: doorway.near.door.closed } : undefined;
