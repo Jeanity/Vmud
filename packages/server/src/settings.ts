@@ -56,9 +56,35 @@ export interface WorldSettings {
    * crossable for nothing. That is what an event is. The ferry rule resumes with the switch.
    */
   readonly movementCosts: boolean;
+  /**
+   * How long a game hour lasts, in real milliseconds — default **75,000**, which is Duris'
+   * `SECS_PER_MUD_HOUR` (`config.h:93`) to the second.
+   *
+   * A setting rather than a constant because `CLAUDE.md` rule 4 says so in as many words: *"round
+   * length is data, not a constant sprinkled through code"*, and an hour is the world's other round.
+   * The default is the transcription; the knob is for the two cases a constant cannot serve — an
+   * operator who wants a longer day, and a tester who cannot wait twenty-five real minutes to watch
+   * a sunset.
+   *
+   * Throwing it changes the *rate* and never the date: `GameClock` keeps accumulated hours and only
+   * the future runs at the new speed. The weather's own timers are counted in game hours, so they
+   * follow for free.
+   */
+  readonly gameHourMs: number;
 }
 
-export const DEFAULT_SETTINGS: WorldSettings = { pvp: false, movementCosts: true };
+/** The sane band for {@link WorldSettings.gameHourMs}: one second to one real hour. */
+export const MIN_GAME_HOUR_MS = 1_000;
+export const MAX_GAME_HOUR_MS = 3_600_000;
+
+/** `config.h:93`. Seventy-five real seconds to the game hour. */
+export const DEFAULT_GAME_HOUR_MS = 75_000;
+
+export const DEFAULT_SETTINGS: WorldSettings = {
+  pvp: false,
+  movementCosts: true,
+  gameHourMs: DEFAULT_GAME_HOUR_MS,
+};
 
 /** Reads the switches, falling back to the defaults for a missing or unreadable file. */
 export function loadSettings(file = SETTINGS_FILE): WorldSettings {
@@ -71,10 +97,21 @@ export function loadSettings(file = SETTINGS_FILE): WorldSettings {
       // The mirror rule, because the polarity mirrors: costs are the shipped mechanic, so only an
       // explicit `false` suspends them — a malformed value must not quietly hand out a free world.
       movementCosts: raw.movementCosts !== false,
+      // A number, and inside the band. Neither flag's polarity argument applies here — this is not a
+      // dangerous switch, it is a rate — but the same instinct does: a hand-edited `0` divides the
+      // world's clock by zero, and a `"75000"` is not a number. Anything that is not a finite number
+      // in range reads as the transcription.
+      gameHourMs: readHourMs(raw.gameHourMs),
     };
   } catch {
     return DEFAULT_SETTINGS;
   }
+}
+
+function readHourMs(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_GAME_HOUR_MS;
+  if (value < MIN_GAME_HOUR_MS || value > MAX_GAME_HOUR_MS) return DEFAULT_GAME_HOUR_MS;
+  return value;
 }
 
 export function saveSettings(settings: WorldSettings, file = SETTINGS_FILE): void {

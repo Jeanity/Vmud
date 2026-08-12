@@ -129,7 +129,7 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
   const calls: string[] = [];
   const heard: string[] = [];
   const scopes: AnnounceScope[] = [];
-  let worldSettings: WorldSettings = { pvp: false, movementCosts: true };
+  let worldSettings: WorldSettings = { pvp: false, movementCosts: true, gameHourMs: 75_000 };
 
   // A three-entry catalogue rather than the real 16,421: these tests are about the router's search
   // and its shape, and a synthetic set is the only way to assert "two weapons, one of them
@@ -275,6 +275,24 @@ function makeRig(options: { token?: string; auditFile?: string; overridesFile?: 
     // A9c reads this as "does anything ever run this zone's reset table", which is what `noPopulation`
     // means here: a zone the world has, with no clock behind it.
     repopIn: (zone) => (zone === 600 && !options.noPopulation ? 90_000 : undefined),
+    // A fixed sky, because what the router owes is that `status` carries one — the clock's own
+    // correctness is `clock.test.ts`'s and `weather.test.ts`'s.
+    skyNow: () => ({
+      hour: 9,
+      progress: 0.5,
+      hourMs: 75_000,
+      day: 17,
+      month: 2,
+      year: 1058,
+      sunlight: 'day',
+      sky: 'raining',
+      precip: 42,
+      wind: 12,
+      temp: 4,
+      light: 18,
+      sun: true,
+      moon: false,
+    }),
     occupantsOf: () => options.occupants ?? { players: ['Ravi'], mobs: ['a sentry'], corpses: [] },
     // A8 slice 2. Recorded rather than simulated: what these tests check is that the router refuses,
     // orders and reports — whether a mob is actually gone is `sim`'s to prove, not the router's.
@@ -502,6 +520,18 @@ describe('the reads', () => {
     assert.equal((body.zones as unknown[]).length, 1);
     assert.ok((body.lights as { id: string }[]).some((l) => l.id === 'torch'));
     assert.equal(body.token, 'open (loopback only)');
+  });
+
+  it('reports the world clock and the sky on /status', () => {
+    // Read-only and no UI, deliberately: an operator answering *"is it raining?"* should not have to
+    // log a character in to find out, and the panel can render this or not.
+    const { api } = makeRig();
+    const body = api.route(req('GET', '/status')).body as { sky: Record<string, unknown> };
+    assert.equal(body.sky.hour, 9);
+    assert.equal(body.sky.sunlight, 'day');
+    assert.equal(body.sky.sky, 'raining');
+    assert.equal(body.sky.hourMs, 75_000);
+    assert.equal(body.sky.precip, 42);
   });
 
   it('lists rooms for the teleport picker', () => {
@@ -757,7 +787,9 @@ describe('the verbs', () => {
 
   it('reports the world switches, off by default', () => {
     const { api } = makeRig();
-    assert.deepEqual(api.route(req('GET', '/settings')).body, { settings: { pvp: false, movementCosts: true } });
+    assert.deepEqual(api.route(req('GET', '/settings')).body, {
+      settings: { pvp: false, movementCosts: true, gameHourMs: 75_000 },
+    });
   });
 
   it('throws the PvP switch and tells the whole world it happened', () => {
@@ -768,7 +800,11 @@ describe('the verbs', () => {
 
     const response = quietly(() => api.route(req('PATCH', '/settings', { pvp: true })));
     assert.equal(response.status, 200);
-    assert.deepEqual((response.body as { settings: unknown }).settings, { pvp: true, movementCosts: true });
+    assert.deepEqual((response.body as { settings: unknown }).settings, {
+      pvp: true,
+      movementCosts: true,
+      gameHourMs: 75_000,
+    });
     assert.equal((response.body as { changed: boolean }).changed, true);
     assert.equal(heard.length, 1);
     assert.match(heard[0]!, /now ON/);
@@ -781,10 +817,38 @@ describe('the verbs', () => {
     const { api, heard } = makeRig();
     const freed = quietly(() => api.route(req('PATCH', '/settings', { movementCosts: false })));
     assert.equal(freed.status, 200);
-    assert.deepEqual((freed.body as { settings: unknown }).settings, { pvp: false, movementCosts: false });
+    assert.deepEqual((freed.body as { settings: unknown }).settings, {
+      pvp: false,
+      movementCosts: false,
+      gameHourMs: 75_000,
+    });
     assert.match(heard[0] ?? '', /FREE/);
     quietly(() => api.route(req('PATCH', '/settings', { movementCosts: true })));
     assert.match(heard[1] ?? '', /back ON/);
+  });
+
+  it('throws the world clock’s rate, and refuses one outside the band', () => {
+    // `CLAUDE.md` rule 4's knob. Refused loudly rather than clamped quietly: an operator who typed
+    // 100 wants to be told, where a hand-edited *file* gets `loadSettings`'s silent correction
+    // because there is nobody there to tell.
+    const { api } = makeRig();
+    const fast = quietly(() => api.route(req('PATCH', '/settings', { gameHourMs: 5_000 })));
+    assert.equal(fast.status, 200);
+    assert.equal((fast.body as { settings: { gameHourMs: number } }).settings.gameHourMs, 5_000);
+
+    for (const bad of [0, -1, 100, 3_600_001, '5000', null]) {
+      const refused = quietly(() => api.route(req('PATCH', '/settings', { gameHourMs: bad })));
+      assert.equal(refused.status, 400, String(bad));
+      assert.match(String((refused.body as { error: string }).error), /gameHourMs/);
+    }
+  });
+
+  it('does not announce a change of clock rate, unlike the two rules', () => {
+    // The other two change what a player may *do*. This changes how fast the sun moves, which they
+    // will notice on their own and which no wording would make less strange.
+    const { api, heard } = makeRig();
+    quietly(() => api.route(req('PATCH', '/settings', { gameHourMs: 30_000 })));
+    assert.deepEqual(heard, []);
   });
 
   it('says nothing when the switch is already where you set it', () => {

@@ -351,6 +351,18 @@ import {
 import { boardListing, boardMessage, loadBoards } from './boards.ts';
 import { practiceCost, practiceRefusal, practiceSlate } from './practice.ts';
 import { loadSettings, saveSettings, type WorldSettings } from './settings.ts';
+import { GameClock } from './clock.ts';
+import { WorldWeather } from './weather.ts';
+import {
+  adoptZones,
+  astralMessageAt,
+  clockBanner,
+  hearsAstral,
+  hearsWeather,
+  loadWorldClock,
+  saveWorldClock,
+  skyFor,
+} from './worldclock.ts';
 import { attemptFlee, type FleeOutcome } from './flee.ts';
 import { markPursuers, pursuitTarget } from './pursue.ts';
 import {
@@ -1063,6 +1075,42 @@ const combatRng = makeRng(WORLD_SEED ^ 0xf16847);
  * the same order, which is exactly the property a live server does not have.
  */
 const progressRng = makeRng(WORLD_SEED ^ 0x14b0de);
+
+/**
+ * The sky's own stream. Its own, for the reason the three above are their own: a rainstorm must not
+ * shift what the next mob spawn rolls, and a busy night of combat must not change the weather.
+ */
+const weatherRng = makeRng(WORLD_SEED ^ 0x5c17a9);
+
+/**
+ * **The world clock** — game hours and weather, transcribed from Duris `weather.c`. See `clock.ts`
+ * for the calendar, `weather.ts` for the climate model, `worldclock.ts` for the gates and the file.
+ *
+ * The owner asked, 2026-08-13, *"how long is this rain going to last?"*, and the honest answer was
+ * *until you press R*. Now the world decides: an hour turns every 75 real seconds (`config.h:93`,
+ * overridable), each zone's weather turns about every five game hours, and both survive a restart.
+ *
+ * Boot has two paths and the difference matters. With a saved file, the clock **resumes** — including
+ * the downtime, at the rate now in force, because that is what the source's wall-clock-derived clock
+ * does. Without one, it is seeded from `reset_time`'s own epoch (`db.c:762`), so a brand-new server
+ * opens on the date a Duris player would have read.
+ */
+const savedWorldClock = loadWorldClock();
+const gameClock = savedWorldClock
+  ? GameClock.restore(savedWorldClock.clock, Date.now(), settings.gameHourMs)
+  : GameClock.fresh(Date.now(), settings.gameHourMs);
+const weather = new WorldWeather();
+if (savedWorldClock) adoptZones(weather, savedWorldClock);
+// Every loaded zone gets weather, whether or not anybody can stand outdoors in it: the source runs
+// all hundred sectors regardless, the cost is a countdown per zone, and a zone with no sky simply
+// never has anyone pass the gate to hear about it.
+for (const zone of world.allZones()) weather.ensure(zone.id, gameClock.now(), weatherRng);
+weather.relight(gameClock.now());
+console.log(
+  `[clock] ${clockBanner(gameClock.totalHours())} — ` +
+    `${savedWorldClock ? 'resumed' : 'seeded from the source epoch'}, ` +
+    `${Math.round(settings.gameHourMs / 1000)}s per game hour, ${weather.all().size} zones with weather`,
+);
 
 /**
  * The opening population, and it is a **forced** reset.
@@ -2155,6 +2203,73 @@ function collectPickup(player: Player): void {
  * The light's are the older of the two and the reason `announceLight` existed at all: a radius that
  * silently shrinks in a dark zone reads as a bug, so the announcement is part of the mechanic.
  */
+/**
+ * The sky over this character, as they are standing now — `{t:'sky'}`.
+ *
+ * Per player rather than broadcast because weather is per zone: two people in different zones
+ * legitimately see different skies, which is `weather.c:872`'s hundred sectors surviving the port.
+ */
+function sendSky(player: Player): void {
+  send(player.id, { t: 'sky', view: skyFor(gameClock, weather.get(player.place.zone)?.conditions) });
+}
+
+/**
+ * One tick of the world clock: hours, weather, and everything either of them makes somebody hear.
+ *
+ * The two halves run on the same delta but on different edges. **Hours** fire on the integer
+ * crossing — the astral line, the re-lighting of every zone, the hourly flush to disk. **Weather**
+ * fires on its own per-zone countdown, roughly every five game hours (`weather.c:778`), independently
+ * per zone exactly as the source's hundred separate events do.
+ *
+ * Sky pushes are collected rather than sent as they arise: an hour that turns in the same tick as a
+ * zone's weather would otherwise send the same snapshot twice.
+ */
+function advanceWorldClock(): void {
+  const hoursDelta = TICK_MS / gameClock.msPerHour();
+  const crossed = gameClock.advance(TICK_MS);
+  const time = gameClock.now();
+  const resync = new Set<Player>();
+
+  if (crossed.length > 0) {
+    // A zone that did not exist at boot — one the panel created (A8d) — gets its weather here rather
+    // than lazily when somebody walks into it. On the world's own clock, so the seeded stream is
+    // consumed in an order a player's movements cannot change: `CLAUDE.md` rule 3 is about being able
+    // to reproduce a world, and a roll whose timing depends on who logged in is not reproducible.
+    for (const zone of world.allZones()) weather.ensure(zone.id, time, weatherRng);
+    // Before the astral line, so a client that redraws on the message is told the right ambient
+    // light for the hour that just began rather than the one that just ended.
+    weather.relight(time);
+    for (const hour of crossed) {
+      const line = astralMessageAt(hour);
+      if (line === undefined) continue;
+      for (const player of sim.allPlayers()) {
+        const room = world.locate(player.roomId)?.room;
+        // `hearsAstral`, not `hearsWeather`: dawn breaks over a dark moor. See `worldclock.ts`.
+        if (!room || !hearsAstral(room, player.status)) continue;
+        send(player.id, { t: 'log', channel: 'room', text: line });
+      }
+    }
+    for (const player of sim.allPlayers()) resync.add(player);
+  }
+
+  for (const change of weather.advance(hoursDelta, time, weatherRng)) {
+    for (const player of sim.allPlayers()) {
+      if (player.place.zone !== change.zone) continue;
+      resync.add(player);
+      const room = world.locate(player.roomId)?.room;
+      if (!room || !hearsWeather(room, player.status)) continue;
+      for (const line of change.messages) send(player.id, { t: 'log', channel: 'room', text: line });
+    }
+  }
+
+  for (const player of resync) sendSky(player);
+
+  // Once a game hour — seventy-five seconds by default, a small file, and the most a crash can cost
+  // is an hour of drift the resume would have added anyway. Duris flushes its own dirty state on the
+  // same edge (`weather.c:109`).
+  if (crossed.length > 0) saveWorldClock(gameClock, weather, Date.now());
+}
+
 function announceAffect(event: AffectEvent): void {
   // Mobs run affects through the same expiry pass — that is the point of one list and one map — but
   // there is nobody behind a mob to read a line. Asked rather than assumed, so the day a mob's expiry
@@ -3189,6 +3304,9 @@ function announceArrival(player: Player, from: RoomId, fromPlace: Place, via?: D
   if (!samePlace(fromPlace, player.place)) {
     const zone = world.zone(player.place.zone);
     if (zone) send(player.id, { t: 'zone', zone, level: player.place.level });
+    // A new Place can be a new zone, and weather is per zone — so walking from a dry wood into a
+    // rainstorm has to say so here or the client keeps drawing the sky it left.
+    sendSky(player);
     // A route is tile coordinates on the grid they just left. The simulation already dropped it in
     // relocate(); this is what stops the client drawing a line across the new map. Deliberately
     // inside the Place check — walking from one room to the next *within* a Place also comes through
@@ -10314,6 +10432,10 @@ const adminLive: LiveOps = {
     return remaining * ZONE_TICK_MS - clock.carryMs;
   },
 
+  skyNow(zone) {
+    return skyFor(gameClock, zone === undefined ? undefined : weather.get(zone)?.conditions);
+  },
+
   occupantsOf(room) {
     const players: string[] = [];
     const mobs: string[] = [];
@@ -10393,10 +10515,20 @@ const adminLive: LiveOps = {
 
   setSettings(next) {
     settings = next;
+    // The clock is a live object holding its own rate, so throwing the setting has to reach it — and
+    // it reaches it as a *rate* change: `setMsPerHour` leaves the accumulated hours alone, so the
+    // world speeds up or slows down without the date moving. Everything downstream follows for free,
+    // because the weather's timers are counted in game hours rather than in milliseconds.
+    gameClock.setMsPerHour(settings.gameHourMs);
     // Written in the same breath it is applied, so the two cannot get out of step. See `settings.ts`
     // for why a switch that reverts on restart is the failure mode worth designing against.
     saveSettings(settings);
-    console.log(`[settings] pvp=${settings.pvp} movementCosts=${settings.movementCosts}`);
+    // And the clock's own file, so the rate the world resumes at is the rate it was left at.
+    saveWorldClock(gameClock, weather, Date.now());
+    for (const player of sim.allPlayers()) sendSky(player);
+    console.log(
+      `[settings] pvp=${settings.pvp} movementCosts=${settings.movementCosts} gameHourMs=${settings.gameHourMs}`,
+    );
   },
 };
 
@@ -10737,6 +10869,9 @@ wss.on('connection', (socket, request) => {
       });
       const home = world.zone(player.place.zone);
       if (home) send(player.id, { t: 'zone', zone: home, level: player.place.level });
+      // The sky, before the first room description: a client that dresses the world by hour and
+      // weather should have both in hand before it is told what the world looks like.
+      sendSky(player);
       // Light the spawn tile before the bitset goes out, so a brand new character sees the ground
       // they are standing on rather than one tick of total darkness.
       foldSeen(player);
@@ -10853,6 +10988,11 @@ wss.on('connection', (socket, request) => {
 });
 
 setInterval(() => {
+  // First in the tick, and before anything that can move a body: the hour and the sky are the frame
+  // everything else happens inside, and a sunrise announced after this tick's arrivals would reach a
+  // character in the room they left.
+  advanceWorldClock();
+
   const { moved, transitions, pathsEnded, winded, seamCrossings, relit, affectEvents, vitalsChanged } = sim.tick();
 
   // **Carried across a seam** — the owner's ruling that a road leaving a zone is a step. The sim
@@ -11423,6 +11563,10 @@ function shutdown(): void {
     rememberProgress(player);
   }
   store.flushAll();
+  // The world's own state, not any character's: the hour it reached and every zone's sky. Flushed on
+  // the hour anyway, so this only buys back the part-hour — but it is the difference between a
+  // `node --watch` reload landing mid-storm and landing on a re-rolled one.
+  saveWorldClock(gameClock, weather, Date.now());
   process.exit(0);
 }
 

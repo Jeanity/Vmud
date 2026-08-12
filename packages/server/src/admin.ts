@@ -62,6 +62,7 @@ import {
   type RoomFlag,
   type RoomId,
   type Sector,
+  type SkyView,
   type ZoneId,
 } from '@mygame/shared';
 // A subpath import, as `vision.ts` is in `players.ts`: the catalogue is not in the package barrel.
@@ -98,7 +99,7 @@ import {
 import type { AuthoredItems, ItemDraft } from './item-authoring.ts';
 import type { AccountStore } from './accounts.ts';
 import { seenTileCount, slugify, type PlayerStore, type StoredSummary } from './players.ts';
-import type { WorldSettings } from './settings.ts';
+import { MAX_GAME_HOUR_MS, MIN_GAME_HOUR_MS, type WorldSettings } from './settings.ts';
 import type { Player } from './sim.ts';
 import type { GameWorld } from './world.ts';
 
@@ -179,6 +180,18 @@ export interface LiveOps {
    * static world knows nothing about it. See `reset.ts`.
    */
   repopIn(zone: ZoneId): number | undefined;
+
+  /**
+   * The world clock and the sky over a zone — read-only, for the dashboard's status line.
+   *
+   * `zone` is optional because the clock is global and the weather is not: with no zone the answer is
+   * the calendar alone, with one it also carries that zone's sky. The spawn zone is what `status`
+   * asks for, on the grounds that it is the one place an operator can be sure somebody is standing.
+   *
+   * A read on `live` rather than a field on `facts`, for `repopIn`'s reason one line up: this is
+   * running state, and a boot-time constant would be wrong seventy-five seconds later.
+   */
+  skyNow(zone?: ZoneId): SkyView;
 
   /** Who and what is standing in a room this instant, by name. For the room browser. */
   occupantsOf(room: RoomId): {
@@ -893,6 +906,10 @@ export class AdminApi {
         playersOnline: live.online().length,
         places: world.allPlaces().length,
         spawn: { room: spawn.id, name: spawn.name },
+        // The world clock, read at the spawn zone — see `LiveOps.skyNow`. Read-only and no UI: the
+        // panel can render it or not, but an operator answering *"is it raining?"* should not have to
+        // log a character in to find out.
+        sky: live.skyNow(spawn.zone),
         zones: world.allZones().map((zone) => ({
           id: zone.id,
           name: zone.name,
@@ -3560,21 +3577,41 @@ export class AdminApi {
    * value actually *changes*, so re-saving the panel does not spam a world that is already correct.
    */
   private patchSettings(body: unknown): AdminResponse {
-    const raw = (body ?? {}) as { pvp?: unknown; movementCosts?: unknown };
-    if (raw.pvp === undefined && raw.movementCosts === undefined) {
-      return { status: 400, body: { error: 'body must set "pvp" and/or "movementCosts", each true or false' } };
+    const raw = (body ?? {}) as { pvp?: unknown; movementCosts?: unknown; gameHourMs?: unknown };
+    if (raw.pvp === undefined && raw.movementCosts === undefined && raw.gameHourMs === undefined) {
+      return {
+        status: 400,
+        body: { error: 'body must set "pvp" and/or "movementCosts" (true/false), and/or "gameHourMs" (a number)' },
+      };
     }
     for (const key of ['pvp', 'movementCosts'] as const) {
       if (raw[key] !== undefined && typeof raw[key] !== 'boolean') {
         return { status: 400, body: { error: `${key} must be true or false` } };
       }
     }
+    // The band is `settings.ts`'s, and it is checked here rather than left to `loadSettings` to
+    // silently correct: an operator who typed 100 wants to be told, not to find the world running at
+    // a speed they did not ask for. The loader's clamp stays as the defence against a hand-edited file.
+    if (raw.gameHourMs !== undefined) {
+      const value = raw.gameHourMs;
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < MIN_GAME_HOUR_MS || value > MAX_GAME_HOUR_MS) {
+        return {
+          status: 400,
+          body: { error: `gameHourMs must be a number between ${MIN_GAME_HOUR_MS} and ${MAX_GAME_HOUR_MS}` },
+        };
+      }
+    }
     const before = this.deps.live.settings();
     const next: WorldSettings = {
       pvp: typeof raw.pvp === 'boolean' ? raw.pvp : before.pvp,
       movementCosts: typeof raw.movementCosts === 'boolean' ? raw.movementCosts : before.movementCosts,
+      gameHourMs: typeof raw.gameHourMs === 'number' ? raw.gameHourMs : before.gameHourMs,
     };
-    if (next.pvp === before.pvp && next.movementCosts === before.movementCosts) {
+    if (
+      next.pvp === before.pvp &&
+      next.movementCosts === before.movementCosts &&
+      next.gameHourMs === before.gameHourMs
+    ) {
       return { status: 200, body: { ok: true, settings: before, changed: false } };
     }
 
@@ -3596,7 +3633,15 @@ export class AdminApi {
         { kind: 'world' },
       );
     }
-    this.audit('settings', { pvp: next.pvp, movementCosts: next.movementCosts, heard });
+    // No announcement for the clock rate, deliberately: the other two change what a player may *do*
+    // and this changes how fast the sun moves, which they will notice on their own and which no
+    // wording would make less strange.
+    this.audit('settings', {
+      pvp: next.pvp,
+      movementCosts: next.movementCosts,
+      gameHourMs: next.gameHourMs,
+      heard,
+    });
     return { status: 200, body: { ok: true, settings: next, changed: true, heard } };
   }
 

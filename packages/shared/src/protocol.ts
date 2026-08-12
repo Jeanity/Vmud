@@ -880,6 +880,76 @@ export interface CharacterSummary {
   readonly class?: ClassId;
 }
 
+/* -------------------------------------------------------------------------- */
+/* The sky                                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How the sky reads, in one word — Duris' `do_weather` summary (`actinf.c:5826-5844`).
+ *
+ * Derived on the server rather than stored, because the source has no sky *state*: it has a humidity
+ * and a precipitation rate, and this is the ladder it turns them back into prose with. The Diku
+ * four-state machine (`SKY_CLOUDLESS`/`CLOUDY`/`RAINING`/`LIGHTNING`, `defines.h:509`) is declared in
+ * the source and read by nothing in it — hence seven states here and no lightning.
+ */
+export const SKY_STATES = [
+  'clear',
+  'mostly_clear',
+  'partly_cloudy',
+  'cloudy',
+  'very_cloudy',
+  'raining',
+  'snowing',
+] as const;
+
+export type SkyState = (typeof SKY_STATES)[number];
+
+/** `weather.h:64-69` — `IS_DAY` (8–16), `IS_TWILIGHT` (5–7, 17–19), `IS_NIGHT` (20–4). */
+export type Sunlight = 'night' | 'twilight' | 'day';
+
+/**
+ * The world's clock and the sky above the character, as one snapshot — see {@link ServerMessage}
+ * `sky`.
+ *
+ * Every field is a quantity the source actually keeps, and each is here because a renderer needs it:
+ * the hour drives the daylight recipe, the sky state and rate drive rain, the temperature decides
+ * whether that rain is snow, and the ambient light is the source's own answer to how dark a
+ * rainstorm makes the afternoon.
+ */
+export interface SkyView {
+  /** Game hour, 0–23. `time_info.hour`, and what every rule in the source reads. */
+  readonly hour: number;
+  /**
+   * How far through {@link hour} the world is, 0–1.
+   *
+   * Here so a client can hold a *fractional* hour and scrub it smoothly: with this and
+   * {@link hourMs} it can advance its own clock between messages instead of stepping once every
+   * seventy-five seconds.
+   */
+  readonly progress: number;
+  /** Real milliseconds per game hour. Data, not a constant — an operator can throw it. */
+  readonly hourMs: number;
+  /** Day of the month, 0–34. The moon's phase is a function of this (`weather.c:831`). */
+  readonly day: number;
+  /** Month, 0–16. */
+  readonly month: number;
+  readonly year: number;
+  readonly sunlight: Sunlight;
+  readonly sky: SkyState;
+  /** Precipitation rate, 0–100. Zero when nothing is falling. */
+  readonly precip: number;
+  /** Wind speed. Unbounded above in the source; 100 is a hurricane. */
+  readonly wind: number;
+  /** Degrees Celsius. `<= 0` is why {@link sky} says `snowing`. */
+  readonly temp: number;
+  /** Ambient light, 0–100 — sun plus moon minus rain (`calc_light_zone`). */
+  readonly light: number;
+  /** Whether the sun is up here. */
+  readonly sun: boolean;
+  /** Whether the moon is out here. */
+  readonly moon: boolean;
+}
+
 export type ServerMessage =
   | {
       readonly t: 'welcome';
@@ -1108,6 +1178,23 @@ export type ServerMessage =
        */
       readonly speech?: string;
     }
+  /**
+   * The world's clock and the weather where this character is standing.
+   *
+   * Sent at `welcome`, on arriving in a new Place, on every game hour, and whenever the zone's
+   * weather turns. **Per recipient, not broadcast**: weather is per zone in the source
+   * (`weather.c:872`), so two players in different zones legitimately see different skies.
+   *
+   * **Additive, and no protocol bump.** Both clients dispatch server messages through a tag→handler
+   * map that returns on a tag it has no handler for (`net.ts`, byte-identical in both), and
+   * `decodeServerMessage` validates nothing beyond the tag being a string — so a client that has
+   * never heard of this message ignores it, which is exactly what the 2D client should do. The
+   * bump comes with the *client* change that consumes it, if it needs one.
+   *
+   * The prose half of the same slice needs no message at all: sunrise, sunset and weather lines are
+   * `log` on the `room` channel, which every client already renders.
+   */
+  | { readonly t: 'sky'; readonly view: SkyView }
   | { readonly t: 'pong'; readonly ts: number; readonly serverTime: number };
 
 /* -------------------------------------------------------------------------- */

@@ -22,7 +22,7 @@ describe('world settings', () => {
 
   it('survives a restart, which is the reason it is a file', () => {
     const file = tempFile();
-    saveSettings({ pvp: true, movementCosts: false }, file);
+    saveSettings({ pvp: true, movementCosts: false, gameHourMs: 75_000 }, file);
     assert.equal(loadSettings(file).pvp, true);
     assert.equal(loadSettings(file).movementCosts, false);
   });
@@ -46,6 +46,24 @@ describe('world settings', () => {
       assert.equal(loadSettings(tempFile(`{"movementCosts": ${junk}}`)).movementCosts, true, junk);
     }
     assert.equal(loadSettings(tempFile('{"movementCosts": false}')).movementCosts, false);
+  });
+
+  it('runs the world clock at the source’s own 75 seconds an hour unless told otherwise', () => {
+    // `config.h:93`, `SECS_PER_MUD_HOUR`. A setting rather than a constant because `CLAUDE.md` rule 4
+    // says round length is data — and an hour is the world's other round.
+    assert.equal(DEFAULT_SETTINGS.gameHourMs, 75_000);
+    assert.equal(loadSettings(tempFile()).gameHourMs, 75_000);
+    assert.equal(loadSettings(tempFile('{"gameHourMs": 5000}')).gameHourMs, 5000);
+  });
+
+  it('reads only a sane number as a rate, because a zero divides the world by zero', () => {
+    // This is not a dangerous switch, it is a rate — but the same instinct applies: a hand-edited
+    // file must not be able to stop the clock or make an hour a microsecond long.
+    for (const junk of ['0', '-1', '"75000"', 'null', 'true', '999', '3600001', '1e999']) {
+      assert.equal(loadSettings(tempFile(`{"gameHourMs": ${junk}}`)).gameHourMs, 75_000, junk);
+    }
+    assert.equal(loadSettings(tempFile('{"gameHourMs": 1000}')).gameHourMs, 1000, 'the floor is allowed');
+    assert.equal(loadSettings(tempFile('{"gameHourMs": 3600000}')).gameHourMs, 3_600_000, 'and the ceiling');
   });
 
   it('shrugs at a corrupt file rather than refusing to boot', () => {
