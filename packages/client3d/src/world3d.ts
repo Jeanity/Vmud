@@ -49,6 +49,25 @@
  * `night.ts` owns the recipe and this file owns when it is applied: {@link World3D.focus} refits the
  * moon's shadow camera and moves the clearing light every frame, and `main.ts` calls it with the same
  * position it gives the camera rig, so the light, the shadow and the frame all describe one instant.
+ *
+ * ## M5a: the scatter, and the one thing it added to the streaming contract
+ *
+ * A chunk's placements are now `planChunk`'s **plus** `scatter.ts`'s, concatenated before the buckets
+ * are formed — so a tree is instanced, pooled, fogged, released and counted by exactly the machinery
+ * a wall already was, and the only new code path is the one that decides *which* baked mesh.
+ *
+ * That decision is the addition. A tree has three levels of detail and which one a chunk draws
+ * depends on how far it is from the camera, which changes as the player walks — so {@link
+ * World3D.update} re-checks every loaded chunk's LOD tier when the window recentres and rebuilds the
+ * handful whose tier moved. A rebuild is a release and an acquire; it allocates nothing, and the
+ * traversal test's flat-ledger assertion covers it. The alternative — choosing the LOD once at load
+ * and never revisiting it — would leave a chunk built at the window's rim still drawing LOD2 when the
+ * player is standing in it.
+ *
+ * Two gates, both stated once here: **scatter is skipped on faded chunks** (the level below grows
+ * nothing — see `prototypes.ts`'s never-faded set), and **a placement whose geometry the pool cannot
+ * resolve is dropped** (the GLBs arrive over the network a moment after the first chunk does, and a
+ * world with no trees is the correct picture until they land).
  */
 
 import { Object3D, Scene, type InstancedMesh } from 'three';
@@ -96,7 +115,9 @@ import {
 import { LightPool, type LightRequest } from './lights.ts';
 import { NightRig } from './night.ts';
 import { ScenePool, WRAPPER_CAPACITY, type LedgerSnapshot } from './pool.ts';
+import { planScatter } from './scatter.ts';
 import { ChunkStreamer, chunkKey, type ChunkAddress, type ChunkSink } from './streamer.ts';
+import { TreeSet } from './trees.ts';
 
 /** The centre tile of a room block, room-relative. Used only to ask "has this room been seen". */
 const CENTRE_TILE = (ROOM_TILES - 1) / 2;
@@ -124,6 +145,11 @@ interface LoadedChunk {
   roofed: boolean;
   /** Where this chunk's campfire is, if it drew one. Feeds `LightPool.scene`. */
   fire: { x: number; y: number; z: number } | undefined;
+  /** Which baked level of detail the trees in this chunk are drawn at. See {@link World3D.update}. */
+  lod: number;
+  /** Trees and tufts this chunk drew. `__debug3d.treeInstances` / `scatterInstances`. */
+  trees: number;
+  scatter: number;
   readonly meshes: InstancedMesh[];
   /** The material key each mesh was drawn with, so a retint knows which tint row to write. */
   readonly keys: string[];
@@ -134,6 +160,8 @@ export class World3D implements ChunkSink {
   readonly pool = new ScenePool();
   readonly night: NightRig;
   readonly lights: LightPool;
+  /** The baked tree set. Empty until `main.ts` loads the manifest; the scatter is gated on it. */
+  readonly trees = new TreeSet();
   private readonly streamer = new ChunkStreamer(this);
   private readonly chunks = new Map<string, LoadedChunk>();
   private readonly scratch = new Object3D();
@@ -148,6 +176,8 @@ export class World3D implements ChunkSink {
   private seen: Uint8Array | undefined;
   /** One-entry memo for {@link groundAt}. */
   private ground: { cellX: number; cellY: number; level: number; y: number } | undefined;
+  /** The cell the window is centred on. What {@link lodOf} measures a chunk's distance from. */
+  private centreCell: { cellX: number; cellY: number } | undefined;
   /** Live door state, keyed `roomId:dir`. See `ChunkPlanInput.doorClosed` for why it lives outside. */
   private readonly doors = new Map<string, boolean>();
 
@@ -243,6 +273,44 @@ export class World3D implements ChunkSink {
       if (chunk.faded) faded += 1;
     }
     return { levels, faded };
+  }
+
+  /**
+   * Trees standing in the loaded window, and every scatter instance including undergrowth.
+   *
+   * `__debug3d.treeInstances` and `__debug3d.scatterInstances`. Counted off the chunks rather than off
+   * the pool, because the pool counts *wrappers* and the question a dense forest room raises is how
+   * many things are in it.
+   */
+  scatterCensus(): { trees: number; instances: number } {
+    let trees = 0;
+    let instances = 0;
+    for (const chunk of this.chunks.values()) {
+      trees += chunk.trees;
+      instances += chunk.scatter;
+    }
+    return { trees, instances };
+  }
+
+  /**
+   * Whether the foliage sways. The **F** key and `__debug3d.windEnabled`, on one shared uniform.
+   *
+   * A uniform and not a define, so the toggle compiles nothing — and it reaches the depth material as
+   * well as the visible one, because both hold the same clock object. Switching the wind off and
+   * watching a shadow stay exactly where it was is, incidentally, the fastest manual check of
+   * `foliage.ts`'s trap 1.
+   */
+  get windEnabled(): boolean {
+    return this.pool.wind.uWind.value > 0.5;
+  }
+
+  set windEnabled(on: boolean) {
+    this.pool.wind.uWind.value = on ? 1 : 0;
+  }
+
+  /** Advance the foliage clock. Wall-clock seconds, exactly as the rain and the portal pulse take. */
+  breathe(seconds: number): void {
+    this.pool.wind.uTime.value = seconds;
   }
 
   /** How the loaded window is divided between the three fog states. `__debug3d.fogOfWar`. */
@@ -388,7 +456,41 @@ export class World3D implements ChunkSink {
     const frame = this.frameOf;
     if (!frame) return;
     const { cellX, cellY } = cellOfPixel(frame, px, py);
-    this.streamer.update(cellX, cellY, frame.level);
+    // Written before the streamer runs, because `load` is called from inside it and every chunk built
+    // there asks {@link lodOf} where the camera is.
+    this.centreCell = { cellX, cellY };
+    const step = this.streamer.update(cellX, cellY, frame.level);
+    // Only when the window actually moved. `update` is called every frame and does nothing on most of
+    // them; re-walking the loaded set to compare LOD tiers on every one of those would undo that.
+    if (step.moved) this.refreshLods();
+  }
+
+  /**
+   * Re-choose each chunk's level of detail now the camera has crossed a cell, and rebuild what moved.
+   *
+   * The distance is measured in **stride cells** rather than from the body's real position, for the
+   * same reason the streamer's window is: a chunk is a cell, its trees are all within four and a half
+   * metres of its centre, and a per-tree distance would make the LOD a property of a frame rather
+   * than of a chunk — which is a rebuild every frame instead of one or two per cell crossed. A
+   * rebuild is a release and an acquire and allocates nothing; `traversal.test.ts` covers it.
+   */
+  private refreshLods(): void {
+    if (!this.trees.available) return;
+    for (const chunk of this.chunks.values()) {
+      if (this.lodOf(chunk.address) === chunk.lod) continue;
+      this.rebuild(chunk);
+    }
+  }
+
+  /** The LOD a chunk at this address should be drawing, from the camera's current cell. */
+  private lodOf(address: ChunkAddress): number {
+    const frame = this.frameOf;
+    const centre = this.centreCell;
+    if (!frame || !centre) return 0;
+    const metresPerCell = frame.stride * METRES_PER_TILE;
+    const dx = (address.cellX - centre.cellX) * metresPerCell;
+    const dy = (address.cellY - centre.cellY) * metresPerCell;
+    return this.trees.lodFor(Math.hypot(dx, dy));
   }
 
   /**
@@ -471,6 +573,9 @@ export class World3D implements ChunkSink {
       state: this.stateOf(address, room.id),
       roofed: false,
       fire: undefined,
+      lod: this.lodOf(address),
+      trees: 0,
+      scatter: 0,
       meshes: [],
       keys: [],
     };
@@ -516,6 +621,7 @@ export class World3D implements ChunkSink {
     this.releaseAll(chunk);
     chunk.faded = this.isFaded(chunk.address);
     chunk.state = this.stateOf(chunk.address, chunk.room);
+    chunk.lod = this.lodOf(chunk.address);
     this.build(chunk, room, frame, context, cells);
   }
 
@@ -570,7 +676,7 @@ export class World3D implements ChunkSink {
     }
 
     const elevation = roomElevation(scene, room.pos.z, frame.level, centreX, centreZ);
-    const placements = planChunk({
+    const room3d = planChunk({
       scene,
       origin,
       elevation,
@@ -578,6 +684,25 @@ export class World3D implements ChunkSink {
       faded: chunk.faded,
       doorClosed,
     });
+
+    // M5a. Two gates, both in the file header: nothing grows on the level below, and nothing grows
+    // whose baked mesh has not arrived. `planScatter` is pure and does not know about either — it is
+    // asked for the room's vegetation and this is where the renderer's own conditions are applied.
+    chunk.trees = 0;
+    chunk.scatter = 0;
+    let placements = room3d;
+    if (!chunk.faded && this.trees.available) {
+      const grown = planScatter({ scene, origin, elevation, lod: chunk.lod }).filter((p) =>
+        this.pool.hasGeometry(p.geometry),
+      );
+      if (grown.length > 0) {
+        placements = [...room3d, ...grown];
+        for (const placement of grown) {
+          if (placement.archetype === 'trunk') chunk.trees += 1;
+        }
+        chunk.scatter = grown.length;
+      }
+    }
 
     // Weather and light, read off the same IR the geometry came from — a second `describeRoom` here
     // would be a second chance for the two to disagree.
@@ -616,6 +741,10 @@ export class World3D implements ChunkSink {
           this.scratch.scale.set(p.sx, p.sy, p.sz);
           this.scratch.updateMatrix();
           mesh.setMatrixAt(i, this.scratch.matrix);
+          // M5a's two-layer ground blend, per instance. A no-op for every archetype that is not
+          // ground — see `pool.writeBlend`, which is where "does this wrapper have the buffers"
+          // is answered once rather than at every call site.
+          if (p.blend && p.tint) this.pool.writeBlend(mesh, i, p.blend, p.tint);
         }
         mesh.count = slice.length;
         this.pool.finish(mesh);

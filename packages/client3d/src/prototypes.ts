@@ -55,9 +55,27 @@
  *
  * ## Geometry is not keyed by biome at all
  *
- * Four unit shapes, scaled per instance by the matrix. That is what lets one `InstancedMesh` hold a
+ * Five unit shapes, scaled per instance by the matrix. That is what lets one `InstancedMesh` hold a
  * 9 m ground slab and a 0.6 m wall, and it collapses the geometry pool to a constant that does not
  * grow with the world, the zone or the archetype table.
+ *
+ * ## What M5a added, and the one rule it had to keep
+ *
+ * Three archetypes (`trunk`, `canopy`, `grass`), one shape (`grassCross`), and **48 geometry keys
+ * that are filled in at boot from a manifest rather than built here** — the baked conifers. That last
+ * one is the interesting change, because the whole point of this file is that the key set is *"a fact
+ * about the program, not a habit the streamer keeps"*, and a set that grew as GLBs streamed in would
+ * be exactly the habit. So the bound is kept by naming the trees: {@link TREE_VARIANTS} is a closed
+ * list, {@link TREE_LODS} is a closed list, and `TREE_GEOMETRY_KEYS` is their product, enumerated at
+ * module load like everything else here. `assets.test.ts` asserts that the baked manifest contains
+ * exactly these ids and no others — a variant added to the baker and not to this list would grow a
+ * tree nothing can draw, and one added here and not baked would size the pool for a tree that does
+ * not exist.
+ *
+ * The material count goes up by 32 (8 variants x bark and needle, 16 sectors of undergrowth) and the
+ * **program** count by two: the card foliage and the blended ground are `onBeforeCompile` patches, and
+ * each patch is one program however many materials carry it, because — as at M4 — every difference
+ * between two materials in a family is a *uniform*. See `foliage.ts` and `blend.ts`.
  */
 
 import { SECTORS, type Sector } from '@mygame/shared';
@@ -67,16 +85,135 @@ import { SECTORS, type Sector } from '@mygame/shared';
 /* -------------------------------------------------------------------------- */
 
 /**
- * The four unit shapes. Everything drawn is one of these under a scale.
+ * The five unit shapes this package builds for itself. Everything drawn is one of these under a
+ * scale, or a baked tree mesh (see {@link TREE_GEOMETRY_KEYS}).
  *
  * `box` covers ground, walls, doors, steps, ramps and props; `cone` is the landmark slot; `torus` is
  * both the portal ring — the plan's emissive ring, which M4 lit — and the flat marker a stairwell
- * lays on its floor; `capsule` is a body. A fifth shape is a change to this list and to the test that
- * counts it.
+ * lays on its floor; `capsule` is a body; `grassCross` is M5a's undergrowth tuft, two quads crossed at
+ * right angles, which is the cheapest thing that has a silhouette from every yaw. A sixth shape is a
+ * change to this list and to the test that counts it.
  */
-export const GEOMETRY_KEYS = ['box', 'cone', 'torus', 'capsule'] as const;
+export const SHAPE_KEYS = ['box', 'cone', 'torus', 'capsule', 'grassCross'] as const;
 
-export type GeometryKey = (typeof GEOMETRY_KEYS)[number];
+export type ShapeKey = (typeof SHAPE_KEYS)[number];
+
+/**
+ * A key into the geometry pool.
+ *
+ * A bare `string` rather than a union of the five shapes, because M5a's tree geometries are named by
+ * {@link treeGeometryKey} from three closed lists and TypeScript template-literal unions over 48
+ * combinations buy nothing that {@link GEOMETRY_KEYS} membership does not. The pool throws on an
+ * unknown key rather than defaulting, which is where the type would have caught it anyway.
+ */
+export type GeometryKey = string;
+
+/* -------------------------------------------------------------------------- */
+/* Trees                                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Every tree the world can grow — the closed list this package's pool is sized against.
+ *
+ * Six conifers and two for the bog, which is §6-M5's *"~6 variants"* plus the brief's swamp pair. The
+ * ids are the join key between whatever produced the mesh, the material pool and the scatter's biome
+ * palettes, and they are as immovable as a room id: renaming one silently unplants a tree.
+ *
+ * ## The list is closed; where a mesh comes from is not
+ *
+ * Everything on it today is baked by `packages/worldgen/src/treegen.ts`, and **nothing in this
+ * package assumes that.** M5b brings in the Quaternius *Stylized Nature MegaKit* — CC0 GLTF, the
+ * owner's chosen art direction — and those trees join this list beside the generated ones. What has
+ * to hold either way is only the two facts the pool is built on: the set of ids is fixed at module
+ * load, and every id has a `trunk` and a `canopy` mesh at each of {@link TREE_LODS}. A kit model that
+ * arrives as one mesh gets split at import; one that ships its own LODs skips the ladder. Neither
+ * touches anything here.
+ *
+ * {@link TREE_SOURCE} is what keeps that honest: it says which producer owes each id its geometry, so
+ * `assets.test.ts` can hold the *baked* subset to the treegen manifest exactly, without that
+ * assertion becoming a wall the kit has to be smuggled past.
+ */
+export const TREE_VARIANTS = [
+  'pine-tall',
+  'pine-broad',
+  'pine-young',
+  'fir-dense',
+  'fir-ragged',
+  'pine-crooked',
+  'aspen-thin',
+  'snag-bare',
+] as const;
+
+export type TreeVariant = (typeof TREE_VARIANTS)[number];
+
+/**
+ * Who owes each variant its geometry.
+ *
+ * `baked` — generated offline by `treegen.ts` and listed in `models/trees/manifest.json`. `kit` —
+ * imported from a third-party CC0 set, M5b's Quaternius Nature MegaKit. The distinction exists for
+ * exactly two callers: the manifest-integrity test, which must compare like with like, and a future
+ * loader that has to know which registry to look in. The *renderer* never asks — a trunk is a trunk.
+ */
+export const TREE_SOURCES = ['baked', 'kit'] as const;
+
+export type TreeSource = (typeof TREE_SOURCES)[number];
+
+export const TREE_SOURCE: Readonly<Record<TreeVariant, TreeSource>> = {
+  'pine-tall': 'baked',
+  'pine-broad': 'baked',
+  'pine-young': 'baked',
+  'fir-dense': 'baked',
+  'fir-ragged': 'baked',
+  'pine-crooked': 'baked',
+  'aspen-thin': 'baked',
+  'snag-bare': 'baked',
+};
+
+/** The variants a given producer owes. `assets.test.ts` holds `baked` to the treegen manifest. */
+export function variantsFrom(source: TreeSource): readonly TreeVariant[] {
+  return TREE_VARIANTS.filter((variant) => TREE_SOURCE[variant] === source);
+}
+
+/**
+ * The two meshes every baked tree carries, and the reason it is two rather than one.
+ *
+ * A trunk is opaque bark under an ordinary Lambert; a canopy is alpha-clipped cards under the
+ * foliage patch, two-sided, wind-displaced, with its own `customDepthMaterial`. Merging them would
+ * force one of those onto the other — either the bark pays for an alpha test it does not need on
+ * every fragment, or the needles lose their clip and the tree becomes a set of solid quads.
+ */
+export const TREE_PARTS = ['trunk', 'canopy'] as const;
+
+export type TreePart = (typeof TREE_PARTS)[number];
+
+/** Three levels of detail, baked. The metres at which each takes over live in the manifest. */
+export const TREE_LODS = [0, 1, 2] as const;
+
+/** The pool key for one baked mesh. Legible in a dump, exactly as {@link materialKey} is. */
+export function treeGeometryKey(variant: TreeVariant, part: TreePart, lod: number): GeometryKey {
+  return `${part}:${variant}:${lod}`;
+}
+
+/** Every key {@link treeGeometryKey} can return: 8 x 2 x 3 = 48, enumerated once. */
+export const TREE_GEOMETRY_KEYS: readonly GeometryKey[] = (() => {
+  const keys: GeometryKey[] = [];
+  for (const variant of TREE_VARIANTS) {
+    for (const part of TREE_PARTS) {
+      for (const lod of TREE_LODS) keys.push(treeGeometryKey(variant, part, lod));
+    }
+  }
+  return keys;
+})();
+
+/**
+ * Every geometry the pool can ever hold: the shapes it builds, and the trees it is handed.
+ *
+ * The tree entries are **absent from the pool until the manifest loads** and the scatter simply draws
+ * nothing for a key it cannot resolve — which is the correct behaviour for the second and a half
+ * between the first `zone` message and the last GLB, and the correct behaviour for ever if somebody
+ * ships without running the baker.
+ */
+export const GEOMETRY_KEYS: readonly GeometryKey[] = [...SHAPE_KEYS, ...TREE_GEOMETRY_KEYS];
 
 /* -------------------------------------------------------------------------- */
 /* Archetypes                                                                  */
@@ -97,18 +234,36 @@ export const ARCHETYPES = [
   'self',
   'other',
   'marker',
+  'trunk',
+  'canopy',
+  'grass',
 ] as const;
 
 export type Archetype = (typeof ARCHETYPES)[number];
 
 /**
+ * The archetypes whose material is keyed by tree variant rather than by sector — M5a.
+ *
+ * A bark is a *species*, not a biome: the same pine standing at the edge of a field and at the edge
+ * of a forest is the same tree, and keying it by sector would have made 16 copies of each of eight
+ * trees for no visible difference. The variant already carries everything that varies — the manifest
+ * gives each one its bark and needle colour, its cone slope, its tier count and its droop — so the
+ * key is the variant and nothing else.
+ */
+export const VARIANT_ARCHETYPES = ['trunk', 'canopy'] as const satisfies readonly Archetype[];
+
+const VARIANT_KEYED: ReadonlySet<Archetype> = new Set<Archetype>(VARIANT_ARCHETYPES);
+
+/**
  * The archetypes whose material depends on the ground they stand on.
  *
- * Deliberately three. `edge` is the plan's "one rule, a third of all edges" — 32.2% of the world's
- * boundaries dressed by biome — and `barrier` is the correctness requirement that must read as
- * solid; both are terrain and both change with the sector. Nothing else does.
+ * `edge` is the plan's "one rule, a third of all edges" — 32.2% of the world's boundaries dressed by
+ * biome — and `barrier` is the correctness requirement that must read as solid; both are terrain and
+ * both change with the sector. M5a adds `grass`, and it is terrain in exactly the same sense: the
+ * undergrowth of a fen is not the undergrowth of a heath, and it is the tuft's colour rather than its
+ * shape that says which. Nothing else changes with the sector.
  */
-export const BIOME_ARCHETYPES = ['ground', 'edge', 'barrier'] as const satisfies readonly Archetype[];
+export const BIOME_ARCHETYPES = ['ground', 'edge', 'barrier', 'grass'] as const satisfies readonly Archetype[];
 
 const BIOME_KEYED: ReadonlySet<Archetype> = new Set<Archetype>(BIOME_ARCHETYPES);
 
@@ -120,9 +275,31 @@ const BIOME_KEYED: ReadonlySet<Archetype> = new Set<Archetype>(BIOME_ARCHETYPES)
  * reason: click-to-move only ever aims at ground on the level the player is walking (`main.ts` gates
  * the unprojection plane on the player's own `groundAt`), so a faded destination ring is equally a
  * variant nothing can produce.
+ *
+ * M5a's three scatter archetypes join them, and this is a design decision rather than a saving:
+ * **the level below grows nothing.** A treeline drawn at 30% alpha through the floor you are standing
+ * on is not the cliff read the fade exists for, it is noise over a shaft — and a transparent
+ * alpha-clipped card is a contradiction in the first place, because `alphaToCoverage` needs an opaque
+ * draw to resolve against. It also halves what the scatter costs the wrapper ceiling: only the
+ * camera's own level ever asks for a tree. See `pool.ts`'s `WRAPPER_POOL_SIZE`.
  */
-const NEVER_FADED: ReadonlySet<Archetype> = new Set<Archetype>(['self', 'other', 'marker']);
+const NEVER_FADED: ReadonlySet<Archetype> = new Set<Archetype>([
+  'self',
+  'other',
+  'marker',
+  'trunk',
+  'canopy',
+  'grass',
+]);
 
+/**
+ * The default shape for an archetype.
+ *
+ * The three scatter archetypes are the exception the `Placement.geometry` field exists for: a trunk's
+ * geometry is a *(variant, LOD)* pair chosen per room and per chunk distance, so `scatter.ts` writes
+ * the key straight onto the placement and these entries are only the LOD0 fallback a reader would
+ * expect to find. `grass` is genuinely one shape.
+ */
 export const ARCHETYPE_GEOMETRY: Readonly<Record<Archetype, GeometryKey>> = {
   ground: 'box',
   edge: 'box',
@@ -139,6 +316,9 @@ export const ARCHETYPE_GEOMETRY: Readonly<Record<Archetype, GeometryKey>> = {
   // A flat ring, exactly `glow`'s shape — see `marker.ts` for why the geometry is shared but the
   // material is not.
   marker: 'torus',
+  trunk: treeGeometryKey(TREE_VARIANTS[0], 'trunk', 0),
+  canopy: treeGeometryKey(TREE_VARIANTS[0], 'canopy', 0),
+  grass: 'grassCross',
 };
 
 /**
@@ -163,6 +343,10 @@ export const ARCHETYPE_GEOMETRY: Readonly<Record<Archetype, GeometryKey>> = {
  *   solid disc sitting on the grass rather than as a mark on it.
  * - Everything with height casts, including bodies: the plan's *"soft moon shadows"* is mostly walls
  *   and props, but a character with no shadow floats however good the terrain looks.
+ * - **`trunk` and `canopy` cast; `grass` does not.** The canopy is the whole reason `foliage.ts` has
+ *   a `customDepthMaterial` at all — a treeline that does not break the moonlight is a treeline that
+ *   is not there. Undergrowth is excluded because a 30 cm tuft's shadow is smaller than the shadow
+ *   map's own 2 cm texel is soft, so it costs a draw call per chunk and returns a smudge.
  */
 export const ARCHETYPE_CASTS: Readonly<Record<Archetype, boolean>> = {
   ground: false,
@@ -178,6 +362,9 @@ export const ARCHETYPE_CASTS: Readonly<Record<Archetype, boolean>> = {
   self: true,
   other: true,
   marker: false,
+  trunk: true,
+  canopy: true,
+  grass: false,
 };
 
 /**
@@ -234,10 +421,27 @@ export function materialKey(archetype: Archetype, sector: Sector | undefined, fa
   return `${archetype}${biome}${faded && !NEVER_FADED.has(archetype) ? '|dim' : ''}`;
 }
 
-/** Every key {@link materialKey} can ever return, enumerated once. The pool is built from this. */
+/**
+ * The material a baked tree's mesh is drawn with — M5a's second key shape.
+ *
+ * Separate from {@link materialKey} rather than a fourth parameter on it, because the two answer
+ * different questions and a function that took both a sector and a variant would be a function where
+ * three quarters of the argument space is meaningless. Same string discipline: `trunk|pine-tall`,
+ * `canopy|fir-dense`.
+ */
+export function treeMaterialKey(archetype: (typeof VARIANT_ARCHETYPES)[number], variant: TreeVariant): MaterialKey {
+  return `${archetype}|${variant}`;
+}
+
+/** Every key {@link materialKey} and {@link treeMaterialKey} can ever return, enumerated once. */
 export const MATERIAL_KEYS: readonly MaterialKey[] = (() => {
   const keys: MaterialKey[] = [];
   for (const archetype of ARCHETYPES) {
+    if (VARIANT_KEYED.has(archetype)) {
+      const variantArchetype = archetype as (typeof VARIANT_ARCHETYPES)[number];
+      for (const variant of TREE_VARIANTS) keys.push(treeMaterialKey(variantArchetype, variant));
+      continue;
+    }
     const sectors = BIOME_KEYED.has(archetype) ? SECTORS : ([undefined] as const);
     for (const sector of sectors) {
       keys.push(materialKey(archetype, sector, false));
@@ -246,6 +450,25 @@ export const MATERIAL_KEYS: readonly MaterialKey[] = (() => {
   }
   return keys;
 })();
+
+/**
+ * Which material family a key belongs to — the thing that decides how many *programs* the pool costs.
+ *
+ * Three, and the count is the point. `plain` is M3/M4's `MeshLambertMaterial` with a colour uniform;
+ * `blend` is the same Lambert under `blend.ts`'s two-layer patch; `foliage` is the same Lambert under
+ * `foliage.ts`'s wind, bent normals, translucency and alpha clip. Everything that differs *within* a
+ * family is a uniform, so a family is one compiled program however many materials wear it — 48 ground
+ * materials share one program, and eight canopies plus sixteen undergrowths share another.
+ */
+export const MATERIAL_FAMILIES = ['plain', 'blend', 'foliage'] as const;
+
+export type MaterialFamily = (typeof MATERIAL_FAMILIES)[number];
+
+export function materialFamily(archetype: Archetype): MaterialFamily {
+  if (archetype === 'ground') return 'blend';
+  if (archetype === 'canopy' || archetype === 'grass') return 'foliage';
+  return 'plain';
+}
 
 /* -------------------------------------------------------------------------- */
 /* Colour                                                                      */
@@ -299,6 +522,15 @@ const OBJECT_COLOUR: Readonly<Record<Archetype, number>> = {
   other: 0xff9a5c,
   // Near-black, the same reasoning as `portal`/`glow` above: a destination ring emits, it is not lit.
   marker: 0x1a1710,
+  // The three scatter archetypes never reach here: `trunk` and `canopy` take their variant's own bark
+  // and needle from the registry (see `trees.ts`), and `grass` is biome-keyed below. The entries exist
+  // because the record is total, and they are the colour a tree would be if nothing ever registered
+  // one — which is a case the scatter refuses to draw at all, so they are never seen. Kept in step
+  // with the palette anyway: soft, saturated and flat, the register the Quaternius Stylized Nature
+  // kit sets and the one the owner has chosen for the world.
+  trunk: 0x6b4f3a,
+  canopy: 0x3f7f52,
+  grass: 0x000000,
 };
 
 /**
@@ -323,7 +555,15 @@ export function archetypeColour(archetype: Archetype, sector: Sector | undefined
   // A barrier is the same material as an edge, darkened — thickness is what says "you cannot pass",
   // and a second hue would say something the classification does not mean.
   if (archetype === 'barrier') return darken(SECTOR_COLOUR[sector ?? 'field'].dressing, 0.7);
+  // Undergrowth is the ground it grows out of, one step darker and one step greener: a tuft that
+  // matched its ground exactly would be invisible, and one with its own hue would read as litter.
+  if (archetype === 'grass') return darken(SECTOR_COLOUR[sector ?? 'field'].ground, 0.78);
   return OBJECT_COLOUR[archetype];
+}
+
+/** The ground colour of a sector, for the far side of a {@link blend} boundary. */
+export function sectorGround(sector: Sector): number {
+  return SECTOR_COLOUR[sector].ground;
 }
 
 function darken(colour: number, factor: number): number {
@@ -331,6 +571,29 @@ function darken(colour: number, factor: number): number {
   const g = Math.round(((colour >> 8) & 0xff) * factor);
   const b = Math.round((colour & 0xff) * factor);
   return (r << 16) | (g << 8) | b;
+}
+
+/**
+ * sRGB hex to the linear working space three's shaders actually mix in.
+ *
+ * Here rather than in `blend.ts` because `chunkPlan.ts` needs it and `chunkPlan.ts` is deliberately
+ * *"not a `three` import in sight"* — the ground's per-instance layer-B colour is computed on the
+ * pure side and handed to the shader as three floats, and a colour handed over in sRGB would be
+ * mixed against a linear `diffuseColor` and come out visibly too bright at the seam. This is
+ * `Color.SRGBToLinear`'s own curve, restated: the same numbers three would produce, from a file that
+ * cannot import it.
+ */
+export function srgbToLinear(channel: number): number {
+  return channel < 0.04045 ? channel * 0.0773993808 : Math.pow(channel * 0.9478672986 + 0.0521327014, 2.4);
+}
+
+/** `0xRRGGBB` to linear `[r, g, b]`, each in `[0, 1]`. See {@link srgbToLinear}. */
+export function linearRgb(hex: number): readonly [number, number, number] {
+  return [
+    srgbToLinear(((hex >> 16) & 0xff) / 255),
+    srgbToLinear(((hex >> 8) & 0xff) / 255),
+    srgbToLinear((hex & 0xff) / 255),
+  ];
 }
 
 /**
@@ -391,4 +654,37 @@ export const DIMENSIONS = {
   /** A body: `PLAYER_RADIUS` is 10 px = 0.31 m, so the capsule is drawn at the collision box's width. */
   bodyRadius: 0.32,
   bodyHeight: 1.8,
+  /** An undergrowth tuft, in metres. Knee height: enough to catch the moon, not enough to hide a body. */
+  grassWidth: 0.55,
+  grassHeight: 0.42,
 } as const;
+
+/* -------------------------------------------------------------------------- */
+/* Scatter — the numbers the wrapper ceiling is derived from                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How many tree species one room may grow. **This is a pool constant before it is an art one.**
+ *
+ * Every distinct `(geometry, material)` pair a chunk produces is a bucket, and a bucket is at least
+ * one `InstancedMesh` out of the free list. Letting a room roll freely over all eight variants would
+ * make a chunk's bucket count a property of a hash rather than of the program, and `pool.ts`'s
+ * ceiling would stop being a bound. Three is the smallest number at which a treeline does not read as
+ * a hedge of clones — the plan's risk 4, *"don't be surprised when the first forest looks like every
+ * other forest"* — and it costs `3 x 2 = 6` buckets a chunk.
+ */
+export const TREE_VARIANTS_PER_ROOM = 3;
+
+/**
+ * The hard cap on trees in one room, boundary and interior together.
+ *
+ * Exactly {@link pool.WRAPPER_CAPACITY}, and that is not a coincidence: it is the largest number for
+ * which *"every tree in this room landed on the same variant"* still fits in one wrapper, so the
+ * per-chunk wrapper count is `TREE_VARIANTS_PER_ROOM x TREE_PARTS.length` whatever the hash does.
+ * `scatter.ts` truncates rather than spilling, and `scatter.test.ts` asserts the cap holds over the
+ * whole built world.
+ */
+export const TREES_PER_ROOM_MAX = 32;
+
+/** The same argument for undergrowth: one bucket, one wrapper, whatever the room. */
+export const GRASS_PER_ROOM_MAX = 32;

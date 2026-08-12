@@ -34,6 +34,15 @@
  * the start: the first window mints its wrappers, and a handful more arrive as the walk meets its
  * first dense cell. What must not happen is that the minting *continues*.
  *
+ * ## M5a: the walk grows trees
+ *
+ * The scatter is the largest single source of instances in the renderer — 59,059 trees and 188,884
+ * tufts over the built world — so a flat-ledger test that ran with the trees switched off would be
+ * measuring M4 and reporting on M5. `TreeSet.standIn` fills the pool with proportioned stand-ins so
+ * the whole path runs headless: the placements, the buckets, the LOD tier changes as the window
+ * recentres, and the rebuilds those cause. A rebuild is a release and an acquire and must allocate
+ * nothing, which is exactly what the baseline-to-end comparison says.
+ *
  * Follows `worldgen/src/roomscene-world.test.ts`'s skip-if-absent shape: `data/world` is git-ignored
  * and reproducible with `npm run worldgen`.
  */
@@ -118,9 +127,13 @@ describe('M3: streaming a real world with a flat ledger', () => {
 
   it(`walks ${TRAVERSAL_ROOMS} rooms of the built world without allocating`, () => {
     const world = new World3D();
+    // M5a: the scatter must be running or this measures the wrong renderer. See the header.
+    world.trees.standIn(world.pool);
     let visited = 0;
     let places = 0;
     let chunkHigh = 0;
+    let treeHigh = 0;
+    let scatterHigh = 0;
     let baseline: ReturnType<World3D['ledger']> | undefined;
 
     outer: for (const zone of zones) {
@@ -139,6 +152,9 @@ describe('M3: streaming a real world with a flat ledger', () => {
         world.groundAt((origin.tx + ROOM_TILES / 2) * TILE_SIZE, (origin.ty + ROOM_TILES / 2) * TILE_SIZE);
         visited += 1;
         chunkHigh = Math.max(chunkHigh, world.chunksLoaded);
+        const census = world.scatterCensus();
+        treeHigh = Math.max(treeHigh, census.trees);
+        scatterHigh = Math.max(scatterHigh, census.instances);
         assert.ok(
           world.chunksLoaded <= MAX_WINDOW_CHUNKS,
           `${world.chunksLoaded} chunks live, over the ${MAX_WINDOW_CHUNKS} bound, at room ${visited}`,
@@ -153,12 +169,14 @@ describe('M3: streaming a real world with a flat ledger', () => {
     const end = world.ledger();
 
     console.log(
-      `[M3 traversal] ${visited} rooms across ${places} Places in ${Date.now() - started} ms\n` +
+      `[M5a traversal] ${visited} rooms across ${places} Places in ${Date.now() - started} ms\n` +
         `  pool          geometries ${end.geometries}  materials ${end.materials}  prewarmed ${end.prewarmed}\n` +
+        `  programs      materials ${end.programs}  depth ${end.depthProgramCount}\n` +
         `  wrappers      created ${end.wrappersCreated}  live ${end.wrappersLive}  free ${end.wrappersFree}` +
-        `  high-water ${end.wrapperHighWater}\n` +
+        `  high-water ${end.wrapperHighWater}  of which blend ${end.blendWrappers}\n` +
         `  churn         acquires ${end.acquires}  releases ${end.releases}\n` +
         `  chunks        high-water ${chunkHigh} of ${MAX_WINDOW_CHUNKS}\n` +
+        `  scatter       trees high-water ${treeHigh}  instances high-water ${scatterHigh}\n` +
         `  bytes         at room ${BASELINE_ROOM}: ${baseline.bytes}   at room ${visited}: ${end.bytes}\n` +
         `                geometry ${end.geometryBytes} + instance ${end.instanceBytes}`,
     );
@@ -174,6 +192,14 @@ describe('M3: streaming a real world with a flat ledger', () => {
     // minted after boot and `wrappersCreated` is a constant rather than a plateau.
     assert.equal(end.wrappersCreated, end.prewarmed, 'a bucket overflowed the ceiling the pool was sized for');
     assert.ok(end.wrapperHighWater < end.prewarmed, 'the ceiling has no headroom left');
+    // M5a: the walk actually grew things. Without this the flat ledger above would be a statement
+    // about a renderer with the trees switched off. Three programs and one depth program, fixed at
+    // boot and unmoved by a thousand rooms of streaming.
+    assert.ok(treeHigh > 20, `only ${treeHigh} trees ever stood in the window`);
+    assert.ok(scatterHigh > 200, `only ${scatterHigh} scatter instances at the peak`);
+    assert.equal(end.programs, 3, 'the material pool grew a program while streaming');
+    assert.equal(end.depthProgramCount, 1);
+    assert.equal(end.programs, baseline.programs);
 
     world.dispose();
   });

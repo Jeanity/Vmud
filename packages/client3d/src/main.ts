@@ -106,6 +106,20 @@ world.setGlowSet(grade.glow);
 const rain = new Rain();
 world.scene.add(rain.mesh);
 
+/**
+ * M5a's one asynchronous boot step: fetch the baked conifers.
+ *
+ * Deliberately **not awaited**. §5's delivery rule serves these from `public/` over HTTP and the first
+ * `zone` message can beat them by a second on a cold cache; blocking the renderer on 827 KiB of GLB
+ * would trade a world with no trees for a black screen. The chunks that built before the manifest
+ * landed simply have no vegetation, and the first cell the player crosses rebuilds them with it. If
+ * the whole set is missing — nobody ran `treegen` — the reason goes in the log and the world is M4's.
+ */
+void world.trees.load(world.pool).then((problem) => {
+  if (problem) log.write('error', problem);
+  else log.write('system', `trees: ${world.trees.loaded} variants, ${world.trees.triangles} tris at LOD0`);
+});
+
 /** Server-authoritative facts the loop reads. Held here rather than in the world: none of it draws. */
 let place: Place | undefined;
 let roomId: number | undefined;
@@ -403,6 +417,9 @@ function frame(now: number): void {
 
   world.pool.pulse(now / 1000);
   marker.pulse(now / 1000);
+  // The foliage clock. Wall-clock, like the rain's and the pulse's, and for the same reason: an
+  // accumulator drifts with the frame rate and two players at one treeline should see one wind.
+  world.breathe(now / 1000);
 
   grade.render(seconds);
 }
@@ -632,6 +649,45 @@ const debug = {
     grade.selective = on;
     world.setGlowSet(on ? grade.glow : undefined);
   },
+
+  /* ------------------------------------------------------------------ M5a */
+
+  /** Baked tree variants whose meshes are all in the pool. Eight when the bake is whole. */
+  get treesLoaded(): number {
+    return world.trees.loaded;
+  },
+  /** Trees standing in the loaded window right now. The number a dense forest room is judged on. */
+  get treeInstances(): number {
+    return world.scatterCensus().trees;
+  },
+  /** Every scatter instance including undergrowth — trunks, canopies and tufts. */
+  get scatterInstances(): number {
+    return world.scatterCensus().instances;
+  },
+  /**
+   * Compiled programs the material pool can produce, and the depth programs beside them.
+   *
+   * **The M5a number to watch.** Three colour programs — plain Lambert, blended ground, card foliage
+   * — and one depth program for the foliage's `customDepthMaterial`. Fixed at boot: every difference
+   * within a family is a uniform. Compare against `programs` above, which is what the driver actually
+   * compiled and includes three's own shadow, and the composer's full-screen passes.
+   */
+  get foliagePrograms(): { materials: number; depth: number } {
+    const ledger = world.ledger();
+    return { materials: ledger.programs, depth: ledger.depthProgramCount };
+  },
+  /**
+   * Whether the foliage sways — the **F** key's other end.
+   *
+   * One uniform, shared by every canopy, every tuft and **every one of their depth materials**. Turn
+   * it off and watch a tree's shadow not move: that is `foliage.ts`'s trap 1 passing, by hand.
+   */
+  get windEnabled(): boolean {
+    return world.windEnabled;
+  },
+  set windEnabled(on: boolean) {
+    world.windEnabled = on;
+  },
 };
 
 (window as unknown as { __debug3d: typeof debug }).__debug3d = debug;
@@ -641,11 +697,13 @@ const debug = {
 /* -------------------------------------------------------------------------- */
 
 /**
- * **T** cycles the tone mapping, **R** toggles the rain, **B** toggles the bloom.
+ * **T** cycles the tone mapping, **R** toggles the rain, **B** toggles the bloom, **F** the wind.
  *
- * Three keys because M4 is a judgement made by looking, and reaching for the console between looks
- * costs the comparison its immediacy — the plan's *"judge it side by side with the reference on the
- * same monitor"* is a thing you do with a keyboard.
+ * Four keys because M4 and M5 are judgements made by looking, and reaching for the console between
+ * looks costs the comparison its immediacy — the plan's *"judge it side by side with the reference on
+ * the same monitor"* is a thing you do with a keyboard. **F** earns its place twice over: it is the
+ * mood knob for the foliage *and* the fastest hand check of `foliage.ts`'s trap 1, because a shadow
+ * that jumps when the wind stops is a depth material that was never carrying the displacement.
  *
  * Both of `CLAUDE.md`'s input traps apply and both are answered the way `input.ts` answers them. The
  * gate is checked *and* `intoFormControl` is asked, so a **t** typed into the command line reaches the
@@ -673,12 +731,19 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
       grade.bloomIntensity = grade.bloomIntensity > 0 ? 0 : 1.9;
       log.write('system', `bloom: ${grade.bloomIntensity > 0 ? 'on' : 'off'}`);
       return;
+    case 'KeyF':
+      world.windEnabled = !world.windEnabled;
+      log.write('system', `wind: ${world.windEnabled ? 'on' : 'off'}`);
+      return;
     default:
       return;
   }
 });
 
-log.write('system', 'M4 — T: tone mapping (neutral/agx)   R: rain   B: bloom.  Knobs on window.__debug3d.');
+log.write(
+  'system',
+  'M5a — T: tone mapping (neutral/agx)   R: rain   B: bloom   F: wind.  Knobs on window.__debug3d.',
+);
 
 net.connect();
 

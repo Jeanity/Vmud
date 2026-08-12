@@ -48,14 +48,16 @@
  * announces itself across a dark room without competing with a gate to somewhere else.
  */
 
-import { CARDINALS, LEVEL_SEPARATION, type Cardinal, type RoomScene } from '@mygame/shared';
+import { CARDINALS, LEVEL_SEPARATION, hashCell, type Cardinal, type RoomScene } from '@mygame/shared';
 
 import { METRES_PER_TILE, ROOM_METRES, metresOfTile } from './frame.ts';
 import { groundNoise } from './noise.ts';
 import {
   ARCHETYPE_GEOMETRY,
   DIMENSIONS,
+  linearRgb,
   materialKey,
+  sectorGround,
   type Archetype,
   type GeometryKey,
   type MaterialKey,
@@ -66,7 +68,9 @@ import {
  *
  * Scale is the shape's **full extent** in metres, not a half-extent, because every dimension in
  * `DIMENSIONS` is stated as a full extent and a silent factor of two between the table and the
- * transform is the kind of thing that is only ever found by measuring a wall.
+ * transform is the kind of thing that is only ever found by measuring a wall. **`scatter.ts`'s baked
+ * trees are the one exception** and they say so: a GLB is already in metres, so its scale is a
+ * multiplier and the manifest carries the height it was baked at.
  */
 export interface Placement {
   readonly archetype: Archetype;
@@ -81,6 +85,14 @@ export interface Placement {
   readonly rx: number;
   readonly ry: number;
   readonly rz: number;
+  /**
+   * Layer B's weight at the room block's four corners, in `(u,v)` order `(0,0) (1,0) (1,1) (0,1)` —
+   * M5a's two-layer ground blend. Present on `ground` placements and on nothing else; see `blend.ts`
+   * for why the field is four corners rather than the IR's four edge weights.
+   */
+  readonly blend?: readonly [number, number, number, number];
+  /** Layer B's **linear** colour and the room's `hashCell` breakup phase. Travels with {@link blend}. */
+  readonly tint?: readonly [number, number, number, number];
 }
 
 export interface ChunkPlanInput {
@@ -106,6 +118,67 @@ export interface ChunkPlanInput {
 
 /** Ramp rise over its three-metre run, in metres. A slope, where a stairwell is a ladder. */
 const RAMP_RISE = 1.2;
+
+/** Salt for the ground blend's per-room breakup phase. See `blend.ts` on which half is `hashCell`. */
+const SALT_BLEND_PHASE = 0xb1e7;
+
+/** `hashCell` is unsigned 32-bit; this maps it onto `[0, 1)`. */
+const HASH_RANGE = 0x1_0000_0000;
+
+/**
+ * Which biome this room's ground turns into, and how strongly, at each of its four corners.
+ *
+ * §4's blend is *"one entry per crossable edge whose far ground differs"* and can name up to three
+ * different sectors at once. The shader mixes **two** layers, so one of them has to win, and the rule
+ * is the obvious one: the heaviest weight, ties broken by `CARDINALS` order because `SceneBiome.blend`
+ * is built in that order and a tie broken by iteration order would depend on nothing.
+ *
+ * That is a real simplification and worth naming: a corner room with a field to the north and a bog
+ * to the west shows one of the two, not both. Measured on the built world, a room with two *differing*
+ * neighbour sectors is uncommon and one with three is rare; a three-layer blend would cost a second
+ * instanced colour and a second weight field to fix a case the eye would have to hunt for.
+ *
+ * A corner takes the larger of the two edges it touches, because a corner belongs to both sides and
+ * `max` is what makes a blend that arrives along the north edge wrap round the corner instead of
+ * stopping dead at it. **Roofed rooms get four zeros** — the plan's *"Flat indoors"*, implemented as
+ * the absence of a term rather than as a branch.
+ */
+export function groundBlendOf(scene: RoomScene): {
+  readonly corners: readonly [number, number, number, number];
+  readonly tint: readonly [number, number, number, number];
+  readonly edges: Readonly<Partial<Record<Cardinal, number>>>;
+} {
+  const phase = hashCell(scene.seed, 0, 0, SALT_BLEND_PHASE) / HASH_RANGE;
+  const own = linearRgb(sectorGround(scene.biome.sector));
+  const flat = {
+    corners: [0, 0, 0, 0] as const,
+    tint: [own[0], own[1], own[2], phase] as const,
+    edges: {},
+  };
+  if (scene.enclosure.roofed || scene.biome.blend.length === 0) return flat;
+
+  let dominant = scene.biome.blend[0]!;
+  for (const entry of scene.biome.blend) {
+    if (entry.weight > dominant.weight) dominant = entry;
+  }
+
+  const edges: { -readonly [K in Cardinal]?: number } = {};
+  for (const entry of scene.biome.blend) {
+    if (entry.sector === dominant.sector) edges[entry.dir] = entry.weight;
+  }
+  const n = edges.north ?? 0;
+  const e = edges.east ?? 0;
+  const s = edges.south ?? 0;
+  const w = edges.west ?? 0;
+  const layerB = linearRgb(sectorGround(dominant.sector));
+  return {
+    // (u,v) = (position.x + 0.5, position.z + 0.5): +x is east and +z is south, so (0,0) is the
+    // north-west corner and the winding runs NW, NE, SE, SW.
+    corners: [Math.max(n, w), Math.max(n, e), Math.max(s, e), Math.max(s, w)],
+    tint: [layerB[0], layerB[1], layerB[2], phase],
+    edges,
+  };
+}
 
 /**
  * Where a room's ground sits, in metres, with the camera's own level at zero.
@@ -169,6 +242,11 @@ export function planChunk(input: ChunkPlanInput): readonly Placement[] {
   const cz = z0 + HALF_ROOM;
   const out: Placement[] = [];
 
+  // M5a: which biome this ground turns into, and where. Computed once — the slab and the four mouth
+  // strips are one bucket and must agree, or the seam between a room and its own doorway would be a
+  // second, unintended boundary.
+  const blend = groundBlendOf(scene);
+
   const put = (
     archetype: Archetype,
     x: number,
@@ -180,6 +258,7 @@ export function planChunk(input: ChunkPlanInput): readonly Placement[] {
     rx = 0,
     ry = 0,
     rz = 0,
+    corners?: readonly [number, number, number, number],
   ): void => {
     out.push({
       archetype,
@@ -194,12 +273,25 @@ export function planChunk(input: ChunkPlanInput): readonly Placement[] {
       rx,
       ry,
       rz,
+      ...(corners ? { blend: corners, tint: blend.tint } : {}),
     });
   };
 
   /* ------------------------------------------------------------------ ground */
 
-  put('ground', cx, elevation - DIMENSIONS.groundThickness / 2, cz, ROOM_METRES, DIMENSIONS.groundThickness, ROOM_METRES);
+  put(
+    'ground',
+    cx,
+    elevation - DIMENSIONS.groundThickness / 2,
+    cz,
+    ROOM_METRES,
+    DIMENSIONS.groundThickness,
+    ROOM_METRES,
+    0,
+    0,
+    0,
+    blend.corners,
+  );
 
   /* ------------------------------------------------------------------- sides */
 
@@ -219,6 +311,11 @@ export function planChunk(input: ChunkPlanInput): readonly Placement[] {
     // Half the gap, filled with ground, wherever a mouth crosses. The other half is the far room's.
     if (span > 0) {
       const stripCentre = mouthCentre(x0, z0, dir, offset, span);
+      // The strip is *past* the boundary line, so it carries this side's weight uniformly rather than
+      // a corner field: the room's own ramp has already run out by the time it starts, and a strip
+      // that faded back toward the room's own biome would put a second, backwards boundary inside a
+      // doorway.
+      const at = blend.edges[dir] ?? 0;
       put(
         'ground',
         lateral ? stripCentre : bx + ox * (half / 2),
@@ -227,6 +324,10 @@ export function planChunk(input: ChunkPlanInput): readonly Placement[] {
         lateral ? span : half,
         DIMENSIONS.groundThickness,
         lateral ? half : span,
+        0,
+        0,
+        0,
+        [at, at, at, at],
       );
     }
 

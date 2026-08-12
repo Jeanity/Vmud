@@ -1,0 +1,202 @@
+/**
+ * **Trap 1, asserted.** §5: *"the wind displacement must be duplicated into `customDepthMaterial` or
+ * shadows visibly detach from the animated foliage"* — a day's debugging, according to the plan, and
+ * the kind of bug that only shows up when somebody looks at a tree from the right angle at the right
+ * moment.
+ *
+ * A headless test cannot execute GLSL. What it can do is check the two halves that, together, are the
+ * whole of "the shadow stays attached":
+ *
+ * 1. **Identical code.** The block injected into the visible material's vertex shader and the block
+ *    injected into the depth material's are sliced out of the two compiled sources and compared byte
+ *    for byte. They are the same because they come from one exported constant, and this is the test
+ *    that fails the day somebody copies it to tweak one of them.
+ * 2. **Identical inputs.** Every uniform the displacement reads is checked to be the *same object* in
+ *    both shaders' uniform records — not an equal value, the same reference — so there is no second
+ *    clock to drift against and no way to write a strength to one and not the other. Then
+ *    {@link foliageWindOffset}, the TypeScript mirror of the GLSL, is run over a grid of positions
+ *    and times from each material's own uniform objects and the two runs are compared.
+ *
+ * Identical code plus identical inputs is a proof by construction, and the two assertions are what
+ * keep the construction true.
+ *
+ * The mirror also lets the *shape* of the motion be asserted rather than eyeballed: nothing moves at
+ * the foot of the trunk, nothing moves with the wind off, the offset is bounded, and two trees a
+ * metre apart are out of phase.
+ */
+
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+
+import { ShaderLib } from 'three';
+
+import {
+  FOLIAGE_MASK_GLSL,
+  FOLIAGE_VERTEX_DECL,
+  FOLIAGE_WIND_GLSL,
+  WIND_STRENGTH,
+  createFoliageMaterial,
+  createWindClock,
+  foliageWindOffset,
+  type ShaderPatch,
+} from './foliage.ts';
+
+/** A stand-in for what three hands `onBeforeCompile`, built from the real chunk sources. */
+function shaderFor(kind: 'lambert' | 'depth'): ShaderPatch {
+  const lib = kind === 'lambert' ? ShaderLib.lambert : ShaderLib.depth;
+  return { vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader, uniforms: {} };
+}
+
+/** Run a material's `onBeforeCompile` and hand back what it wrote. */
+function compile(material: { onBeforeCompile?: unknown }, kind: 'lambert' | 'depth'): ShaderPatch {
+  const shader = shaderFor(kind);
+  const patch = material.onBeforeCompile as (s: unknown, r: unknown) => void;
+  patch(shader, undefined);
+  return shader;
+}
+
+describe('the card-foliage material', () => {
+  it('injects the same wind displacement into the material and its depth twin', () => {
+    const clock = createWindClock();
+    const pair = createFoliageMaterial(clock, { height: 12 }, 0x2c4a30, 'canopy|test');
+    const lit = compile(pair.material, 'lambert');
+    const shadow = compile(pair.depth, 'depth');
+
+    // The constant, present in both. Not "a function called foliageWind" — the text.
+    assert.ok(lit.vertexShader.includes(FOLIAGE_WIND_GLSL), 'the material lost the wind');
+    assert.ok(shadow.vertexShader.includes(FOLIAGE_WIND_GLSL), 'the depth material lost the wind');
+    assert.ok(lit.vertexShader.includes(FOLIAGE_VERTEX_DECL));
+    assert.ok(shadow.vertexShader.includes(FOLIAGE_VERTEX_DECL));
+
+    // And the call site, which is where a copy would drift even if the function did not.
+    const call = 'transformed += foliageWind(position, instanceMatrix[3].xyz, aCard.x);';
+    assert.ok(lit.vertexShader.includes(call), 'the material never calls it');
+    assert.ok(shadow.vertexShader.includes(call), 'the depth material never calls it');
+
+    // The clip has to happen in the shadow pass too, or every tree drops a solid rectangle.
+    assert.ok(shadow.fragmentShader.includes(FOLIAGE_MASK_GLSL), 'the depth material has no mask');
+    assert.ok(shadow.fragmentShader.includes('diffuseColor.a *= foliageMask('));
+  });
+
+  it('drives both from the same uniform objects, not from equal values', () => {
+    const clock = createWindClock();
+    const pair = createFoliageMaterial(clock, { height: 12 }, 0x2c4a30, 'canopy|test');
+    const lit = compile(pair.material, 'lambert');
+    const shadow = compile(pair.depth, 'depth');
+
+    for (const name of ['uTime', 'uWind', 'uWindDir', 'uWindStrength', 'uWindSpeed', 'uWindGain', 'uTreeHeight']) {
+      assert.ok(lit.uniforms[name], `the material never got ${name}`);
+      assert.equal(shadow.uniforms[name], lit.uniforms[name], `${name} is two objects, so it can drift`);
+    }
+    // The shared clock is the object itself, so `world3d.breathe` and the F key reach both.
+    assert.equal(lit.uniforms['uTime'], clock.uTime);
+    assert.equal(shadow.uniforms['uWind'], clock.uWind);
+  });
+
+  it('displaces identically when driven from either material', () => {
+    const clock = createWindClock();
+    const pair = createFoliageMaterial(clock, { height: 14 }, 0x2c4a30, 'canopy|test');
+    const lit = compile(pair.material, 'lambert');
+    const shadow = compile(pair.depth, 'depth');
+
+    // Two callers, each reading the uniform objects out of *its own* shader's record. If the depth
+    // path had been given its own copies, these would agree at t=0 and diverge the moment the frame
+    // loop wrote a time to one of them — which is exactly the bug, so the sweep moves the clock.
+    const from = (record: Record<string, { value: unknown }>): typeof clock =>
+      ({
+        uTime: record['uTime'],
+        uWind: record['uWind'],
+        uWindDir: record['uWindDir'],
+        uWindStrength: record['uWindStrength'],
+        uWindSpeed: record['uWindSpeed'],
+      }) as unknown as typeof clock;
+    const litClock = from(lit.uniforms);
+    const shadowClock = from(shadow.uniforms);
+    const litOwn = { uTreeHeight: lit.uniforms['uTreeHeight'], uWindGain: lit.uniforms['uWindGain'] };
+    const shadowOwn = { uTreeHeight: shadow.uniforms['uTreeHeight'], uWindGain: shadow.uniforms['uWindGain'] };
+
+    let samples = 0;
+    for (let step = 0; step < 40; step++) {
+      // The frame loop writes here, and only here. Both shaders must see it.
+      clock.uTime.value = step * 0.137;
+      for (const y of [0, 3.5, 9, 14]) {
+        for (const card of [0, 0.31, 0.87]) {
+          const local: readonly [number, number, number] = [0.4, y, -0.2];
+          const origin: readonly [number, number, number] = [17.5 + step, 0, -8.25];
+          const a = foliageWindOffset(local, origin, card, litClock, litOwn as never);
+          const b = foliageWindOffset(local, origin, card, shadowClock, shadowOwn as never);
+          assert.deepEqual(b, a, `the shadow displaced differently at t=${clock.uTime.value}, y=${y}`);
+          samples += 1;
+        }
+      }
+    }
+    assert.equal(samples, 40 * 4 * 3);
+  });
+
+  it('moves nothing at the foot, everything at the tip, and nothing at all with the wind off', () => {
+    const clock = createWindClock();
+    const pair = createFoliageMaterial(clock, { height: 10 }, 0x2c4a30, 'canopy|test');
+    const own = pair.uniforms;
+    clock.uTime.value = 3.7;
+    const origin: readonly [number, number, number] = [11, 0, 22];
+
+    // `-0` is not `0` to `deepStrictEqual` and is to everything else; normalised so the assertion is
+    // about the tree standing still rather than about IEEE 754.
+    const still = (v: readonly [number, number, number]): number[] => v.map((n) => n + 0);
+    assert.deepEqual(still(foliageWindOffset([0, 0, 0], origin, 0.5, clock, own)), [0, 0, 0], 'the base moved');
+
+    const tip = foliageWindOffset([0, 10, 0], origin, 0.5, clock, own);
+    const mid = foliageWindOffset([0, 5, 0], origin, 0.5, clock, own);
+    // `bend = h * h`, so the tip moves four times as far as the half-way point. A cantilever, not a
+    // shear — see `FOLIAGE_WIND_GLSL`.
+    assert.ok(Math.abs(tip[0]) > Math.abs(mid[0]) * 3.5, 'the sway is not a cantilever');
+
+    // Bounded by the strength, as a fraction of height: gust <= 1, flutter <= 0.18.
+    const bound = WIND_STRENGTH * 10 * 1.2;
+    assert.ok(Math.abs(tip[0]) <= bound && Math.abs(tip[2]) <= bound, `${tip[0]} exceeds ${bound}`);
+    // The arc drops rather than stretching.
+    assert.ok(tip[1] <= 0);
+
+    clock.uWind.value = 0;
+    assert.deepEqual(still(foliageWindOffset([0, 10, 0], origin, 0.5, clock, own)), [0, 0, 0]);
+  });
+
+  it('sways two trees a metre apart out of phase', () => {
+    const clock = createWindClock();
+    const pair = createFoliageMaterial(clock, { height: 10 }, 0x2c4a30, 'canopy|test');
+    clock.uTime.value = 1.25;
+    const here = foliageWindOffset([0, 10, 0], [40, 0, 40], 0.5, clock, pair.uniforms);
+    const there = foliageWindOffset([0, 10, 0], [41, 0, 40], 0.5, clock, pair.uniforms);
+    assert.notEqual(here[0], there[0], 'the whole treeline is one sheet');
+  });
+
+  it('clips rather than blends, and is two-sided so the moon can rim it', () => {
+    const clock = createWindClock();
+    const pair = createFoliageMaterial(clock, { height: 10 }, 0x2c4a30, 'canopy|test');
+    // §5: *"clip, not blend, so they shadow-map and sort correctly"*. `transparent` true would put
+    // every tree in the transparent queue behind the rain, with no depth write and no sort.
+    assert.equal(pair.material.transparent, false);
+    assert.equal(pair.material.alphaToCoverage, true);
+    assert.ok(pair.material.alphaTest > 0.3 && pair.material.alphaTest < 0.5);
+    // `DoubleSide` is 2 in three's enum. Both the translucency term and the crossed cards need it.
+    assert.equal(pair.material.side, 2);
+    assert.equal(pair.depth.side, 2);
+  });
+
+  it('bends the normal onto a cone and its tiers, not onto a sphere', () => {
+    const clock = createWindClock();
+    const pair = createFoliageMaterial(clock, { height: 12, coneSlope: 5.6, tiers: 8, droop: 0.35 }, 0x2c4a30, 'c');
+    const lit = compile(pair.material, 'lambert');
+    // Trap 2, as a text assertion, because it is the *recipe* that is wrong in the broadleaf version
+    // and a recipe is a shape of code. The cone shell must use the slope; the tiers must use the
+    // card's own height; and the spherical `normalize(position - centre)` must be nowhere near it.
+    assert.ok(lit.vertexShader.includes('radial.x * uConeSlope'), 'the cone shell lost its slope');
+    assert.ok(lit.vertexShader.includes('fract(tierCoord * uTiers)'), 'the tiers are gone');
+    assert.ok(lit.vertexShader.includes('foliageBentNormal(position, objectNormal, aCard.y)'));
+    // The broadleaf recipe, absent: a normal bent toward a *centre* rather than onto a shell.
+    assert.ok(!/normalize\s*\(\s*local\s*-/.test(lit.vertexShader), 'that is the broadleaf recipe');
+    // The depth pass has no normals and must not pay for one.
+    const shadow = compile(pair.depth, 'depth');
+    assert.ok(!shadow.vertexShader.includes('foliageBentNormal'), 'the depth pass bent a normal');
+  });
+});

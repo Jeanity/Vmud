@@ -13,11 +13,15 @@ after and displaces whatever this milestone plants, so nothing here needs to kno
 
 - `docs/PLAN-3d-migration.md` §5 (art, delivery, the wetness/water cost note, tone-mapping note)
   and the **2026-08-13 amendment** at the top.
-- **M5a's commit message and diff** — it owns `chunkPlan/streamer/pool/prototypes/world3d` today
-  and was steered mid-flight to keep its scatter/instancing **mesh-source-agnostic**. Whatever
-  layout it established under `packages/client3d/public/` is the layout to extend, and wherever it
-  put its per-sector palette table is where the kit palette goes (lift it to `shared` if it grew
-  inside `client3d` — palettes are decisions, and decisions live where tests can reach them).
+- **M5a's commit and diff (landed 2026-08-13)** — the seam you plug into is built and tested:
+  `TREE_SOURCE` partitions `TREE_VARIANTS` into `'baked'` and `'kit'` (`prototypes.ts`; the `'kit'`
+  side is empty and waiting), `TreeSet` is a **registry** (`load` *merges* manifests;
+  `registerGeometry` accepts any `BufferGeometry` under a `(variant, part, lod)` key), and nothing
+  downstream of `trees.ts` can tell a kit tree from a baked one. Kit leaf primitives go through
+  the same foliage material family (`foliage.ts` + `createFoliageDepth`) — the wind uniforms are
+  shared **by reference** between surface and depth materials; never construct a second set, or
+  shadows detach (the trap its tests pin). `packages/client3d/public/models/` is git-ignored and
+  regenerated like `data/world`; extend it beside `models/trees/`.
 - `CLAUDE.md` gotchas 3 and 8 (no `enum`/`namespace`, no constructor parameter properties — Node
   strips types and both emit code) and rule 3 (no `Math.random()` anywhere the simulation can see).
 
@@ -48,9 +52,9 @@ Facts that shape the work:
 - **The kit is already at world scale.** One room cell is 9 m; a CommonTree is 7–9.4 m tall on a
   ~4 m crown. **No normalization pass** — apply only per-instance jitter (scale ~0.85–1.15,
   yaw random, tiny tilt) through the seeded RNG.
-- **One anomaly: `Fern_1` claims a 9.0×8.5 m bbox at 288 tris.** It is either a multi-frond ground
-  patch or a bad export. Inspect it in the browser first; if it is a patch, scatter it at 0.3–0.5
-  scale as forest-floor fill; if it is broken, drop it — do not ship a two-storey fern.
+- **The `Fern_1` mystery is settled headlessly**: one mesh, one primitive, 243 vertices genuinely
+  spread over 9.0×8.5 m — a multi-frond ground patch, not a bad export. Scatter it at 0.3–0.5
+  scale as forest-floor fill.
 - **Leaf materials are the wind hook.** Tree GLTFs carry 2 materials (bark + leaves; leaf textures
   named `Leaves_*.png`/`Grass.png`/`Flowers.png`). M5a's foliage material (wind sway keyed on
   instance-position hash, `customDepthMaterial` matched — plan §5 trap) must be patched onto kit
@@ -96,7 +100,8 @@ wedged behind a log once). Understory never blocks.
 
 ## Water, wetness, daylight
 
-- **Water**: one surface per chunk where the IR says water; depth-fade by ground depth below the
+- **Water**: one surface per chunk where the IR says water — `shallow_water` / `deep_water` /
+  `underwater` are real sectors in the tilemap's own list; depth-fade by ground depth below the
   plane, a foam line where water meets land cells, gentle normal scroll. Not a blue plane (plan
   §5's exact warning), and not a whole-world mesh.
 - **Wetness**: rain already exists and is gated on `roofed`. Add the wet response: roughness drop
@@ -106,8 +111,9 @@ wedged behind a log once). Understory never blocks.
 - **Daylight**: the confirmation image is sunlit. Build a day recipe beside the night one — warm
   sun (one directional, same per-frame shadow refit), sky-blue hemisphere, fog pushed back and
   brightened, tone mapping stays **Neutral** (M4 finding: AgX sheds chroma). Wire a debug key to
-  sweep time of day; if the server already ticks MUD game-hours, drive it from that and say so in
-  the commit; if not, leave the hook named and keep the toggle.
+  sweep time of day. **Settled 2026-08-13: the server ticks no game-hour clock** (the only "hour"
+  matches under `server/src` are scheduler and board timestamps), so leave the hook named and keep
+  the toggle — a MUD day/night clock is future server work, not this milestone's.
 
 ## Acceptance
 
