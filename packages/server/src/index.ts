@@ -292,6 +292,7 @@ import {
   type PlayerRecord,
 } from './players.ts';
 import { QUESTS_FILE, carriedForQuest, consumeBrought, loadQuests, objectivePhrase, questsBy } from './quests.ts';
+import { membershipDiff, roomsSeeingInto, visibleBodies, type CrossingDeps } from './nearby.ts';
 import { afterLook, directionFrom, nameable, peek, revealShownIn, REVERSE } from './peek.ts';
 import { RANGED_THREAT_FACTOR, breakChance, rollChance, takeMissile, wrongTargetChance } from './ranged.ts';
 import {
@@ -1340,12 +1341,34 @@ if (world.staleExtents.length > 0) {
  * Which other entities each connected player is currently being shown.
  *
  * The client holds a list of entities and mutates it with `entityEnter`/`entityLeave`, so the server
- * has to remember what it already said. Both gates fold into this one set: an entity is in it when
- * it is in your room *and* lit. Walking out of someone's torchlight therefore produces a plain
- * `entityLeave`, the same message as walking out of their room — the client needs no new concept and
- * the protocol needs no new message.
+ * has to remember what it already said. Every gate folds into this one set — `visibleEntities` is
+ * where they are resolved, and this is the answer it gave last time. Walking out of someone's
+ * torchlight therefore produces a plain `entityLeave`, the same message as walking out of their room,
+ * and the client needs no new concept for either.
+ *
+ * It is also **the audience index**, and that became worth saying on 2026-08-13: since visibility
+ * reaches one open crossing beyond the room, "who should be told this entity changed" is no longer
+ * answerable by `playersIn(actor.roomId)`. It is answerable by exactly this map, without a room lookup
+ * — see {@link watchersOf}.
  */
 const watching = new Map<EntityId, Set<EntityId>>();
+
+/**
+ * Every connected player currently being shown `id` — the audience for a change to an entity that has
+ * neither entered nor left.
+ *
+ * Reads the watch sets rather than the room, which is both cheaper (one pass over the connected
+ * players, no room graph) and *exactly* right: an `entityUpdate` or a turn is only ever meaningful to
+ * somebody who already has the entity, whatever rule put it there. The room-based version silently
+ * became wrong the day a body could be visible from the room next door.
+ */
+function* watchersOf(id: EntityId): Iterable<Player> {
+  for (const [observerId, shown] of watching) {
+    if (!shown.has(id)) continue;
+    const observer = sim.player(observerId);
+    if (observer) yield observer;
+  }
+}
 
 /**
  * Who is walking behind whom — Phase 18. See `following.ts`.
@@ -1454,17 +1477,6 @@ function actToRoom(
 }
 
 /**
- * Everything in `observer`'s room that light currently falls on, including the observer.
- *
- * Everything must be standing on, or lying on, a lit tile — {@link canSee} is the test.
- *
- * **The single authority on entity presence.** Both gates are resolved here, so no caller has to
- * remember to apply one of them, and — more importantly — the room view and the incremental
- * `entityEnter`/`entityLeave` diff are built from the same list. Two implementations would disagree
- * the moment one of them learned about a new kind of entity, which is exactly what ground pickups
- * are.
- */
-/**
  * The rooms a peek is currently showing this player — **and the one place a stale set is dropped.**
  *
  * Reading clears, which is deliberate. `Player.revealed` invalidates by comparing where it was made
@@ -1482,40 +1494,58 @@ function revealedRooms(player: Player): ReadonlySet<RoomId> {
   return shown;
 }
 
+/**
+ * The room-graph lookups the crossing rules need — one construction, so the entity feed and the
+ * notification fan-out cannot drift apart about what "open" means. `peekDeps`' own pattern.
+ *
+ * `world.doorway` rather than `exit.door`, exactly as `stepRoom` does it: the 5 exits in the shipped
+ * world that face a door without declaring one share the same carved strip of tiles, so a rule reading
+ * only its own side would make one of them a wall from one room and a window from the other.
+ */
+function crossingDeps(): CrossingDeps {
+  return {
+    roomOf: (id: RoomId) => sim.room(id),
+    hasDoor: (from: RoomId, dir: Direction) => world.doorway(from, dir) !== undefined,
+  };
+}
+
+/**
+ * Everything `observer` can currently see: the bodies, and the things on the floor light falls on.
+ *
+ * **The single authority on entity presence.** Every gate is resolved here, so no caller has to
+ * remember to apply one — and, more importantly, the room view and the incremental
+ * `entityEnter`/`entityLeave` diff are built from the same list. Two implementations would disagree
+ * the moment one of them learned about a new kind of entity, which is exactly what ground pickups were
+ * and exactly what the room next door is.
+ *
+ * **Bodies reach one open crossing out; the floor does not.** Since 2026-08-13 the actor sources are
+ * three (see {@link visibleBodies}), but pickups, corpses and dropped items below are still
+ * `observer.roomId` and a lit tile — deliberately. The owner's ask was about *what is standing in the
+ * next room*; a dagger on a floor you are not in is not something a camera makes obvious, and offering
+ * one would put `get` in the position of refusing a thing the screen had just advertised. It also keeps
+ * the item stores' own room-scoped `entityLeave` sites correct without a fan-out: nobody outside the
+ * room ever watches an item.
+ */
 function visibleEntities(observer: Player): EntityView[] {
   const grid = world.grid(observer.place);
   if (!grid) return [];
 
-  const out: EntityView[] = [];
+  // **All three body sources, unioned and de-duplicated in one place** — `nearby.ts` owns the rules and
+  // this owns the lookups. The three are: your own room through your own light (`canSee`, and the only
+  // one whose bodies stay *nameable*); whatever a `look <direction>` is still showing; and — the
+  // owner's ruling of 2026-08-13 — every room sharing an **open crossing** with yours that lights
+  // itself. See that module's header for the gauntlet and for why reach does not widen with sight.
+  //
   // `actorsIn`, not `playersIn`: presence is about what is standing here, and a mob is standing here.
-  // This one word is what makes a mob visible at all, and it is the *only* change the gate needed —
   // `canSee` already asked the right question of any body, so a sentry is hidden by unlit ground and
   // revealed by a torch through the code that was already doing it for players.
-  for (const other of sim.actorsIn(observer.roomId)) {
-    if (canSee(observer, other)) out.push(sim.viewOf(other));
-  }
-
-  // **Ranged slice 2 — the bodies you peeked at, which no other rule here would send.**
-  //
-  // `DESIGN-ranged.md` guessed these were already on the wire because interest management covers "the
-  // room and its immediate neighbours". That is true of *rooms* and not of *bodies*: the loop above is
-  // `actorsIn(observer.roomId)` and nothing else, so until now a kobold one room west was never sent at
-  // all. Slice 2 is therefore server work, not the client work the plan expected.
-  //
-  // Deliberately **not** through `canSee`: that asks whether the observer's own light reaches the body,
-  // and it never does across a room boundary. `peek` has already answered the question that matters —
-  // the far room lights itself or somebody in it carries a torch — so the gate was passed at the moment
-  // of looking, and re-asking the wrong one here would send nothing.
-  //
-  // Same Place only. A revealed body is drawn at its world position, and positions are tile coordinates
-  // on one grid; a neighbour across a zone or level edge belongs to another and would be drawn at a
-  // meaningless spot on this one.
-  for (const roomId of revealedRooms(observer)) {
-    for (const other of sim.actorsIn(roomId)) {
-      if (!samePlace(other.place, observer.place)) continue;
-      out.push({ ...sim.viewOf(other), revealed: true });
-    }
-  }
+  const out: EntityView[] = visibleBodies(observer, {
+    ...crossingDeps(),
+    actorsIn: (id: RoomId) => sim.actorsIn(id),
+    viewOf: (actor: Actor) => sim.viewOf(actor),
+    canSee: (subject: Actor) => canSee(observer, subject),
+    revealed: revealedRooms(observer),
+  });
 
   const pickup = visiblePickup(observer, grid);
   if (pickup) out.push(pickupViewOf(pickup));
@@ -1576,14 +1606,13 @@ function syncEntities(observer: Player, leaving?: { readonly id: EntityId; reado
   const shown = watching.get(observer.id);
   if (!shown) return;
 
-  const now = new Set<EntityId>();
-  for (const entity of visibleEntities(observer)) {
-    if (entity.id === observer.id) continue;
-    now.add(entity.id);
-    if (!shown.has(entity.id)) send(observer.id, { t: 'entityEnter', entity });
-  }
-  for (const id of shown) {
-    if (now.has(id)) continue;
+  // The diff itself is {@link membershipDiff}, pure and in `nearby.ts`, so that "a body visible before
+  // and visible now produces no message" is a tested claim rather than an inference from these ten
+  // lines. Widening the visible set to the room next door is exactly the change that could have
+  // broken it, and it broke nothing precisely because both halves read one list.
+  const { entered, left, now } = membershipDiff(shown, visibleEntities(observer), observer.id);
+  for (const entity of entered) send(observer.id, { t: 'entityEnter', entity });
+  for (const id of left) {
     send(observer.id, {
       t: 'entityLeave',
       id,
@@ -1610,18 +1639,51 @@ function syncEntityState(actor: Actor): void {
   // membership event happened to rebuild the entity list. The panel doll updated (it rides `self`),
   // which made the body's silence read as an art bug rather than a missing message.
   if (isPlayer(actor)) send(actor.id, { t: 'entityUpdate', entity: view });
-  for (const observer of sim.playersIn(actor.roomId)) {
-    if (!watching.get(observer.id)?.has(actor.id)) continue;
-    send(observer.id, { t: 'entityUpdate', entity: view });
-  }
+  // `watchersOf`, not `playersIn(actor.roomId)`: since 2026-08-13 a body can be drawn from the room
+  // next door, and a health bar that only updated for the room it stands in would leave a fight one
+  // crossing away frozen on screen at the hit points it had when it came into view.
+  for (const observer of watchersOf(actor.id)) send(observer.id, { t: 'entityUpdate', entity: view });
 }
 
-/** Re-evaluates every observer standing in a room. */
+/**
+ * Everyone whose view of `roomId` could have changed: the players standing in it, **and the players
+ * standing in a room that can see into it** across an open crossing.
+ *
+ * The fan-out is the other half of the 2026-08-13 ruling, and it is here rather than at the ~25 call
+ * sites for the reason `visibleEntities` is a single authority: a body appearing in a room now changes
+ * what is drawn in up to five rooms, and a site that remembered the first and forgot the rest would
+ * leave a sprite standing in a room its owner had walked out of. Every existing caller — a repop, a
+ * death, a spilled corpse, a flee, a `part` — is correct for free.
+ *
+ * **One scan, not five.** `playersIn` walks every actor in the world, so calling it per neighbour would
+ * multiply the cost of the tick's hottest bookkeeping by the branching factor. The room set is built
+ * first (at most four lookups deep) and the actors are walked once against it.
+ */
+function observersNear(roomId: RoomId): Player[] {
+  const rooms = new Set<RoomId>([roomId, ...roomsSeeingInto(roomId, crossingDeps())]);
+  const out: Player[] = [];
+  for (const player of sim.allPlayers()) if (rooms.has(player.roomId)) out.push(player);
+  return out;
+}
+
+/**
+ * Re-evaluates every observer who can see into a room — see {@link observersNear}.
+ *
+ * `except` is for the one caller that must not be included: the player who has *just arrived* somewhere
+ * is about to be sent a whole `room` view, which re-seeds their watch set wholesale. Before the
+ * fan-out existed they were simply no longer in the room being synced and the question never came up;
+ * now they can be one of its neighbours, and diffing them here against a set `describeRoom` is a
+ * moment away from replacing would spend an `entityLeave` on a body they are about to be re-sent.
+ */
 function syncEntitiesIn(
   roomId: RoomId,
   leaving?: { readonly id: EntityId; readonly dir: Direction },
+  except?: EntityId,
 ): void {
-  for (const observer of sim.playersIn(roomId)) syncEntities(observer, leaving);
+  for (const observer of observersNear(roomId)) {
+    if (observer.id === except) continue;
+    syncEntities(observer, leaving);
+  }
 }
 
 /**
@@ -1651,12 +1713,11 @@ function syncTurn(actor: Actor): void {
   // moment facing became a *rule* — you look at what you are dealing with — the client stopped
   // guessing and this became the only way it could know.
   if (isPlayer(actor)) send(actor.id, { t: 'entityMoved', moves: [move] });
-  for (const observer of sim.playersIn(actor.roomId)) {
-    // Gated on what this observer can actually see, like every other entity message: a mob turning in
-    // the dark is nobody's business, and telling them would put its position on the wire.
-    if (!watching.get(observer.id)?.has(actor.id)) continue;
-    send(observer.id, { t: 'entityMoved', moves: [move] });
-  }
+  // Gated on what each observer can actually see, like every other entity message: a mob turning in the
+  // dark is nobody's business, and telling them would put its position on the wire. `watchersOf` *is*
+  // that gate, and asking it directly is what makes the answer independent of which room the watcher
+  // happens to be standing in — see the note on {@link watching}.
+  for (const observer of watchersOf(actor.id)) send(observer.id, { t: 'entityMoved', moves: [move] });
 }
 
 /**
@@ -1745,7 +1806,13 @@ function applyRelight(player: Player): void {
   if (tiles.length > 0) send(player.id, { t: 'seenDelta', tiles });
   send(player.id, { t: 'self', view: sim.selfViewOf(player) });
   // Both directions: light reaching further reveals entities, light shrinking hides them.
-  syncEntities(player);
+  //
+  // **And the room next door**, since 2026-08-13: the far-room light gate counts a torch carried *in*
+  // the far room, so this character striking one is what makes them and everyone beside them visible
+  // to an observer one open crossing away — and their torch guttering is what puts that room back into
+  // darkness. Nothing else in the loop is keyed on it: a character who lights a torch on the spot has
+  // moved nothing, which is the same gap `relit` itself exists to close, one room further out.
+  syncEntitiesIn(player.roomId);
   // The light is part of the character now, so the record follows it. This is the only path a change
   // can take — `recompute` queues every one of them into `relit` — so putting it here catches a torch
   // found, a torch burnt out and a Beacon crumbled without three separate call sites.
@@ -2973,6 +3040,11 @@ function runFlee(actor: Actor): FleeOutcome {
         // A mob moved itself, so both rooms need re-evaluating — nothing else in the tick will do it.
         syncEntitiesIn(outcome.from);
         syncEntitiesIn(actor.roomId);
+        // And where it now stands, for anyone who could see it *before* and can still see it now —
+        // which since 2026-08-13 is the ordinary case for a flight through an open crossing. The
+        // membership diff above says nothing about a body that never left view, so without this the
+        // sprite would sit at the tile it bolted from until the mob moved again. See {@link syncTurn}.
+        syncTurn(actor);
       }
       // **And it comes after you.** Fleeing buys distance from the blow, not from the encounter: a
       // pursuer that can path starts hunting, which is Phase 10's machinery answering Phase 14's exit.
@@ -3108,7 +3180,11 @@ function announceArrival(player: Player, from: RoomId, fromPlace: Place, via?: D
   // The character's light moved with them, so fold it in before anything is sent: the bitset below
   // and the room view after it must both describe where they are standing *now*.
   const delta = foldSeen(player);
-  syncEntitiesIn(from, via ? { id: player.id, dir: via } : undefined);
+  // Everyone who could see the room they left — which since 2026-08-13 includes its open neighbours,
+  // and the arriving player is standing in one of them. They are excluded by name: `describeRoom`
+  // below re-seeds their watch set from a fresh room view, and a diff taken here against the old set
+  // would spend an `entityLeave` on somebody the very next message re-sends.
+  syncEntitiesIn(from, via ? { id: player.id, dir: via } : undefined, player.id);
 
   if (!samePlace(fromPlace, player.place)) {
     const zone = world.zone(player.place.zone);
@@ -3131,6 +3207,12 @@ function announceArrival(player: Player, from: RoomId, fromPlace: Place, via?: D
   // After the room description, which re-seeded this player's own watch set — and for everyone in
   // the destination room, who pick the arrival up only if their light reaches them.
   syncEntitiesIn(player.roomId);
+  // **Where they now stand, for whoever never stopped seeing them.** Before 2026-08-13 a step out of
+  // a room was an `entityLeave` for everyone left behind, so their position was moot. Now a walk
+  // through an open crossing keeps the body on their screens, and a membership diff says nothing at
+  // all about a body that stayed visible — so without this it would stand frozen in the room they
+  // walked out of until they next moved a pixel. A typed `east` is not in the tick's `moved` list.
+  syncTurn(player);
 
   // **Pursuit closes here** (owner's pick, `DESIGN-progression.md` §5b option 2). On the watch set
   // `describeRoom` just re-seeded, so the quarry check passes the exact visibility gate a typed
@@ -11283,17 +11365,31 @@ setInterval(() => {
   // set and on where the others are standing, so both ends of every pair that could have changed:
   // anyone who moved, and anyone standing in a room where something moved. A player alone in a quiet
   // room is not re-evaluated at all.
+  //
+  // **The rooms first, then one pass over the players** — this is the tick's hottest bookkeeping and
+  // the shape changed with the 2026-08-13 ruling. A body walking about in the room next door is drawn
+  // to whoever can see through the crossing, so their view has to be re-evaluated on the same beat as
+  // anyone standing beside it. Getting that wrong does not hide the mob (the next sync from any cause
+  // brings it in) — it *strands* it, drawn at the tile it was on when something last happened.
+  //
+  // Collecting rooms before players is not a micro-optimisation: `playersIn` walks every actor in the
+  // world, so the old per-mover call was already one full scan each, and widening it to five rooms a
+  // mover would have multiplied that. This is one scan for the whole tick however many things moved.
   const dirty = new Set<Player>();
+  const stirred = new Set<RoomId>();
   for (const actor of movedActors) {
     if (isPlayer(actor)) dirty.add(actor);
-    for (const other of sim.playersIn(actor.roomId)) dirty.add(other);
+    stirred.add(actor.roomId);
   }
   // The room a hunter *left* needs re-evaluating too, and nothing else would do it: the loop above only
   // reaches the room it arrived in, so whoever it walked away from would keep drawing it standing there.
   for (const event of hunt.events) {
-    if (event.kind !== 'entered' || event.from === undefined) continue;
-    for (const other of sim.playersIn(event.from)) dirty.add(other);
+    if (event.kind === 'entered' && event.from !== undefined) stirred.add(event.from);
   }
+  const crossings = crossingDeps();
+  const watchRooms = new Set<RoomId>(stirred);
+  for (const roomId of stirred) for (const near of roomsSeeingInto(roomId, crossings)) watchRooms.add(near);
+  for (const player of sim.allPlayers()) if (watchRooms.has(player.roomId)) dirty.add(player);
   for (const observer of dirty) syncEntities(observer);
 
   // Now that `watching` is current, say who walked in. See the note where the hunt is advanced.
