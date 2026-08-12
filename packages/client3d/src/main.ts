@@ -66,6 +66,7 @@ import { Rain } from './rain.ts';
 import { CameraRig } from './rig.ts';
 import { MAX_WINDOW_CHUNKS, WINDOW_CELLS_X, WINDOW_CELLS_Y, WINDOW_MARGIN } from './streamer.ts';
 import { unprojectToGround } from './unproject.ts';
+import type { WarpVec } from './warp.ts';
 import { Wetness } from './wetness.ts';
 import { World3D } from './world3d.ts';
 
@@ -231,13 +232,22 @@ input.attach();
  * clicked — see `unproject.ts`'s header for why one flat plane is the right amount of truth at
  * grey-box, and gated on there being a body to plant it under at all.
  */
+/** Scratch for the pointer's inverse warp and for the frame's own. One each, for the session. */
+const clickScratch: WarpVec = { x: 0, z: 0 };
+const selfScratch: WarpVec = { x: 0, z: 0 };
 pointer.resolve = (ndcX: number, ndcY: number): PointerTarget | undefined => {
   const self = entities.self();
   if (!self) return undefined;
   const hit = unprojectToGround(rig.camera, ndcX, ndcY, world.groundAt(self.x, self.y));
   if (!hit) return undefined;
-  const simX = pixelOfMetres(hit.x);
-  const simY = pixelOfMetres(hit.z);
+  // M5c: the ray met the ground where it is *drawn*, and everything below this line — the tile index,
+  // the `seen` gate, the `moveTo` — speaks the unwarped grid the simulation walks. So the lens is run
+  // backwards first. Without it a click lands wherever the domain warp pushed that patch of ground,
+  // which at three metres is a third of a room from where the player aimed, and the error is largest
+  // in exactly the open country where click-to-move is most used. See `WarpField.invertInto`.
+  world.unwarpAt(clickScratch, hit.x, hit.z);
+  const simX = pixelOfMetres(clickScratch.x);
+  const simY = pixelOfMetres(clickScratch.z);
   const tx = Math.floor(simX / TILE_SIZE);
   const ty = Math.floor(simY / TILE_SIZE);
   const grid = world.grid;
@@ -353,7 +363,12 @@ net.on('path', (message) => {
   if (destination) {
     const simX = (destination.tx + 0.5) * TILE_SIZE;
     const simY = (destination.ty + 0.5) * TILE_SIZE;
-    marker.show(metresOfPixel(simX), world.groundAt(simX, simY), metresOfPixel(simY));
+    // The server answers in grid tiles, so the ring goes through the lens like everything else — a
+    // mark on ground that has moved has to move with it.
+    const x = metresOfPixel(simX);
+    const z = metresOfPixel(simY);
+    world.warpAt(clickScratch, x, z);
+    marker.show(x + clickScratch.x, world.groundAt(simX, simY), z + clickScratch.z);
   } else {
     marker.hide();
   }
@@ -410,6 +425,8 @@ applySky(gameHour);
 
 /** Hoisted out of the loop: one closure for the session rather than one per frame. */
 const groundAt = (px: number, py: number): number => world.groundAt(px, py);
+/** The same, for M5c's lens — `entities.ts` takes it injected rather than holding a `World3D`. */
+const warpAt = (out: WarpVec, x: number, z: number): void => world.warpAt(out, x, z);
 
 function frame(now: number): void {
   requestAnimationFrame(frame);
@@ -454,9 +471,16 @@ function frame(now: number): void {
     // Recentred on the *predicted* position, for the same reason the 2D client's lit set is:
     // streaming a fifth of a room behind the character shows its seam every time they turn round.
     world.update(self.x, self.y);
-    const x = metresOfPixel(self.x);
+    // M5c: through the lens, once, and then every consumer of the frame's own position takes the
+    // warped numbers — the camera, the moon's shadow volume, the clearing light and the rain's
+    // centre. The camera especially: the body is drawn displaced (`entities.render`), so a rig
+    // following the grid position would let the character drift across the screen as the field
+    // changed under them. Streaming is *not* in this list and must not be — `world.update` above
+    // takes the simulation position, because which chunks are near is a question about the grid.
+    world.warpAt(selfScratch, metresOfPixel(self.x), metresOfPixel(self.y));
+    const x = metresOfPixel(self.x) + selfScratch.x;
     const y = groundAt(self.x, self.y);
-    const z = metresOfPixel(self.y);
+    const z = metresOfPixel(self.y) + selfScratch.z;
     rig.follow(x, y, z);
     // The moon's shadow camera and the clearing light take the *same* three numbers the camera did,
     // in the same frame. Anything else and the shadow volume trails the frame by a tick.
@@ -474,7 +498,7 @@ function frame(now: number): void {
   // is *actually* falling rather than by whether the player wants it — step under a roof and the
   // street outside stays wet, which is right, and the roof you are under dries.
   world.setWetness(wetness.update(now / 1000, rain.enabled));
-  entities.render(groundAt);
+  entities.render(groundAt, warpAt);
 
   world.pool.pulse(now / 1000);
   marker.pulse(now / 1000);
@@ -794,6 +818,48 @@ const debug = {
   get textureBytes(): number {
     return world.ledger().textureBytes;
   },
+
+  /* ------------------------------------------------------------------ M5c */
+
+  /**
+   * Whether the world bends — the **V** key's other end.
+   *
+   * Off is the lattice M5b shipped, exactly. Flipping it is the whole acceptance: the ground, the
+   * walls, the trees, the kit, the water, the rings, the lights and the bodies must all move
+   * *together*, because they all read one field. Anything that stays put when the rest moves is
+   * something that was left out of the lens.
+   */
+  get warpEnabled(): boolean {
+    return world.warpEnabled;
+  },
+  set warpEnabled(on: boolean) {
+    world.warpEnabled = on;
+  },
+  /**
+   * The lens at the character's own feet: the metres the ground under them has been pushed, the
+   * sector amplitude there, and the round-trip error of the inverse the pointer runs.
+   *
+   * The third number is the one to watch. It is `|invert(warp(p)) - p|` at the position the player is
+   * standing in, in metres, and it is what stands between a click and the tile it means.
+   */
+  get warp(): { dx: number; dz: number; amplitude: number; inverseError: number } | undefined {
+    const self = entities.self();
+    const field = world.warp;
+    const frame = world.frame;
+    if (!self || !field || !frame) return undefined;
+    const x = metresOfPixel(self.x);
+    const z = metresOfPixel(self.y);
+    const there: WarpVec = { x: 0, z: 0 };
+    field.displaceInto(there, x, z, frame.level);
+    const back: WarpVec = { x: 0, z: 0 };
+    field.invertInto(back, x + there.x, z + there.z, frame.level);
+    return {
+      dx: Number(there.x.toFixed(3)),
+      dz: Number(there.z.toFixed(3)),
+      amplitude: Number(field.ampAt(x, z, frame.level).toFixed(3)),
+      inverseError: Number(Math.hypot(back.x - x, back.z - z).toFixed(4)),
+    };
+  },
 };
 
 (window as unknown as { __debug3d: typeof debug }).__debug3d = debug;
@@ -803,8 +869,14 @@ const debug = {
 /* -------------------------------------------------------------------------- */
 
 /**
- * **T** cycles the tone mapping, **R** toggles the rain, **B** toggles the bloom, **F** the wind —
- * and M5b's **G** flips day against night, with **[** and **]** sweeping the hour an hour at a time.
+ * **T** cycles the tone mapping, **R** toggles the rain, **B** toggles the bloom, **F** the wind,
+ * M5c's **V** the domain warp — and M5b's **G** flips day against night, with **[** and **]** sweeping
+ * the hour an hour at a time.
+ *
+ * **V** is M5c's own version of what **F** does for trap 1: the warp is applied in two places, in a
+ * vertex shader for the continuous surfaces and on the CPU for everything that is an object, and the
+ * only way those two can be seen to agree is to switch them off together and watch nothing move
+ * relative to anything else.
  *
  * Keys because M4 and M5 are judgements made by looking, and reaching for the console between looks
  * costs the comparison its immediacy — the plan's *"judge it side by side with the reference on the
@@ -855,6 +927,13 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
       world.windEnabled = !world.windEnabled;
       log.write('system', `wind: ${world.windEnabled ? 'on' : 'off'}`);
       return;
+    case 'KeyV':
+      // M5c. Straightens the world back onto its lattice — the before-and-after the whole milestone
+      // is judged on, and the fastest way to see that the walls, the trees and the bodies all move
+      // through the *same* lens as the ground: nothing should shift relative to anything else.
+      world.warpEnabled = !world.warpEnabled;
+      log.write('system', `warp: ${world.warpEnabled ? 'on' : 'off (the grid, as it was)'}`);
+      return;
     case 'KeyG': {
       // Jump to whichever of the two the rig is not near. Midnight and noon are the two keys the
       // recipes were authored at, so the flip lands on an authored sky rather than on a blend.
@@ -870,8 +949,8 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
 
 log.write(
   'system',
-  'M5b — T: tone mapping (neutral/agx)   R: rain   B: bloom   F: wind   G: day/night   [ ]: sweep the hour.' +
-    '  Knobs on window.__debug3d.',
+  'M5c — T: tone mapping (neutral/agx)   R: rain   B: bloom   F: wind   V: warp   G: day/night' +
+    '   [ ]: sweep the hour.  Knobs on window.__debug3d.',
 );
 
 net.connect();

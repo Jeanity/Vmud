@@ -130,6 +130,7 @@ import {
 import { MAX_WINDOW_CHUNKS, WINDOW_LEVELS } from './streamer.ts';
 import { createPuddleMaterial, createWetControls, patchWetGround, type WetControls } from './wetness.ts';
 import { createWaterMaterial, type WaterControls, createWaterControls } from './water.ts';
+import { createWarpControls, patchWarpVertex, type WarpControls } from './warp.ts';
 import { SECTORS, type Sector } from '@mygame/shared';
 
 /**
@@ -145,11 +146,24 @@ export const WRAPPER_CAPACITY = 32;
 /**
  * Bytes of per-instance data per wrapper.
  *
- * Sixteen floats of matrix, three of fog-of-war colour, and M5a's eight: `iBlend`'s four corner
- * weights and `iTint`'s three colour channels plus a noise phase. See the header for why the last
- * eight are on *every* wrapper rather than only on the ground's.
+ * Sixteen floats of matrix, three of fog-of-war colour, M5a's eight — `iBlend`'s four corner weights
+ * and `iTint`'s three colour channels plus a noise phase — and M5c's four, `iWarp`'s corner
+ * amplitudes. See the header for why the last twelve are on *every* wrapper rather than only on the
+ * ground's.
  */
-const WRAPPER_BYTES = WRAPPER_CAPACITY * (16 + 3 + 4 + 4) * Float32Array.BYTES_PER_ELEMENT;
+const WRAPPER_BYTES = WRAPPER_CAPACITY * (16 + 3 + 4 + 4 + 4) * Float32Array.BYTES_PER_ELEMENT;
+
+/**
+ * How many segments the ground slab's horizontal axes are cut into — M5c. See `prototypes.SHAPE_KEYS`.
+ *
+ * A pool constant rather than a `prototypes.ts` one because it is a statement about vertex memory: it
+ * takes `groundBox` from 24 vertices to 90 and from 12 triangles to 96, which across the ~350 ground
+ * instances a full window draws is 33 k triangles against a p90 frame of 1.45 M.
+ */
+const GROUND_SEGMENTS = 4;
+
+/** The same for the water surface, and it is two rather than four — see {@link buildWaterPlane}. */
+const WATER_SEGMENTS = 2;
 
 /**
  * Distinct buckets a chunk's *room plan* can produce.
@@ -355,6 +369,12 @@ function buildGeometry(key: ShapeKey): BufferGeometry {
   switch (key) {
     case 'box':
       return new BoxGeometry(1, 1, 1);
+    case 'groundBox':
+      // M5c. Four segments across each horizontal axis — and one vertically, because the warp is XZ
+      // only and a slab's 20 cm side has nothing to bend. Every face is cut on the *same* horizontal
+      // grid, so the top, the bottom and the four sides share their corner positions exactly and the
+      // box stays watertight under a per-vertex displacement. See `SHAPE_KEYS` for the 21 cm.
+      return new BoxGeometry(1, 1, 1, GROUND_SEGMENTS, 1, GROUND_SEGMENTS);
     case 'cone':
       return new ConeGeometry(0.5, 1, 8);
     case 'torus':
@@ -375,11 +395,17 @@ function buildGeometry(key: ShapeKey): BufferGeometry {
  * `PlaneGeometry` is built in XY facing `+Z`, so it is rotated once here rather than per instance:
  * a placement's `rx/ry/rz` are then free to mean what they mean everywhere else, and a water surface
  * with a rotation baked into every instance matrix would be a trap for the first person to try to
- * tilt one. Two triangles — the depth fade, the foam and the wave normal are all per *fragment*, so
- * there is nothing a subdivision would buy.
+ * tilt one.
+ *
+ * **M5b said two triangles and M5c makes it eight**, and the reason is the one thing that is not per
+ * fragment: the domain warp moves *vertices*. A surface eleven metres across with four corners draws
+ * the warp as a chord and leaves the shore it laps by 20 cm; at two segments that is 5 cm, which is
+ * inside the foam band and therefore invisible. Two rather than the ground's four because a lake has
+ * a soft edge and a road does not — and because this shape carries the puddles as well, where the
+ * subdivision buys nothing at all and costs six triangles a decal.
  */
 function buildWaterPlane(): BufferGeometry {
-  const geometry = new PlaneGeometry(1, 1);
+  const geometry = new PlaneGeometry(1, 1, WATER_SEGMENTS, WATER_SEGMENTS);
   geometry.rotateX(-Math.PI / 2);
   return geometry;
 }
@@ -488,6 +514,8 @@ export class ScenePool {
   readonly wet: WetControls = createWetControls();
   /** The one set of water knobs: wave speed, foam width, how far the depth fade reaches. */
   readonly water: WaterControls = createWaterControls();
+  /** The one warp switch, shared by reference with every material that displaces. See `warp.ts`. */
+  readonly warp: WarpControls = createWarpControls();
   /** Which family each key belongs to, so `acquire` routes without re-parsing a string. */
   private readonly families = new Map<MaterialKey, MaterialFamily>();
   /** Kit textures, by manifest id. Loaded once at boot by `kit.ts`; owned here so teardown finds them. */
@@ -564,8 +592,12 @@ export class ScenePool {
     const box = this.geometry('box');
     const first = this.material(MATERIAL_KEYS[0]!);
     for (let i = 0; i < WRAPPER_POOL_SIZE; i++) this.free.push(this.mint(box, first));
+    // The ground's own shape, subdivided for the warp — see `prototypes.SHAPE_KEYS`. An attributed
+    // wrapper is bound to one shape for life (see `mintAttributed`), so the ground's free list is
+    // minted over the shape the ground actually draws and never over the plain box.
+    const slab = this.geometry('groundBox');
     const ground = this.material(materialKey('ground', SECTORS[0], false));
-    for (let i = 0; i < BLEND_POOL_SIZE; i++) this.blendFree.push(this.mintAttributed(box, ground));
+    for (let i = 0; i < BLEND_POOL_SIZE; i++) this.blendFree.push(this.mintAttributed(slab, ground));
     const surface = this.geometry('waterPlane');
     const waterMaterial = this.material(materialKey('water', undefined, false));
     for (let i = 0; i < WATER_POOL_SIZE; i++) this.waterFree.push(this.mintAttributed(surface, waterMaterial));
@@ -586,7 +618,7 @@ export class ScenePool {
     const colour = archetypeColour(kind, sector, variant);
     const family = materialFamily(kind, variant);
 
-    if (family === 'water') return createWaterMaterial(this.wind, this.water, colour, key);
+    if (family === 'water') return createWaterMaterial(this.wind, this.water, colour, key, this.warp);
     if (family === 'puddle') return createPuddleMaterial(this.wind, this.wet, colour, key);
 
     if (family === 'kitSolid') {
@@ -683,6 +715,11 @@ export class ScenePool {
         // M5b: the ground is the surface the rain actually lands on, so the wet response goes on the
         // same 48 materials and in the same patch. Still one program — see `patchWetGround`.
         patchWetGround(patch, this.wet);
+        // M5c, **last on purpose**: a vertex patch inserts itself immediately after
+        // `#include <begin_vertex>`, so applying the warp last is what makes it run *first* — before
+        // the blend reads `transformed` for `vBlendWorld`. The boundary breakup then rides the warped
+        // ground rather than staying pinned to a lattice the ground has left. See `warp.ts`.
+        patchWarpVertex(patch, this.warp);
       };
       // One key for all 32 ground materials. The whole of §4's *"one shader handles all 98 pairs"*.
       material.customProgramCacheKey = (): string => 'ground-blend';
@@ -742,6 +779,14 @@ export class ScenePool {
     const tint = new InstancedBufferAttribute(new Float32Array(WRAPPER_CAPACITY * 4), 4);
     tint.setUsage(DynamicDrawUsage);
     geometry.setAttribute('iTint', tint);
+    // M5c's third: the sector warp amplitude at the box's four corners. On the same two families for
+    // the same reason they carry the other two — these are the surfaces the warp moves per *vertex*,
+    // and a vertex shader cannot ask which room it is in. Born at 1 (full landscape) rather than 0,
+    // so a wrapper that somehow drew before `writeWarp` reached it would bend with the world rather
+    // than stand rigid inside it.
+    const warp = new InstancedBufferAttribute(new Float32Array(WRAPPER_CAPACITY * 4).fill(1), 4);
+    warp.setUsage(DynamicDrawUsage);
+    geometry.setAttribute('iWarp', warp);
 
     const mesh = this.mint(geometry, material);
     this.blendWrappers.add(mesh);
@@ -874,7 +919,7 @@ export class ScenePool {
     const owns = family === 'blend' || family === 'water';
     let reused: InstancedMesh;
     if (family === 'blend') {
-      reused = this.blendFree.pop() ?? this.mintAttributed(this.geometry('box'), this.material(material));
+      reused = this.blendFree.pop() ?? this.mintAttributed(this.geometry('groundBox'), this.material(material));
     } else if (family === 'water') {
       reused = this.waterFree.pop() ?? this.mintAttributed(this.geometry('waterPlane'), this.material(material));
     } else {
@@ -919,6 +964,23 @@ export class ScenePool {
     colour.setXYZW(index, tint[0], tint[1], tint[2], tint[3]);
     shape.needsUpdate = true;
     colour.needsUpdate = true;
+  }
+
+  /**
+   * Write one instance's four corner **warp amplitudes** — M5c, and the same shape as
+   * {@link writeBlend} for the same reason.
+   *
+   * Separate from `writeBlend` rather than a fifth argument on it, because the two answer different
+   * questions on different schedules: the blend is what the room's biome is turning into and the warp
+   * is how much of the world's own bend this patch of ground shows. A no-op on any wrapper that owns
+   * no `iWarp`, which is every wrapper that is not the ground's or the water's.
+   */
+  writeWarp(mesh: InstancedMesh, index: number, corners: readonly number[]): void {
+    if (!this.blendWrappers.has(mesh)) return;
+    const warp = mesh.geometry.getAttribute('iWarp') as InstancedBufferAttribute | undefined;
+    if (!warp) return;
+    warp.setXYZW(index, corners[0] ?? 1, corners[1] ?? 1, corners[2] ?? 1, corners[3] ?? 1);
+    warp.needsUpdate = true;
   }
 
   /**

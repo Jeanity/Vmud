@@ -121,6 +121,13 @@ import { freeTiles, planScatter } from './scatter.ts';
 import { ChunkStreamer, chunkKey, type ChunkAddress, type ChunkSink } from './streamer.ts';
 import { TreeSet } from './trees.ts';
 import { planWater } from './water.ts';
+import {
+  WARP_IN_SHADER,
+  WarpField,
+  warpFieldOf,
+  warpPlacementInto,
+  type WarpVec,
+} from './warp.ts';
 import { planPuddles } from './wetness.ts';
 
 /** The centre tile of a room block, room-relative. Used only to ask "has this room been seen". */
@@ -190,6 +197,22 @@ export class World3D implements ChunkSink {
   private cells: Map<string, Room> | undefined;
   private roomsById = new Map<RoomId, Room>();
   private frameOf: PlaceFrame | undefined;
+  /**
+   * The domain warp over this Place — M5c. Absent until a `zone` message has arrived.
+   *
+   * Built here rather than in `chunkPlan.ts` because the amplitude is a property of the room
+   * *lattice* and not of one room: a node's value is the `min` over the four cells that touch it (see
+   * `warp.ts`), and this is the only object that holds all the cells at once. Which is also why the
+   * plan stays pure — `planChunk`, `planScatter`, `planWater` and `planPuddles` all still answer in
+   * the unwarped grid the collision tiles live in, and the lens is applied here, at the one place a
+   * `Placement` becomes a matrix.
+   */
+  private warpField: WarpField | undefined;
+  /** Scratch for the warp: one vector and one corner tuple for the whole session. */
+  private readonly warpVec: WarpVec = { x: 0, z: 0 };
+  private readonly warpCorners: number[] = [1, 1, 1, 1];
+  /** Reused by {@link build}: the placements after the lens, so a chunk build allocates one array. */
+  private readonly warped: Placement[] = [];
   private tiles: TileGrid | undefined;
   private seen: Uint8Array | undefined;
   /** One-entry memo for {@link groundAt}. */
@@ -210,6 +233,8 @@ export class World3D implements ChunkSink {
   private readonly requests: LightRequest[] = [];
   /** The hour {@link setGameHour} was last given. 0 is midnight, which is M4's world. */
   private hourOfDay = 0;
+  /** Backing field for {@link warpEnabled}. On, because the warp is the world's shape and not an effect. */
+  private warpOn = true;
 
   constructor() {
     this.night = new NightRig(this.scene);
@@ -251,6 +276,10 @@ export class World3D implements ChunkSink {
     this.cells = cellIndex(zone);
     this.roomsById = new Map(zone.rooms.map((room) => [room.id, room]));
     this.frameOf = placeFrame(zone, level);
+    // The lens for the new Place. Its node arrays are built per level on first use, so arriving
+    // costs one object and the walked level's grid, not every level in the zone.
+    this.warpField = warpFieldOf(zone, this.frameOf);
+    this.warpField.strength = this.warpOn ? 1 : 0;
     this.tiles = buildZoneTilemap(zone, level);
     this.seen = undefined;
     this.ground = undefined;
@@ -386,6 +415,71 @@ export class World3D implements ChunkSink {
   /** Advance the foliage clock. Wall-clock seconds, exactly as the rain and the portal pulse take. */
   breathe(seconds: number): void {
     this.pool.wind.uTime.value = seconds;
+  }
+
+  /* --------------------------------------------------------------- M5c: the warp */
+
+  /**
+   * Whether the world bends. The **V** key and `__debug3d.warpEnabled`.
+   *
+   * **Two writes and a rebuild, and all three are necessary.** The uniform straightens the ground and
+   * the water, which displace in the shader; the field's own `strength` straightens everything that
+   * displaces on the CPU; and the rebuild is what makes the second one visible, because a tree's
+   * position was written into an instance matrix when its chunk was built and nothing re-reads it. A
+   * rebuild is a release and an acquire and allocates nothing — the same path a door already takes —
+   * so the toggle costs one frame and no memory. Flipping it and watching the lattice snap back is the
+   * fastest way to see what the warp is actually doing.
+   */
+  get warpEnabled(): boolean {
+    return this.warpOn;
+  }
+
+  set warpEnabled(on: boolean) {
+    if (on === this.warpOn) return;
+    this.warpOn = on;
+    this.pool.warp.uWarp.value = on ? 1 : 0;
+    if (this.warpField) this.warpField.strength = on ? 1 : 0;
+    for (const chunk of this.chunks.values()) this.rebuild(chunk);
+  }
+
+  /** The field itself, for `main.ts`'s camera, marker and pointer. Absent before the first `zone`. */
+  get warp(): WarpField | undefined {
+    return this.warpField;
+  }
+
+  /**
+   * The displacement at a world position on the **camera's** level, in metres, into a caller's vector.
+   *
+   * What `main.ts` puts the camera, the moon's shadow volume, the clearing light and the destination
+   * ring through, and what `entities.ts` puts every body through. All of them are given positions in
+   * the unwarped grid — a simulation position converted by `metresOfPixel` — and all of them have to
+   * arrive at the same place the ground under them did, or the character walks beside the road.
+   */
+  warpAt(out: WarpVec, x: number, z: number): void {
+    const frame = this.frameOf;
+    if (!this.warpField || !frame) {
+      out.x = 0;
+      out.z = 0;
+      return;
+    }
+    this.warpField.displaceInto(out, x, z, frame.level);
+  }
+
+  /**
+   * The inverse — a point on the drawn ground back to the grid it belongs to. **The pointer's step.**
+   *
+   * See `WarpField.invertInto`. Without it a click lands wherever the field pushed that ground, which
+   * at three metres is a third of a room from where the player aimed; the `seen` gate, the tile index
+   * and the `moveTo` that follow it are all unwarped-grid values and none of them would know.
+   */
+  unwarpAt(out: WarpVec, x: number, z: number): void {
+    const frame = this.frameOf;
+    if (!this.warpField || !frame) {
+      out.x = x;
+      out.z = z;
+      return;
+    }
+    this.warpField.invertInto(out, x, z, frame.level);
   }
 
   /** How the loaded window is divided between the three fog states. `__debug3d.fogOfWar`. */
@@ -804,13 +898,25 @@ export class World3D implements ChunkSink {
     chunk.fire = undefined;
     for (const feature of scene.features) {
       if (feature.t !== 'landmark' || feature.kind !== 'campfire') continue;
+      const fireX = metresOfTile(origin.tx + feature.tx) + (feature.width * METRES_PER_TILE) / 2;
+      const fireZ = metresOfTile(origin.ty + feature.ty) + (feature.depth * METRES_PER_TILE) / 2;
+      // Through the lens with the cone it lights — a light left in the grid would shine from beside
+      // the fire, and at three metres that is a campfire whose glow is in the next room's hedge.
+      this.warpOf(this.warpVec, fireX, fireZ, chunk.address.level);
       chunk.fire = {
-        x: metresOfTile(origin.tx + feature.tx) + (feature.width * METRES_PER_TILE) / 2,
+        x: fireX + this.warpVec.x,
         // Head height over the embers: a light *at* the fire lights the ground and nothing standing.
         y: elevation + 1,
-        z: metresOfTile(origin.ty + feature.ty) + (feature.depth * METRES_PER_TILE) / 2,
+        z: fireZ + this.warpVec.z,
       };
     }
+
+    // M5c. **One lens, applied once, at the only place a plan becomes a matrix.** Continuous
+    // surfaces keep their unwarped transform and are handed their four corner amplitudes instead, so
+    // their vertices displace in the shader and no two adjacent slabs can open a crack; everything
+    // else moves here — whole if it is an object, as a chain of chords if it is a wall. See
+    // `warp.ts`'s `WARP_IN_SHADER` for the line between the two and why no shadow can come adrift.
+    placements = this.applyWarp(placements, chunk.address.level);
 
     this.buckets.clear();
     for (const placement of placements) {
@@ -839,6 +945,11 @@ export class World3D implements ChunkSink {
           // ground — see `pool.writeBlend`, which is where "does this wrapper have the buffers"
           // is answered once rather than at every call site.
           if (p.blend && p.tint) this.pool.writeBlend(mesh, i, p.blend, p.tint);
+          // M5c's corner amplitudes, on the same two families and by the same no-op rule.
+          if (WARP_IN_SHADER.has(p.archetype)) {
+            this.warpCornersOf(p, chunk.address.level);
+            this.pool.writeWarp(mesh, i, this.warpCorners);
+          }
         }
         mesh.count = slice.length;
         this.pool.finish(mesh);
@@ -857,6 +968,59 @@ export class World3D implements ChunkSink {
         chunk.keys.push(first.material);
       }
     }
+  }
+
+  /* ------------------------------------------------------------- M5c: the lens */
+
+  /** The field at a point on a named level, or nothing at all before a Place has arrived. */
+  private warpOf(out: WarpVec, x: number, z: number, level: number): void {
+    if (!this.warpField) {
+      out.x = 0;
+      out.z = 0;
+      return;
+    }
+    this.warpField.displaceInto(out, x, z, level);
+  }
+
+  /**
+   * A shader-warped surface's four corner amplitudes, into {@link warpCorners}.
+   *
+   * Zero when there is no field and when the warp is switched off — the shader multiplies the field
+   * by this, so a zero corner is a vertex that does not move at all, and the **V** key's "off" is
+   * therefore the geometry M5b shipped rather than a warp that happens to be small.
+   */
+  private warpCornersOf(placement: Placement, level: number): void {
+    const field = this.warpField;
+    if (!field || field.strength === 0) {
+      this.warpCorners[0] = 0;
+      this.warpCorners[1] = 0;
+      this.warpCorners[2] = 0;
+      this.warpCorners[3] = 0;
+      return;
+    }
+    field.cornersInto(this.warpCorners, placement.x, placement.z, placement.sx, placement.sz, level);
+  }
+
+  /**
+   * Every rigid placement in a chunk, displaced. The surfaces pass through untouched.
+   *
+   * Returns the input array unchanged when there is no field yet — so the frame between `welcome` and
+   * the first `zone` draws the plan as written rather than nothing at all — and **when the warp is
+   * switched off**, which is what makes the **V** key an honest A/B: a wall bent into four collinear
+   * chords is the same picture as one wall, but it is not the same instance count, and the comparison
+   * the owner is making is against the geometry M5b actually shipped. The output array is reused
+   * across builds for the reason everything else here is: a chunk build is a hot path.
+   */
+  private applyWarp(placements: readonly Placement[], level: number): readonly Placement[] {
+    const field = this.warpField;
+    if (!field || field.strength === 0) return placements;
+    const out = this.warped;
+    out.length = 0;
+    for (const placement of placements) {
+      if (WARP_IN_SHADER.has(placement.archetype)) out.push(placement);
+      else warpPlacementInto(out, placement, field, level, this.warpVec);
+    }
+    return out;
   }
 
   /** Re-flag a loaded chunk's portal wrappers, for a composer built after the chunk was. */

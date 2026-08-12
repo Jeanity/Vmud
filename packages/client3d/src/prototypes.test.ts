@@ -54,9 +54,14 @@ import { ScenePool, WRAPPER_POOL_SIZE } from './pool.ts';
 const KIT_ARCHETYPE_COUNT = 2;
 
 describe('the pool key set', () => {
-  it('has exactly six built shapes, and the trees and the kit on top of them', () => {
-    assert.equal(SHAPE_KEYS.length, 6);
-    assert.deepEqual([...SHAPE_KEYS], ['box', 'cone', 'torus', 'capsule', 'grassCross', 'waterPlane']);
+  it('has exactly seven built shapes, and the trees and the kit on top of them', () => {
+    // Seven at M5c: `groundBox` is the plain box with a subdivided face, and it exists because the
+    // domain warp displaces the ground's *vertices* — four corners can only draw a curve as a chord.
+    assert.equal(SHAPE_KEYS.length, 7);
+    assert.deepEqual(
+      [...SHAPE_KEYS],
+      ['box', 'groundBox', 'cone', 'torus', 'capsule', 'grassCross', 'waterPlane'],
+    );
     // 8 baked + 20 kit variants. Closed, enumerated at module load, and asserted against the two
     // manifests in `assets.test.ts` and `kit.test.ts` — see those files for the other half of the
     // contract. The geometry count is *not* `variants x parts x LODs`, because the kit's `DeadTree`
@@ -76,7 +81,7 @@ describe('the pool key set', () => {
     assert.equal(KIT_PARTS.length, 48);
     assert.equal(KIT_GEOMETRY_KEYS.length, 48);
     assert.equal(new Set(KIT_GEOMETRY_KEYS).size, 48);
-    assert.equal(GEOMETRY_KEYS.length, 6 + 153 + 48);
+    assert.equal(GEOMETRY_KEYS.length, 7 + 153 + 48);
   });
 
   it('gives every kit part a role, and the two roles a family each', () => {
@@ -335,27 +340,41 @@ describe('the pool key set', () => {
 
   it('keeps ground on its own free list, with its own blend buffers', () => {
     const pool = new ScenePool();
-    const ground = pool.acquire('box', 'ground|forest');
-    // Not the shared box: a blend wrapper owns a `BufferGeometry` view carrying `iBlend`/`iTint`,
-    // because three has no per-instance slot beyond `instanceMatrix` and `instanceColor`. See
-    // `ScenePool.mintBlend`.
-    assert.notEqual(ground.geometry, pool.geometry('box'));
+    const ground = pool.acquire('groundBox', 'ground|forest');
+    // Not the shared shape: a blend wrapper owns a `BufferGeometry` view carrying `iBlend`/`iTint`
+    // and M5c's `iWarp`, because three has no per-instance slot beyond `instanceMatrix` and
+    // `instanceColor`. See `ScenePool.mintAttributed`.
+    assert.notEqual(ground.geometry, pool.geometry('groundBox'));
     assert.ok(ground.geometry.getAttribute('iBlend'), 'the ground wrapper has no blend attribute');
     assert.ok(ground.geometry.getAttribute('iTint'), 'the ground wrapper has no tint attribute');
-    // …but it shares the box's vertex data, so there is no second copy on the GPU.
-    assert.equal(ground.geometry.getAttribute('position'), pool.geometry('box').getAttribute('position'));
+    assert.ok(ground.geometry.getAttribute('iWarp'), 'the ground wrapper has no warp attribute');
+    // …but it shares the subdivided box's vertex data, so there is no second copy on the GPU.
+    assert.equal(
+      ground.geometry.getAttribute('position'),
+      pool.geometry('groundBox').getAttribute('position'),
+    );
+    // …and that shape is the subdivided one, not the plain box the walls draw with.
+    assert.ok(
+      pool.geometry('groundBox').getAttribute('position').count >
+        pool.geometry('box').getAttribute('position').count,
+      'the ground slab is not subdivided — the warp would draw a nine-metre chord',
+    );
 
     pool.writeBlend(ground, 0, [0.5, 0.5, 0, 0], [0.1, 0.2, 0.3, 0.4]);
     const blend = ground.geometry.getAttribute('iBlend');
     assert.equal(blend.getX(0), 0.5);
     assert.equal(blend.getZ(0), 0);
+    // M5c's corner amplitudes ride the same wrapper and the same no-op rule.
+    pool.writeWarp(ground, 0, [1, 0.25, 0, 0.5]);
+    assert.equal(ground.geometry.getAttribute('iWarp').getY(0), 0.25);
 
     // A wall released back never becomes a ground wrapper and vice versa.
     pool.release(ground);
     const wall = pool.acquire('box', 'edge|forest');
     assert.notEqual(wall, ground);
-    // …and writing blend data to a wall is a no-op rather than an error.
+    // …and writing blend or warp data to a wall is a no-op rather than an error.
     pool.writeBlend(wall, 0, [1, 1, 1, 1], [1, 1, 1, 1]);
+    pool.writeWarp(wall, 0, [1, 1, 1, 1]);
     pool.release(wall);
     assert.equal(pool.snapshot().wrappersCreated, 1298, 'the split lists must not mint');
     pool.dispose();
@@ -379,9 +398,12 @@ describe('the pool key set', () => {
     assert.ok(Math.abs(water.geometry.getAttribute('iTint').getX(0) - 1.4) < 1e-6);
     pool.release(water);
 
-    const ground = pool.acquire('box', 'ground|forest');
+    const ground = pool.acquire('groundBox', 'ground|forest');
     assert.notEqual(ground, water, 'a released water wrapper came back as ground');
-    assert.equal(ground.geometry.getAttribute('position'), pool.geometry('box').getAttribute('position'));
+    assert.equal(
+      ground.geometry.getAttribute('position'),
+      pool.geometry('groundBox').getAttribute('position'),
+    );
     pool.release(ground);
     const again = pool.acquire('waterPlane', 'water');
     assert.equal(again, water, 'LIFO: the water list gave its own wrapper back');

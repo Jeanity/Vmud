@@ -98,8 +98,16 @@ import { SECTORS, type Sector } from '@mygame/shared';
  * and wasted overdraw in the transparent queue; and the shader reads `position.xz` as the surface's
  * own `(u, v)` exactly as `blend.ts` does over the ground's top face, which only means anything if
  * there *is* one face. It carries the puddle decals too — a puddle is a small water surface.
+ *
+ * `groundBox` is M5c's, and it is **the same box with a subdivided face** — the one shape whose
+ * vertices are displaced by the domain warp rather than its matrix. A slab with four corners on its
+ * top face can only draw the warp as a straight line between them, and the chord error over nine
+ * metres of this field is **13.8 cm**: a road that turns at each room rather than curving through it,
+ * which is the *"hard 12 m beat"* the warp exists to break, wearing a bend. At four segments the
+ * error is **0.9 cm**. Nothing else needs it: a wall follows the warp as `warp.ts`'s chord of
+ * three-metre pieces and a prop moves whole, so `box` stays twelve triangles and only the ground pays.
  */
-export const SHAPE_KEYS = ['box', 'cone', 'torus', 'capsule', 'grassCross', 'waterPlane'] as const;
+export const SHAPE_KEYS = ['box', 'groundBox', 'cone', 'torus', 'capsule', 'grassCross', 'waterPlane'] as const;
 
 export type ShapeKey = (typeof SHAPE_KEYS)[number];
 
@@ -597,7 +605,8 @@ const NEVER_FADED: ReadonlySet<Archetype> = new Set<Archetype>([
  * expect to find. `grass` is genuinely one shape.
  */
 export const ARCHETYPE_GEOMETRY: Readonly<Record<Archetype, GeometryKey>> = {
-  ground: 'box',
+  // The one subdivided shape, and the only archetype whose vertices the warp moves. See `SHAPE_KEYS`.
+  ground: 'groundBox',
   edge: 'box',
   barrier: 'box',
   door: 'box',

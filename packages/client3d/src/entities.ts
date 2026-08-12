@@ -44,6 +44,7 @@ import {
 import { metresOfPixel } from './frame.ts';
 import { DIMENSIONS } from './prototypes.ts';
 import { WRAPPER_CAPACITY, type ScenePool } from './pool.ts';
+import type { WarpVec } from './warp.ts';
 
 /** Divergence from the server, in pixels, past which we stop easing and just snap. `scene.ts:213`. */
 export const SNAP_DISTANCE = 28;
@@ -81,6 +82,8 @@ export interface Body {
 export class EntityLayer {
   private readonly bodies = new Map<EntityId, Body>();
   private readonly scratch = new Object3D();
+  /** Reused by {@link render}: the warp writes into it once per body per frame and allocates nothing. */
+  private readonly warp: WarpVec = { x: 0, z: 0 };
   private readonly selfMesh: InstancedMesh;
   private readonly otherMesh: InstancedMesh;
 
@@ -205,8 +208,18 @@ export class EntityLayer {
     }
   }
 
-  /** Writes the two instance buffers. `groundAt` answers in metres for a simulation position. */
-  render(groundAt: (px: number, py: number) => number): void {
+  /**
+   * Writes the two instance buffers. `groundAt` answers in metres for a simulation position.
+   *
+   * `warpAt` is M5c's, and it is what keeps a body on the road rather than beside it: the ground the
+   * character is standing on is drawn displaced by the domain warp (`warp.ts`), so a capsule placed at
+   * the grid position the simulation holds would stand up to three metres away from the piece of
+   * ground it is actually walking on. Sampled at the body's own position and applied to the
+   * translation — **not** to the vertices — because the field's gradient across half a metre of
+   * shoulder would squash the capsule by a quarter of its width. It is injected, like `groundAt`, so
+   * this class still knows nothing about `World3D`.
+   */
+  render(groundAt: (px: number, py: number) => number, warpAt?: (out: WarpVec, x: number, z: number) => void): void {
     let selfCount = 0;
     let otherCount = 0;
     const diameter = DIMENSIONS.bodyRadius * 2;
@@ -217,10 +230,15 @@ export class EntityLayer {
       const mine = id === this.selfId;
       const index = mine ? selfCount : otherCount;
       if (index >= WRAPPER_CAPACITY) continue;
+      const x = metresOfPixel(body.x);
+      const z = metresOfPixel(body.y);
+      this.warp.x = 0;
+      this.warp.z = 0;
+      warpAt?.(this.warp, x, z);
       this.scratch.position.set(
-        metresOfPixel(body.x),
+        x + this.warp.x,
         groundAt(body.x, body.y) + DIMENSIONS.bodyHeight / 2,
-        metresOfPixel(body.y),
+        z + this.warp.z,
       );
       this.scratch.rotation.set(0, 0, 0);
       this.scratch.scale.set(diameter, heightScale, diameter);

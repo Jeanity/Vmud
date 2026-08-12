@@ -53,6 +53,7 @@ import type { ShaderPatch, WindClock } from './foliage.ts';
 import { ROOM_METRES, metresOfTile } from './frame.ts';
 import type { Placement } from './chunkPlan.ts';
 import { WATER_DEEP_COLOUR, WATER_FOAM_COLOUR, linearRgb, materialKey } from './prototypes.ts';
+import { patchWarpVertex, type WarpControls } from './warp.ts';
 import { CARDINALS, hashCell, type Cardinal, type RoomScene, type Sector } from '@mygame/shared';
 
 /* -------------------------------------------------------------------------- */
@@ -271,6 +272,7 @@ export function createWaterMaterial(
   controls: WaterControls,
   colour: number,
   name: string,
+  warp?: WarpControls,
 ): MeshLambertMaterial {
   const material = new MeshLambertMaterial({ color: new Color(colour) });
   material.name = name;
@@ -278,7 +280,13 @@ export function createWaterMaterial(
   material.depthWrite = false;
   material.side = DoubleSide;
   material.onBeforeCompile = (shader): void => {
-    patchWater(shader as unknown as ShaderPatch, clock, controls);
+    const patch = shader as unknown as ShaderPatch;
+    patchWater(patch, clock, controls);
+    // M5c, and **last on purpose**: each vertex patch inserts itself immediately after
+    // `#include <begin_vertex>`, so the one applied last ends up running first — which is what puts
+    // the warp ahead of `WATER_VERTEX_GLSL` and makes `vWorldXZ` a *warped* world position. The wave
+    // field then travels with the surface it is on rather than sliding under it.
+    if (warp) patchWarpVertex(patch, warp);
   };
   material.customProgramCacheKey = (): string => 'water';
   return material;

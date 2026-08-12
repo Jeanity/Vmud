@@ -43,6 +43,17 @@
  * recentres, and the rebuilds those cause. A rebuild is a release and an acquire and must allocate
  * nothing, which is exactly what the baseline-to-end comparison says.
  *
+ * ## M5c: the walk runs through the lens
+ *
+ * `World3D.setPlace` builds a {@link warp.WarpField} for every Place the walk enters, and every
+ * placement in every chunk goes through it — the ground's four corner amplitudes written into a third
+ * instanced attribute, and every wall cut into chords. **Both are things that could have allocated per
+ * chunk and neither does**: the corner buffer is minted with the wrapper at boot, and the chord
+ * expansion writes into one array this class reuses. The two numbers that say so are the same two this
+ * file has always asserted — `wrappersCreated` unmoved and `bytes` identical between room 100 and room
+ * 1,000 — with the walls now producing up to twice as many instances per bucket, which is the thing
+ * that would have overflowed {@link WRAPPER_CAPACITY} if the chord span had been chosen carelessly.
+ *
  * Follows `worldgen/src/roomscene-world.test.ts`'s skip-if-absent shape: `data/world` is git-ignored
  * and reproducible with `npm run worldgen`.
  */
@@ -177,7 +188,7 @@ describe('M3: streaming a real world with a flat ledger', () => {
     const end = world.ledger();
 
     console.log(
-      `[M5b traversal] ${visited} rooms across ${places} Places in ${Date.now() - started} ms\n` +
+      `[M5c traversal] ${visited} rooms across ${places} Places in ${Date.now() - started} ms\n` +
         `  pool          geometries ${end.geometries}  materials ${end.materials}  prewarmed ${end.prewarmed}\n` +
         `  programs      materials ${end.programs}  depth ${end.depthProgramCount}\n` +
         `  wrappers      created ${end.wrappersCreated}  live ${end.wrappersLive}  free ${end.wrappersFree}` +
