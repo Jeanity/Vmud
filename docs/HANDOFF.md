@@ -565,8 +565,24 @@ suite is **2,749 green, 0 skipped** with **both** `GAME_NATURE_KIT` and `GAME_VI
   male**. 78 override rows re-bodied by a deterministic pass, no LLM: the MUD's own keyword lists
   carry the fact (two Newhaven citizens share a name and differ only there). The full LLM re-sweep
   is **left for the owner** — its quality history wants a human eye.
-- **The orbit camera** (task #33) was building when this was written. If `git log` shows it, it
-  landed under the same verification; if not, its brief is in the task and its files are untouched.
+- **The orbit camera** `7b904d7` — the camera comes off its rail. **Shift+drag** orbits (sideways)
+  and tilts (up/down), wheel still zooms with Shift held, **O** toggles follow-behind, **C** goes
+  home. The camera's yaw *is* the protocol's yaw, so follow is one assignment. The real work was
+  everything that assumed north: the streaming window became a symmetric **disc** (293 cells/level
+  — a window that reshaped with the yaw would rebuild the world *during* a drag), M6's near-wall
+  fade became a real dot product with a 2° deadband (`cos 90°` is 6e-17, so a bare `> 0` fades a
+  wall forever, invisibly), the moon's shadow box now **turns** with the frame instead of growing,
+  and a **compass** joined the view because north is no longer up.
+  **The price, know it before tuning:** the ledger went **23.5 MB → 45.6 MB**, all of it the disc's
+  5,577 extra wrappers. That is what free rotation at a 96 m ceiling costs; if a machine struggles,
+  the cheapest lever is `CAMERA_DISTANCE_MAX` — the ring re-derives from it.
+  **One decision waiting for the owner:** `FOLLOW_ON_FRESH = false`, because **W is still
+  world-north**. With follow on, a player facing south presses W, walks toward the camera, and the
+  view spins 180°. Camera-relative movement keys are the honest fix and they change what `steer`
+  means — a waking decision. (Also pre-existing and worth knowing: Shift is `input.ts`'s travel
+  modifier, so orbiting and keyboard-walking are already mutually exclusive.)
+
+**The suite ritual changed again:** **2,786 green, 0 skipped**, and it needs *both* kit env vars.
 
 **Morning eyes-on list** (server already restarted; just refresh):
 1. Azder stands in **the Overgrown Field, room 41260** — kobolds in this field and, through
@@ -576,8 +592,11 @@ suite is **2,749 green, 0 skipped** with **both** `GAME_NATURE_KIT` and `GAME_VI
 3. **Wield a sword, then a mace** — the sword appears, the mace leaves the hand empty *on purpose*
    (1,888 of 7,415 hand items have meshes; empty beats wrong).
 4. **Kill something** — the swing rotates A/B/C over rounds, numbers rise, the corpse falls and holds.
-5. Verified live already, so it is not on you: every character asset serves over HTTP with the right
-   content type (bodies, all 20 parts, both animation libraries, weapons, textures — 35 MB).
+5. **Shift+drag** to orbit the crowd; **O** to swing the camera behind you; the **compass** is
+   top-right and **C** brings north back in one press.
+6. Verified live already, so it is not on you: every character asset serves over HTTP with the right
+   content type (bodies, all 20 parts, both animation libraries, weapons, textures — 35 MB), and
+   every new client module transforms and serves through the running dev server.
 
 **Known gaps, all deliberate:** bodies are bald (hair is chargen identity, which the 2D client
 owns); mobs have empty hands (no equipment list until Phase 16); 25 MB of uncompressed atlas is 71%
