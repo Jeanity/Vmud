@@ -453,7 +453,56 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-### Start here — 2026-08-11: the project pivots to the 3D client
+### Start here — 2026-08-12: the 3D client exists, and the GO/NO-GO awaits the owner
+
+**Five milestones and mouse input landed in one day, all pushed, `main` at `36e1ff7`.** The plan
+costed M0–M4 at 10–15 focused weeks; it was done by delegated agents (opus for the load-bearing
+rewrites, sonnet for contained work), each independently verified — typecheck, the full suite, and
+the live page — before its commit. Every commit message carries the agent's findings; read them
+(`git log 9eab6b8..36e1ff7`) before re-deriving anything.
+
+- **M0** `7069ef3` — sparse 16x16 tilemap chunks (zone 317: 521 MB → 214 KB), sector-0-void fix,
+  stair metadata, outdoor rooms merge along their whole edge, `space.ts` axis map in shared.
+- **M1** `9eab6b8` — sector inference repaired; the plan's own narrative was stale (diffusion and a
+  Duris harvest already existed; the world was at 0.2% defaulted). Real fix: landscape words now
+  outrank road/city — 4,427 rooms changed sector, "A Forest Path" is a forest.
+- **M2** `14725f3` — `roomScene.ts`: pure `describeRoom`, whole-world invariants in <1 s. The ruling
+  that matters: **seams are not portals** (5,140 of 5,142 portal-shaped edges are seams; the world
+  keeps exactly 2 emissive rings — Velen 100001053 east, the kobold Sacrificial Pit 81128 west).
+- **M3** `17fcea3` — `packages/client3d`, three@0.185.1 pinned, beside the Phaser client (both speak
+  protocol 31 to one server until M7 breaks it deliberately). Pooled archetypes, 2 shader programs,
+  spatial streaming, allocation ledger byte-identical headless and in the browser. First frame
+  rendered and screenshotted.
+- **M4** `2187d09` — the night: hemisphere + moon with per-frame shadow refit, FogExp2, 8-light
+  fixed pool, one-draw-call rain gated on `roofed`, portal rings + selective bloom, tri-state fog of
+  war. Tone mapping defaults **Neutral** over AgX (AgX sheds chroma exactly where a night lives);
+  **T** cycles them, **R** rain, **B** bloom.
+- **Pointer input** `36e1ff7` — click-to-move + hold-drag steer, the 2D contract ported line-by-line
+  (150 ms hold, same precedence); clicks into the dark drop silently client-side, documented why.
+- Also: `34d2e3a` fixed the real login bug (typed credentials now survive reconnects — resume
+  tokens die with every server restart) and `e2ab60a` (a separate session) made scatter stair-aware.
+
+**THE ONE OPEN DECISION — the plan's designed GO/NO-GO.** The owner stands in the Nightwood (zone
+390), Bryn Shander's doorways (123), and the Comarian Mines (133), beside their reference image,
+and judges whether the *light* matches. M5 (outdoor art), M6 (interiors), M7 (characters + protocol
+v2) all wait on that verdict. Do not start M5 without it.
+
+**Running it:** the owner runs the servers in their own terminals — `npm run dev:supervised` and
+`npm run dev:client3d`, both from this worktree — because preview-harness servers die with the
+session that started them. 2D on 5273, 3D on 5280, same accounts, same characters. A free-named
+character spawns identity-less and can never re-enter (the server answers `charAdopt` → adopt in
+the 2D client's cards once). Azder and Trewe enter fine. A `greybox-check` test account exists.
+
+**Hard-won environment facts:** a hidden browser pane gets no animation frames — per-frame state
+reads 0 and pointer clicks do not resolve; front the pane before judging anything visual. Ollama
+inference needs `--cpu` when ComfyUI holds the GPU. `gh auth setup-git` fixed the 403s. CLAUDE.md
+gotcha 8 (no TS parameter properties) came from client3d.
+
+---
+
+### Before that — 2026-08-11: the project pivots to the 3D client
+
+### The pivot record — 2026-08-11: the decision and its reasoning
 
 **The owner turned the project on 2026-08-11, and it reverses a standing ruling.** Since 2026-08-07
 this file and the roadmap have said *"think about it, build none of it yet"* about the 3D client, on
