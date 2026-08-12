@@ -266,6 +266,13 @@ function hashRoom(roomId: number, salt: number): number {
  * **A room that was authored keeps what it was given.** Scatter never joins authored scenery: an
  * author who dressed a room owns it, and mixing the two would mean hand-placed props competing for
  * tiles with generated ones — which is a collision rule nobody wants to debug.
+ *
+ * **A staircase is the one obstacle this function cannot dodge from here.** `tilemap.stairPlacement`
+ * stamps flights inside the same room block, at offsets derived from the room id *and the vertical
+ * exits* — and the exits are deliberately not among these inputs. The join is `tilemap.sceneryOf`,
+ * which drops any prop returned here whose footprint would share a tile with a flight: a clash
+ * thins the room, exactly as the quadrant dedupe below does, and this module stays the catalogue —
+ * import-free, and blind to geometry it does not own.
  */
 export function scatterFor(
   roomId: number,

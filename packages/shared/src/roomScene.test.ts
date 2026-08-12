@@ -615,9 +615,11 @@ describe('purity', () => {
     );
   });
 
-  it('leaves scatterFor byte-identical — the shipped world must not move', () => {
+  it('leaves scatterFor byte-identical — the wilderness must not reshuffle', () => {
     // A regression guard on the *other* two hashes: `hashCell` is new and stands alongside
-    // `hashRoom`, and if anyone ever "unifies" them these props move under players' feet.
+    // `hashRoom`, and if anyone ever "unifies" them these props move under players' feet. The one
+    // movement sanctioned since M2 is a *drop*, not a move — `sceneryOf` thins scatter standing on
+    // a staircase, downstream of this function — so what `scatterFor` answers stays frozen.
     assert.deepEqual(scatterFor(92060, 'forest', undefined), [
       { kind: 'stump', tx: 6, ty: 5 },
       { kind: 'stump', tx: 6, ty: 2 },

@@ -231,8 +231,9 @@ describe('M2: the scene IR over the whole built world', () => {
             }
             const other = taken.get(cell);
             if (other !== undefined) {
-              // The one overlap that is neither this milestone's to guarantee nor its to fix: see
-              // the `pins the one overlap it inherited` test for the whole argument.
+              // Prop-on-stair keeps the dedicated counter it had while it was M2's pinned
+              // inheritance, so the `never stands a scattered prop on a staircase` test can say
+              // how many and where instead of drowning them in the generic overlap bucket.
               if ((other === 'stair') !== (feature.t === 'stair') && feature.t !== 'landmark' && other !== 'landmark') {
                 propOnStairTiles += 1;
                 stairPropRooms.add(room.id);
@@ -322,7 +323,7 @@ describe('M2: the scene IR over the whole built world', () => {
           [...landmarkKinds].sort().map(([k, n]) => `${n} ${k}`).join(', '),
         `  vertical      ${verticalFeatures} stair/ramp features; ${cardinalExits} cardinal exits`,
         `  geometry      ${sameLevelNonPortalExits} same-level non-portal exits, ${geometryMismatches} mismatches`,
-        `  inherited     ${propOnStairTiles} prop-on-stair tiles in ${stairPropRooms.size} rooms; ` +
+        `  stair clash   ${propOnStairTiles} prop-on-stair tiles in ${stairPropRooms.size} rooms; ` +
           `${authoredOnRing} authored-prop tiles on the arrival ring`,
         '',
       ].join('\n'),
@@ -375,28 +376,27 @@ describe('M2: the scene IR over the whole built world', () => {
   });
 
   /**
-   * **A pre-existing gap this milestone found, measured and refused to paper over.**
+   * **A pre-existing gap M2 found, measured, pinned — and, one milestone later, closed.**
    *
    * `scatterFor` places props from the room id alone and cannot see where `stairPlacement` put the
    * flights, which are also derived from the room id and also invisible in the room's JSON. So a
-   * scattered bush sometimes lands on a staircase. `buildZoneTilemap` stamps scenery **last and only
-   * over plain `Tile.Floor`**, so the grid quietly drops that prop — and `sceneryOf`, which the
-   * client draws sprites from, still returns it. Measured: **448 tiles across 227 rooms**, 0.5% of
-   * the world.
+   * scattered bush sometimes landed on a staircase. `buildZoneTilemap` stamps scenery **last and
+   * only over plain `Tile.Floor`**, so the grid quietly dropped that prop — and `sceneryOf`, which
+   * the client draws sprites from, still returned it: walk-through decoration on top of a
+   * staircase. M2 measured **448 tiles across 227 rooms** and pinned the count under a ceiling
+   * rather than fix it, because the fix moves shipped scatter and mid-milestone was not the time.
    *
-   * The IR carries `sceneryOf`'s answer verbatim, deliberately: inventing a filtered second list here
-   * would be exactly the parallel prop system M2 is under orders not to build, and the honest fix is
-   * one line in `scatterFor` — which is forbidden this milestone, because `scatterFor`'s output is
-   * shipped world state and re-rolling it would move props players have already walked round.
-   *
-   * So this test **pins the shape of the inheritance rather than asserting it away**: the only
-   * overlap in the world is prop-on-stair, it is rare, and if it ever grows past a percent of rooms
-   * somebody has changed something and should find out here.
+   * The fix has since landed where the two derivations meet: `sceneryOf` drops any scattered prop
+   * whose footprint would share a tile with a flight. Dropped, never re-sited, and authored rooms
+   * are exempt — so the sanctioned movement of shipped world state was exactly those props thinning
+   * out of their rooms, and `scatterFor`'s own output stayed byte-identical. The pin is therefore a
+   * law now, like every other in this file: zero, over the whole built world.
    */
-  it('pins the one overlap it inherited: scattered props on staircases', () => {
-    assert.ok(
-      stairPropRooms.size < roomCount / 100,
-      `${stairPropRooms.size} of ${roomCount} rooms have a scattered prop on a staircase — that used to be 227`,
+  it('never stands a scattered prop on a staircase', () => {
+    assert.equal(
+      propOnStairTiles,
+      0,
+      `${propOnStairTiles} prop-on-stair tiles in ${stairPropRooms.size} rooms — sceneryOf's stair filter is not holding`,
     );
   });
 

@@ -8,6 +8,7 @@ import {
   Tile,
   buildZoneTilemap,
   isWalkable,
+  sceneryOf,
   sceneryTile,
   scenerySiting,
   stairPlacement,
@@ -284,6 +285,54 @@ describe('what the wilderness grows on its own', () => {
         assert.ok(ROOM_TILES - (prop.ty + spec.depth) >= 2, `room ${id}: ${prop.kind} too close to the south wall`);
       }
     }
+  });
+
+  it('never stands on a staircase, which is the ring law one flight up', () => {
+    // `stairPlacement` puts the flights inside the room block at offsets derived from the room id
+    // and the vertical exits — as invisible to `scatterFor` as they are to an author reading the
+    // room's JSON, because the exits are not among its inputs. The join is `sceneryOf`: a scattered
+    // prop whose footprint would share a tile with a flight is dropped there. Dropped, never
+    // re-sited — what survives is `scatterFor`'s own answer, thinned — which is why the expectation
+    // below is a filter over `scatterFor` and not a second placement. Before the join existed, the
+    // shipped world drew walk-through scatter on a staircase in 227 rooms (448 tiles, M2's count).
+    const shapes: Room['exits'][] = [{ up: { to: 9 } }, { down: { to: 9 } }, { up: { to: 9 }, down: { to: 8 } }];
+    for (const id of ROOMS) {
+      for (const exits of shapes) {
+        const room = makeRoom([], { id, sector: 'forest', exits });
+        const flights = new Set(stairCells(room).map(({ dx, dy }) => dy * ROOM_TILES + dx));
+        assert.ok(flights.size > 0, 'fixture has stairs');
+        const clearOfFlights = (prop: RoomScenery): boolean => {
+          const spec = SCENERY[prop.kind];
+          for (let dy = 0; dy < spec.depth; dy++) {
+            for (let dx = 0; dx < spec.width; dx++) {
+              if (flights.has((prop.ty + dy) * ROOM_TILES + prop.tx + dx)) return false;
+            }
+          }
+          return true;
+        };
+        assert.deepEqual(
+          sceneryOf(room),
+          scatterFor(id, 'forest', undefined).filter(clearOfFlights),
+          `room ${id}: sceneryOf must be scatterFor's answer minus the props on a flight`,
+        );
+      }
+    }
+  });
+
+  it('gives a room with no flights exactly what scatterFor grew', () => {
+    for (const id of ROOMS.slice(0, 100)) {
+      assert.deepEqual(sceneryOf(makeRoom([], { id, sector: 'forest' })), scatterFor(id, 'forest', undefined));
+    }
+  });
+
+  it('never drops an authored prop, even one standing on a flight', () => {
+    // The accessor polices only what it grew. An authored prop on a staircase is an authoring
+    // mistake, and `scenerySiting` refuses it at build time with a sentence — a silent drop here
+    // would hide exactly the mistake that check exists to surface.
+    const bare = makeRoom([], { id: 4242, sector: 'forest', exits: { up: { to: 9 } } });
+    const on = stairCells(bare)[0]!;
+    const authored: RoomScenery[] = [{ kind: 'statue', tx: on.dx, ty: on.dy }];
+    assert.deepEqual(sceneryOf(makeRoom(authored, { id: 4242, sector: 'forest', exits: bare.exits })), authored);
   });
 
   it('always fits inside the room', () => {

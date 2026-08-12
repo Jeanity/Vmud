@@ -640,9 +640,49 @@ export function stairAt(grid: TileGrid, tx: number, ty: number): StairBlock | un
  * miss the scatter, and the two would disagree about which tiles are solid — a player walking
  * through a bush the server says is there, which is the exact desync the whole "a prop is a rule"
  * argument exists to prevent.
+ *
+ * **And the one place scatter can meet the stairs.** Flights are stamped inside the room block at
+ * offsets derived from the room id ({@link stairPlacement}) and the vertical exits — and
+ * `scatterFor` sees neither: it is a pure function of (roomId, sector, authored), deliberately.
+ * For a while the two derivations never met. `buildZoneTilemap` stamps scenery only over plain
+ * floor, so the grid quietly refused the clashing tiles while this accessor kept returning the
+ * prop, and the client drew walk-through decoration on top of a staircase — M2 measured 448 such
+ * tiles across 227 rooms and pinned the count rather than fix it, because the fix moves shipped
+ * scatter and mid-milestone was not the time. This filter is that fix: a scattered prop whose
+ * footprint would share a tile with a flight is **dropped, never re-sited** — a clash thins the
+ * room, exactly the answer `scatterFor`'s own quadrant dedupe gives, and the smallest movement of
+ * shipped world state that makes the drawn world match the collision grid.
+ *
+ * Authored scenery is exempt and comes back verbatim: a human placed it, and `scenerySiting`
+ * refuses an authored prop on a flight at build time with a sentence — a silent drop here would
+ * hide the very mistake that check exists to surface.
  */
 export function sceneryOf(room: Room): readonly RoomScenery[] {
-  return scatterFor(room.id, room.sector, room.scenery);
+  const standing = scatterFor(room.id, room.sector, room.scenery);
+  if (room.scenery?.length || standing.length === 0) return standing;
+  const stairs = stairPlacement(room.id, !!room.exits.up, !!room.exits.down);
+  if (!stairs.up && !stairs.down) return standing;
+  return standing.filter((prop) => !standsOnFlight(prop, stairs));
+}
+
+/** Whether this prop's footprint shares a tile with either flight. */
+function standsOnFlight(
+  prop: RoomScenery,
+  stairs: { readonly up?: StairOffset; readonly down?: StairOffset },
+): boolean {
+  const spec = SCENERY[prop.kind];
+  for (const offset of [stairs.up, stairs.down]) {
+    if (!offset) continue;
+    if (
+      prop.tx < offset.dx + STAIR_TILES &&
+      prop.tx + spec.width > offset.dx &&
+      prop.ty < offset.dy + STAIR_TILES &&
+      prop.ty + spec.depth > offset.dy
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -831,9 +871,10 @@ export function buildZoneTilemap(zone: Zone, level = 0): TileGrid {
   // Scenery last, and only over plain floor — V8d. A prop is authored as a room-relative offset and
   // so cannot reach the gap where doors and seams live, but it *can* be written over a staircase,
   // which is stamped inside the room block at an offset nobody reading the room's JSON can see. The
-  // `Floor` test is the guard: a prop never eats a stair, a door or a connector, whatever it was
-  // told to do. Authoring is stopped from getting there at all by `scenerySiting`, which the
-  // worldgen validator runs and which knows where the flights are.
+  // `Floor` test is the last line of defence: a prop never eats a stair, a door or a connector,
+  // whatever it was told to do. Nothing should reach it any more — `scenerySiting` refuses authored
+  // props on a flight at build time, and `sceneryOf` drops scattered ones before they get here — so
+  // a tile this guard actually saves is a bug upstream, not a mechanism to lean on.
   for (const room of rooms) {
     const standing = sceneryOf(room);
     if (standing.length === 0) continue;
