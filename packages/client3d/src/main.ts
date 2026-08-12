@@ -27,10 +27,24 @@
  *
  * ## `__debug3d`
  *
- * Exposed unconditionally rather than behind `import.meta.env.DEV`, because the acceptance for this
- * milestone is *"expose `window.__debug3d` … the dev page must boot to a state where those counters
- * are readable from the console"*, and a built preview has to answer the same question a dev server
- * does. It is a read-only snapshot: nothing in the renderer reads it back.
+ * Exposed unconditionally rather than behind `import.meta.env.DEV`, because the acceptance for M3 was
+ * *"expose `window.__debug3d` … the dev page must boot to a state where those counters are readable
+ * from the console"*, and a built preview has to answer the same question a dev server does.
+ *
+ * At M3 it was a read-only snapshot. **M4 makes half of it writable**, and deliberately: the
+ * milestone's whole question is *"does the light match"*, which is answered by a human turning knobs
+ * with the reference image beside them. `toneMapping`, `exposure`, `rainEnabled`, `rainOpacity`,
+ * `shadowMapSize`, `fogDensity`, `fogColour`, `bloomIntensity` and `bloomThreshold` all take. Nothing
+ * in the *simulation* reads any of them; they reach the renderer and stop there.
+ *
+ * ## The frame, after M4
+ *
+ * One thing changed shape. `renderer.render(scene, camera)` became `grade.render(delta)`, because the
+ * scene now goes through a `postprocessing` `EffectComposer` — bloom and the tone curve, in that
+ * order, in one pass. §3's warning is worth restating where the call site is: **there is one composer
+ * stack in this client and it is pmndrs', and `three/examples`' `UnrealBloomPass` must never be added
+ * beside it.** Everything else in the loop is where it was: movement settles, then the window
+ * recentres, then the light and the camera take the same position, then it draws.
  */
 
 import { WebGLRenderer } from 'three';
@@ -39,10 +53,13 @@ import { samePlace, type Direction, type Place } from '@mygame/shared';
 
 import { EntityLayer } from './entities.ts';
 import { metresOfPixel } from './frame.ts';
-import { Input } from './input.ts';
+import { Input, intoFormControl } from './input.ts';
 import { LogPanel } from './log.ts';
 import { LoginGate } from './login.ts';
 import { Net } from './net.ts';
+import { SHADOW_MAP_TYPE, type ShadowFit } from './night.ts';
+import { Grade, TONE_MAPPINGS, type ToneMapping } from './post.ts';
+import { Rain } from './rain.ts';
 import { CameraRig } from './rig.ts';
 import { MAX_WINDOW_CHUNKS, WINDOW_CELLS_X, WINDOW_CELLS_Y, WINDOW_MARGIN } from './streamer.ts';
 import { World3D } from './world3d.ts';
@@ -66,9 +83,23 @@ const input = new Input();
 
 const canvasHost = document.getElementById('view');
 if (!canvasHost) throw new Error('missing element #view');
-const renderer = new WebGLRenderer({ antialias: true });
+// `antialias` is deliberately off: the scene renders into the composer's own buffers and the
+// context's multisampling never sees it. MSAA is `post.ts`'s `MULTISAMPLING`, on those buffers.
+const renderer = new WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = SHADOW_MAP_TYPE;
+// The composer calls `renderer.render` several times a frame, and `info` resets on each of them. Off,
+// so `__debug3d.drawCalls` counts the *frame* — the world, the shadow map, the depth mask and the
+// full-screen passes — which is the number that matters when the question is why it is slow.
+renderer.info.autoReset = false;
 canvasHost.append(renderer.domElement);
+
+const grade = new Grade(renderer, world.scene, rig.camera);
+world.setGlowSet(grade.glow);
+
+const rain = new Rain();
+world.scene.add(rain.mesh);
 
 /** Server-authoritative facts the loop reads. Held here rather than in the world: none of it draws. */
 let place: Place | undefined;
@@ -162,6 +193,9 @@ net.on('room', (message) => {
   roomId = message.view.room.id;
   roomName = message.view.room.name;
   setText('hud-where', roomName);
+  // The lit half of the three-state fog of war: this room and the rooms an exit links it to. See
+  // `world3d.ts`'s header for why the room graph is the right source and a raycast is not.
+  world.setHere(roomId);
   for (const view of message.view.entities) entities.upsert(view);
   // Anything the server no longer lists for this room is gone.
   const present = new Set(message.view.entities.map((e) => e.id));
@@ -200,6 +234,14 @@ net.on('rejected', (message) => log.write('error', `Rejected: ${message.reason}`
 
 let last = performance.now();
 let fps = 0;
+/**
+ * Whether the player wants rain at all, as distinct from whether it is falling.
+ *
+ * Two writers and they must not fight: the **R** key and `__debug3d.rainEnabled` set this, and the
+ * frame ANDs it with "is there a roof overhead" before touching the mesh. Letting either writer set
+ * `visible` directly would mean stepping into a cave permanently turned the toggle off.
+ */
+let rainWanted = true;
 
 /** Hoisted out of the loop: one closure for the session rather than one per frame. */
 const groundAt = (px: number, py: number): number => world.groundAt(px, py);
@@ -211,6 +253,7 @@ function frame(now: number): void {
   const seconds = Math.min((now - last) / 1000, 0.1);
   last = now;
   fps = seconds > 0 ? 1 / seconds : fps;
+  renderer.info.reset();
 
   const raw = input.intent();
   // A key held *across* a click is being ignored by the server for as long as the route lasts, so
@@ -231,18 +274,36 @@ function frame(now: number): void {
     // Recentred on the *predicted* position, for the same reason the 2D client's lit set is:
     // streaming a fifth of a room behind the character shows its seam every time they turn round.
     world.update(self.x, self.y);
-    rig.follow(metresOfPixel(self.x), groundAt(self.x, self.y), metresOfPixel(self.y));
+    const x = metresOfPixel(self.x);
+    const y = groundAt(self.x, self.y);
+    const z = metresOfPixel(self.y);
+    rig.follow(x, y, z);
+    // The moon's shadow camera and the clearing light take the *same* three numbers the camera did,
+    // in the same frame. Anything else and the shadow volume trails the frame by a tick.
+    world.focus(x, y, z);
+    rain.update(now / 1000, x, y, z);
+    // Weather is gated on the roof, not on the biome: §4's enclosure class says "3-4 solid wants no
+    // weather", and the cheapest honest version of that at grey-box — where there is no ceiling
+    // geometry to hide the sky until M6 — is to stop the rain when the character is under one.
+    rain.enabled = rainWanted && !world.roofed;
+  } else {
+    // No body yet: the login card is still up and the storm has nowhere to be centred.
+    rain.enabled = false;
   }
   entities.render(groundAt);
 
-  renderer.render(world.scene, rig.camera);
+  world.pool.pulse(now / 1000);
+
+  grade.render(seconds);
 }
 
 function resize(): void {
   const width = canvasHost!.clientWidth;
   const height = canvasHost!.clientHeight;
   if (width === 0 || height === 0) return;
-  renderer.setSize(width, height, false);
+  // Through the composer, which forwards to the renderer and resizes every intermediate target with
+  // it. Calling `renderer.setSize` as well would leave the buffers a frame behind on every drag.
+  grade.setSize(width, height);
   rig.resize(width, height);
 }
 
@@ -319,9 +380,178 @@ const debug = {
   get fps(): number {
     return Math.round(fps);
   },
+
+  /* ------------------------------------------------------------------ M4 */
+
+  /**
+   * `'neutral'` or `'agx'`. **The comparison the plan asks for, live.**
+   *
+   * Also the **T** key, because the honest way to judge two tone curves is to flip between them with
+   * the reference on the other monitor, not to reload the page between them.
+   */
+  get toneMapping(): ToneMapping {
+    return grade.toneMapping;
+  },
+  set toneMapping(mode: ToneMapping) {
+    grade.toneMapping = mode;
+  },
+  /** The two tone curves are only comparable at a matched exposure; this is how you match them. */
+  get exposure(): number {
+    return grade.exposure;
+  },
+  set exposure(value: number) {
+    grade.exposure = value;
+  },
+  /** What the player wants. The rain itself also needs there to be no roof — see the frame loop. */
+  get rainEnabled(): boolean {
+    return rainWanted;
+  },
+  set rainEnabled(on: boolean) {
+    rainWanted = on;
+  },
+  /** Whether it is actually falling right now: `rainEnabled` and no roof. */
+  get raining(): boolean {
+    return rain.enabled;
+  },
+  get rainOpacity(): number {
+    return rain.opacity;
+  },
+  set rainOpacity(value: number) {
+    rain.opacity = value;
+  },
+  /** Texels a side. Writing it disposes the old shadow map; three builds the new one next frame. */
+  get shadowMapSize(): number {
+    return world.night.shadowMapSize;
+  },
+  set shadowMapSize(size: number) {
+    world.night.shadowMapSize = size;
+  },
+  get fogDensity(): number {
+    return world.night.fogDensity;
+  },
+  set fogDensity(value: number) {
+    world.night.fogDensity = value;
+  },
+  /** Fog and background as one `0xRRGGBB`. The single most likely thing to want to try by hand. */
+  get fogColour(): number {
+    return world.night.nightColour;
+  },
+  set fogColour(hex: number) {
+    world.night.nightColour = hex;
+  },
+  /**
+   * The light pool's own audit.
+   *
+   * `visible` must equal `total` for ever. If it does not, something switched a light off with
+   * `visible` instead of `intensity` and three has been recompiling shaders — see `lights.ts`.
+   */
+  get lightsInUse(): ReturnType<World3D['lights']['audit']> {
+    return world.lights.audit();
+  },
+  /** The orthographic volume the moon's shadow camera was fitted to this frame. */
+  get moon(): ShadowFit {
+    return world.night.fit;
+  },
+  /** How the loaded window divides between unseen, remembered and visible. */
+  get fogOfWar(): ReturnType<World3D['fogCensus']> {
+    return world.fogCensus();
+  },
+  get roofed(): boolean {
+    return world.roofed;
+  },
+  /**
+   * Compiled shader programs. **The number that must stop moving.**
+   *
+   * Expect it to settle within the first few frames and never change again while walking: the light
+   * counts are fixed at boot, the material pool is two programs, and nothing is added to the scene
+   * afterwards. It moves once more if you press **T** — a tone-mapping mode is a `#define`.
+   */
+  get programs(): number {
+    return renderer.info.programs?.length ?? 0;
+  },
+  get bloomIntensity(): number {
+    return grade.bloomIntensity;
+  },
+  set bloomIntensity(value: number) {
+    grade.bloomIntensity = value;
+  },
+  get bloomThreshold(): number {
+    return grade.bloomThreshold;
+  },
+  set bloomThreshold(value: number) {
+    grade.bloomThreshold = value;
+  },
+  /**
+   * Objects currently flagged to bloom — the live check that the selection wiring reached them.
+   *
+   * Zero in a room with no portal is correct. Zero *while looking at a portal ring* means the pooled
+   * wrapper never made it into the selection, and the ring will be lit but will not glow.
+   */
+  get bloomSelected(): number {
+    return grade.glowing;
+  },
+  /**
+   * Turn the depth mask off and let the luminance threshold do the selecting on its own.
+   *
+   * A diagnostic rather than a look knob, and the order of the two statements matters: the grade
+   * clears the flags already written onto pooled wrappers, and the world stops writing new ones. Read
+   * `post.ts`'s `selective` before reaching for it — the symptom it answers is `bloomSelected` above
+   * zero while a portal ring in front of you refuses to glow.
+   */
+  get bloomSelective(): boolean {
+    return grade.selective;
+  },
+  set bloomSelective(on: boolean) {
+    grade.selective = on;
+    world.setGlowSet(on ? grade.glow : undefined);
+  },
 };
 
 (window as unknown as { __debug3d: typeof debug }).__debug3d = debug;
+
+/* -------------------------------------------------------------------------- */
+/* The look keys                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * **T** cycles the tone mapping, **R** toggles the rain, **B** toggles the bloom.
+ *
+ * Three keys because M4 is a judgement made by looking, and reaching for the console between looks
+ * costs the comparison its immediacy — the plan's *"judge it side by side with the reference on the
+ * same monitor"* is a thing you do with a keyboard.
+ *
+ * Both of `CLAUDE.md`'s input traps apply and both are answered the way `input.ts` answers them. The
+ * gate is checked *and* `intoFormControl` is asked, so a **t** typed into the command line reaches the
+ * command line — the letter-eating failure in gotcha 5a arrived through exactly this door, from a
+ * listener that read a key it had no business reading. Nothing here calls `preventDefault`, and the
+ * decision is taken on the `keydown` event with `event.repeat` refused rather than polled, which is
+ * gotcha 5b.
+ */
+window.addEventListener('keydown', (event: KeyboardEvent) => {
+  if (input.typing || event.repeat || intoFormControl(event.target)) return;
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  switch (event.code) {
+    case 'KeyT': {
+      const at = TONE_MAPPINGS.indexOf(grade.toneMapping);
+      const next = TONE_MAPPINGS[(at + 1) % TONE_MAPPINGS.length] ?? TONE_MAPPINGS[0]!;
+      grade.toneMapping = next;
+      log.write('system', `tone mapping: ${next}`);
+      return;
+    }
+    case 'KeyR':
+      rainWanted = !rainWanted;
+      log.write('system', `rain: ${rainWanted ? 'on' : 'off'}`);
+      return;
+    case 'KeyB':
+      grade.bloomIntensity = grade.bloomIntensity > 0 ? 0 : 1.9;
+      log.write('system', `bloom: ${grade.bloomIntensity > 0 ? 'on' : 'off'}`);
+      return;
+    default:
+      return;
+  }
+});
+
+log.write('system', 'M4 — T: tone mapping (neutral/agx)   R: rain   B: bloom.  Knobs on window.__debug3d.');
 
 net.connect();
 

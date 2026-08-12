@@ -31,14 +31,19 @@ describe('the pool key set', () => {
     assert.deepEqual([...GEOMETRY_KEYS], ['box', 'cone', 'torus', 'capsule']);
   });
 
-  it('has exactly 110 materials, and the arithmetic is legible', () => {
-    // 3 terrain archetypes x 16 sectors = 48, plus 8 object archetypes = 56 distinct looks;
-    // everything but the two body archetypes gets a faded twin, so + 54 = 110.
+  it('has exactly 112 materials, and the arithmetic is legible', () => {
+    // 3 terrain archetypes x 16 sectors = 48, plus 9 object archetypes = 57 distinct looks;
+    // everything but the two body archetypes gets a faded twin, so + 55 = 112.
+    //
+    // 110 at M3. The two M4 added are `glow` and its twin — the stairwell marker — and that is the
+    // *whole* of M4's growth: the emissive ring is a uniform on an existing material and the
+    // three-state fog of war is a per-instance colour, so neither multiplied this table. See
+    // `prototypes.ts` for why keying fog of war into the material would have taken it to 336.
     const terrain = BIOME_ARCHETYPES.length * SECTORS.length;
     const objects = ARCHETYPES.length - BIOME_ARCHETYPES.length;
     assert.equal(terrain, 48);
-    assert.equal(objects, 8);
-    assert.equal(MATERIAL_KEYS.length, 110);
+    assert.equal(objects, 9);
+    assert.equal(MATERIAL_KEYS.length, 112);
     assert.equal(MATERIAL_KEYS.length, terrain + objects + (terrain + objects - 2));
   });
 
@@ -78,8 +83,9 @@ describe('the pool key set', () => {
     const start = pool.snapshot();
     assert.equal(start.geometries, GEOMETRY_KEYS.length);
     assert.equal(start.materials, MATERIAL_KEYS.length);
-    // 70 window chunks x 9 buckets a chunk + 2 for the bodies. Derived, not chosen — see `pool.ts`.
-    assert.equal(WRAPPER_POOL_SIZE, 632);
+    // 70 window chunks x 10 buckets a chunk + 2 for the bodies. Derived, not chosen — see `pool.ts`.
+    // Nine buckets at M3; M4's `glow` archetype is the tenth a single room can want.
+    assert.equal(WRAPPER_POOL_SIZE, 702);
     assert.equal(start.prewarmed, WRAPPER_POOL_SIZE);
     assert.equal(start.wrappersCreated, WRAPPER_POOL_SIZE, 'the free list is whole before anything asks');
     assert.equal(start.wrappersFree, WRAPPER_POOL_SIZE);

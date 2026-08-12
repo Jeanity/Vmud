@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@mygame/shared": "*",
+    "postprocessing": "6.39.4",
     "three": "0.185.1"
   },
   "devDependencies": {

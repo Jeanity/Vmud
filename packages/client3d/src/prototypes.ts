@@ -18,12 +18,26 @@
  * means by "dressed by biome: forest→tree wall, cave→rock, city→facade". So:
  *
  * - {@link BIOME_ARCHETYPES} are crossed with all 16 {@link SECTORS}: 3 x 16 = 48.
- * - Everything else gets one material: 8.
- * - Everything except the two body archetypes gets a faded twin (see {@link FADE_OPACITY}): 54.
+ * - Everything else gets one material: 9.
+ * - Everything except the two body archetypes gets a faded twin (see {@link FADE_OPACITY}): 55.
  *
- * **110 materials, created once at startup, never again.** That reads like a lot and is not: colour
- * is a uniform rather than a shader define, so all 110 share two compiled programs (opaque and
+ * **112 materials, created once at startup, never again.** That reads like a lot and is not: colour
+ * is a uniform rather than a shader define, so all 112 share two compiled programs (opaque and
  * transparent) and the objects themselves are a few hundred bytes each.
+ *
+ * ## What M4 added, and what it deliberately did not
+ *
+ * Two materials: the `glow` archetype and its faded twin, for the stairwell markers. **Emissive and
+ * fog of war both went in without a single new key**, and each for a reason worth keeping:
+ *
+ * - `emissive` is a uniform on `MeshLambertMaterial`, not a define, so the portal ring's light lives
+ *   in {@link ARCHETYPE_EMISSIVE} beside its colour and costs no program.
+ * - Fog of war is `InstancedMesh.instanceColor` (see `fogOfWar.ts`) — per *instance*, so the three
+ *   states are three floats a chunk rather than three times the material pool. Keying them into the
+ *   material would have taken 112 to 336 and, worse, made "which state is this room in" a property of
+ *   the pool rather than of the room.
+ *
+ * The pool is still two programs. That was the constraint M4 was asked to respect and it held.
  *
  * ## Geometry is not keyed by biome at all
  *
@@ -39,11 +53,12 @@ import { SECTORS, type Sector } from '@mygame/shared';
 /* -------------------------------------------------------------------------- */
 
 /**
- * The four unit shapes. Everything drawn at M3 is one of these under a scale.
+ * The four unit shapes. Everything drawn is one of these under a scale.
  *
  * `box` covers ground, walls, doors, steps, ramps and props; `cone` is the landmark slot; `torus` is
- * the portal ring — the plan's emissive ring, unlit and grey until M4 gives it a light; `capsule` is
- * a body. A fifth shape is a change to this list and to the test that counts it.
+ * both the portal ring — the plan's emissive ring, which M4 lit — and the flat marker a stairwell
+ * lays on its floor; `capsule` is a body. A fifth shape is a change to this list and to the test that
+ * counts it.
  */
 export const GEOMETRY_KEYS = ['box', 'cone', 'torus', 'capsule'] as const;
 
@@ -61,6 +76,7 @@ export const ARCHETYPES = [
   'door',
   'doorOpen',
   'portal',
+  'glow',
   'stair',
   'prop',
   'landmark',
@@ -96,12 +112,76 @@ export const ARCHETYPE_GEOMETRY: Readonly<Record<Archetype, GeometryKey>> = {
   door: 'box',
   doorOpen: 'box',
   portal: 'torus',
+  glow: 'torus',
   stair: 'box',
   prop: 'box',
   landmark: 'cone',
   self: 'capsule',
   other: 'capsule',
 };
+
+/**
+ * What casts a shadow, and — by its absence — what does not. M4.
+ *
+ * `receiveShadow` is **not** here: everything receives, always, set once when a wrapper is minted.
+ * (In r185 that is a uniform rather than a define — `WebGLRenderer.js:2690` — so varying it would
+ * cost no program, which is worth knowing and is not the reason. The reason is that there is nothing
+ * in a grey-box scene that should be exempt from moonlight, and a second per-archetype table whose
+ * every entry is `true` is a table that will one day be wrong in one row.)
+ *
+ * `castShadow` is what varies, and it decides membership of the shadow render list rather than
+ * anything about the shader:
+ *
+ * - **`ground` does not cast.** A 0.2 m slab shadowing the slab beside it is acne with a long name,
+ *   and there is nothing under it at M4 for a real shadow to land on. Excluding it also halves the
+ *   shadow pass's draw calls, because ground is the one archetype every chunk has.
+ * - **`portal` and `glow` do not cast.** They are light sources. A ring that occludes the moon reads
+ *   as a hole in the world rather than as a thing that shines.
+ * - Everything with height casts, including bodies: the plan's *"soft moon shadows"* is mostly walls
+ *   and props, but a character with no shadow floats however good the terrain looks.
+ */
+export const ARCHETYPE_CASTS: Readonly<Record<Archetype, boolean>> = {
+  ground: false,
+  edge: true,
+  barrier: true,
+  door: true,
+  doorOpen: true,
+  portal: false,
+  glow: false,
+  stair: true,
+  prop: true,
+  landmark: true,
+  self: true,
+  other: true,
+};
+
+/**
+ * How much light a thing makes of its own — M4's *"emissive portal rings"*, as a table.
+ *
+ * The numbers are `emissiveIntensity`, and they are above one on purpose: the composer's buffers are
+ * `HalfFloatType`, so a ring at 5.5 hands the bloom pass a value five and a half times display white
+ * and gets a halo instead of a flat clipped disc. That is the entire mechanism behind the reference
+ * image's glowing gate, and it only works because the grade happens *after* the bloom (see `post.ts`).
+ *
+ * The stairwell marker is at 0.9 — under the bloom threshold, by design. §6-M4 asks for *"the
+ * horizontal rings the full emissive treatment"* and stairwells only a *"subtle glow marker"*, and the
+ * cheapest way to keep those apart is a value that cannot reach the bloom even if the selection
+ * mask fails.
+ */
+export const ARCHETYPE_EMISSIVE: Readonly<Partial<Record<Archetype, number>>> = {
+  portal: 5.5,
+  glow: 0.9,
+};
+
+/**
+ * How far the portal's emissive swings, and how fast, in Hz.
+ *
+ * Time-based and therefore exempt from the determinism rule — and it has to stay exempt by being
+ * *unread*: nothing samples the pulse, nothing derives a position from it, and the server never hears
+ * of it. A ring that sat at a constant value would read as a texture rather than as a thing that is on.
+ */
+export const PORTAL_PULSE_DEPTH = 0.18;
+export const PORTAL_PULSE_HZ = 0.28;
 
 /* -------------------------------------------------------------------------- */
 /* Keys                                                                        */
@@ -173,15 +253,28 @@ const OBJECT_COLOUR: Readonly<Record<Archetype, number>> = {
   barrier: 0x000000,
   door: 0xd0a070,
   doorOpen: 0x9a7048,
-  // The reference image's ring, in grey-box. Bright enough to find in a flat scene, and the one
-  // thing here that is *meant* to look wrong until M4 makes it emissive.
-  portal: 0x7fd8ff,
+  // The reference image's ring. The *diffuse* is near-black on purpose — a portal is a thing that
+  // emits, not a thing that is lit, and a bright albedo under it would put moonlight on the tube and
+  // flatten the glow. All of its colour is in `ARCHETYPE_EMISSIVE`.
+  portal: 0x0a1416,
+  glow: 0x0d1614,
   stair: 0xdad2bc,
   prop: 0x8a7f6a,
   landmark: 0xc9b483,
   // Self and others are told apart by colour and by nothing else at M3 — no nameplates until M7.
   self: 0x5fd0ff,
   other: 0xff9a5c,
+};
+
+/**
+ * What the emissive archetypes actually shine, as distinct from what they reflect.
+ *
+ * The reference's gate is a saturated cyan and the stairwell marker a colder, quieter teal, so that
+ * one reads as "somewhere else" and the other as "another floor" without a legend.
+ */
+export const EMISSIVE_COLOUR: Readonly<Partial<Record<Archetype, number>>> = {
+  portal: 0x64e2ff,
+  glow: 0x74d9c0,
 };
 
 /** The colour a material key paints. A pure function of the key's three parts. */
@@ -204,11 +297,16 @@ function darken(colour: number, factor: number): number {
 /**
  * How much of a faded thing is left.
  *
- * Two things fade and they are the same statement: **ground that is not fully present.** The level
- * below (the plan's "faded, for the cliff/shaft read") and ground this character has never seen (the
- * fog, as a per-room dimming — M3's stand-in for M4's per-chunk uniform). One variant serves both
- * because a player needs to know "you are not standing there" in exactly one visual register, and
- * two registers for one meaning is how a scene stops being readable.
+ * **M4 took one of this twin's two jobs away and left it the other.** At M3 it meant both "the level
+ * below" and "ground you have never seen", because there was no third state to give the second one.
+ * There is now: fog of war is `instanceColor` (`fogOfWar.ts`) and an unexplored room is drawn *opaque
+ * and near-black* — a silhouette, which is what unexplored ground should be — while transparency is
+ * reserved for the one statement it is actually right for.
+ *
+ * That statement is the plan's *"the camera renders the player's level plus one below (faded, for the
+ * cliff/shaft read)"*. A level below has to be see-*through*, not merely dark, or a shaft reads as a
+ * floor with a stain on it. The two meanings are now in two registers because they were always two
+ * meanings.
  */
 export const FADE_OPACITY = 0.3;
 
@@ -237,6 +335,15 @@ export const DIMENSIONS = {
   /** Ring radius and tube radius, before the per-instance scale. */
   portalRadius: 1.5,
   portalTube: 0.2,
+  /**
+   * The stairwell marker: a ring laid flat on the floor around the flight's mouth.
+   *
+   * Wide enough to enclose the {@link chunkPlan} stair block's three-metre span and low enough that a
+   * character walks over it rather than into it. Its whole job is to be the thing you notice when a
+   * room has a way down in it, from across the room, at a 64 degree camera.
+   */
+  glowRadius: 1.7,
+  glowLift: 0.08,
   /** How many boxes a flight of stairs is cut into. A ramp is one. */
   stairSteps: 4,
   stairThickness: 0.35,

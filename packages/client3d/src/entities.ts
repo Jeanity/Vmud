@@ -97,6 +97,10 @@ export class EntityLayer {
     // return them on. Self and others differ by material and by nothing else at M3.
     this.selfMesh = pool.acquire('capsule', 'self');
     this.otherMesh = pool.acquire('capsule', 'other');
+    // Bodies never take a fog-of-war tint — a character is not terrain, and the one thing that must
+    // stay legible in an unexplored room is the person standing in it. The pool mints every wrapper
+    // with a white `instanceColor`, so this is a statement about what is *not* done rather than a
+    // call: nothing repaints these two, ever.
     scene.add(this.selfMesh, this.otherMesh);
   }
 

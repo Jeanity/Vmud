@@ -48,6 +48,24 @@ function materialsInScene(world: World3D): string[] {
   return names;
 }
 
+/**
+ * The fog-of-war multiplier a named material is currently drawn with.
+ *
+ * Reads the wrapper's `instanceColor` — which *is* the per-chunk uniform (see `fogOfWar.ts`), so this
+ * is the same three floats the fragment shader multiplies the diffuse by, not a proxy for them.
+ */
+function tintOf(world: World3D, materialName: string): [number, number, number] | undefined {
+  for (const child of world.scene.children) {
+    const mesh = child as Partial<InstancedMesh>;
+    if (typeof mesh.count !== 'number' || mesh.count === 0) continue;
+    if ((mesh.material as Material | undefined)?.name !== materialName) continue;
+    const array = mesh.instanceColor?.array;
+    if (!array) continue;
+    return [array[0] ?? 1, array[1] ?? 1, array[2] ?? 1];
+  }
+  return undefined;
+}
+
 /** Simulation pixels at the centre of a room's block. */
 function centreOf(world: World3D, cellX: number, cellY: number): { x: number; y: number } {
   const frame = world.frame!;
@@ -76,7 +94,7 @@ describe('a session, end to end', () => {
     world.dispose();
   });
 
-  it('dims a room it has not seen, and undims it when the server says so', () => {
+  it('moves a room through all three fog states as the server and the character say so', () => {
     const zone = sampleZone();
     const world = new World3D();
     world.setPlace(zone, 0);
@@ -84,21 +102,36 @@ describe('a session, end to end', () => {
     const here = centreOf(world, 1, 1);
     world.update(here.x, here.y);
 
-    // Nothing seen at all: every chunk on the camera's own level fades.
-    world.setSeen(bitsToBase64(createBitset(grid.width * grid.height)));
-    assert.equal(world.chunkLevels().faded, 4);
-    assert.ok(materialsInScene(world).every((name) => name.endsWith('|dim')));
+    // Before any snapshot everything is drawn present, deliberately: a world that boots black and
+    // resolves a tick later reads as a bug rather than as fog.
+    assert.deepEqual(world.fogCensus(), { unseen: 0, remembered: 0, visible: 4 });
 
-    // Light one room's centre tile — the test `isFaded` runs — and only that room comes back.
+    // Nothing seen at all, and nowhere to stand: every chunk is unexplored.
+    world.setSeen(bitsToBase64(createBitset(grid.width * grid.height)));
+    assert.deepEqual(world.fogCensus(), { unseen: 4, remembered: 0, visible: 0 });
+    const dark = tintOf(world, 'ground|field');
+    assert.ok(dark);
+    assert.ok(dark.every((channel) => channel < 0.35), `unexplored ground is tinted ${dark.join(', ')}`);
+
+    // Light one room's centre tile — the test `stateOf` runs — and only that room is remembered.
     const origin = grid.roomOrigins.get(3)!;
     const centre = (origin.ty + 4) * grid.width + (origin.tx + 4);
     world.addSeen([centre]);
-    assert.equal(world.chunkLevels().faded, 3);
-    assert.ok(materialsInScene(world).some((name) => !name.endsWith('|dim')));
+    assert.deepEqual(world.fogCensus(), { unseen: 3, remembered: 1, visible: 0 });
 
-    // A delta that changes nothing must not churn the pool.
+    // Stand in it. Room 3's exits reach rooms 2 and 4, so three of the four light up; room 1 is a
+    // barrier-only cell with no exit anywhere and stays unexplored.
+    world.setHere(3);
+    assert.deepEqual(world.fogCensus(), { unseen: 1, remembered: 0, visible: 3 });
+    // Room 2 is the only forest cell, so its ground names one chunk unambiguously — and it is lit
+    // because room 3 has an exit west to it, which is the whole of the "immediate neighbours" rule.
+    assert.deepEqual(tintOf(world, 'ground|forest'), [1, 1, 1], 'a room you can walk into must be untinted');
+
+    // A delta that changes nothing must not churn the pool — and a state change must not either,
+    // because a repaint is three floats and not a rebuild.
     const before = world.ledger();
     world.addSeen([centre]);
+    world.setHere(3);
     assert.deepEqual(world.ledger(), before);
     world.dispose();
   });
@@ -221,10 +254,11 @@ describe('a session, end to end', () => {
     world.dispose();
   });
 
-  it('keeps unseen ground and the level below in the same visual register', () => {
-    // One material variant means one meaning: "not fully present". Asserting it here rather than in
-    // `prototypes.test.ts` because it is a *product* decision that two different causes share a
-    // look, and the place it can silently stop being true is the wiring.
+  it('spends transparency on the level below and on nothing else', () => {
+    // M3 drew an unexplored room with the *faded* materials, which said the same thing as "you are
+    // looking at the floor beneath you". M4 separates them, and this is the wiring assertion that
+    // they stayed separate: fog of war is a colour, the vertical policy is an alpha, and a Place with
+    // one level therefore contains no transparent material at all however little of it has been seen.
     const zone = sampleZone();
     const world = new World3D();
     world.setPlace(zone, 0);
@@ -234,9 +268,67 @@ describe('a session, end to end', () => {
     bitsetAdd(bits, (lit.ty + 4) * grid.width + (lit.tx + 4));
     world.update(centreOf(world, 1, 1).x, centreOf(world, 1, 1).y);
     world.setSeen(bitsToBase64(bits));
-    const dim = materialsInScene(world).filter((n) => n.endsWith('|dim'));
-    assert.ok(dim.length > 0);
-    assert.ok(dim.every((n) => !n.startsWith('self') && !n.startsWith('other')), 'a body never fades');
+
+    assert.ok(world.fogCensus().unseen > 0, 'the fixture should have unexplored rooms here');
+    assert.deepEqual(
+      materialsInScene(world).filter((name) => name.endsWith('|dim')),
+      [],
+      'unexplored ground took a transparent material — that is the level-below register',
+    );
+    assert.equal(world.chunkLevels().faded, 0);
+    world.dispose();
+  });
+
+  it('never tints a body, whatever the room it is standing in', () => {
+    const zone = sampleZone();
+    const world = new World3D();
+    world.setPlace(zone, 0);
+    const grid = world.grid!;
+    const layer = new EntityLayer(world.scene, world.pool);
+    const start = centreOf(world, 1, 1);
+    layer.selfId = 7;
+    layer.upsert({ id: 7, kind: 'player', name: 'Greybox', sprite: 'player', x: start.x, y: start.y, facing: 'north' });
+    world.update(start.x, start.y);
+    world.setSeen(bitsToBase64(createBitset(grid.width * grid.height)));
+    layer.render((px, py) => world.groundAt(px, py));
+
+    assert.deepEqual(world.fogCensus(), { unseen: 4, remembered: 0, visible: 0 });
+    // A character is not terrain. In an unexplored room the one thing that must stay legible is the
+    // person standing in it, and nothing in the repaint path reaches these two wrappers.
+    assert.deepEqual(tintOf(world, 'self'), [1, 1, 1]);
+    world.dispose();
+  });
+
+  it('flags a portal ring for bloom and takes the flag back off when the wrapper is recycled', () => {
+    // The pooled-wrapper hazard, asserted: the free list is LIFO, so the very next chunk to ask for a
+    // wrapper gets the one the portal was drawn with. A selection left on it would bloom a ground
+    // slab, intermittently, in whichever room happened to load next.
+    const zone = sampleZone();
+    const world = new World3D();
+    const selected = new Set<object>();
+    world.setGlowSet({ add: (o) => selected.add(o), delete: (o) => selected.delete(o) });
+    world.setPlace(zone, 0);
+    world.update(centreOf(world, 1, 1).x, centreOf(world, 1, 1).y);
+
+    // Room 4's east exit is the fixture's portal, and it is the only one.
+    assert.equal(selected.size, 1, 'the portal ring never reached the bloom selection');
+    for (const mesh of selected) {
+      assert.equal(((mesh as InstancedMesh).material as Material).name, 'portal');
+    }
+    world.setPlace(zone, 0);
+    assert.equal(selected.size, 0, 'a released wrapper stayed flagged and will bloom as something else');
+    world.dispose();
+  });
+
+  it('knows which rooms have a roof over them, so the weather can stop at the door', () => {
+    const zone = sampleZone();
+    const world = new World3D();
+    world.setPlace(zone, 0);
+    world.update(centreOf(world, 1, 1).x, centreOf(world, 1, 1).y);
+    world.setHere(3);
+    assert.equal(world.roofed, false, 'room 3 is a field');
+    world.setHere(4);
+    assert.equal(world.roofed, true, 'room 4 is `inside` and flagged `indoors`');
     world.dispose();
   });
 });

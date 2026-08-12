@@ -26,6 +26,17 @@
  * estimate — the ceiling is `MAX_WINDOW_CHUNKS x prototypes x ceil(instances / 32)`, and every term
  * in it is a constant.
  *
+ * ## M4: every wrapper is minted with an `instanceColor`, and none is ever minted without one
+ *
+ * Fog of war is a per-instance colour multiply (`fogOfWar.ts`). `InstancedMesh.instanceColor` is
+ * `null` until something writes one, and three puts `USE_INSTANCING_COLOR` in the program cache key —
+ * so a pool where *some* wrappers carry a colour buffer compiles the Lambert material twice, and which
+ * program a chunk gets would depend on what happened to be recycled into it. Allocating the buffer in
+ * {@link ScenePool.mint}, filled with white, makes the define universal and the program count
+ * unchanged. It costs 96 bytes an instance: 242 KB across the whole pre-warmed pool, folded into
+ * {@link WRAPPER_BYTES} rather than reported separately, because it is per-instance data like the
+ * matrix and belongs in the same number.
+ *
  * ## The ledger is the CI-assertable proxy for `renderer.info.memory`
  *
  * `renderer.info.memory` needs a GPU and CI has none, so the pool counts what it hands out and the
@@ -39,19 +50,28 @@ import {
   BoxGeometry,
   BufferGeometry,
   CapsuleGeometry,
+  Color,
   ConeGeometry,
   DynamicDrawUsage,
+  InstancedBufferAttribute,
   InstancedMesh,
   MeshLambertMaterial,
   TorusGeometry,
 } from 'three';
 
+import { FOG_INDEX, fogTintRow, type FogState } from './fogOfWar.ts';
 import {
   ARCHETYPES,
+  ARCHETYPE_CASTS,
+  ARCHETYPE_EMISSIVE,
+  EMISSIVE_COLOUR,
   FADE_OPACITY,
   GEOMETRY_KEYS,
   MATERIAL_KEYS,
+  PORTAL_PULSE_DEPTH,
+  PORTAL_PULSE_HZ,
   archetypeColour,
+  type Archetype,
   type GeometryKey,
   type MaterialKey,
 } from './prototypes.ts';
@@ -68,8 +88,8 @@ import { SECTORS, type Sector } from '@mygame/shared';
  */
 export const WRAPPER_CAPACITY = 32;
 
-/** Bytes of `instanceMatrix` per wrapper: sixteen floats an instance. */
-const WRAPPER_BYTES = WRAPPER_CAPACITY * 16 * Float32Array.BYTES_PER_ELEMENT;
+/** Bytes of per-instance data per wrapper: sixteen floats of matrix and three of fog-of-war colour. */
+const WRAPPER_BYTES = WRAPPER_CAPACITY * (16 + 3) * Float32Array.BYTES_PER_ELEMENT;
 
 /**
  * Distinct buckets one chunk can produce.
@@ -94,11 +114,12 @@ const ENTITY_WRAPPERS = 2;
  *
  * So the whole pool is built at startup from a number that is a product of two constants: the window
  * can hold {@link MAX_WINDOW_CHUNKS} chunks and a chunk can want {@link CHUNK_BUCKET_CEILING}
- * buckets. 70 x 9 + 2 = **632 wrappers, 1.29 MB of matrix buffer, and not one byte more for the rest
- * of the session.** Measured against the real world, the walk's high-water is a sixth of that, so
- * the headroom is real; the reason to allocate the ceiling anyway is that the ceiling is the thing
- * that can be *reasoned* about, and an empirical high-water is only ever a statement about the zones
- * somebody happened to walk.
+ * buckets. 70 x 10 + 2 = **702 wrappers, 1.71 MB of per-instance buffer, and not one byte more for
+ * the rest of the session.** (M4's `glow` archetype took the per-chunk ceiling from nine to ten.)
+ * Measured against the real world, the walk's high-water is a sixth of that, so the headroom is real;
+ * the reason to allocate the ceiling anyway is that the ceiling is the thing that can be *reasoned*
+ * about, and an empirical high-water is only ever a statement about the zones somebody happened to
+ * walk.
  *
  * The pool does not *cap* at this figure — a bucket that overflowed would still get a wrapper,
  * because dropping geometry to protect a counter is the wrong trade — and {@link
@@ -197,6 +218,12 @@ function partsOf(key: MaterialKey): { archetype: string; sector: Sector | undefi
 export class ScenePool {
   private readonly geometries = new Map<GeometryKey, BufferGeometry>();
   private readonly materials = new Map<MaterialKey, MeshLambertMaterial>();
+  /** Nine floats a key: the three fog-of-war multipliers, packed by {@link FOG_INDEX}. */
+  private readonly tints = new Map<MaterialKey, Float32Array>();
+  /** Whether a wrapper drawn with this key belongs in the shadow pass. Derived, never passed in. */
+  private readonly casts = new Map<MaterialKey, boolean>();
+  /** The materials the portal pulse writes. Two: the ring and its faded twin. */
+  private readonly pulsing: { material: MeshLambertMaterial; base: number }[] = [];
   private readonly free: InstancedMesh[] = [];
   private readonly state: LedgerState = {
     geometries: 0,
@@ -219,15 +246,26 @@ export class ScenePool {
 
     for (const key of MATERIAL_KEYS) {
       const { archetype, sector, faded } = partsOf(key);
-      const material = new MeshLambertMaterial({
-        color: archetypeColour(archetype as Parameters<typeof archetypeColour>[0], sector),
-      });
+      const kind = archetype as Archetype;
+      const material = new MeshLambertMaterial({ color: archetypeColour(kind, sector) });
       if (faded) {
         material.transparent = true;
         material.opacity = FADE_OPACITY;
       }
+      const emissive = ARCHETYPE_EMISSIVE[kind];
+      if (emissive !== undefined) {
+        material.emissive.setHex(EMISSIVE_COLOUR[kind] ?? 0xffffff);
+        // A faded emissive is a light source one level down; dimming it with the opacity alone would
+        // leave a full-strength glow behind a 30% ring.
+        material.emissiveIntensity = faded ? emissive * FADE_OPACITY : emissive;
+        if (kind === 'portal') this.pulsing.push({ material, base: material.emissiveIntensity });
+      }
       material.name = key;
       this.materials.set(key, material);
+      // The fog-of-war table is a pure function of the material's own colour, so it is built here,
+      // once, and never recomputed. See `fogOfWar.ts` for why the desaturation cannot be a shader.
+      this.tints.set(key, fogTintRow(new Color(archetypeColour(kind, sector))));
+      this.casts.set(key, ARCHETYPE_CASTS[kind] && !faded);
     }
     this.state.materials = this.materials.size;
 
@@ -240,6 +278,16 @@ export class ScenePool {
   private mint(geometry: BufferGeometry, material: MeshLambertMaterial): InstancedMesh {
     const mesh = new InstancedMesh(geometry, material, WRAPPER_CAPACITY);
     mesh.instanceMatrix.setUsage(DynamicDrawUsage);
+    // White, so a wrapper that nobody tints draws exactly as its material says. Allocated here and
+    // never conditionally — see the header: a null `instanceColor` is a second shader program.
+    const colours = new InstancedBufferAttribute(new Float32Array(WRAPPER_CAPACITY * 3).fill(1), 3);
+    colours.setUsage(DynamicDrawUsage);
+    mesh.instanceColor = colours;
+    // Everything receives moonlight's shadow, set once and never varied — see `ARCHETYPE_CASTS` for
+    // why that is a table not worth having. `castShadow` is the one that varies, per key, in
+    // `acquire`.
+    mesh.receiveShadow = true;
+    mesh.castShadow = false;
     mesh.count = 0;
     mesh.visible = false;
     this.state.wrappersCreated += 1;
@@ -278,9 +326,44 @@ export class ScenePool {
     const reused = this.free.pop() ?? this.mint(this.geometry(geometry), this.material(material));
     reused.geometry = this.geometry(geometry);
     reused.material = this.material(material);
+    reused.castShadow = this.casts.get(material) ?? false;
     reused.count = 0;
     reused.visible = true;
     return reused;
+  }
+
+  /**
+   * Write one chunk's fog-of-war state across every instance in a wrapper.
+   *
+   * The same three floats `count` times, because a chunk is a room and a room is in one state. Called
+   * on build and on any retint; the buffer is `DynamicDrawUsage` and the upload is a few hundred bytes.
+   */
+  paint(mesh: InstancedMesh, material: MaterialKey, state: FogState, count: number): void {
+    const colours = mesh.instanceColor;
+    const row = this.tints.get(material);
+    if (!colours || !row) return;
+    const array = colours.array as Float32Array;
+    const at = FOG_INDEX[state] * 3;
+    const r = row[at] ?? 1;
+    const g = row[at + 1] ?? 1;
+    const b = row[at + 2] ?? 1;
+    for (let i = 0; i < count; i++) {
+      array[i * 3] = r;
+      array[i * 3 + 1] = g;
+      array[i * 3 + 2] = b;
+    }
+    colours.needsUpdate = true;
+  }
+
+  /**
+   * The portal ring's breath. One uniform write for every ring in the world, once a frame.
+   *
+   * `seconds` is wall-clock, like the rain's: an accumulator would run at a different rate on a
+   * different machine, and two players standing at the same gate should see it at the same phase.
+   */
+  pulse(seconds: number): void {
+    const swing = 1 - PORTAL_PULSE_DEPTH + PORTAL_PULSE_DEPTH * Math.sin(seconds * PORTAL_PULSE_HZ * Math.PI * 2);
+    for (const entry of this.pulsing) entry.material.emissiveIntensity = entry.base * swing;
   }
 
   /** Call once a wrapper's matrices are written, so frustum culling uses the instances' own bounds. */
@@ -333,5 +416,8 @@ export class ScenePool {
     for (const material of this.materials.values()) material.dispose();
     this.geometries.clear();
     this.materials.clear();
+    this.tints.clear();
+    this.casts.clear();
+    this.pulsing.length = 0;
   }
 }

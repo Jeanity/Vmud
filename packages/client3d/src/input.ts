@@ -51,7 +51,14 @@ const TRAVEL: Readonly<Record<string, readonly [dir: Direction, needsShift: bool
   KeyE: ['down', false],
 };
 
-function intoFormControl(target: EventTarget | null): boolean {
+/**
+ * Exported because `main.ts`'s debug keys have to make the same refusal.
+ *
+ * Two listeners on one window that disagree about what counts as typing is `CLAUDE.md` gotcha 5a
+ * arriving by a different door: the one that does not check would eat a letter out of the command
+ * line and the loss would look like a dropped keystroke rather than like a binding.
+ */
+export function intoFormControl(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return (
     target instanceof HTMLInputElement ||

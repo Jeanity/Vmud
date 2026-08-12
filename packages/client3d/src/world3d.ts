@@ -26,23 +26,32 @@
  * the IR's absolute policy on the camera's own level so the walked ground is at y≈0 and the level
  * below is exactly one `separation` down. This file only chooses which of the three applies.
  *
- * ## Fog, at grey-box
+ * ## Fog of war, three states, as a per-chunk uniform — M4
  *
- * A room whose centre tile is not in the character's `seen` bitset draws with the faded materials —
- * the same twin the level below uses, because it means the same thing. That is M3's stand-in for
- * M4's per-chunk uniform, and it costs one bitset lookup per loaded chunk per `seenDelta` rather
- * than the blurred one-pixel-per-tile canvas the Phaser client paints.
+ * M3 drew an unseen room with the faded (transparent) materials, which said the same thing as the
+ * level below and had no third state. It now writes one of {@link fogOfWar.FOG_STATES} into the
+ * chunk's wrappers as an instance colour:
+ *
+ * - **visible** — the character's own room and every room an exit links it to. That set is the MUD's
+ *   own unit of interest management (*"players receive updates for their current room and its
+ *   immediate neighbours only"*), it is the same size as what the camera actually frames, and it is
+ *   free: the client already holds the room graph. What it buys is the reference image's read — a lit
+ *   clearing that travels with the character and falls off into remembered ground at its rim.
+ * - **remembered** — in the `seen` bitset, but not in that set. Dimmed and desaturated.
+ * - **unseen** — not in the bitset. Near-black, and opaque, so unexplored ground is a silhouette.
+ *
+ * Costs one bitset lookup per loaded chunk per `seenDelta` and a three-float write per instance when a
+ * state flips — no rebuild, because nothing about the *geometry* changed. That is the whole of the
+ * plan's *"rather than the blurred 1 px-per-tile canvas"*.
+ *
+ * ## Lighting lives here because the scene does
+ *
+ * `night.ts` owns the recipe and this file owns when it is applied: {@link World3D.focus} refits the
+ * moon's shadow camera and moves the clearing light every frame, and `main.ts` calls it with the same
+ * position it gives the camera rig, so the light, the shadow and the frame all describe one instant.
  */
 
-import {
-  Color,
-  DirectionalLight,
-  Fog,
-  HemisphereLight,
-  Object3D,
-  Scene,
-  type InstancedMesh,
-} from 'three';
+import { Object3D, Scene, type InstancedMesh } from 'three';
 
 import {
   CARDINALS,
@@ -75,23 +84,56 @@ import {
 import { bitsFromBase64, bitsetAdd, bitsetBytes, bitsetHas } from '@mygame/shared/vision.ts';
 
 import { planChunk, roomElevation, type Placement } from './chunkPlan.ts';
-import { METRES_PER_TILE, cellOriginTiles, cellOfPixel, placeFrame, type PlaceFrame } from './frame.ts';
+import { fogStateOf, type FogState } from './fogOfWar.ts';
+import {
+  METRES_PER_TILE,
+  cellOriginTiles,
+  cellOfPixel,
+  metresOfTile,
+  placeFrame,
+  type PlaceFrame,
+} from './frame.ts';
+import { LightPool, type LightRequest } from './lights.ts';
+import { NightRig } from './night.ts';
 import { ScenePool, WRAPPER_CAPACITY, type LedgerSnapshot } from './pool.ts';
 import { ChunkStreamer, chunkKey, type ChunkAddress, type ChunkSink } from './streamer.ts';
 
 /** The centre tile of a room block, room-relative. Used only to ask "has this room been seen". */
 const CENTRE_TILE = (ROOM_TILES - 1) / 2;
 
+/**
+ * What a wrapper has to be registered with to bloom.
+ *
+ * Structurally a `postprocessing` `Selection` and named as an interface so this file — which the
+ * headless tests construct — never imports the composer. The plan's *"do not also use
+ * `UnrealBloomPass`"* warning is about mixing two composer stacks; the same discipline says the scene
+ * graph should not know which one it got.
+ */
+export interface GlowSet {
+  add(object: Object3D): unknown;
+  delete(object: Object3D): unknown;
+}
+
 interface LoadedChunk {
   readonly address: ChunkAddress;
   readonly room: RoomId;
+  /** The level below. See `FADE_OPACITY`: transparency now means only this. */
   faded: boolean;
+  state: FogState;
+  /** True when the room has a roof over it. Drives the weather gate — no rain indoors or in a cave. */
+  roofed: boolean;
+  /** Where this chunk's campfire is, if it drew one. Feeds `LightPool.scene`. */
+  fire: { x: number; y: number; z: number } | undefined;
   readonly meshes: InstancedMesh[];
+  /** The material key each mesh was drawn with, so a retint knows which tint row to write. */
+  readonly keys: string[];
 }
 
 export class World3D implements ChunkSink {
   readonly scene = new Scene();
   readonly pool = new ScenePool();
+  readonly night: NightRig;
+  readonly lights: LightPool;
   private readonly streamer = new ChunkStreamer(this);
   private readonly chunks = new Map<string, LoadedChunk>();
   private readonly scratch = new Object3D();
@@ -109,18 +151,38 @@ export class World3D implements ChunkSink {
   /** Live door state, keyed `roomId:dir`. See `ChunkPlanInput.doorClosed` for why it lives outside. */
   private readonly doors = new Map<string, boolean>();
 
+  /** Where the bloom selection lives, once `main.ts` has built a composer. Absent under test. */
+  private glowSet: GlowSet | undefined;
+  /** The room the character is standing in, and the rooms an exit links it to. See the header. */
+  private here: RoomId | undefined;
+  private lit: ReadonlySet<RoomId> = new Set();
+  /** Raised whenever the loaded set changes, so the light assignment is redone once and not per frame. */
+  private lightsStale = true;
+  /** Scratch for {@link focus}: reused so the per-frame light pass allocates nothing. */
+  private readonly requests: LightRequest[] = [];
+
   constructor() {
-    // **Untuned on purpose.** M4 is the milestone that decides whether the light matches the
-    // reference, and a palette or an exposure chosen now would be chosen against grey boxes and
-    // thrown away. What this pair has to do is make a box read as a box: a sky/ground hemisphere so
-    // the tops are lighter than the sides, and one key light so the sides differ from each other.
-    // No shadows, no fog colour grade, no tone mapping — all four are M4's, by name.
-    this.scene.background = new Color(0x10161c);
-    this.scene.fog = new Fog(0x10161c, 40, 90);
-    this.scene.add(new HemisphereLight(0x9db4c6, 0x3a3630, 1.6));
-    const key = new DirectionalLight(0xffffff, 1.1);
-    key.position.set(-0.4, 1, 0.6);
-    this.scene.add(key);
+    this.night = new NightRig(this.scene);
+    this.lights = new LightPool(this.scene);
+  }
+
+  /**
+   * Hand the renderer's bloom selection to the scene graph, or take it away again.
+   *
+   * Called at boot with the composer's selection, and everything already loaded is re-registered,
+   * because the composer is built after the first `zone` message can already have arrived. Passing
+   * `undefined` detaches it — see `post.ts`'s `selective`, whose fallback needs the flow of new
+   * portals to stop as well as the existing flags to be cleared.
+   */
+  setGlowSet(glow: GlowSet | undefined): void {
+    const previous = this.glowSet;
+    if (previous && !glow) {
+      for (const chunk of this.chunks.values()) {
+        for (const mesh of chunk.meshes) previous.delete(mesh);
+      }
+    }
+    this.glowSet = glow;
+    if (glow) for (const chunk of this.chunks.values()) this.registerGlow(chunk);
   }
 
   /* ---------------------------------------------------------------- the Place */
@@ -143,6 +205,12 @@ export class World3D implements ChunkSink {
     this.seen = undefined;
     this.ground = undefined;
     this.doors.clear();
+    // The lit set belongs to the Place that has just been left. Keeping it would light a room in the
+    // new zone that happens to share an id with one in the old.
+    this.here = undefined;
+    this.lit = new Set();
+    this.lights.darken();
+    this.lightsStale = true;
   }
 
   get frame(): PlaceFrame | undefined {
@@ -161,10 +229,11 @@ export class World3D implements ChunkSink {
   /**
    * Live chunks per level, and how many of them are drawn faded.
    *
-   * The vertical policy's own read-out: an entry for a level *above*
-   * {@link PlaceFrame.level} would mean the hard cull had failed, and `faded` counts the level below
-   * plus whatever ground this character has not seen. Exposed on `__debug3d` and asserted by
-   * `traversal.test.ts`, because both are otherwise only visible as a picture.
+   * The vertical policy's own read-out: an entry for a level *above* {@link PlaceFrame.level} would
+   * mean the hard cull had failed, and after M4 `faded` counts the level below and **nothing else** —
+   * unexplored ground is now a colour rather than an alpha, so the two sets are exactly equal by
+   * construction. Exposed on `__debug3d` and asserted by `traversal.test.ts`, because both are
+   * otherwise only visible as a picture.
    */
   chunkLevels(): { levels: Record<number, number>; faded: number } {
     const levels: Record<number, number> = {};
@@ -174,6 +243,23 @@ export class World3D implements ChunkSink {
       if (chunk.faded) faded += 1;
     }
     return { levels, faded };
+  }
+
+  /** How the loaded window is divided between the three fog states. `__debug3d.fogOfWar`. */
+  fogCensus(): Record<FogState, number> {
+    const census: Record<FogState, number> = { unseen: 0, remembered: 0, visible: 0 };
+    for (const chunk of this.chunks.values()) census[chunk.state] += 1;
+    return census;
+  }
+
+  /** True when the character is under a roof. The weather gate — see `LoadedChunk.roofed`. */
+  get roofed(): boolean {
+    const here = this.here;
+    if (here === undefined) return false;
+    for (const chunk of this.chunks.values()) {
+      if (chunk.room === here && !chunk.faded) return chunk.roofed;
+    }
+    return false;
   }
 
   ledger(): LedgerSnapshot {
@@ -190,7 +276,7 @@ export class World3D implements ChunkSink {
     this.refreshFog();
   }
 
-  /** Tiles seen since the last message. Only a chunk whose room's state *flipped* is rebuilt. */
+  /** Tiles seen since the last message. Only a chunk whose room's state *flipped* is repainted. */
   addSeen(indices: readonly number[]): void {
     const seen = this.seen;
     if (!seen) return;
@@ -199,10 +285,56 @@ export class World3D implements ChunkSink {
     if (changed) this.refreshFog();
   }
 
+  /**
+   * The character moved to a new room — the `room` message.
+   *
+   * Recomputes the lit set: this room and every room one exit away, which is the MUD's own
+   * neighbourhood and roughly what the camera frames. See the file header for why that is the right
+   * definition of "visible" and not a line-of-sight computation.
+   */
+  setHere(roomId: RoomId | undefined): void {
+    if (roomId === this.here) return;
+    this.here = roomId;
+    const lit = new Set<RoomId>();
+    if (roomId !== undefined) {
+      lit.add(roomId);
+      const room = this.roomsById.get(roomId);
+      if (room) {
+        for (const exit of Object.values(room.exits)) {
+          if (exit) lit.add(exit.to);
+        }
+      }
+    }
+    this.lit = lit;
+    this.refreshFog();
+  }
+
+  /**
+   * Repaint whatever changed state. **No rebuild** — the geometry is identical either way.
+   *
+   * The distinction matters: `rebuild` re-runs `describeRoom` and `planChunk` and cycles the chunk's
+   * wrappers through the free list, which is the right response to a door but a wasteful one to a bit
+   * flipping in a bitset. A state change is three floats an instance.
+   */
   private refreshFog(): void {
+    let moved = false;
     for (const chunk of this.chunks.values()) {
-      const faded = this.isFaded(chunk.address, chunk.room);
-      if (faded !== chunk.faded) this.rebuild(chunk);
+      const state = this.stateOf(chunk.address, chunk.room);
+      if (state === chunk.state) continue;
+      chunk.state = state;
+      this.repaint(chunk);
+      moved = true;
+    }
+    // A campfire in a room that has just stopped being unexplored is a light that should come on.
+    if (moved) this.lightsStale = true;
+  }
+
+  private repaint(chunk: LoadedChunk): void {
+    for (let i = 0; i < chunk.meshes.length; i++) {
+      const mesh = chunk.meshes[i];
+      const key = chunk.keys[i];
+      if (!mesh || key === undefined) continue;
+      this.pool.paint(mesh, key, chunk.state, mesh.count);
     }
   }
 
@@ -243,6 +375,32 @@ export class World3D implements ChunkSink {
     if (!frame) return;
     const { cellX, cellY } = cellOfPixel(frame, px, py);
     this.streamer.update(cellX, cellY, frame.level);
+  }
+
+  /**
+   * Point the light at the frame — the moon's shadow camera and the character's own clearing. M4.
+   *
+   * Called every frame from `main.ts` with the *same* metres the camera rig is given, which is what
+   * makes the shadow volume and the visible frame describe one region rather than two that drift
+   * apart by a frame of prediction. Costs eight corner projections (`night.refit`) plus a `Vector3`
+   * write; the campfire scan behind {@link lightsStale} runs only when the loaded set has changed,
+   * which is once per stride cell crossed.
+   */
+  focus(x: number, y: number, z: number, clearingRadius?: number): void {
+    this.night.refit(x, y, z);
+    // A little above the ground: a point light *at* the feet lights the floor and nothing else.
+    this.lights.clearing(x, y + 1.5, z, clearingRadius);
+    if (!this.lightsStale) return;
+    this.lightsStale = false;
+    this.requests.length = 0;
+    for (const chunk of this.chunks.values()) {
+      const fire = chunk.fire;
+      if (!fire || chunk.faded || chunk.state === 'unseen') continue;
+      const dx = fire.x - x;
+      const dz = fire.z - z;
+      this.requests.push({ x: fire.x, y: fire.y, z: fire.z, rank: dx * dx + dz * dz });
+    }
+    this.lights.scene(this.requests);
   }
 
   /**
@@ -292,47 +450,92 @@ export class World3D implements ChunkSink {
     if (!room) return false;
 
     const key = chunkKey(address);
-    const chunk: LoadedChunk = { address, room: room.id, faded: this.isFaded(address, room.id), meshes: [] };
+    const chunk: LoadedChunk = {
+      address,
+      room: room.id,
+      faded: this.isFaded(address),
+      state: this.stateOf(address, room.id),
+      roofed: false,
+      fire: undefined,
+      meshes: [],
+      keys: [],
+    };
     this.chunks.set(key, chunk);
     this.build(chunk, room, frame, context, cells);
+    this.lightsStale = true;
     return true;
   }
 
   unload(key: string): void {
     const chunk = this.chunks.get(key);
     if (!chunk) return;
-    for (const mesh of chunk.meshes) this.pool.release(mesh);
-    chunk.meshes.length = 0;
+    this.releaseAll(chunk);
     this.chunks.delete(key);
+    this.lightsStale = true;
   }
 
-  /** A loaded chunk whose inputs changed — a door, or ground that has just been seen. */
+  /**
+   * Hand a chunk's wrappers back, and take them out of the bloom selection first.
+   *
+   * The selection is a **layer flag written onto the object**, and the free list is LIFO, so the very
+   * next chunk to ask for a wrapper gets the one a portal was just drawn with. Leaving the flag on it
+   * would make a ground slab bloom, intermittently, in whichever room happened to load next — a bug
+   * that reproduces once in twenty and looks like a driver fault.
+   */
+  private releaseAll(chunk: LoadedChunk): void {
+    const glow = this.glowSet;
+    for (const mesh of chunk.meshes) {
+      if (glow) glow.delete(mesh);
+      this.pool.release(mesh);
+    }
+    chunk.meshes.length = 0;
+    chunk.keys.length = 0;
+  }
+
+  /** A loaded chunk whose *geometry* changed — a door, or a level that is now the one below. */
   private rebuild(chunk: LoadedChunk): void {
     const frame = this.frameOf;
     const context = this.context;
     const cells = this.cells;
     const room = this.roomsById.get(chunk.room);
     if (!frame || !context || !cells || !room) return;
-    for (const mesh of chunk.meshes) this.pool.release(mesh);
-    chunk.meshes.length = 0;
-    chunk.faded = this.isFaded(chunk.address, chunk.room);
+    this.releaseAll(chunk);
+    chunk.faded = this.isFaded(chunk.address);
+    chunk.state = this.stateOf(chunk.address, chunk.room);
     this.build(chunk, room, frame, context, cells);
   }
 
-  private isFaded(address: ChunkAddress, roomId: RoomId): boolean {
+  /**
+   * Transparency, and after M4 it means exactly one thing: **this is the level below.**
+   *
+   * At M3 it also answered "never seen", which is why it took a room id and read the bitset. That
+   * question moved to {@link stateOf}, where its answer is a colour rather than an alpha, and what is
+   * left is the vertical policy on its own — *"the player's level plus one below, faded"* — with no
+   * fog rule mixed into it.
+   */
+  private isFaded(address: ChunkAddress): boolean {
     const frame = this.frameOf;
-    if (!frame) return false;
-    // The level below is always faded — that is the policy, not a fog rule.
-    if (address.level !== frame.level) return true;
+    return frame !== undefined && address.level !== frame.level;
+  }
+
+  /**
+   * Which of the three states a chunk's room is in.
+   *
+   * A chunk on the level below is never `visible`, whatever the room graph says: you are not looking
+   * *into* it, you are looking *over* it, and lighting a room you cannot walk in would undo the read
+   * the fade exists to give. Before the `seen` snapshot arrives everything is drawn present, for the
+   * same reason M3 gave — a world that boots entirely black and resolves a tick later reads as a bug.
+   */
+  private stateOf(address: ChunkAddress, roomId: RoomId): FogState {
+    const frame = this.frameOf;
     const seen = this.seen;
     const grid = this.tiles;
-    // Before the snapshot arrives, everything is drawn present. The alternative is a world that
-    // boots entirely grey and resolves a tick later, which reads as a bug.
-    if (!seen || !grid) return false;
+    if (!frame || !seen || !grid) return 'visible';
+    const below = address.level !== frame.level;
     const origin = grid.roomOrigins.get(roomId);
-    if (!origin) return false;
+    if (!origin) return below ? 'remembered' : 'visible';
     const index = (origin.ty + CENTRE_TILE) * grid.width + (origin.tx + CENTRE_TILE);
-    return !bitsetHas(seen, index);
+    return fogStateOf(bitsetHas(seen, index), !below && this.lit.has(roomId));
   }
 
   private build(
@@ -352,14 +555,29 @@ export class World3D implements ChunkSink {
       if (held !== undefined) doorClosed[dir] = held;
     }
 
+    const elevation = roomElevation(scene, room.pos.z, frame.level, centreX, centreZ);
     const placements = planChunk({
       scene,
       origin,
-      elevation: roomElevation(scene, room.pos.z, frame.level, centreX, centreZ),
+      elevation,
       gap: frame.gap,
       faded: chunk.faded,
       doorClosed,
     });
+
+    // Weather and light, read off the same IR the geometry came from — a second `describeRoom` here
+    // would be a second chance for the two to disagree.
+    chunk.roofed = scene.enclosure.roofed;
+    chunk.fire = undefined;
+    for (const feature of scene.features) {
+      if (feature.t !== 'landmark' || feature.kind !== 'campfire') continue;
+      chunk.fire = {
+        x: metresOfTile(origin.tx + feature.tx) + (feature.width * METRES_PER_TILE) / 2,
+        // Head height over the embers: a light *at* the fire lights the ground and nothing standing.
+        y: elevation + 1,
+        z: metresOfTile(origin.ty + feature.ty) + (feature.depth * METRES_PER_TILE) / 2,
+      };
+    }
 
     this.buckets.clear();
     for (const placement of placements) {
@@ -387,14 +605,31 @@ export class World3D implements ChunkSink {
         }
         mesh.count = slice.length;
         this.pool.finish(mesh);
+        // The fog-of-war uniform, written once per build. A later state change repaints without
+        // touching any of the above — see `repaint`.
+        this.pool.paint(mesh, first.material, chunk.state, slice.length);
+        if (first.archetype === 'portal') this.glowSet?.add(mesh);
         this.scene.add(mesh);
         chunk.meshes.push(mesh);
+        chunk.keys.push(first.material);
       }
+    }
+  }
+
+  /** Re-flag a loaded chunk's portal wrappers, for a composer built after the chunk was. */
+  private registerGlow(chunk: LoadedChunk): void {
+    const glow = this.glowSet;
+    if (!glow) return;
+    for (let i = 0; i < chunk.meshes.length; i++) {
+      const mesh = chunk.meshes[i];
+      if (mesh && chunk.keys[i]?.startsWith('portal')) glow.add(mesh);
     }
   }
 
   dispose(): void {
     this.streamer.clear();
     this.pool.dispose();
+    this.lights.dispose();
+    this.night.dispose();
   }
 }

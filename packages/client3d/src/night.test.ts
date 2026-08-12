@@ -1,0 +1,218 @@
+/**
+ * The shadow camera's fit, headless.
+ *
+ * The plan spends one parenthesis on why M4 needs no cascades — *"an orthographic shadow camera
+ * refitted per frame to the loaded ring (~40x26 m — which is why you need no cascaded shadow maps at
+ * all)"* — and that parenthesis is only true if the fit is *tight*. A fit that is too loose wastes the
+ * texel density that made one map enough; a fit that is too tight drops shadows off the edge of the
+ * frame. Neither failure throws, and both are invisible in a screenshot of a grey box.
+ *
+ * So the property tested is containment with a stated margin, checked by projecting the corners
+ * independently of the code under test. The projection is written out longhand here on purpose: an
+ * assertion that re-used `fitShadowCamera`'s own basis would agree with any basis at all, including a
+ * wrong one.
+ */
+
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+
+import { Scene } from 'three';
+
+import {
+  MOON_FROM,
+  NightRig,
+  SHADOW_DISTANCE,
+  SHADOW_HALF_DEPTH,
+  SHADOW_HALF_HEIGHT,
+  SHADOW_HALF_WIDTH,
+  SHADOW_PAD,
+  fitShadowCamera,
+  shadowUpFor,
+  type Point3,
+} from './night.ts';
+
+const HALF = { width: SHADOW_HALF_WIDTH, height: SHADOW_HALF_HEIGHT, depth: SHADOW_HALF_DEPTH };
+
+function dot(a: Point3, b: Point3): number {
+  return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+function unit(v: Point3): Point3 {
+  const n = Math.hypot(v.x, v.y, v.z);
+  return { x: v.x / n, y: v.y / n, z: v.z / n };
+}
+
+function cross(a: Point3, b: Point3): Point3 {
+  return { x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x };
+}
+
+/** Every corner of the fitted box, in world metres. */
+function corners(centre: Point3, half: typeof HALF): Point3[] {
+  const out: Point3[] = [];
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        out.push({
+          x: centre.x + sx * half.width,
+          y: centre.y + sy * half.height,
+          z: centre.z + sz * half.depth,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+describe('the moon shadow camera fit', () => {
+  it('contains every corner of the region, with the pad as slack and no more', () => {
+    const centre = { x: 137.5, y: 2.25, z: -84 };
+    const fit = fitShadowCamera(centre, HALF, MOON_FROM, SHADOW_DISTANCE, SHADOW_PAD);
+
+    // Rebuilt from scratch, matching `Object3D.lookAt`: +Z from target to light.
+    const forward = unit(MOON_FROM);
+    const right = unit(cross(fit.up, forward));
+    const realUp = cross(forward, right);
+
+    let widestU = 0;
+    let widestV = 0;
+    for (const corner of corners(centre, HALF)) {
+      const p = { x: corner.x - fit.position.x, y: corner.y - fit.position.y, z: corner.z - fit.position.z };
+      const u = dot(p, right);
+      const v = dot(p, realUp);
+      const w = -dot(p, forward);
+      assert.ok(u >= fit.left && u <= fit.right, `corner outside left/right at u=${u}`);
+      assert.ok(v >= fit.bottom && v <= fit.top, `corner outside bottom/top at v=${v}`);
+      assert.ok(w >= fit.near && w <= fit.far, `corner outside near/far at w=${w}`);
+      widestU = Math.max(widestU, Math.abs(u));
+      widestV = Math.max(widestV, Math.abs(v));
+    }
+
+    // Tight: the frustum is the corners' own extent plus exactly one pad on each side. This is the
+    // half of the claim a containment test alone would not catch.
+    assert.ok(Math.abs(fit.right - (widestU + SHADOW_PAD)) < 1e-9, 'right is not the extent plus the pad');
+    assert.ok(Math.abs(fit.top - (widestV + SHADOW_PAD)) < 1e-9, 'top is not the extent plus the pad');
+  });
+
+  it('is a translation of itself: walking the world does not change the volume, only where it is', () => {
+    const a = fitShadowCamera({ x: 0, y: 0, z: 0 }, HALF, MOON_FROM, SHADOW_DISTANCE, SHADOW_PAD);
+    const b = fitShadowCamera({ x: 900, y: -12, z: 40 }, HALF, MOON_FROM, SHADOW_DISTANCE, SHADOW_PAD);
+    for (const key of ['left', 'right', 'top', 'bottom', 'near', 'far'] as const) {
+      assert.ok(Math.abs(a[key] - b[key]) < 1e-9, `${key} moved with the centre: ${a[key]} vs ${b[key]}`);
+    }
+    // Which is what makes "refit per frame" cheap *and* stable: the texel grid does not resize as the
+    // character walks, so a shadow edge does not shimmer between frames.
+    assert.equal(b.position.x - a.position.x, 900);
+    assert.equal(b.position.z - a.position.z, 40);
+  });
+
+  it('covers the whole camera footprint at the plan’s 40 x 26 m', () => {
+    // rig.ts: at 36 m, a 30-degree field and a 64-degree pitch see 34 x 22 m of ground. The fitted
+    // region is the plan's 40 x 26, so the footprint sits inside it with margin on all four sides.
+    assert.ok(SHADOW_HALF_WIDTH * 2 >= 34, 'the shadow region is narrower than the frame');
+    assert.ok(SHADOW_HALF_DEPTH * 2 >= 22, 'the shadow region is shallower than the frame');
+    assert.equal(SHADOW_HALF_WIDTH * 2, 40);
+    assert.equal(SHADOW_HALF_DEPTH * 2, 26);
+  });
+
+  it('keeps the near plane in front of the light however the region is placed', () => {
+    for (const y of [-40, 0, 40]) {
+      const fit = fitShadowCamera({ x: 0, y, z: 0 }, HALF, MOON_FROM, SHADOW_DISTANCE, SHADOW_PAD);
+      assert.ok(fit.near > 0, `near ${fit.near} is behind the light`);
+      assert.ok(fit.far > fit.near, 'far is not beyond near');
+    }
+  });
+
+  it('switches the up vector before a vertical light can degenerate it', () => {
+    // Not a case `MOON_FROM` reaches; asserted because the failure is a frame that flips orientation
+    // depending on which way a floating-point comparison fell, exactly like `rig.ts`'s pitch limit.
+    assert.deepEqual(shadowUpFor({ x: 0, y: 1, z: 0 }), { x: 0, y: 0, z: 1 });
+    assert.deepEqual(shadowUpFor({ x: 0, y: -1, z: 0 }), { x: 0, y: 0, z: 1 });
+    assert.deepEqual(shadowUpFor(MOON_FROM), { x: 0, y: 1, z: 0 });
+    const fit = fitShadowCamera({ x: 0, y: 0, z: 0 }, HALF, { x: 0, y: 1, z: 0 }, SHADOW_DISTANCE, SHADOW_PAD);
+    assert.ok(Number.isFinite(fit.left) && Number.isFinite(fit.top), 'a vertical light produced NaN bounds');
+  });
+
+  it('the moon is above the horizon and not straight overhead', () => {
+    const dir = unit(MOON_FROM);
+    assert.ok(dir.y > 0.3, 'the moon is at or below the horizon');
+    assert.ok(dir.y < 0.9, 'the moon is near-vertical, so nothing casts a readable shadow');
+  });
+});
+
+describe('the night rig', () => {
+  it('adds exactly one hemisphere and one moon, and no ambient light', () => {
+    const scene = new Scene();
+    const rig = new NightRig(scene);
+    const lights = scene.children.filter((child) => 'isLight' in child && child['isLight'] === true);
+    assert.equal(lights.length, 2, 'the rig is a hemisphere and a moon, and nothing else');
+    assert.ok(lights.includes(rig.hemisphere));
+    assert.ok(lights.includes(rig.moon));
+    // The plan says "no `AmbientLight`" and means it — see `night.ts` for why the omission is the
+    // point rather than a saving.
+    assert.equal(
+      scene.children.filter((child) => child.type === 'AmbientLight').length,
+      0,
+      'an AmbientLight flattens every box in the scene',
+    );
+    rig.dispose();
+  });
+
+  it('puts the moon’s target in the graph, or the light points at the origin for ever', () => {
+    const scene = new Scene();
+    const rig = new NightRig(scene);
+    assert.equal(rig.moon.target.parent, scene, 'an unparented DirectionalLight target is never updated');
+    rig.refit(50, 3, -20);
+    assert.deepEqual(
+      [rig.moon.target.position.x, rig.moon.target.position.y, rig.moon.target.position.z],
+      [50, 3, -20],
+    );
+    rig.dispose();
+  });
+
+  it('writes the fit onto the shadow camera and keeps the light’s up in step with it', () => {
+    const scene = new Scene();
+    const rig = new NightRig(scene);
+    rig.refit(11, 0, 7);
+    const camera = rig.moon.shadow.camera;
+    assert.equal(camera.left, rig.fit.left);
+    assert.equal(camera.right, rig.fit.right);
+    assert.equal(camera.near, rig.fit.near);
+    assert.equal(camera.far, rig.fit.far);
+    // The fit's basis is only the camera's basis if the light carries the same up vector.
+    assert.deepEqual([rig.moon.up.x, rig.moon.up.y, rig.moon.up.z], [rig.fit.up.x, rig.fit.up.y, rig.fit.up.z]);
+    rig.dispose();
+  });
+
+  it('resizes the shadow map by disposing it, not by writing a number nothing reads', () => {
+    const scene = new Scene();
+    const rig = new NightRig(scene);
+    assert.equal(rig.shadowMapSize, 2048);
+    rig.shadowMapSize = 1024;
+    assert.equal(rig.shadowMapSize, 1024);
+    assert.equal(rig.moon.shadow.mapSize.x, 1024);
+    assert.equal(rig.moon.shadow.map, null, 'the old render target survived, so the size never applies');
+    rig.shadowMapSize = 99_999;
+    assert.equal(rig.shadowMapSize, 4096, 'the clamp is what stops a typo allocating a gigabyte');
+    rig.dispose();
+  });
+
+  it('moves fog and background together', () => {
+    const scene = new Scene();
+    const rig = new NightRig(scene);
+    rig.nightColour = 0x123456;
+    assert.equal(rig.fog.color.getHex(), 0x123456);
+    assert.equal(scene.background && 'getHex' in scene.background ? scene.background.getHex() : -1, 0x123456);
+    rig.dispose();
+  });
+
+  it('fogs the far edge of the frame appreciably more than the near one', () => {
+    const scene = new Scene();
+    const rig = new NightRig(scene);
+    // The frame's own numbers, from `rig.ts`: the visible ground runs from 33 m to 43 m away.
+    const near = Math.exp(-Math.pow(rig.fogDensity * 33, 2));
+    const far = Math.exp(-Math.pow(rig.fogDensity * 43, 2));
+    assert.ok(near > 0.6, `the foreground keeps only ${near.toFixed(2)} of itself — the frame is a fog bank`);
+    assert.ok(far < near - 0.1, 'there is no depth cue across the frame at this density');
+    rig.dispose();
+  });
+});
