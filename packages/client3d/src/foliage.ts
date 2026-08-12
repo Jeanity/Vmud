@@ -90,6 +90,10 @@ import {
   type Texture,
 } from 'three';
 
+import { CAMERA_PITCH_DEGREES } from '@mygame/shared';
+
+import { CAMERA_DISTANCE, groundFrame, type GroundFrame } from './rig.ts';
+
 /* -------------------------------------------------------------------------- */
 /* Knobs                                                                       */
 /* -------------------------------------------------------------------------- */
@@ -128,51 +132,86 @@ export const CANOPY_TRANSLUCENCY = 0.55;
 export const CANOPY_TRANSLUCENCY_POWER = 3;
 
 /**
- * Undergrowth fades out between these **view-space depths**, in metres. Beyond the second, nothing
- * is drawn.
+ * Where the fade begins, as a fraction of the frame's own depth: after the near **two thirds**.
  *
  * ## The number M5a got wrong, and the arithmetic that settles it
  *
- * These are metres of `-mvPosition.z` — depth along the camera's own forward axis — because that is
- * what {@link patchFoliageVertex} measures, and it is *not* the distance from the character. **The
- * camera is 36 m away from its focus** (`rig.CAMERA_DISTANCE`), pitched 64 degrees, with a 30-degree
- * vertical field. So the ground the frame contains is 21.5 m deep, and every square metre of it sits
- * at a view depth between **31.3 m and 40.7 m**:
+ * The band is metres of `-mvPosition.z` — depth along the camera's own forward axis — because that
+ * is what {@link patchFoliageVertex} measures, and it is *not* the distance from the character. At
+ * the default pose the camera stands 36 m back (`rig.CAMERA_DISTANCE`) at 64 degrees with a
+ * 30-degree vertical field, so every square metre of ground the frame contains sits at a view depth
+ * between **31.8 m and 41.4 m** (`rig.groundFrame`).
  *
- * ```
- * half        = tan(15°) x 36            = 9.65 m   (half the view plane at the focus)
- * groundDepth = 2 x half / sin(64°)      = 21.5 m
- * swing       = groundDepth/2 x cos(64°) = 4.7 m
- * depth range = 36 ± 4.7                 = 31.3 .. 40.7 m
- * ```
- *
- * M5a set this to `[17, 27]`, which reads as *"a tuft is noise past twenty-seven metres"* and is a
- * perfectly good sentence about distance from the **player**. As a view depth it puts the *entire*
- * frame past the far end of the fade: `smoothstep(17, 27, 31.3)` is 1, `vFoliageFade` is 0, the mask
- * returns 0, and `alphaTest` discards every fragment. **The undergrowth M5a grew — 188,884 tufts over
- * the built world — has never drawn a pixel.** Nothing failed: the placements are all there, the
+ * M5a set the band to `[17, 27]`, which reads as *"a tuft is noise past twenty-seven metres"* and is
+ * a perfectly good sentence about distance from the **player**. As a view depth it put the *entire*
+ * frame past the far end of the fade: `smoothstep(17, 27, 31.8)` is 1, `vFoliageFade` is 0, the mask
+ * returns 0, and `alphaTest` discarded every fragment. **The undergrowth M5a grew — 188,884 tufts
+ * over the built world — never drew a pixel.** Nothing failed: the placements are all there, the
  * ledger counts them, and the scatter tests pass, because none of that is a picture.
  *
- * 38 m to 45 m is the corrected band: the near two thirds of the visible ground keeps its tufts at
- * full strength, the far strip softens into the fog rather than ending at a line, and anything the
- * streamer has built outside the frame costs nothing. `foliage.test.ts` pins the band against the rig
- * so it cannot silently drift back inside the frame.
+ * M5b corrected it to a hand-authored `[38, 45]` with a test that derived the *frame* from the rig
+ * and checked the band sat inside it. **M6 finishes the job**: the rig's distance and pitch are live
+ * now (`rig.ts`), so a band that is written down is a band that is right at exactly one of the poses
+ * the owner can dial in. {@link fadeBandFor} derives it instead, from whatever frame the rig is
+ * currently showing, and `main.ts` writes the result through `ScenePool.setFadeBands` every time the
+ * wheel moves. At the far corner of the clamp — 48 m at 45 degrees — the frame reaches 65.6 m of
+ * view depth, which is 20 m past where M5b's fixed band had already faded everything to nothing.
  */
-export const GRASS_FADE: readonly [number, number] = [38, 45];
+export const FADE_FULL_FRACTION = 2 / 3;
 
 /**
- * The kit's understory fades later than M5a's tufts and for a reason of its own. M5b.
+ * How far past the frame's far edge the fade completes, as a fraction of the frame's depth: a third.
+ *
+ * The fade must *end* outside the frame or the far strip of ground is a hard line where the tufts
+ * stop; it must not end so far outside that it never happens, because then the clutter accumulates
+ * out to the streaming ring's rim and is paid for in fragments nobody sees. A third of the frame's
+ * own depth is the smallest margin that reads as fog rather than as an edge.
+ *
+ * At the default pose these two fractions give `[38.2, 44.6]`, which is M5b's hand-picked
+ * `[38, 45]` to within half a metre — deliberately, so making the band derived changed the picture
+ * by nothing measurable while making it true at every other pose too.
+ */
+export const FADE_TAIL_FRACTION = 1 / 3;
+
+/**
+ * Metres the kit's understory outlives the tufts by. M5b's reasoning, unchanged.
  *
  * A crossed-quad tuft is 55 cm and is worth taking out at the back of the frame. A kit fern is nine
  * metres across and a kit bush is two metres tall: those are *objects*, and an object that dissolves
- * where the frame is still sharp is a pop rather than an economy. Same band as {@link GRASS_FADE},
- * pushed two metres further out, so the understory outlives the tufts by exactly the strip in which
- * both are already half fog.
+ * where the frame is still sharp is a pop rather than an economy. Same band, pushed two metres
+ * further out, so the understory outlives the tufts by exactly the strip in which both are already
+ * half fog.
  *
  * **A kit tree's canopy does not use this at all** — see `pool.ts`'s `kitLeaf` branch. A canopy must
  * never dissolve inside the frame, which is what `createFoliageUniforms`'s `1e6` default is for.
  */
-export const KIT_LEAF_FADE: readonly [number, number] = [40, 47];
+export const KIT_FADE_LAG = 2;
+
+/** The undergrowth's fade band for a frame, in view-space metres. See {@link FADE_FULL_FRACTION}. */
+export function fadeBandFor(frame: GroundFrame): readonly [number, number] {
+  const span = Math.max(frame.farDepth - frame.nearDepth, 1e-3);
+  return [frame.nearDepth + span * FADE_FULL_FRACTION, frame.farDepth + span * FADE_TAIL_FRACTION];
+}
+
+/** Both bands at once — what the pool takes. The kit's is {@link KIT_FADE_LAG} metres later. */
+export function fadeBandsFor(frame: GroundFrame): {
+  readonly grass: readonly [number, number];
+  readonly kitLeaf: readonly [number, number];
+} {
+  const grass = fadeBandFor(frame);
+  return { grass, kitLeaf: [grass[0] + KIT_FADE_LAG, grass[1] + KIT_FADE_LAG] };
+}
+
+/**
+ * The frame the rig shows at rest. The aspect is irrelevant to a *depth* range, so 1 is honest here.
+ */
+const DEFAULT_FRAME = groundFrame(CAMERA_DISTANCE, CAMERA_PITCH_DEGREES, 1);
+
+/** The band a material is **born** with: the default pose's. Live poses arrive via `setFadeBands`. */
+export const GRASS_FADE: readonly [number, number] = fadeBandsFor(DEFAULT_FRAME).grass;
+
+/** The same for the kit's understory. See {@link KIT_FADE_LAG}. */
+export const KIT_LEAF_FADE: readonly [number, number] = fadeBandsFor(DEFAULT_FRAME).kitLeaf;
 
 /**
  * The kit's own `alphaCutoff`, as every one of its glTF materials states it.

@@ -4,6 +4,21 @@
  * `rig.test.ts` already proves the *camera*: pulled back along +Z at 64°, looking north. This proves
  * the *pointer*: that a screen point run back through that same camera lands where the geometry says
  * it must, both at the dead-centre case a `lookAt` point makes exact and, self-consistently, off it.
+ *
+ * ## M6: the whole composed path, at every corner of the dolly clamp
+ *
+ * The last test in the file is the one the milestone owes. Since M5c a click does not stop at the
+ * ground plane: the ray meets the ground where it is **drawn**, and everything downstream of that —
+ * the tile index, the `seen` gate, the `moveTo` — speaks the unwarped grid the simulation walks, so
+ * `main.ts` runs the lens backwards in between (`World3D.unwarpAt`). M5c measured that inversion at
+ * a worst residual of 0.06 mm over 186,176 samples, at one camera pose.
+ *
+ * The pose moves now. `Raycaster.setFromCamera` is camera-agnostic and the warp is a function of
+ * world position alone, so in principle nothing about the composition depends on where the camera
+ * stands — but "in principle" is exactly what M5a's invisible undergrowth was, and the conditioning
+ * of the ray-plane intersection genuinely does get worse as the pitch drops and the rays graze. So
+ * the round trip is measured, at all four corners: grid point -> warp -> project -> unproject ->
+ * unwarp, back to the grid point it started at, against M5c's own sub-millimetre bar.
  */
 
 import assert from 'node:assert/strict';
@@ -13,9 +28,11 @@ import { Vector3 } from 'three';
 
 import { WORLD_SCALE } from '@mygame/shared';
 
-import { metresOfPixel, pixelOfMetres } from './frame.ts';
+import { CLAMP_CORNERS, sampleZone } from './fixture.ts';
+import { metresOfPixel, pixelOfMetres, placeFrame } from './frame.ts';
 import { CameraRig } from './rig.ts';
 import { unprojectToGround } from './unproject.ts';
+import { warpFieldOf, type WarpVec } from './warp.ts';
 
 describe('unprojectToGround', () => {
   it('hits the followed target dead centre, at NDC (0, 0)', () => {
@@ -80,6 +97,75 @@ describe('unprojectToGround', () => {
     // on purpose, so the assertion does not depend on the FOV or pitch numbers staying what they are.
     const hit = unprojectToGround(rig.camera, 0, 20, 0);
     assert.equal(hit, undefined);
+  });
+
+  it('round-trips a click through the M5c lens at every corner of the dolly clamp', () => {
+    // A synthetic Place rather than the built world, so this runs on a checkout that has never
+    // generated one — `warp.test.ts` owns the world-wide sweep and measures 186,176 samples of it.
+    // What is new here is the *camera*, and the camera does not care which zone it is looking at.
+    const zone = sampleZone();
+    const frame = placeFrame(zone, 0);
+    const field = warpFieldOf(zone, frame);
+    // The centre of room 3, in renderer metres: cell (1,1), a stride of 11 tiles, half a block in.
+    const homeX = 15.5;
+    const homeZ = 15.5;
+
+    const drawn: WarpVec = { x: 0, z: 0 };
+    const back: WarpVec = { x: 0, z: 0 };
+    let worst = 0;
+    let worstAt = '';
+    let samples = 0;
+    let moved = 0;
+    let worstPush = 0;
+
+    for (const [distance, pitch] of CLAMP_CORNERS) {
+      const rig = new CameraRig(16 / 9);
+      rig.distance = distance;
+      rig.pitch = pitch;
+      // `main.ts` follows the *drawn* body, not the grid one — the camera goes through the lens with
+      // everything else. Following the grid position instead would put every residual below out by
+      // the field's local displacement, which is metres, not millimetres.
+      field.displaceInto(drawn, homeX, homeZ, 0);
+      rig.follow(homeX + drawn.x, 0, homeZ + drawn.z);
+      rig.camera.updateMatrixWorld(true);
+      rig.camera.updateProjectionMatrix();
+
+      const ground = rig.ground();
+      for (let ix = -3; ix <= 3; ix++) {
+        for (let iz = -3; iz <= 3; iz++) {
+          // Grid positions spread across the ground the frame actually contains at this pose.
+          const gx = homeX + (ix / 3) * ground.halfWidthNear * 0.9;
+          const gz = homeZ + (iz < 0 ? (iz / 3) * ground.north : (iz / 3) * ground.south) * 0.9;
+          field.displaceInto(drawn, gx, gz, 0);
+          const push = Math.hypot(drawn.x, drawn.z);
+          if (push > 0.01) moved += 1;
+          worstPush = Math.max(worstPush, push);
+          // Where that patch of ground is *drawn*, projected to the screen the player is looking at.
+          const ndc = new Vector3(gx + drawn.x, 0, gz + drawn.z).project(rig.camera);
+          // …and the pointer's own two steps, in `main.ts`'s order.
+          const hit = unprojectToGround(rig.camera, ndc.x, ndc.y, 0);
+          assert.ok(hit, `no ground hit at ${distance} m / ${pitch}°, offset ${ix},${iz}`);
+          field.invertInto(back, hit.x, hit.z, 0);
+          const error = Math.hypot(back.x - gx, back.z - gz);
+          samples += 1;
+          if (error > worst) {
+            worst = error;
+            worstAt = `${distance} m / ${pitch}° at ${ix},${iz}`;
+          }
+        }
+      }
+    }
+
+    console.log(
+      `[M6 pointer] ${samples} round trips over the four clamp corners: ` +
+        `worst ${(worst * 1000).toExponential(2)} mm at ${worstAt}; ` +
+        `the lens pushed the ground up to ${worstPush.toFixed(2)} m under them`,
+    );
+    // The field has to have actually bent something, or this is a test of the identity function.
+    assert.ok(moved > samples / 2, `only ${moved} of ${samples} samples were displaced at all`);
+    // M5c's own bar, unchanged by the camera moving: sub-millimetre, which is a thirtieth of a
+    // collision tile and three orders inside the tile a click resolves to.
+    assert.ok(worst < 0.001, `the composed path left ${(worst * 1000).toFixed(3)} mm on the table at ${worstAt}`);
   });
 });
 

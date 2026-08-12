@@ -16,6 +16,30 @@
 
 import { boundsOf, type Room, type Sector, type Zone } from '@mygame/shared';
 
+import {
+  CAMERA_DISTANCE_MAX,
+  CAMERA_DISTANCE_MIN,
+  CAMERA_PITCH_MAX,
+  CAMERA_PITCH_MIN,
+} from './rig.ts';
+
+/**
+ * The four corners of M6's dolly clamp — `[distance, pitch]`.
+ *
+ * Shared from here rather than restated in each test file, and rather than exported from one test
+ * file into another (which would run that file's `describe`s twice). Four files walk this list:
+ * `rig.test.ts` for the ring and the shadow volume, `foliage.test.ts` for the fade bands,
+ * `unproject.test.ts` for the pointer's round trip, and `dolly.test.ts` for the clamp itself. Every
+ * consequence of the frame is monotone in both axes, so the extremes are the corners — and a
+ * milestone whose whole point is that the pose *moves* cannot be tested at one pose.
+ */
+export const CLAMP_CORNERS: readonly (readonly [distance: number, pitch: number])[] = [
+  [CAMERA_DISTANCE_MIN, CAMERA_PITCH_MIN],
+  [CAMERA_DISTANCE_MIN, CAMERA_PITCH_MAX],
+  [CAMERA_DISTANCE_MAX, CAMERA_PITCH_MIN],
+  [CAMERA_DISTANCE_MAX, CAMERA_PITCH_MAX],
+];
+
 interface RoomSpec {
   readonly id: number;
   readonly x: number;

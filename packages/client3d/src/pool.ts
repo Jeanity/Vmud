@@ -259,10 +259,13 @@ const MARKER_WRAPPERS = 1;
  * So the whole pool is built at startup from a number that is a product of constants: the window can
  * hold {@link MAX_WINDOW_CHUNKS} chunks and a chunk can want {@link CHUNK_BUCKET_CEILING} buckets,
  * plus — M5a — {@link SCATTER_WRAPPER_CEILING} more on each of the {@link SCATTER_CHUNKS} cells that
- * can grow anything. `70 x 10 + 35 x 7 + 2 + 1 = **948 wrappers, 3.11 MB of per-instance buffer**, and
- * not one byte more for the rest of the session. (M4's `glow` archetype took the per-chunk ceiling
- * from nine to ten; click-to-move's `marker` adds the trailing `+ 1`, alongside the bodies rather than
- * inside the per-chunk term — see {@link MARKER_WRAPPERS}; M5a adds the scatter term.) Measured
+ * can grow anything. `108 x 9 + 54 x 16 + 2 + 1 = **1,839 wrappers**`, plus the ground's and the
+ * water's own free lists: **2,001 wrappers, 7.94 MB of per-instance buffer**, and not one byte more
+ * for the rest of the session. (M4's `glow` archetype took the per-chunk ceiling from nine to ten and
+ * M5b's carve-outs took it back to nine; click-to-move's `marker` adds the trailing `+ 1`, alongside
+ * the bodies rather than inside the per-chunk term — see {@link MARKER_WRAPPERS}; M5a adds the
+ * scatter term. **M6 multiplies the chunk count by 1.54**, because the dolly's clamp made the
+ * streaming ring 9 x 6 x 2 instead of 7 x 5 x 2 — the whole delta is the ring, not this file.) Measured
  * against the real world, the walk's high-water is a fraction of that, so the headroom is real; the
  * reason to allocate the ceiling anyway is that the ceiling is the thing that can be *reasoned* about,
  * and an empirical high-water is only ever a statement about the zones somebody happened to walk.
@@ -506,6 +509,16 @@ export class ScenePool {
   private readonly depths = new Map<MaterialKey, MeshDepthMaterial>();
   /** Per-foliage-material uniforms, so `trees.ts` can write a species' cone onto its canopy. */
   private readonly foliages = new Map<MaterialKey, FoliageUniforms>();
+  /**
+   * The foliage materials whose `uFade` follows the live frame, and which of the two bands each takes.
+   *
+   * A list rather than a walk over {@link foliages} at write time, because a **canopy** must never be
+   * in it: `createFoliageUniforms` gives a canopy `1e6` precisely so it cannot dissolve inside the
+   * frame, and a `setFadeBands` that swept every foliage uniform would hand a tree the understory's
+   * band and dissolve it at the back of the view. Membership is decided once, where the band is
+   * chosen, so the two cannot disagree. See {@link setFadeBands}.
+   */
+  private readonly faders: { readonly uniforms: FoliageUniforms; readonly kit: boolean }[] = [];
   /** The one wind clock every foliage material and every foliage depth material shares. */
   readonly wind: WindClock = createWindClock();
   /** The one set of ground-blend knobs. Same pattern, same reason. */
@@ -671,6 +684,9 @@ export class ScenePool {
       pair.material.side = DoubleSide;
       this.depths.set(key, pair.depth);
       this.foliages.set(key, pair.uniforms);
+      // Only the understory tracks the frame. A canopy was handed no `fade` above and must keep its
+      // `1e6`; see {@link faders}.
+      if (kind !== 'canopy') this.faders.push({ uniforms: pair.uniforms, kit: true });
       return pair.material;
     }
 
@@ -704,6 +720,7 @@ export class ScenePool {
             );
       this.depths.set(key, pair.depth);
       this.foliages.set(key, pair.uniforms);
+      if (kind === 'grass') this.faders.push({ uniforms: pair.uniforms, kit: false });
       return pair.material;
     }
 
@@ -879,6 +896,33 @@ export class ScenePool {
   /** The per-material foliage uniforms, for `trees.ts` to write a species' crown onto its canopy. */
   foliage(key: MaterialKey): FoliageUniforms | undefined {
     return this.foliages.get(key);
+  }
+
+  /**
+   * Move the undergrowth's distance fade to a new frame — M6, and one write per material.
+   *
+   * Called whenever the rig's distance or pitch changes (`world3d.setCameraFrame`), with the bands
+   * `foliage.fadeBandsFor` derives from the frame the camera is now showing. It reaches the depth
+   * materials for free: a foliage pair shares one `FoliageUniforms` object by reference, which is
+   * `foliage.ts`'s trap 1 holding — a shadow whose fade drifted from its caster's would be a tuft
+   * that vanished while its shadow stayed.
+   *
+   * Compiles nothing and allocates nothing: `uFade` is a `Vector2` uniform written in place.
+   */
+  setFadeBands(grass: readonly [number, number], kitLeaf: readonly [number, number]): void {
+    for (const fader of this.faders) {
+      const band = fader.kit ? kitLeaf : grass;
+      fader.uniforms.uFade.value.set(band[0], band[1]);
+    }
+  }
+
+  /** The bands currently in force, read back off the first of each family. `__debug3d.camera`. */
+  fadeBands(): { grass: readonly [number, number]; kitLeaf: readonly [number, number] } {
+    const of = (kit: boolean): readonly [number, number] => {
+      const found = this.faders.find((fader) => fader.kit === kit);
+      return found ? [found.uniforms.uFade.value.x, found.uniforms.uFade.value.y] : [0, 0];
+    };
+    return { grass: of(false), kitLeaf: of(true) };
   }
 
   /**
@@ -1131,6 +1175,7 @@ export class ScenePool {
     this.materials.clear();
     this.depths.clear();
     this.foliages.clear();
+    this.faders.length = 0;
     this.tints.clear();
     this.casts.clear();
     this.families.clear();

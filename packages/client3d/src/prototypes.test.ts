@@ -237,15 +237,21 @@ describe('the pool key set', () => {
     // at boot — see `trees.ts` and `kit.ts` for why that does not unbind the key set.
     assert.equal(start.geometries, SHAPE_KEYS.length);
     assert.equal(start.materials, MATERIAL_KEYS.length);
-    // 70 window chunks x 9 plain buckets + 35 ground-level cells x (15 scatter + 1 puddle) wrappers
-    // + 2 bodies + 1 marker = 1,193, plus 70 ground wrappers and 35 water wrappers on their own free
-    // lists = 1,298. Derived, not chosen — see `pool.ts`. M5a's scatter term was 7 (3 species x 2
+    // 108 window chunks x 9 plain buckets + 54 ground-level cells x (15 scatter + 1 puddle) wrappers
+    // + 2 bodies + 1 marker = 1,839, plus 108 ground wrappers and 54 water wrappers on their own free
+    // lists = 2,001. Derived, not chosen — see `pool.ts`. M5a's scatter term was 7 (3 species x 2
     // parts + 1 undergrowth); M5b adds 4 kit models x 2 parts to it, and the two surfaces separately.
-    assert.equal(WRAPPER_POOL_SIZE, 1193);
-    assert.equal(start.prewarmed, 1298);
-    assert.equal(start.blendWrappers, 105, 'ground and water both own their instanced attributes');
-    assert.equal(start.wrappersCreated, 1298, 'all three free lists are whole before anything asks');
-    assert.equal(start.wrappersFree, 1298);
+    //
+    // **M6 moved every one of these**, and by a lot: the streaming ring went from 7 x 5 x 2 = 70 cells
+    // to 9 x 6 x 2 = 108, because the dolly can now show 24.8 m of ground ahead of the character
+    // instead of 12.3 and 32.3 m either side instead of 20.4 (`streamer.ts`). The pool is minted once
+    // — that is the flat-ledger acceptance — so the ceiling has to be the worst pose rather than the
+    // current one, and 703 more wrappers is what the wider frame costs at boot.
+    assert.equal(WRAPPER_POOL_SIZE, 1839);
+    assert.equal(start.prewarmed, 2001);
+    assert.equal(start.blendWrappers, 162, 'ground and water both own their instanced attributes');
+    assert.equal(start.wrappersCreated, 2001, 'all three free lists are whole before anything asks');
+    assert.equal(start.wrappersFree, 2001);
     assert.equal(start.wrappersLive, 0);
     // Nothing has been loaded, so nothing is on the texture ledger. It is the biggest number in the
     // renderer once the kit lands, and it must be zero until it does.
@@ -326,6 +332,40 @@ describe('the pool key set', () => {
     pool.dispose();
   });
 
+  it('moves the undergrowth’s fade to a new frame without touching a canopy — M6', () => {
+    /*
+     * The wheel writes `uFade` on every understory material in the pool, live. Two things must hold
+     * and the second is the one with teeth:
+     *
+     * - it must reach the **depth** materials, or a tuft dissolves while its shadow stays — which is
+     *   `foliage.ts`'s trap 1, and it holds by construction because a foliage pair shares one
+     *   uniforms object *by reference*; asserted here as object identity rather than as equal values;
+     * - it must **not** reach a canopy. `createFoliageUniforms` gives a canopy `1e6` precisely so a
+     *   tree cannot dissolve inside the frame, and a `setFadeBands` that swept every foliage uniform
+     *   would hand a fifteen-metre spruce the grass band and fade it out at the back of the view.
+     */
+    const pool = new ScenePool();
+    const canopyKey = MATERIAL_KEYS.find((key) => key.startsWith('canopy|'));
+    assert.ok(canopyKey, 'no baked canopy in the key set');
+    const grass = pool.foliage(materialKey('grass', 'forest', false));
+    const canopy = pool.foliage(canopyKey);
+    assert.ok(grass && canopy);
+    const canopyBefore = { x: canopy.uFade.value.x, y: canopy.uFade.value.y };
+
+    pool.setFadeBands([60, 75], [62, 77]);
+    assert.deepEqual([grass.uFade.value.x, grass.uFade.value.y], [60, 75]);
+    assert.deepEqual([canopy.uFade.value.x, canopy.uFade.value.y], [canopyBefore.x, canopyBefore.y]);
+    assert.ok(canopy.uFade.value.x > 1e5, 'a canopy must never fade inside the frame');
+    assert.deepEqual({ ...pool.fadeBands() }, { grass: [60, 75], kitLeaf: [62, 77] });
+
+    // Every sector's undergrowth moved, not just the one that was asked for by name.
+    for (const sector of SECTORS) {
+      const other = pool.foliage(materialKey('grass', sector, false));
+      if (other) assert.equal(other.uFade.value.x, 60, `${sector}'s tufts kept the old band`);
+    }
+    pool.dispose();
+  });
+
   it('re-points a recycled wrapper at whatever the next chunk asked for', () => {
     const pool = new ScenePool();
     const first = pool.acquire('box', 'edge|forest');
@@ -376,7 +416,7 @@ describe('the pool key set', () => {
     pool.writeBlend(wall, 0, [1, 1, 1, 1], [1, 1, 1, 1]);
     pool.writeWarp(wall, 0, [1, 1, 1, 1]);
     pool.release(wall);
-    assert.equal(pool.snapshot().wrappersCreated, 1298, 'the split lists must not mint');
+    assert.equal(pool.snapshot().wrappersCreated, 2001, 'the split lists must not mint');
     pool.dispose();
   });
 
@@ -408,7 +448,7 @@ describe('the pool key set', () => {
     const again = pool.acquire('waterPlane', 'water');
     assert.equal(again, water, 'LIFO: the water list gave its own wrapper back');
     pool.release(again);
-    assert.equal(pool.snapshot().wrappersCreated, 1298, 'the three lists must not mint');
+    assert.equal(pool.snapshot().wrappersCreated, 2001, 'the three lists must not mint');
     pool.dispose();
   });
 

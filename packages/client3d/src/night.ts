@@ -23,27 +23,43 @@
  *
  * Cascaded shadow maps exist because a 200 m view distance cannot be covered by one orthographic
  * frustum at a usable texel density. This camera cannot see 200 m. At 30 degrees of vertical field,
- * 64 degrees of pitch and {@link rig.CAMERA_DISTANCE} metres back, the visible ground is 34 m across
- * and 22 m deep — so {@link SHADOW_HALF_WIDTH} x {@link SHADOW_HALF_DEPTH} (40 x 26 m with margin)
- * covers every caster that can put a shadow inside the frame, and at 2048 the texel is under two
- * centimetres. Refitting is a dozen dot products a frame; a cascade is three shadow renders and a
- * split-selection branch in every fragment shader. The plan's parenthesis — *"which is why you need no
- * cascaded shadow maps at all"* — is a consequence of the camera being fixed, and it is the single
- * largest saving M4 gets for free.
+ * 64 degrees of pitch and {@link rig.CAMERA_DISTANCE} metres back — the authored pose — the visible
+ * ground is 41 m across and 22 m deep, so {@link SHADOW_HALF_WIDTH} x {@link SHADOW_HALF_DEPTH}
+ * (40 x 26 m with margin) covers every caster that can put a shadow inside the frame, and at 2048 the
+ * texel is under two centimetres. Refitting is a dozen dot products a frame; a cascade is three shadow
+ * renders and a split-selection branch in every fragment shader.
+ *
+ * **M6 keeps that and makes it follow the rig.** The camera is no longer fixed: the dolly reaches
+ * 48 m at 45 degrees, where the visible ground is 65 x 39 m and a box sized for the authored pose
+ * would cut every shadow off in a line across the frame. So the constants above became the
+ * *defaults* and {@link shadowExtentsFor} derives the box from the live frame. The plan's parenthesis
+ * — *"which is why you need no cascaded shadow maps at all"* — survives the change and is worth
+ * restating in its new form: one frustum still suffices because the *clamp* is bounded, not because
+ * the camera is still. The worst pose costs 3.4 cm of texel instead of 2.2, and only while the owner
+ * is standing in it.
  *
  * ## The fog density is derived from the frame, not chosen
  *
  * See {@link FOG_DENSITY}. What matters for the acceptance is the plan's other clause — *"tuned so the
- * streaming window's edge is never a visible hard line"* — and that is answered twice over: the
- * streamer's margin ring puts the outermost built chunk 38.5 m east/west and 27.5 m north/south of the
- * centre cell, and the frustum's own far ground intersection is 12.4 m north and 20.4 m either side.
- * **The window's boundary is never inside the frame at all**, so the fog is free to be tuned for mood
+ * streaming window's edge is never a visible hard line"* — and that is answered by geometry rather
+ * than by the fog: the streamer's ring guarantees 40 m of built ground either side and 30 m ahead of
+ * the character (`streamer.RING_COVER`), and the widest frame the dolly can produce reaches 32.3 m
+ * either side and 24.8 m ahead. **The window's boundary is never inside the frame at all, at any pose
+ * in the clamp** (`rig.test.ts` walks all four corners), so the fog is free to be tuned for mood
  * rather than for concealment. It is still a runtime knob, because mood is the owner's call.
+ *
+ * That separation is load-bearing and M6 is where it would have broken. Leaning on the fog to hide
+ * the ring's rim only works at *night*: at 65.6 m of view depth — the far edge of the fully
+ * pulled-back frame — {@link FOG_DENSITY} leaves 25% of a surface's own colour showing, but
+ * `daylight.DAY_SKY`'s 0.006 leaves **86%**, which hides nothing. So the ring was widened to cover the
+ * frame and no distance-coupled term was added to the sky recipes; if one is ever wanted, it belongs
+ * in `daylight.ts` beside the rest of the recipe and not here.
  */
 
 import { Color, DirectionalLight, FogExp2, HemisphereLight, PCFSoftShadowMap, Scene } from 'three';
 
 import type { SkyRecipe } from './daylight.ts';
+import type { GroundFrame } from './rig.ts';
 
 /* -------------------------------------------------------------------------- */
 /* The palette                                                                 */
@@ -90,9 +106,10 @@ export const MOON_INTENSITY = 1.15;
 export const MOON_FROM = { x: -0.55, y: 0.66, z: -0.51 } as const;
 
 /**
- * Half-extents of the region the shadow camera is fitted to, in metres — the plan's ~40 x 26 m.
+ * Half-extents of the region the shadow camera is fitted to, in metres — the plan's ~40 x 26 m, and
+ * since M6 the **default** rather than the only value. See {@link shadowExtentsFor}.
  *
- * Sized from the frame, not from the streaming window: the window is 77 x 55 m, but a caster outside
+ * Sized from the frame, not from the streaming window: the window is 90 x 60 m, but a caster outside
  * the *frustum* can only matter if its shadow reaches inside it, and at 41 degrees of elevation a
  * 3.6 m barrier throws four metres. {@link SHADOW_PAD} covers that and a little more.
  */
@@ -122,6 +139,28 @@ export const SHADOW_MAP_SIZE = 2048;
  * half fog; drop it to 0.008 and the far treeline stops receding.
  */
 export const FOG_DENSITY = 0.018;
+
+/**
+ * The half-extents a frame needs, in metres — M6, the same numbers as above at the default pose.
+ *
+ * The box is axis-aligned and centred on the character, so its half-extents are the *furthest* the
+ * frame reaches in each axis: the trapezoid's widest edge, and the greater of how far it sees ahead
+ * and behind. Centring it on the character rather than on the frame's own centroid wastes some of it
+ * to the south — but it keeps `fitShadowCamera` a function of one point, which is what makes the
+ * refit eight dot products, and the waste is 12 m of ground at the shallowest pose.
+ *
+ * At the default pose this returns 20.4 x 12.3 against the constants' hand-derived 20 x 13, so the
+ * default frame's texel density is unchanged; at 48 m and 45 degrees it returns 32.3 x 24.8, which
+ * over a 2048 map is a 3.4 cm texel rather than 2.2. That is the honest cost of the wider frame, and
+ * it is paid only while the owner is standing in it — which is the whole point of deriving it rather
+ * than sizing the constant for the worst case and losing a third of the resolution everywhere.
+ */
+export function shadowExtentsFor(frame: GroundFrame): { readonly width: number; readonly depth: number } {
+  return {
+    width: Math.max(frame.halfWidthNear, frame.halfWidthFar),
+    depth: Math.max(frame.north, frame.south),
+  };
+}
 
 /* -------------------------------------------------------------------------- */
 /* The shadow fit — pure                                                       */
@@ -281,6 +320,14 @@ export class NightRig {
   private recipe: SkyRecipe | undefined;
   /** The last focus point, so a recipe change can re-fit without waiting for the next frame. */
   private centre: Point3 = { x: 0, y: 0, z: 0 };
+  /**
+   * The half-extents the box is fitted to — M6's live frame, or M4's constants until told otherwise.
+   *
+   * A field rather than the module constants for the same reason {@link toLight} is one: the camera
+   * moves now, and a shadow volume sized for a pose the rig has left is a line across the ground
+   * where the shadows stop. `world3d.setCameraFrame` writes it whenever the wheel does.
+   */
+  private half = { width: SHADOW_HALF_WIDTH, depth: SHADOW_HALF_DEPTH };
 
   constructor(scene: Scene) {
     this.scene = scene;
@@ -319,6 +366,26 @@ export class NightRig {
   refit(x: number, y: number, z: number): void {
     this.centre = { x, y, z };
     this.fit = this.apply(this.centre);
+  }
+
+  /**
+   * Resize the shadow volume to the frame the camera is now showing — M6. See {@link shadowExtentsFor}.
+   *
+   * Re-fits immediately rather than waiting for the next frame, on `NightRig.sky`'s reasoning: a
+   * volume that changed a frame after the camera did is a frame of shadows cut off at the old edge,
+   * and the owner turning the wheel would see it flicker.
+   */
+  setExtents(halfWidth: number, halfDepth: number): void {
+    const width = Math.max(1, halfWidth);
+    const depth = Math.max(1, halfDepth);
+    if (width === this.half.width && depth === this.half.depth) return;
+    this.half = { width, depth };
+    this.fit = this.apply(this.centre);
+  }
+
+  /** What the volume is currently sized to, in metres. `__debug3d.moonExtents`. */
+  get extents(): { readonly width: number; readonly depth: number } {
+    return this.half;
   }
 
   /**
@@ -361,7 +428,7 @@ export class NightRig {
   private apply(centre: Point3): ShadowFit {
     const fit = fitShadowCamera(
       centre,
-      { width: SHADOW_HALF_WIDTH, height: SHADOW_HALF_HEIGHT, depth: SHADOW_HALF_DEPTH },
+      { width: this.half.width, height: SHADOW_HALF_HEIGHT, depth: this.half.depth },
       this.toLight,
       SHADOW_DISTANCE,
       SHADOW_PAD,

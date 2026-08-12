@@ -32,7 +32,7 @@ import { bitsToBase64, createBitset, bitsetAdd } from '@mygame/shared/vision.ts'
 
 import { EntityLayer, EASE_FOLLOW, EASE_PREDICTED, SNAP_DISTANCE, ease } from './entities.ts';
 import { cellOriginTiles, metresOfPixel } from './frame.ts';
-import { CameraRig } from './rig.ts';
+import { CAMERA_DISTANCE_MAX, CAMERA_PITCH_MIN, CameraRig } from './rig.ts';
 import { sampleZone } from './fixture.ts';
 import { World3D } from './world3d.ts';
 
@@ -329,6 +329,37 @@ describe('a session, end to end', () => {
     assert.equal(world.roofed, false, 'room 3 is a field');
     world.setHere(4);
     assert.equal(world.roofed, true, 'room 4 is `inside` and flagged `indoors`');
+    world.dispose();
+  });
+
+  it('carries a moved rig to the fade bands and the shadow volume in one call — M6', () => {
+    /*
+     * The seam `main.ts` drives on every wheel notch and every resize, exercised the way this file
+     * exercises everything: through the two objects rather than through either one's own unit test.
+     * `rig.test.ts` proves the derivations and `prototypes.test.ts` proves the pool's write; what is
+     * left, and what a wiring bug would live in, is whether `setCameraFrame` actually reaches both.
+     */
+    const world = new World3D();
+    const rig = new CameraRig(16 / 9);
+    world.setCameraFrame(rig.ground());
+    const home = { fade: world.pool.fadeBands(), shadow: { ...world.night.extents } };
+    // The far corner of the clamp: the frame more than doubles in depth, so both must follow.
+    rig.distance = CAMERA_DISTANCE_MAX;
+    rig.pitch = CAMERA_PITCH_MIN;
+    world.setCameraFrame(rig.ground());
+    const wide = { fade: world.pool.fadeBands(), shadow: { ...world.night.extents } };
+
+    assert.ok(wide.fade.grass[0] > home.fade.grass[1], 'the undergrowth still fades where it used to');
+    assert.ok(wide.shadow.width > home.shadow.width * 1.4, 'the shadow volume stayed the old size');
+    assert.ok(wide.shadow.depth > home.shadow.depth * 1.8);
+    // And the moon's orthographic camera actually took the new box, rather than the field being set
+    // and the refit waiting for a frame that has not happened yet.
+    assert.ok(world.night.fit.right - world.night.fit.left > 2 * wide.shadow.width, 'the fit is stale');
+
+    rig.reset();
+    world.setCameraFrame(rig.ground());
+    assert.deepEqual({ ...world.pool.fadeBands() }, { ...home.fade }, 'coming home did not restore the band');
+    assert.deepEqual({ ...world.night.extents }, home.shadow);
     world.dispose();
   });
 });

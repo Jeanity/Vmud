@@ -32,21 +32,24 @@ import { DataTexture, ShaderLib } from 'three';
 
 import { CAMERA_FOV_DEGREES, CAMERA_PITCH_DEGREES } from '@mygame/shared';
 
+import { CLAMP_CORNERS } from './fixture.ts';
 import {
   FOLIAGE_MASK_GLSL,
   FOLIAGE_VERTEX_DECL,
   FOLIAGE_WIND_GLSL,
   GRASS_FADE,
+  KIT_FADE_LAG,
   KIT_LEAF_FADE,
   MASK_NEEDLE,
   MASK_TEXTURE,
   WIND_STRENGTH,
   createFoliageMaterial,
   createWindClock,
+  fadeBandsFor,
   foliageWindOffset,
   type ShaderPatch,
 } from './foliage.ts';
-import { CAMERA_DISTANCE } from './rig.ts';
+import { CAMERA_DISTANCE, groundFrame } from './rig.ts';
 
 /** A stand-in for what three hands `onBeforeCompile`, built from the real chunk sources. */
 function shaderFor(kind: 'lambert' | 'depth'): ShaderPatch {
@@ -190,37 +193,71 @@ describe('the card-foliage material', () => {
     assert.equal(pair.depth.side, 2);
   });
 
-  it('fades the ground layer outside the frame and not across it', () => {
+  it('fades the ground layer outside the frame and not across it, at every corner of the clamp', () => {
     /*
      * **The M5a bug this pins.** `uFade` is compared against `-mvPosition.z`, which is depth along the
-     * camera's own forward axis and not distance from the character — and the camera stands 36 m back
-     * (`rig.CAMERA_DISTANCE`) at 64 degrees. So every square metre of ground the frame contains sits
-     * at a view depth of 31.3 m to 40.7 m, and M5a's `[17, 27]` put the whole frame past the end of
-     * the fade: `vFoliageFade` was 0 everywhere and the alpha test discarded every tuft in the world.
+     * camera's own forward axis and not distance from the character — and at the authored pose the
+     * camera stands 36 m back (`rig.CAMERA_DISTANCE`) at 64 degrees. So every square metre of ground
+     * the frame contains sits at a view depth of 31.8 m to 41.4 m, and M5a's `[17, 27]` put the whole
+     * frame past the end of the fade: `vFoliageFade` was 0 everywhere and the alpha test discarded
+     * every tuft in the world. Nothing caught it, because nothing about it is testable as a picture
+     * and every *placement* was correct.
      *
-     * Nothing caught it, because nothing about it is testable as a picture and every *placement* was
-     * correct. This is the arithmetic version, derived from the rig rather than restated, so the band
-     * cannot drift back inside the frame — and so that moving the camera moves this test with it.
+     * **What M6 changes.** M5b's fix was a hand-authored `[38, 45]` checked against one frame. The
+     * rig's distance and pitch are live now, and the frame's view-depth range travels from 21.2..27.6
+     * at the near/steep corner to 37.9..65.6 at the far/shallow one — a band that is right at one of
+     * those is wrong at the other three in *both* of M5a's directions at once. So the band is derived
+     * (`fadeBandsFor`) and this walks all four corners: at each, the fade must start inside the
+     * frame's far half and finish outside the frame entirely.
      */
     const radians = Math.PI / 180;
+    // The frame at the authored pose, by M5b's own approximation, so the numbers above stay checkable.
     const half = Math.tan((CAMERA_FOV_DEGREES / 2) * radians) * CAMERA_DISTANCE;
     const groundDepth = (2 * half) / Math.sin(CAMERA_PITCH_DEGREES * radians);
     const swing = (groundDepth / 2) * Math.cos(CAMERA_PITCH_DEGREES * radians);
-    const nearest = CAMERA_DISTANCE - swing;
-    const farthest = CAMERA_DISTANCE + swing;
-    assert.ok(nearest > 30 && farthest < 42, `the frame's ground is at ${nearest}..${farthest} m of view depth`);
+    assert.ok(CAMERA_DISTANCE - swing > 30, 'the authored frame no longer starts where M5b measured it');
 
-    for (const [label, band] of [['grass', GRASS_FADE] as const, ['kit understory', KIT_LEAF_FADE] as const]) {
-      assert.ok(band[0] < band[1], `${label}'s fade band is inverted`);
-      // The fade must not begin before the frame's near edge, or the ground in front of the character
-      // is already dissolving.
-      assert.ok(band[0] > nearest + 4, `${label} starts fading at ${band[0]} m, inside the frame`);
-      // …and it must not begin after the far edge either, or it is a fade that never happens and the
-      // clutter accumulates out to the streaming window's rim.
-      assert.ok(band[0] < farthest, `${label} never fades: it starts at ${band[0]} m, past the frame`);
+    for (const [distance, pitch] of CLAMP_CORNERS) {
+      const frame = groundFrame(distance, pitch, 16 / 9);
+      const bands = fadeBandsFor(frame);
+      const at = `${distance} m / ${pitch}°`;
+      for (const [label, band] of [['grass', bands.grass] as const, ['kit understory', bands.kitLeaf] as const]) {
+        assert.ok(band[0] < band[1], `${label}'s fade band is inverted at ${at}`);
+        // The fade must not begin in the near half of the frame, or the ground in front of the
+        // character is already dissolving. Half the frame's depth, not a fixed four metres: the frame
+        // is 6 m deep at one corner of the clamp and 28 at another.
+        const midway = (frame.nearDepth + frame.farDepth) / 2;
+        assert.ok(band[0] > midway, `${label} starts fading at ${band[0]} m, inside the near half at ${at}`);
+        // …it must begin before the far edge, or it is a fade that never happens and the clutter
+        // accumulates out to the streaming ring's rim…
+        assert.ok(band[0] < frame.farDepth, `${label} never fades: it starts at ${band[0]} m, past ${at}`);
+        // …and it must *finish* outside the frame, or the far strip of ground ends at a hard line
+        // where the last tuft is cut off mid-view rather than softening into the fog.
+        assert.ok(band[1] > frame.farDepth, `${label} finishes at ${band[1]} m, inside the frame at ${at}`);
+      }
+      // The kit's understory outlives the tufts, which is the only difference between the two bands.
+      assert.equal(bands.kitLeaf[0] - bands.grass[0], KIT_FADE_LAG);
+      assert.equal(bands.kitLeaf[1] - bands.grass[1], KIT_FADE_LAG);
     }
-    // The kit's understory outlives the tufts, which is the only difference between the two bands.
+
+    // The band a material is *born* with is the authored pose's, and it is M5b's hand-picked [38, 45]
+    // to within half a metre — which is why making it derived changed no picture.
+    assert.ok(Math.abs(GRASS_FADE[0] - 38) < 0.5, `${GRASS_FADE[0]}`);
+    assert.ok(Math.abs(GRASS_FADE[1] - 45) < 0.5, `${GRASS_FADE[1]}`);
     assert.ok(KIT_LEAF_FADE[0] > GRASS_FADE[0] && KIT_LEAF_FADE[1] > GRASS_FADE[1]);
+
+    /*
+     * And the reason the derivation had to exist at all, stated as an assertion rather than as a
+     * paragraph: **M5b's fixed band is M5a's bug again at the far corner of the clamp.** At 48 m and
+     * 45 degrees the frame reaches 65.6 m of view depth and `[38, 45]` has faded everything past
+     * 45 m to nothing — two thirds of the visible ground, bare, with the tufts vanishing at a hard
+     * line a third of the way up the screen. Same failure, same invisibility, one wheel notch away.
+     */
+    const widest = groundFrame(48, 45, 16 / 9);
+    assert.ok(GRASS_FADE[1] < widest.farDepth * 0.8, 'the fixed band would still have covered the widest frame');
+    const derived = fadeBandsFor(widest);
+    assert.ok(derived.grass[1] > widest.farDepth, 'the derived band must outlive the widest frame');
+    assert.ok(derived.grass[0] > GRASS_FADE[1], 'the derived band starts past where the fixed one ended');
   });
 
   it('lets a textured leaf switch the procedural mask off with a uniform, not a define', () => {

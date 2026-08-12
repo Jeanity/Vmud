@@ -8,20 +8,31 @@
  * 2. **No level above the camera is ever asked for.** The vertical policy is implemented by never
  *    building the level above, not by hiding it, and this is where that is checked.
  * 3. **Recentring by one cell touches one row.** A window that reloaded itself on every step would
- *    keep the memory flat and still be unusable, and the margin ring is the only thing preventing it.
+ *    keep the memory flat and still be unusable, and the slack between the frame and the ring is the
+ *    only thing preventing it.
+ * 4. **M6: the shape is derived from the dolly's clamp, and it is asymmetric.** The camera looks
+ *    north and can now be tilted to see much further that way, so the ring reaches one cell further
+ *    ahead than behind — and on a canvas too wide for it, the *dolly* gives way rather than the
+ *    world. Both are checked here; `rig.test.ts` checks the coverage that justifies them.
  */
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { CAMERA_DISTANCE_MAX } from './rig.ts';
 import {
   ChunkStreamer,
   MAX_WINDOW_CHUNKS,
+  RING_ASPECT,
+  RING_COVER,
+  WINDOW_CELLS_NORTH,
+  WINDOW_CELLS_SOUTH,
   WINDOW_CELLS_X,
   WINDOW_CELLS_Y,
+  WINDOW_HALF_X,
   WINDOW_LEVELS,
-  WINDOW_MARGIN,
   chunkKey,
+  maxDistanceForAspect,
   windowAddresses,
   type ChunkAddress,
   type ChunkSink,
@@ -55,23 +66,55 @@ class CountingSink implements ChunkSink {
 }
 
 describe('the streaming window', () => {
-  it('is 7 x 5 x 2 = 70 cells', () => {
-    assert.equal(WINDOW_CELLS_X, 5);
-    assert.equal(WINDOW_CELLS_Y, 3);
-    assert.equal(WINDOW_MARGIN, 1);
+  it('is 9 x 6 x 2 = 108 cells, derived from the far corner of the dolly clamp', () => {
+    /*
+     * **M6 moved these numbers and it is worth being loud about it.** M3's 7 x 5 x 2 = 70 was sized
+     * from a fixed 64-degree, 36 m frame. The rig now runs to 48 m at 45 degrees, which shows 24.8 m
+     * of ground ahead instead of 12.3 and 32.3 m either side instead of 20.4, so the ring is
+     * re-derived from that pose against a *seamless* zone's tighter 10 m stride cell.
+     *
+     * Written as literals as well as derived, deliberately: a change to a clamp that silently costs
+     * 38 chunks and 2.8 MB of pre-warmed instance buffer should fail a test rather than land.
+     */
+    assert.equal(WINDOW_HALF_X, 4);
+    assert.equal(WINDOW_CELLS_NORTH, 3, 'the lookahead: the frame sees furthest in front of the camera');
+    assert.equal(WINDOW_CELLS_SOUTH, 2);
+    assert.equal(WINDOW_CELLS_X, 9);
+    assert.equal(WINDOW_CELLS_Y, 6);
     assert.equal(WINDOW_LEVELS, 2);
-    assert.equal(MAX_WINDOW_CHUNKS, 70);
+    assert.equal(MAX_WINDOW_CHUNKS, 108);
     assert.equal(windowAddresses(0, 0, 0).length, MAX_WINDOW_CHUNKS);
+    // The guarantee the coverage argument rests on: cells beyond the centre one, times the stride.
+    assert.deepEqual({ ...RING_COVER }, { lateral: 40, north: 30, south: 20 });
   });
 
-  it('covers the footprint plus one ring, centred', () => {
+  it('reaches further ahead of the camera than behind it, and equally to each side', () => {
     const cells = windowAddresses(10, 20, 3).filter((a) => a.level === 3);
     const xs = cells.map((a) => a.cellX);
     const ys = cells.map((a) => a.cellY);
-    assert.equal(Math.min(...xs), 10 - 3);
-    assert.equal(Math.max(...xs), 10 + 3);
-    assert.equal(Math.min(...ys), 20 - 2);
-    assert.equal(Math.max(...ys), 20 + 2);
+    assert.equal(Math.min(...xs), 10 - WINDOW_HALF_X);
+    assert.equal(Math.max(...xs), 10 + WINDOW_HALF_X);
+    // `y` grows south, so the lookahead is the negative side. Getting this sign wrong would build the
+    // extra row behind the camera and starve the frame, and would look exactly like it working.
+    assert.equal(Math.min(...ys), 20 - WINDOW_CELLS_NORTH);
+    assert.equal(Math.max(...ys), 20 + WINDOW_CELLS_SOUTH);
+    assert.ok(WINDOW_CELLS_NORTH > WINDOW_CELLS_SOUTH, 'the window is not looking where the camera is');
+  });
+
+  it('pulls the dolly ceiling in on a canvas too wide for the ring, rather than showing void', () => {
+    // At the aspect it was sized for, and at anything narrower, the full 48 m is available.
+    assert.equal(maxDistanceForAspect(RING_ASPECT), CAMERA_DISTANCE_MAX);
+    assert.equal(maxDistanceForAspect(4 / 3), CAMERA_DISTANCE_MAX);
+    assert.equal(maxDistanceForAspect(16 / 10), CAMERA_DISTANCE_MAX);
+    // 2:1 still fits; the ring covers up to 2.199:1 at full pull-back.
+    assert.equal(maxDistanceForAspect(2), CAMERA_DISTANCE_MAX);
+    // A 3440x1440 ultrawide does not, and loses four metres of zoom rather than four metres of world.
+    const ultrawide = maxDistanceForAspect(3440 / 1440);
+    assert.ok(ultrawide > 43 && ultrawide < 45, `${ultrawide} m at 2.39:1`);
+    assert.ok(ultrawide < CAMERA_DISTANCE_MAX);
+    // Nonsense in, the nominal ceiling out — a zero-height canvas must not produce a NaN clamp.
+    assert.equal(maxDistanceForAspect(0), CAMERA_DISTANCE_MAX);
+    assert.equal(maxDistanceForAspect(Number.NaN), CAMERA_DISTANCE_MAX);
   });
 
   it('never asks for a level above the camera', () => {
@@ -112,8 +155,8 @@ describe('ChunkStreamer', () => {
     streamer.update(0, 0, 0);
     sink.reset();
     const step = streamer.update(1, 0, 0);
-    // One column is 5 rows on each of 2 levels.
-    const column = (2 * ((WINDOW_CELLS_Y - 1) / 2 + WINDOW_MARGIN) + 1) * WINDOW_LEVELS;
+    // One column is six rows on each of two levels.
+    const column = WINDOW_CELLS_Y * WINDOW_LEVELS;
     assert.equal(step.loaded, column);
     assert.equal(step.unloaded, column);
     assert.equal(streamer.size, MAX_WINDOW_CHUNKS);

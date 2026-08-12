@@ -16,8 +16,12 @@
  * camera's own projection and view matrices — the exact inverse of the `Vector3.project` that
  * `rig.test.ts` already leans on to check the forward direction. `Ray.intersectPlane` then walks that
  * ray to `y = groundY`. Two renderer-metre numbers out, no mesh, no BVH, no allocation. `undefined`
- * comes back only when the ray cannot meet the plane in front of the camera — the pitch is fixed at 64°
- * (`rig.ts`), so in practice that is a pointer above the horizon, empty sky at grey-box.
+ * comes back only when the ray cannot meet the plane in front of the camera — which, given `rig.ts`'s
+ * clamp, means a pointer above the horizon and empty sky. **Nothing in this file reads the rig at
+ * all**, which is why M6 could make the pitch a live variable without touching it:
+ * `setFromCamera` takes whatever pose the camera is in. The clamp's floor of 45° is what keeps the
+ * *top* edge of the frame at 30° of depression, so the whole screen still meets the ground and a
+ * click near the horizon is still a click on something.
  */
 
 import { Plane, Raycaster, Vector2, Vector3, type PerspectiveCamera } from 'three';

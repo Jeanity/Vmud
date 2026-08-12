@@ -113,9 +113,11 @@ import {
   type PlaceFrame,
 } from './frame.ts';
 import { type SkyRecipe, skyAt } from './daylight.ts';
+import { fadeBandsFor } from './foliage.ts';
 import { KitSet } from './kit.ts';
 import { LightPool, type LightRequest } from './lights.ts';
-import { NightRig } from './night.ts';
+import { NightRig, shadowExtentsFor } from './night.ts';
+import type { GroundFrame } from './rig.ts';
 import { ScenePool, WRAPPER_CAPACITY, type LedgerSnapshot } from './pool.ts';
 import { freeTiles, planScatter } from './scatter.ts';
 import { ChunkStreamer, chunkKey, type ChunkAddress, type ChunkSink } from './streamer.ts';
@@ -671,6 +673,26 @@ export class World3D implements ChunkSink {
    * write; the campfire scan behind {@link lightsStale} runs only when the loaded set has changed,
    * which is once per stride cell crossed.
    */
+  /**
+   * The rig moved — M6, and the one call that carries a new frame to everything derived from it.
+   *
+   * Two consumers and both would otherwise be tuned to a pose the camera has left. The undergrowth's
+   * fade band is a view-depth window and the frame's view depths run from 31.8..41.4 m at the default
+   * pose to 37.9..65.6 m at the far corner of the clamp, so a fixed band either dissolves the ground
+   * in front of the character or never fades at all. The moon's shadow volume is a box that must
+   * contain the visible ground, and the visible ground more than doubles across the same range.
+   *
+   * Called from `main.ts` whenever the wheel moves and on every resize — the frame's *width* is the
+   * canvas aspect's business as much as the rig's. Idempotent and cheap: two uniform writes per
+   * understory material and one shadow-camera refit, both of which happen anyway.
+   */
+  setCameraFrame(frame: GroundFrame): void {
+    const bands = fadeBandsFor(frame);
+    this.pool.setFadeBands(bands.grass, bands.kitLeaf);
+    const extents = shadowExtentsFor(frame);
+    this.night.setExtents(extents.width, extents.depth);
+  }
+
   focus(x: number, y: number, z: number, clearingRadius?: number): void {
     this.night.refit(x, y, z);
     // A little above the ground: a point light *at* the feet lights the floor and nothing else.

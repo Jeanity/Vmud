@@ -52,6 +52,7 @@ import { WebGLRenderer } from 'three';
 import { TILE_SIZE, samePlace, type Direction, type Place } from '@mygame/shared';
 
 import { DAY_SKY, NIGHT_SKY, clockOf, hourOf, normaliseHour } from './daylight.ts';
+import { Dolly, rememberPose, rememberedPose, type CameraPose } from './dolly.ts';
 import { EntityLayer } from './entities.ts';
 import { metresOfPixel, pixelOfMetres } from './frame.ts';
 import { Input, intoFormControl } from './input.ts';
@@ -63,8 +64,16 @@ import { SHADOW_MAP_TYPE, type ShadowFit } from './night.ts';
 import { Grade, TONE_MAPPINGS, type ToneMapping } from './post.ts';
 import { PointerControl, type PointerTarget } from './pointer.ts';
 import { Rain } from './rain.ts';
-import { CameraRig } from './rig.ts';
-import { MAX_WINDOW_CHUNKS, WINDOW_CELLS_X, WINDOW_CELLS_Y, WINDOW_MARGIN } from './streamer.ts';
+import { CAMERA_DISTANCE_MAX, CAMERA_DISTANCE_MIN, CAMERA_PITCH_MAX, CAMERA_PITCH_MIN, CameraRig } from './rig.ts';
+import {
+  MAX_WINDOW_CHUNKS,
+  RING_COVER,
+  WINDOW_CELLS_NORTH,
+  WINDOW_CELLS_SOUTH,
+  WINDOW_CELLS_X,
+  WINDOW_CELLS_Y,
+  maxDistanceForAspect,
+} from './streamer.ts';
 import { unprojectToGround } from './unproject.ts';
 import type { WarpVec } from './warp.ts';
 import { Wetness } from './wetness.ts';
@@ -88,6 +97,7 @@ const entities = new EntityLayer(world.scene, world.pool);
 const input = new Input();
 const marker = new Marker(world.scene, world.pool);
 const pointer = new PointerControl();
+const dolly = new Dolly();
 
 const canvasHost = document.getElementById('view');
 if (!canvasHost) throw new Error('missing element #view');
@@ -175,6 +185,9 @@ const applyTyping = (): void => {
   // Composed identically to `input.typing` — a click aimed at the command line or the login card must
   // never fall through to the world. `pointer.ts`'s header, and `CLAUDE.md` gotcha 5a's discipline.
   pointer.typing = input.typing;
+  // And the wheel, on the same one boolean. Three listeners that each decided for themselves what
+  // counts as typing is the shape gotcha 5a warns about; there is one answer and they all read it.
+  dolly.typing = input.typing;
 };
 login.onVisibility = (visible) => {
   gateUp = visible;
@@ -276,6 +289,36 @@ pointer.onSteerStart = () => {
 };
 
 pointer.attach(renderer.domElement);
+
+/* -------------------------------------------------------------------------- */
+/* The dolly — M6's live frame                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Move the rig, and carry the new frame to everything that was tuned against the old one.
+ *
+ * The order is the load-bearing part. The rig is written first because everything downstream is
+ * derived from `rig.ground()`, and `rig.ground()` is only right once the clamp has had its say — a
+ * caller that computed the fade band from the number it *asked* for rather than the one the rig
+ * *took* would put the band a metre outside the frame at either end of the range.
+ *
+ * `remember` is false for the boot restore and for a resize: writing storage from the value that was
+ * just read out of it is noise, and a resize is the window's decision rather than the owner's.
+ */
+function applyCameraPose(pose: CameraPose, remember = true): void {
+  rig.distance = pose.distance;
+  rig.pitch = pose.pitch;
+  // The undergrowth's fade band and the moon's shadow volume, in one call. See `World3D.setCameraFrame`.
+  world.setCameraFrame(rig.ground());
+  if (remember) rememberPose({ distance: rig.distance, pitch: rig.pitch });
+}
+
+dolly.poseOf = () => ({ distance: rig.distance, pitch: rig.pitch });
+// The ring cannot cover the fully-pulled-back frame on a very wide canvas, so the *dolly* stops
+// sooner rather than the frame showing void at its far corners. Recomputed on every resize below.
+dolly.ceilingOf = () => rig.maxDistance;
+dolly.onPose = (pose) => applyCameraPose(pose);
+dolly.attach(renderer.domElement);
 
 /* -------------------------------------------------------------------------- */
 /* Messages                                                                    */
@@ -517,15 +560,91 @@ function resize(): void {
   // it. Calling `renderer.setSize` as well would leave the buffers a frame behind on every drag.
   grade.setSize(width, height);
   rig.resize(width, height);
+  // M6. The frame's *width* is the canvas aspect's business as much as the rig's, so both derived
+  // systems have to be told — and the dolly's ceiling with them, because a canvas that has just been
+  // dragged out to 21:9 can no longer show 48 m of pull-back inside the built ring. Writing
+  // `maxDistance` pulls the live distance in with it if it has to.
+  rig.maxDistance = maxDistanceForAspect(rig.camera.aspect);
+  applyCameraPose({ distance: rig.distance, pitch: rig.pitch }, false);
 }
 
 window.addEventListener('resize', resize);
 resize();
+// The pose this tab was last left at, if it is not the default one. Applied after the first `resize`
+// so the aspect-derived ceiling is already in force and a remembered 48 m on a now-narrower window
+// is clamped rather than honoured.
+applyCameraPose(rememberedPose() ?? { distance: rig.distance, pitch: rig.pitch }, false);
 requestAnimationFrame(frame);
 
 /* -------------------------------------------------------------------------- */
 /* The debug object                                                            */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * `__debug3d.camera` — **the readout the whole milestone exists to produce.**
+ *
+ * The owner turns the wheel until the frame looks right and then reads these two numbers off the
+ * console; they are what gets baked into `rig.CAMERA_DISTANCE` and `space.CAMERA_PITCH_DEGREES`
+ * later. Everything else on the object is there so the answer can be sanity-checked without
+ * screenshots: `ground` is the trapezoid the pose actually shows, `fade` is where the undergrowth
+ * dissolves in view-space metres, and `maxDistance` is the ceiling this canvas's aspect allows.
+ *
+ * One persistent object rather than a fresh literal from a getter, so `__debug3d.camera.distance =
+ * 42` in the console does what it obviously means. Writing either number goes through the same
+ * `applyCameraPose` the wheel does, so the fade band, the shadow volume and the stored pose all
+ * follow a typed value exactly as they follow a scrolled one.
+ */
+const cameraKnob = {
+  get distance(): number {
+    return Number(rig.distance.toFixed(3));
+  },
+  set distance(metres: number) {
+    applyCameraPose({ distance: metres, pitch: rig.pitch });
+  },
+  get pitch(): number {
+    return Number(rig.pitch.toFixed(3));
+  },
+  set pitch(degrees: number) {
+    applyCameraPose({ distance: rig.distance, pitch: degrees });
+  },
+  /** The clamp, so a value that refuses to take is obviously a clamp and not a broken setter. */
+  get limits(): { distance: [number, number]; pitch: [number, number] } {
+    return {
+      distance: [CAMERA_DISTANCE_MIN, Math.min(rig.maxDistance, CAMERA_DISTANCE_MAX)],
+      pitch: [CAMERA_PITCH_MIN, CAMERA_PITCH_MAX],
+    };
+  },
+  /** Lower than {@link CAMERA_DISTANCE_MAX} only on a canvas too wide for the ring. `streamer.ts`. */
+  get maxDistance(): number {
+    return Number(rig.maxDistance.toFixed(3));
+  },
+  /** Metres of ground this pose shows, ahead/behind/either side, and its view-depth range. */
+  get ground(): Record<string, number> {
+    const g = rig.ground();
+    return {
+      north: Number(g.north.toFixed(2)),
+      south: Number(g.south.toFixed(2)),
+      halfWidthFar: Number(g.halfWidthFar.toFixed(2)),
+      nearDepth: Number(g.nearDepth.toFixed(2)),
+      farDepth: Number(g.farDepth.toFixed(2)),
+    };
+  },
+  /** Where the undergrowth fades, live. Both bands must sit outside `ground.nearDepth`. */
+  get fade(): ReturnType<World3D['pool']['fadeBands']> {
+    return world.pool.fadeBands();
+  },
+  /** Half-extents the moon's shadow volume is currently fitted to. Grows with the frame. */
+  get shadow(): { width: number; depth: number } {
+    const { width, depth } = world.night.extents;
+    return { width: Number(width.toFixed(2)), depth: Number(depth.toFixed(2)) };
+  },
+  /** Back to the authored pose, and forget the remembered one. Also the **C** key. */
+  reset(): CameraPose {
+    rig.reset();
+    applyCameraPose({ distance: rig.distance, pitch: rig.pitch });
+    return { distance: rig.distance, pitch: rig.pitch };
+  },
+};
 
 const debug = {
   get chunksLoaded(): number {
@@ -603,8 +722,28 @@ const debug = {
     return pointer.pointerDown;
   },
 
-  get window(): { cellsX: number; cellsY: number; margin: number; max: number } {
-    return { cellsX: WINDOW_CELLS_X, cellsY: WINDOW_CELLS_Y, margin: WINDOW_MARGIN, max: MAX_WINDOW_CHUNKS };
+  /**
+   * The streaming ring's shape and the metres of built ground it guarantees in each direction.
+   *
+   * Asymmetric since M6 — `north` is one cell more than `south`, because the camera looks north and
+   * the frame is a trapezoid. See `streamer.ts`.
+   */
+  get window(): {
+    cellsX: number;
+    cellsY: number;
+    north: number;
+    south: number;
+    max: number;
+    coverMetres: typeof RING_COVER;
+  } {
+    return {
+      cellsX: WINDOW_CELLS_X,
+      cellsY: WINDOW_CELLS_Y,
+      north: WINDOW_CELLS_NORTH,
+      south: WINDOW_CELLS_SOUTH,
+      max: MAX_WINDOW_CHUNKS,
+      coverMetres: RING_COVER,
+    };
   },
   get fps(): number {
     return Math.round(fps);
@@ -860,6 +999,13 @@ const debug = {
       inverseError: Number(Math.hypot(back.x - x, back.z - z).toFixed(4)),
     };
   },
+
+  /* ------------------------------------------------------------------ M6 */
+
+  /** The live rig: `distance`, `pitch`, what they show, and `reset()`. See {@link cameraKnob}. */
+  get camera(): typeof cameraKnob {
+    return cameraKnob;
+  },
 };
 
 (window as unknown as { __debug3d: typeof debug }).__debug3d = debug;
@@ -870,8 +1016,12 @@ const debug = {
 
 /**
  * **T** cycles the tone mapping, **R** toggles the rain, **B** toggles the bloom, **F** the wind,
- * M5c's **V** the domain warp — and M5b's **G** flips day against night, with **[** and **]** sweeping
- * the hour an hour at a time.
+ * M5c's **V** the domain warp, M6's **C** puts the camera back on its authored pose — and M5b's **G**
+ * flips day against night, with **[** and **]** sweeping the hour an hour at a time.
+ *
+ * M6 adds no other letter on purpose: its two controls are the wheel and Shift+wheel (`dolly.ts`),
+ * because a hunt for a frame wants a dial and because every letter bound here is a letter that can
+ * go missing out of the command line.
  *
  * **V** is M5c's own version of what **F** does for trap 1: the warp is applied in two places, in a
  * vertex shader for the continuous surfaces and on the CPU for everything that is an object, and the
@@ -934,6 +1084,17 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
       world.warpEnabled = !world.warpEnabled;
       log.write('system', `warp: ${world.warpEnabled ? 'on' : 'off (the grid, as it was)'}`);
       return;
+    case 'KeyC': {
+      // M6. The wheel is a hunt and a hunt needs a way home: **C** puts the rig back on the pose the
+      // world was authored at and forgets the remembered one, so the next reload starts there too.
+      //
+      // A key rather than a double-tap of the tilt control, which is Shift+wheel and has no tap to
+      // double. It is also the only *letter* this milestone binds, which is why it goes through the
+      // same `input.typing` / `intoFormControl` gate as every other one — `CLAUDE.md` gotcha 5a.
+      const pose = cameraKnob.reset();
+      log.write('system', `camera: ${pose.distance} m at ${pose.pitch}° (default)`);
+      return;
+    }
     case 'KeyG': {
       // Jump to whichever of the two the rig is not near. Midnight and noon are the two keys the
       // recipes were authored at, so the flip lands on an authored sky rather than on a blend.
@@ -949,8 +1110,9 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
 
 log.write(
   'system',
-  'M5c — T: tone mapping (neutral/agx)   R: rain   B: bloom   F: wind   V: warp   G: day/night' +
-    '   [ ]: sweep the hour.  Knobs on window.__debug3d.',
+  'M6 — wheel: zoom (24-48 m)   shift+wheel: tilt (45-64°)   C: camera home.  ' +
+    'T: tone mapping   R: rain   B: bloom   F: wind   V: warp   G: day/night   [ ]: sweep the hour.  ' +
+    'Read the frame you like off window.__debug3d.camera.',
 );
 
 net.connect();

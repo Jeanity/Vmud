@@ -10,18 +10,57 @@
  * spatial radius, and the room graph keeps the job it is correct for, which is interest management
  * and already works.
  *
- * ## The window, and why it is the shape it is
+ * ## The window, and why it is the shape it is — M6
  *
- * A cell is one room block plus its gap — a **stride cell**, 11 m at the classic projection — and
- * the window is the plan's 5x3 rectangle plus one ring of margin. Wider than tall because the camera
- * is pitched: at 64° the frame covers roughly {@link rig.CAMERA_DISTANCE} x 0.95 metres of ground
- * across and 0.60 down, which at 36 m is 34 m x 22 m, a little over 3 cells by 2.
+ * A cell is one room block plus its gap — a **stride cell**, 11 m in a normal zone and 10 m in a
+ * seamless one — and the window is a rectangle of them around the camera's own cell. M3 wrote that
+ * rectangle down (5x3 plus a ring of margin, 7x5) from the 64° frame's 34 x 22 m of ground. M6 makes
+ * the frame *movable*, so the rectangle is no longer a number to write down: it is **derived, here,
+ * from the far corner of the rig's clamp** — {@link rig.CAMERA_DISTANCE_MAX} metres back at
+ * {@link rig.CAMERA_PITCH_MIN} degrees, the pose that shows the most ground of any the owner can
+ * dial in.
  *
- * The margin ring is doing two jobs and both matter. It is the pop-in guard — a chunk is built a
- * whole cell before it can be seen — and it is the **hysteresis**: crossing a cell boundary changes
+ * The derivation is three divisions. At that pose the frame's ground trapezoid reaches 24.8 m ahead
+ * of the character, 14.3 m behind, and 32.3 m either side at its widest (16:9). Against the
+ * **smaller** of the two strides — a seamless zone's 10 m, because sizing against the 11 m one would
+ * leave a seamless zone short — that is 3 cells of lookahead, 2 behind and 4 to each side. Nine
+ * columns by six rows, twice over for the two levels: {@link MAX_WINDOW_CHUNKS}.
+ *
+ * Two consequences worth stating plainly, because both cost something:
+ *
+ * - **The ring is asymmetric now.** The camera looks north and the frame is a trapezoid, so it sees
+ *   73% further ahead than behind; a symmetric window would have to be sized for the far edge in
+ *   both directions and would build a row nobody can see. {@link WINDOW_CELLS_NORTH} is one more
+ *   than {@link WINDOW_CELLS_SOUTH} for exactly that reason, and it is the *only* asymmetry — east
+ *   and west are the same, because the frame is.
+ * - **108 chunks, not 70.** That is 54% more pre-warmed wrappers (`pool.ts` sizes itself off
+ *   {@link MAX_WINDOW_CHUNKS}) and 2.8 MB more instance buffer, paid at boot whether or not the owner
+ *   ever pulls the camera back. It is paid because the pool is minted once — that is the flat-ledger
+ *   acceptance — so the ceiling has to be the worst case rather than the current one.
+ *
+ * ## What the coverage guarantee actually says
+ *
+ * The window is centred on the **cell** the character is in, and they can stand anywhere inside it.
+ * So the guaranteed built ground in a direction is `stride x (cells beyond the centre cell)` and no
+ * more: at the far side of their own cell the character has consumed the centre cell's whole stride.
+ * {@link RING_COVER} states the three numbers that fall out, and `rig.test.ts` checks them against
+ * the frame at all four corners of the clamp.
+ *
+ * The margin left over is the pop-in guard and the **hysteresis**: crossing a cell boundary changes
  * the window by one row, so a player pacing back and forth over the line rebuilds one row rather
  * than the world. There is no separate hysteresis parameter, deliberately, because a second one
  * would have to be kept consistent with this one.
+ *
+ * ## The aspect the ring is sized at, and the screens wider than it
+ *
+ * The frame's width scales with the canvas aspect and the ring does not. Sized at 16:9, the ring
+ * covers every aspect up to **2.199:1** at the fully-pulled-back pose — 16:10, 16:9, 2:1 — and falls
+ * short of a 3440x1440 ultrawide by about three metres at the two far corners. Rather than ship a
+ * documented hole (the fog would hide it at night and would not in daylight, where
+ * `daylight.DAY_SKY` runs a third the density), {@link maxDistanceForAspect} pulls the *dolly's*
+ * ceiling in on such a screen: 44.2 m instead of 48. The invariant then holds at every aspect
+ * without another cell, which is the trade that is actually worth making — nobody will notice four
+ * metres of zoom, and everybody would notice the world ending inside the frame.
  *
  * ## Two levels, never three
  *
@@ -33,21 +72,85 @@
  * hope.
  */
 
-/** The plan's footprint, in stride cells. Wider than deep because the camera is pitched. */
-export const WINDOW_CELLS_X = 5;
-export const WINDOW_CELLS_Y = 3;
+import { ROOM_TILES, SEAM_GAP } from '@mygame/shared';
 
-/** One ring beyond the footprint: the pop-in guard, and the only hysteresis there is. */
-export const WINDOW_MARGIN = 1;
+import { METRES_PER_TILE } from './frame.ts';
+import { CAMERA_DISTANCE_MAX, CAMERA_DISTANCE_MIN, CAMERA_PITCH_MIN, groundFrame } from './rig.ts';
+
+/**
+ * The tighter of the two stride cells, in metres — a **seamless** zone's.
+ *
+ * `frame.placeFrame` picks `SEAM_GAP` for a seamless zone and `ROOM_GAP` otherwise, so a cell is 10 m
+ * in one and 11 m in the other. The window is a count of cells, so sizing it against the 11 m cell
+ * would leave every seamless zone a metre short per ring — which is the kind of gap that shows up as
+ * a strip of void in one zone out of twelve and nowhere else.
+ */
+const STRIDE_METRES = (ROOM_TILES + SEAM_GAP) * METRES_PER_TILE;
+
+/**
+ * The aspect the ring is sized at. Wider screens are handled by {@link maxDistanceForAspect}.
+ *
+ * 16:9 rather than the widest imaginable monitor, because every extra column is 12 chunks and the
+ * dolly ceiling is a cheaper place to absorb an ultrawide than the pre-warmed pool is.
+ */
+export const RING_ASPECT = 16 / 9;
+
+/** The frame at the far corner of the clamp — the pose the whole window is sized against. */
+const WORST = groundFrame(CAMERA_DISTANCE_MAX, CAMERA_PITCH_MIN, RING_ASPECT);
+
+/** Cells either side of the centre cell. Four: 32.3 m of frame against 10 m cells. */
+export const WINDOW_HALF_X = Math.ceil(Math.max(WORST.halfWidthNear, WORST.halfWidthFar) / STRIDE_METRES);
+
+/** Cells **ahead** of the centre cell, north. Three: the far edge is 24.8 m out. The lookahead. */
+export const WINDOW_CELLS_NORTH = Math.ceil(WORST.north / STRIDE_METRES);
+
+/** Cells behind it, south. Two: the near edge is 14.3 m back. */
+export const WINDOW_CELLS_SOUTH = Math.ceil(WORST.south / STRIDE_METRES);
+
+/** Columns in the window. Nine. */
+export const WINDOW_CELLS_X = 2 * WINDOW_HALF_X + 1;
+
+/** Rows. Six — and not centred; see {@link WINDOW_CELLS_NORTH}. */
+export const WINDOW_CELLS_Y = WINDOW_CELLS_NORTH + WINDOW_CELLS_SOUTH + 1;
 
 /** The camera's level and the one below it. Never the one above — see the header. */
 export const WINDOW_LEVELS = 2;
 
-const HALF_X = (WINDOW_CELLS_X - 1) / 2 + WINDOW_MARGIN;
-const HALF_Y = (WINDOW_CELLS_Y - 1) / 2 + WINDOW_MARGIN;
+/**
+ * Metres of built ground the window guarantees in each direction, **whatever the character's
+ * position inside their own cell**. See the header: the centre cell's own stride is theirs to spend.
+ */
+export const RING_COVER = {
+  lateral: WINDOW_HALF_X * STRIDE_METRES,
+  north: WINDOW_CELLS_NORTH * STRIDE_METRES,
+  south: WINDOW_CELLS_SOUTH * STRIDE_METRES,
+} as const;
 
-/** 7 x 5 x 2 = 70. The hard ceiling on live chunks, asserted by the traversal test. */
-export const MAX_WINDOW_CHUNKS = (2 * HALF_X + 1) * (2 * HALF_Y + 1) * WINDOW_LEVELS;
+/** 9 x 6 x 2 = 108. The hard ceiling on live chunks, asserted by the traversal test. */
+export const MAX_WINDOW_CHUNKS = WINDOW_CELLS_X * WINDOW_CELLS_Y * WINDOW_LEVELS;
+
+/**
+ * The furthest the dolly may pull back on a canvas of this shape, so the frame stays inside the ring.
+ *
+ * Every extent of {@link rig.groundFrame} is linear in the distance, so the answer is a ratio rather
+ * than a search: take the tightest of the three coverage margins at the fully-pulled-back, fully
+ * lowered pose and scale the ceiling by it. Only the lateral term can ever bind (the north and south
+ * margins are 1.21x and 1.39x at 16:9), and it binds only past 2.199:1.
+ *
+ * Evaluated at {@link rig.CAMERA_PITCH_MIN} rather than at the live pitch on purpose: a ceiling that
+ * moved as the owner tilted would pull the camera in under their hand, and a fixed number per window
+ * size is one they can read off `__debug3d.camera` and reason about.
+ */
+export function maxDistanceForAspect(aspect: number): number {
+  if (!Number.isFinite(aspect) || aspect <= 0) return CAMERA_DISTANCE_MAX;
+  const frame = groundFrame(CAMERA_DISTANCE_MAX, CAMERA_PITCH_MIN, aspect);
+  const slack = Math.min(
+    RING_COVER.lateral / Math.max(frame.halfWidthNear, frame.halfWidthFar),
+    RING_COVER.north / frame.north,
+    RING_COVER.south / frame.south,
+  );
+  return Math.max(CAMERA_DISTANCE_MIN, Math.min(CAMERA_DISTANCE_MAX, CAMERA_DISTANCE_MAX * slack));
+}
 
 /** A chunk's address: one stride cell on one level, in **zone** cell coordinates. */
 export interface ChunkAddress {
@@ -60,12 +163,19 @@ export function chunkKey(address: ChunkAddress): string {
   return `${address.level}:${address.cellX}:${address.cellY}`;
 }
 
-/** Every address the window covers, centred on a cell. Always {@link MAX_WINDOW_CHUNKS} long. */
+/**
+ * Every address the window covers, centred on a cell. Always {@link MAX_WINDOW_CHUNKS} long.
+ *
+ * `y` grows **south** (`CLAUDE.md`'s coordinate convention), so the lookahead is the negative side:
+ * `dy` runs from `-WINDOW_CELLS_NORTH` to `+WINDOW_CELLS_SOUTH`. Getting that sign wrong would build
+ * the extra row behind the camera and starve the frame, and it would look exactly like the streamer
+ * working.
+ */
 export function windowAddresses(cellX: number, cellY: number, level: number): ChunkAddress[] {
   const out: ChunkAddress[] = [];
   for (let l = 0; l < WINDOW_LEVELS; l++) {
-    for (let dy = -HALF_Y; dy <= HALF_Y; dy++) {
-      for (let dx = -HALF_X; dx <= HALF_X; dx++) {
+    for (let dy = -WINDOW_CELLS_NORTH; dy <= WINDOW_CELLS_SOUTH; dy++) {
+      for (let dx = -WINDOW_HALF_X; dx <= WINDOW_HALF_X; dx++) {
         out.push({ cellX: cellX + dx, cellY: cellY + dy, level: level - l });
       }
     }

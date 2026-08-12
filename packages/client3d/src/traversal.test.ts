@@ -54,6 +54,18 @@
  * 1,000 — with the walls now producing up to twice as many instances per bucket, which is the thing
  * that would have overflowed {@link WRAPPER_CAPACITY} if the chord span had been chosen carelessly.
  *
+ * ## M6: the walk is 108 chunks wide, and the ledger says so out loud
+ *
+ * The dolly can pull the camera to 48 m and tilt it to 45°, which shows 24.8 m of ground ahead of the
+ * character instead of 12.3 and 32.3 m either side instead of 20.4. The streaming ring is derived
+ * from that pose (`streamer.ts`) and grew from 7 x 5 x 2 = 70 cells to 9 x 6 x 2 = 108, and the
+ * pre-warmed pool grew with it because the pool is minted **once** — which is this file's own
+ * acceptance and the reason the ceiling has to be the worst pose rather than the current one.
+ *
+ * So this file now pins {@link LEDGER_BYTES} absolutely as well as flatly. Flat has always been the
+ * property that matters; the absolute number is here because M6 moved it by 52% in one commit and a
+ * figure that large should be a line somebody chose rather than a line in a log nobody reads.
+ *
  * Follows `worldgen/src/roomscene-world.test.ts`'s skip-if-absent shape: `data/world` is git-ignored
  * and reproducible with `npm run worldgen`.
  */
@@ -91,6 +103,26 @@ const ZONES_DIR = join(REPO_ROOT, 'data', 'world', 'zones');
 const TRAVERSAL_ROOMS = 1000;
 /** Where the baseline is taken, once the free list has warmed. */
 const BASELINE_ROOM = 100;
+
+/**
+ * The ledger's total, in bytes. **Update this once, deliberately, with the reason written down.**
+ *
+ * `197,940` of geometry (the seven built shapes plus the tree and kit stand-ins) and `7,939,968` of
+ * per-instance buffer — 2,001 pre-warmed wrappers at `pool.WRAPPER_BYTES`, which is 32 instances x 31
+ * floats. Both terms are decided in the constructor and neither can move while streaming, which is
+ * what the flat assertions below say; this one says *what* they are flat at.
+ *
+ * | Milestone | Bytes | Why it moved |
+ * | --- | --- | --- |
+ * | M5b | 4,680,176 | the kit, the water and the puddles |
+ * | M5c | 5,348,404 | `iWarp`'s four floats on every wrapper, and 3.6 KB of subdivided geometry |
+ * | M6  | 8,137,908 | **the streaming ring, 70 cells to 108** — `+703` wrappers at 3,968 B |
+ *
+ * The M6 delta is `+2,789,504` B, all of it instance buffer and all of it a consequence of one
+ * decision: the dolly's clamp reaches 48 m at 45°, `streamer.ts` derives the ring from that pose, and
+ * `pool.ts` derives its pre-warm from the ring. Nothing here was chosen; the clamp was.
+ */
+const LEDGER_BYTES = 8_137_908;
 
 describe('M3: streaming a real world with a flat ledger', () => {
   if (!existsSync(ZONES_DIR)) {
@@ -188,7 +220,7 @@ describe('M3: streaming a real world with a flat ledger', () => {
     const end = world.ledger();
 
     console.log(
-      `[M5c traversal] ${visited} rooms across ${places} Places in ${Date.now() - started} ms\n` +
+      `[M6 traversal] ${visited} rooms across ${places} Places in ${Date.now() - started} ms\n` +
         `  pool          geometries ${end.geometries}  materials ${end.materials}  prewarmed ${end.prewarmed}\n` +
         `  programs      materials ${end.programs}  depth ${end.depthProgramCount}\n` +
         `  wrappers      created ${end.wrappersCreated}  live ${end.wrappersLive}  free ${end.wrappersFree}` +
@@ -207,6 +239,10 @@ describe('M3: streaming a real world with a flat ledger', () => {
     assert.equal(end.materials, baseline.materials, 'the material pool grew');
     assert.equal(end.wrappersCreated, baseline.wrappersCreated, 'wrappers were still being minted after room 100');
     assert.equal(end.bytes, baseline.bytes, 'the ledger is not flat');
+    // …and flat *at the figure somebody chose*. See {@link LEDGER_BYTES} for the one-line history of
+    // every time this has moved and why.
+    assert.equal(end.bytes, LEDGER_BYTES, 'the ledger total moved — is that a decision or an accident?');
+    assert.equal(baseline.bytes, LEDGER_BYTES);
     assert.equal(end.acquires - end.releases, end.wrappersLive, 'a wrapper was leaked or freed twice');
     assert.equal(end.wrappersLive + end.wrappersFree, end.wrappersCreated, 'the free list lost one');
     assert.ok(end.acquires > 5000, `only ${end.acquires} acquires — the walk is not exercising the pool`);
