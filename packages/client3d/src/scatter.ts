@@ -246,14 +246,72 @@ const KIT_COUNT_BY_SECTOR: Readonly<Partial<Record<Sector, number>>> = {
  * spread over 9.0x8.5 m — a multi-frond ground patch, not a bad export. Scatter it at 0.3–0.5 scale
  * as forest-floor fill."* At life size one fern covers an entire room.
  */
+/**
+ * Half life size, jittered a seventh either way — the owner's call on the ground cover, 2026-08-13.
+ *
+ * > *"can the flowers and grass be scaled down? flowers and grass taller than a player is a bit much,
+ * > even for an overgrown field. maybe half the height it is now"*
+ *
+ * **The brief's "the kit is already at world scale" was true of the trees and quietly false of the
+ * understory**, which is how this got in: a CommonTree is 7–9.4 m and honest, so nothing looked
+ * further down the manifest, where `Flower_4_Group` is **2.49 m** and `Grass_Common_Tall` is 1.87 m
+ * against a 1.8 m character. The kit is authored for its own screenshots, and Quaternius shoots
+ * ground cover close and low; at our camera it reads as a person wading through a wheat field.
+ *
+ * What the halving lands on, from the manifest's own heights — waist-high tall grass and
+ * knee-high short, which is what an overgrown field should be:
+ *
+ * | model | was | now |
+ * | --- | --- | --- |
+ * | `flower-4-group` | 2.49 m | 1.24 m |
+ * | `flower-3-group` | 2.06 m | 1.03 m |
+ * | `grass-common-tall` | 1.87 m | 0.94 m |
+ * | `grass-wispy-tall` | 1.67 m | 0.84 m |
+ * | `grass-common-short` | 1.33 m | 0.67 m |
+ * | `grass-wispy-short` | 1.07 m | 0.54 m |
+ * | `clover-*` | 1.15–1.26 m | 0.57–0.63 m |
+ *
+ * Two neighbours were left alone on purpose. `bush-common` (1.58 m) is a **bush** — chest-high is
+ * what a bush is, and it is not what the owner was looking at. M5a's own procedural tufts are 0.42 m
+ * (`DIMENSIONS.grassHeight`) and were never part of this: the giants were all kit models, which is
+ * worth knowing before anybody scales the wrong layer chasing the same complaint.
+ */
+const UNDERSTORY_HALF: readonly [number, number] = [0.43, 0.57];
+
 const KIT_SCALE: Readonly<Record<string, readonly [number, number]>> = {
   'fern-1': [0.3, 0.5],
-  'plant-1-big': [0.7, 1.0],
+  // **3.76 m at life size** — the manifest check found this one, not an eye. `Plant_1_Big` is the
+  // kit's name and "big" meant big: at the old [0.7, 1.0] it drew a leafy plant taller than a
+  // two-storey house, and it went unnoticed because it is rare and nobody stood next to one. Down to
+  // 1.3–1.6 m, which is a shrub you push past.
+  'plant-1-big': [0.35, 0.43],
   'plant-7-big': [0.7, 1.0],
   'mushroom-laetiporus': [0.8, 1.2],
+  // The ground cover the owner measured against their own character. See `UNDERSTORY_HALF`.
+  'flower-3-group': UNDERSTORY_HALF,
+  'flower-3-single': UNDERSTORY_HALF,
+  'flower-4-group': UNDERSTORY_HALF,
+  'flower-4-single': UNDERSTORY_HALF,
+  'grass-common-short': UNDERSTORY_HALF,
+  'grass-common-tall': UNDERSTORY_HALF,
+  'grass-wispy-short': UNDERSTORY_HALF,
+  'grass-wispy-tall': UNDERSTORY_HALF,
+  'clover-1': UNDERSTORY_HALF,
+  'clover-2': UNDERSTORY_HALF,
 };
 
 const KIT_SCALE_DEFAULT: readonly [number, number] = [0.85, 1.15];
+
+/**
+ * The scale band a kit model is scattered at — exported so a test can hold it against the manifest's
+ * measured heights rather than against this file's own opinion of them.
+ *
+ * That check is the point: the oversized ground cover was not a wrong number here, it was a **right
+ * number for the wrong assumption**, and the only witness that could have caught it is the asset.
+ */
+export function kitScaleOf(model: string): readonly [number, number] {
+  return KIT_SCALE[model] ?? KIT_SCALE_DEFAULT;
+}
 
 /**
  * Where a kit model belongs, from what it is.
@@ -667,7 +725,7 @@ function kit(input: ScatterInput, out: Placement[]): void {
   for (let i = 0; i < wanted; i++) {
     const model = palette[Math.floor(roll(scene.seed, SALT_KIT_MODEL, i) * palette.length)]!;
     const layer = kitLayerOf(model);
-    const range = KIT_SCALE[model] ?? KIT_SCALE_DEFAULT;
+    const range = kitScaleOf(model);
     const scale = range[0] + roll(scene.seed, SALT_KIT_SCALE, i) * (range[1] - range[0]);
     const yaw = roll(scene.seed, SALT_KIT_YAW, i) * Math.PI * 2;
     // A degree or two off vertical, as the brief asks — and none at all for the flat pieces, because

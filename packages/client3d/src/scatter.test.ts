@@ -52,13 +52,75 @@ import {
   TREE_VARIANTS,
   TREE_VARIANTS_PER_ROOM,
 } from './prototypes.ts';
-import { freeTiles, kitPaletteFor, paletteFor, planScatter } from './scatter.ts';
+import { freeTiles, kitPaletteFor, kitScaleOf, paletteFor, planScatter } from './scatter.ts';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const ZONES_DIR = join(REPO_ROOT, 'data', 'world', 'zones');
 
 /** Half a room block, in metres. A tree's foot must be outside this box on both axes. */
 const HALF_ROOM = ROOM_METRES / 2;
+
+/** The kit manifest's `(id, height)` rows, tolerating either shape modelgen may have written. */
+function manifestModels(path: string): readonly { readonly id: string; readonly height: number }[] {
+  const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  const rows = Array.isArray(parsed)
+    ? parsed
+    : ((parsed as { models?: unknown }).models ?? []);
+  return rows as readonly { readonly id: string; readonly height: number }[];
+}
+
+describe('nothing underfoot is taller than the player', () => {
+  // The owner's own criterion, and their own words: *"flowers and grass taller than a player is a
+  // bit much, even for an overgrown field"*. This is the check that was missing when the ground
+  // cover shipped at life size — the numbers in `scatter.ts` were never wrong about themselves, they
+  // were right about an assumption ("the kit is already at world scale") that held for the trees and
+  // not for the understory. Only the manifest could have said so, so only the manifest can guard it.
+  const MANIFEST = join(REPO_ROOT, 'packages', 'client3d', 'public', 'models', 'nature', 'manifest.json');
+  /** A person is 1.8 m. Ground cover that clears their eyeline is the thing being refused. */
+  const PLAYER_HEIGHT = 1.8;
+
+  it('holds every scattered kit model against its measured height', (t) => {
+    if (!existsSync(MANIFEST)) {
+      t.skip('the nature kit has not been imported — see .gitignore for the modelgen command');
+      return;
+    }
+    const models = manifestModels(MANIFEST);
+    assert.ok(models.length > 0, 'the manifest should list the kit');
+
+    const tall: string[] = [];
+    for (const model of models) {
+      if (!KIT_MODELS.includes(model.id)) continue;
+      // Trees are meant to tower; this is about what grows around your feet. A **bush** is exempt by
+      // name and not by height: `bush-common` tops out at 1.82 m, which is a big bush and still a
+      // bush — it was never what the owner was looking at, and shrinking it to satisfy an arithmetic
+      // line would be the test writing the art direction.
+      if (KIT_BLOCKS.has(model.id) || /tree|pine|^bush-/.test(model.id)) continue;
+      const drawn = model.height * kitScaleOf(model.id)[1];
+      if (drawn > PLAYER_HEIGHT) tall.push(`${model.id} draws at ${drawn.toFixed(2)} m`);
+    }
+    assert.deepEqual(tall, [], `understory taller than a person:\n  ${tall.join('\n  ')}`);
+  });
+
+  it('puts the ground cover the owner named at about half life size', (t) => {
+    if (!existsSync(MANIFEST)) {
+      t.skip('the nature kit has not been imported');
+      return;
+    }
+    // Flowers and grass specifically: waist-high at the tallest, which is what "overgrown" should
+    // look like rather than "wading through wheat".
+    const models = manifestModels(MANIFEST);
+    let checked = 0;
+    for (const model of models) {
+      if (!/^(flower|grass|clover)/.test(model.id)) continue;
+      checked += 1;
+      const drawn = model.height * kitScaleOf(model.id)[1];
+      assert.ok(drawn <= 1.45, `${model.id} draws at ${drawn.toFixed(2)} m, which is not waist-high`);
+      // And the halving must be a halving, not a crush: still clearly a plant you can see.
+      assert.ok(drawn >= 0.4, `${model.id} draws at ${drawn.toFixed(2)} m and has been scaled away`);
+    }
+    assert.ok(checked >= 10, `only ${checked} ground-cover models were checked`);
+  });
+});
 
 describe('the three-layer scatter', () => {
   if (!existsSync(ZONES_DIR)) {
