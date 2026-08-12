@@ -247,8 +247,10 @@ export class World3D implements ChunkSink {
   private roofOf: ReadonlyMap<RoomId, RoomId> = new Map();
   /** The group the player is standing under, or `undefined` when they are out in the open. */
   private openGroup: RoomId | undefined;
-  /** The sides a wall fades on. Re-derived whenever the rig's pitch moves; see `occludingSides`. */
+  /** The sides a wall fades on. Re-derived whenever the rig's pitch or yaw moves; see `occludingSides`. */
   private openSides: ReadonlySet<Cardinal> = occludingSides(64).sides;
+  /** The pitch the near-wall set was last derived at, so {@link setCameraYaw} can re-derive without it. */
+  private cameraPitch = 64;
   /** Backing field for {@link roofCull}. On, because the cull is the mode and not an effect. */
   private cullRoofs = true;
 
@@ -810,18 +812,53 @@ export class World3D implements ChunkSink {
    * canvas aspect's business as much as the rig's. Idempotent and cheap: two uniform writes per
    * understory material and one shadow-camera refit, both of which happen anyway.
    */
-  setCameraFrame(frame: GroundFrame, pitchDegrees?: number): void {
+  setCameraFrame(frame: GroundFrame, pitchDegrees?: number, yawRadians = 0): void {
     const bands = fadeBandsFor(frame);
     this.pool.setFadeBands(bands.grass, bands.kitLeaf);
     const extents = shadowExtentsFor(frame);
-    this.night.setExtents(extents.width, extents.depth);
-    // M6's third consumer of the live pose. `occludingSides` returns the *same set object* at every
-    // pitch under a fixed yaw, so this assignment is a no-op today and costs one comparison; it is
-    // written anyway because the day the yaw opens, the set changes and every wall in the window has
-    // to be rebuilt against the new one. The rebuild is deliberately **not** done here: a wheel notch
-    // is a per-frame event and cycling seventy chunks through the free list on each one would be the
-    // one place in this renderer where a camera move allocates.
-    if (pitchDegrees !== undefined) this.openSides = occludingSides(pitchDegrees).sides;
+    // The extents are in the camera's own axes, so the yaw goes with them or the box is the right
+    // size in the wrong quarter of the world. See `night.fitShadowCamera`.
+    this.night.setExtents(extents.width, extents.depth, yawRadians);
+    // **M8: the day the yaw opened.** M6 wrote this line and left the rebuild out on the grounds that
+    // `occludingSides` returned the same object at every pitch, so the assignment was a no-op — and
+    // noted that "the day the yaw opens, the set changes and every wall in the window has to be
+    // rebuilt against the new one".
+    //
+    // The rebuild it declined to do is here, and it is affordable for one reason: `open` is
+    // `roofOpen && openSides.has(dir)`, so a chunk whose lid is *on* cannot care what the set says.
+    // The walk is therefore over the chunks of the one building the player is standing under — the
+    // same set `refreshRoof` rebuilds when they cross its threshold, by the same release-and-acquire
+    // that allocates nothing — and out of doors, which is most of the time, it is a comparison and
+    // nothing else. The set is compared by identity (`interior.OCCLUDING_SETS`), so an orbit costs
+    // one rebuild per quadrant crossed rather than one per frame.
+    if (pitchDegrees === undefined) return;
+    this.cameraPitch = pitchDegrees;
+    this.refreshNearWall(yawRadians);
+  }
+
+  /**
+   * The yaw alone — M8's follow mode, which moves it every frame while the camera is swinging.
+   *
+   * Deliberately **not** `setCameraFrame` with the same frame: two of that call's three consumers
+   * are functions of the view *depth* and the frame's *size*, and a yaw changes neither. Routing an
+   * ease through the full call would rewrite every foliage material's fade uniform sixty times a
+   * second to the value it already held, for a second at a time, every time the player turned a
+   * corner. What genuinely turns is the shadow box and the near-wall set, and both are here.
+   */
+  setCameraYaw(yawRadians: number): void {
+    const half = this.night.extents;
+    this.night.setExtents(half.width, half.depth, yawRadians);
+    this.refreshNearWall(yawRadians);
+  }
+
+  private refreshNearWall(yawRadians: number): void {
+    const sides = occludingSides(this.cameraPitch, yawRadians).sides;
+    if (sides === this.openSides) return;
+    this.openSides = sides;
+    if (this.openGroup === undefined) return;
+    for (const chunk of this.chunks.values()) {
+      if (chunk.group !== undefined && chunk.group === this.openGroup) this.rebuild(chunk);
+    }
   }
 
   focus(x: number, y: number, z: number, clearingRadius?: number): void {

@@ -18,10 +18,18 @@
  * ray to `y = groundY`. Two renderer-metre numbers out, no mesh, no BVH, no allocation. `undefined`
  * comes back only when the ray cannot meet the plane in front of the camera — which, given `rig.ts`'s
  * clamp, means a pointer above the horizon and empty sky. **Nothing in this file reads the rig at
- * all**, which is why M6 could make the pitch a live variable without touching it:
- * `setFromCamera` takes whatever pose the camera is in. The clamp's floor of 45° is what keeps the
- * *top* edge of the frame at 30° of depression, so the whole screen still meets the ground and a
- * click near the horizon is still a click on something.
+ * all**, which is why M6 could make the pitch a live variable without touching it, and why M8 could
+ * open the yaw the same way: `setFromCamera` takes whatever pose the camera is in, and a yaw is one
+ * more thing in the view matrix it already inverts. The clamp's floor of 45° is what keeps the *top*
+ * edge of the frame at 30° of depression, so the whole screen still meets the ground and a click near
+ * the horizon is still a click on something.
+ *
+ * *"In principle"* is what M5a's invisible undergrowth was, though, so the claim is measured rather
+ * than argued: `unproject.test.ts` runs the whole composed path — grid point → warp → project →
+ * unproject → unwarp — at every corner of the dolly clamp **and around a full circle of yaw**, against
+ * M5c's own sub-millimetre bar. Under rotation there is a second thing that could have gone wrong and
+ * did not: the warp is keyed on world position and the camera is not, so a click at 137° of yaw
+ * inverts the same field as a click at 0°.
  */
 
 import { Plane, Raycaster, Vector2, Vector3, type PerspectiveCamera } from 'three';

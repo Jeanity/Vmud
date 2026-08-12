@@ -363,4 +363,77 @@ describe('a session, end to end', () => {
     assert.deepEqual({ ...world.night.extents }, home.shadow);
     world.dispose();
   });
+
+  it('turns the shadow box with the yaw and leaves the fade bands alone — M8', () => {
+    /*
+     * The other seam `main.ts` drives, and it is driven *per frame* while a follow eases, so what it
+     * must not do matters as much as what it must. `setCameraYaw` turns the shadow volume and
+     * re-asks which wall the camera is behind; it must not touch the undergrowth's fade, which is a
+     * function of view depth and cannot change when only the yaw does.
+     */
+    const world = new World3D();
+    const rig = new CameraRig(16 / 9);
+    world.setCameraFrame(rig.ground(), rig.pitch, rig.yawRadians);
+    const fade = world.pool.fadeBands();
+    const extents = { ...world.night.extents };
+    const flat = world.night.fit.right - world.night.fit.left;
+
+    rig.yaw = 45;
+    world.setCameraYaw(rig.yawRadians);
+    assert.deepEqual({ ...world.pool.fadeBands() }, { ...fade }, 'a yaw moved the undergrowth’s fade band');
+    // The box is the same *size* — its extents are the camera's own axes — and a different shape in
+    // the light's basis, which is the proof it actually turned rather than being re-applied.
+    assert.deepEqual({ ...world.night.extents }, extents, 'the box grew instead of turning');
+    assert.ok(Math.abs(world.night.fit.right - world.night.fit.left - flat) > 1, 'the fit ignored the yaw');
+    world.dispose();
+  });
+
+  it('rebuilds the near wall when the camera orbits past a quadrant, and only then', () => {
+    /*
+     * **The affordability argument, checked rather than asserted in prose.** M6 declined to rebuild
+     * on a camera move because a wheel notch is a per-frame event; M8 has to, because the wall that
+     * fades depends on where the camera stands. What makes it affordable is that only chunks under
+     * the *open* lid can care — `open` is `roofOpen && openSides.has(dir)` — so out of doors the whole
+     * thing is one identity comparison, and indoors it is the one building the player is inside.
+     *
+     * Driven through a real Place with a roofed room, and counted by the pool's own churn: a rebuild
+     * is a release and an acquire, so `wrappersLive` returning to the same number while `wrappersFree`
+     * has been dipped into is the signature. What is asserted here is the *cheap* half — that a yaw
+     * inside one octant does nothing at all — because that is the half that runs sixty times a second.
+     */
+    const world = new World3D();
+    world.setPlace(sampleZone(), 0);
+    const here = centreOf(world, 2, 1);
+    world.update(here.x, here.y);
+    // Room 4 is the `inside`, `indoors` one; standing in it takes its lid off and opens its near wall.
+    world.setHere(4);
+    const rig = new CameraRig(16 / 9);
+    world.setCameraFrame(rig.ground(), rig.pitch, rig.yawRadians);
+    const before = world.ledger().wrappersCreated;
+
+    // A degree of drift inside the same octant: the set is the same object, so nothing is rebuilt and
+    // nothing is minted. This is the per-frame path of a follow ease.
+    for (let i = 1; i <= 30; i++) {
+      rig.yaw = i * 0.05;
+      world.setCameraYaw(rig.yawRadians);
+    }
+    assert.equal(world.ledger().wrappersCreated, before, 'a small orbit minted wrappers');
+
+    // The lid really is off, or none of this proves anything: room 4 is the `inside`/`indoors` one and
+    // standing in it opens its group, which is the set of chunks the rebuild walks.
+    assert.equal(world.roofGroup, 4, 'the player is not under a lid, so no wall could fade either way');
+    const live = world.ledger().wrappersLive;
+
+    // A quarter turn changes which wall is in the way, and the building the player is under is rebuilt
+    // — a release and an acquire, so the pool still mints nothing and the live count comes back to
+    // where it was. (*What* the rebuild draws differently is `interior.test.ts`'s sweep, which reads
+    // `planInterior` directly; the village modules are GLBs and a headless world has none, so the
+    // scene here is `chunkPlan`'s grey box either way.)
+    rig.yaw = -90;
+    world.setCameraYaw(rig.yawRadians);
+    assert.equal(world.ledger().wrappersCreated, before, 'the rebuild minted instead of recycling');
+    assert.equal(world.ledger().wrappersLive, live, 'the rebuild leaked or dropped a wrapper');
+    assert.ok(world.chunksLoaded > 0, 'the walk unloaded the world instead of rebuilding it');
+    world.dispose();
+  });
 });

@@ -30,7 +30,7 @@ import { Vector3 } from 'three';
 
 import { CAMERA_FOV_DEGREES, CAMERA_PITCH_DEGREES, toRenderPoint } from '@mygame/shared';
 
-import { CLAMP_CORNERS } from './fixture.ts';
+import { CLAMP_CORNERS, SWEEP_YAWS } from './fixture.ts';
 import { SHADOW_PAD, shadowExtentsFor } from './night.ts';
 import {
   CAMERA_DISTANCE,
@@ -42,8 +42,10 @@ import {
   clampDistance,
   clampPitch,
   groundFrame,
+  groundRadius,
+  wrapYaw,
 } from './rig.ts';
-import { RING_ASPECT, RING_COVER } from './streamer.ts';
+import { RING_ASPECT, RING_COVER, cellReach, chunkKey, windowAddresses } from './streamer.ts';
 
 describe('the camera rig', () => {
   it('is §3 to the letter', () => {
@@ -105,6 +107,90 @@ describe('the camera rig', () => {
   });
 });
 
+describe('the yaw — M8', () => {
+  it('is the protocol’s own angle, so a body’s heading and the camera’s are one number', () => {
+    /*
+     * **The headline case, and the sibling of "walking north must move -Z".** `shared/space.yawOf`
+     * fixes the wire's convention — 0 north, +π/2 west, ±π south, -π/2 east, anticlockwise seen from
+     * above, because it is `rotation.y` for a mesh whose rest forward is `-Z`. The camera *is* such a
+     * thing. If the rig had picked its own convention, follow mode would be a conversion with a sign
+     * in it, and a sign in a conversion is how a camera ends up looking at the back of a character's
+     * head from the front.
+     *
+     * Asserted against where the camera actually *stands*, not against a constant: at yaw 0 it is due
+     * south of its target (M3's pose, unmoved), and a quarter turn to +90 must put it due **east**,
+     * because looking west means standing east.
+     */
+    const rig = new CameraRig(16 / 9);
+    rig.pitch = 60;
+    rig.follow(0, 0, 0);
+    assert.ok(Math.abs(rig.camera.position.x) < 1e-9, 'yaw 0 must leave the camera exactly where M3 put it');
+    assert.ok(rig.camera.position.z > 0, 'yaw 0 stands due south, looking north');
+
+    const behind = Math.hypot(rig.camera.position.x, rig.camera.position.z);
+    for (const [yaw, wx, wz] of [
+      [0, 0, 1],
+      [90, 1, 0],
+      [180, 0, -1],
+      [-90, -1, 0],
+    ] as const) {
+      rig.yaw = yaw;
+      rig.follow(0, 0, 0);
+      const { x, y, z } = rig.camera.position;
+      assert.ok(Math.abs(x - wx * behind) < 1e-9, `yaw ${yaw}: x ${x}, wanted ${wx * behind}`);
+      assert.ok(Math.abs(z - wz * behind) < 1e-9, `yaw ${yaw}: z ${z}, wanted ${wz * behind}`);
+      // The pitch and the distance are the yaw's business only in that it must not touch them.
+      assert.ok(Math.abs(Math.hypot(x, y, z) - rig.distance) < 1e-9, `yaw ${yaw} changed the distance`);
+    }
+  });
+
+  it('puts whatever it is pointing at up the frame, all the way round', () => {
+    const rig = new CameraRig(16 / 9);
+    for (const yaw of SWEEP_YAWS) {
+      rig.yaw = yaw;
+      rig.follow(0, 0, 0);
+      // Eight metres along the camera's own forward, which at yaw ψ is `(-sin ψ, 0, -cos ψ)`.
+      const radians = (yaw * Math.PI) / 180;
+      const ahead = project(rig, { x: -8 * Math.sin(radians), y: 0, z: -8 * Math.cos(radians) });
+      const here = project(rig, { x: 0, y: 0, z: 0 });
+      assert.ok(ahead.y > here.y, `forward stopped being up the frame at yaw ${yaw}`);
+      assert.ok(Math.abs(ahead.x - here.x) < 1e-6, `forward drifted off centre at yaw ${yaw}`);
+    }
+  });
+
+  it('wraps rather than clamps, with one representative per heading', () => {
+    assert.equal(wrapYaw(0), 0);
+    assert.equal(wrapYaw(90), 90);
+    assert.equal(wrapYaw(181), -179);
+    assert.equal(wrapYaw(-181), 179);
+    assert.equal(wrapYaw(360), 0);
+    assert.equal(wrapYaw(-360), 0);
+    assert.equal(wrapYaw(720 + 45), 45);
+    assert.equal(wrapYaw(-720 - 45), -45);
+    // Both ways to say south collapse onto one, or a shortest-arc ease has two targets to choose
+    // between and picks a different one on either side of the boundary.
+    assert.equal(wrapYaw(180), 180);
+    assert.equal(wrapYaw(-180), 180);
+    assert.equal(wrapYaw(Number.NaN), 0);
+    // Through the rig, which is where it matters.
+    const rig = new CameraRig(16 / 9);
+    rig.yaw = 540;
+    assert.equal(rig.yaw, 180);
+    rig.yaw = -0.5;
+    assert.equal(rig.yaw, -0.5, 'a fraction of a degree is a real yaw, not a rounding target');
+  });
+
+  it('goes home with the rest of the pose, and counts as having moved', () => {
+    const rig = new CameraRig(16 / 9);
+    assert.equal(rig.moved, false);
+    rig.yaw = 30;
+    assert.equal(rig.moved, true, 'an orbited camera is a camera worth remembering');
+    rig.reset();
+    assert.equal(rig.yaw, 0, 'C must bring north back to the top of the frame');
+    assert.equal(rig.moved, false);
+  });
+});
+
 describe('the dolly clamp', () => {
   it('refuses anything outside the range, in both directions and from garbage', () => {
     assert.equal(clampDistance(10), CAMERA_DISTANCE_MIN);
@@ -162,11 +248,12 @@ describe('the frame the rig shows', () => {
   it('reproduces the numbers M4 derived by hand at the authored pose', () => {
     // `night.ts`'s header states the default frame as "12.4 m north and 20.4 m either side". Those
     // were worked out with a pencil at 36 m and 64°; `groundFrame` must agree, or one of the two is
-    // describing a camera this project does not have.
+    // describing a camera this project does not have. (M4 said "north" because M4's camera could
+    // only look north; the number is the frame's own forward and is unchanged.)
     const frame = groundFrame(CAMERA_DISTANCE, CAMERA_PITCH_DEGREES, 16 / 9);
-    assert.ok(Math.abs(frame.north - 12.35) < 0.05, `${frame.north} m north`);
+    assert.ok(Math.abs(frame.ahead - 12.35) < 0.05, `${frame.ahead} m ahead`);
     assert.ok(Math.abs(frame.halfWidthFar - 20.42) < 0.05, `${frame.halfWidthFar} m either side`);
-    assert.ok(Math.abs(frame.south - 9.49) < 0.05, `${frame.south} m south`);
+    assert.ok(Math.abs(frame.behind - 9.49) < 0.05, `${frame.behind} m behind`);
     // And the view-depth range `foliage.ts`'s fade band is compared against.
     assert.ok(Math.abs(frame.nearDepth - 31.84) < 0.05, `near depth ${frame.nearDepth}`);
     assert.ok(Math.abs(frame.farDepth - 41.41) < 0.05, `far depth ${frame.farDepth}`);
@@ -175,7 +262,7 @@ describe('the frame the rig shows', () => {
   it('always sees further ahead than behind, and flares away from the camera', () => {
     for (const [distance, pitch] of CLAMP_CORNERS) {
       const frame = groundFrame(distance, pitch, RING_ASPECT);
-      assert.ok(frame.north > frame.south, `${distance} m / ${pitch}° sees further behind than ahead`);
+      assert.ok(frame.ahead > frame.behind, `${distance} m / ${pitch}° sees further behind than ahead`);
       assert.ok(frame.halfWidthFar > frame.halfWidthNear, 'the trapezoid is inverted');
       assert.ok(frame.farDepth > frame.nearDepth, 'the depth range is inverted');
       assert.ok(frame.nearDepth > 0 && Number.isFinite(frame.farDepth));
@@ -193,44 +280,116 @@ describe('the frame the rig shows', () => {
     /*
      * **The generalisation of M3's "keeps its ground footprint inside the streamer window".**
      *
-     * `RING_COVER` is what the window guarantees *whatever the character's position inside their own
-     * cell* — the centre cell's own stride is theirs to spend, so the guarantee is the cells beyond
-     * it. If any corner of the clamp asks for more than that, the frame shows unbuilt void, and at
-     * `DAY_SKY`'s third-strength fog there is nothing to hide it behind.
+     * `RING_COVER.radius` is what the window guarantees *whatever the character's position inside
+     * their own cell* — the centre cell's own stride is theirs to spend, so the guarantee is measured
+     * from its far side. If any corner of the clamp asks for more than that, the frame shows unbuilt
+     * void, and at `DAY_SKY`'s third-strength fog there is nothing to hide it behind.
+     *
+     * One number since M8, because a rotating frame has no stable per-axis extent — see
+     * `rig.groundRadius`. The sweep that actually exercises the rotation is the next test; this one
+     * is the scalar it rests on.
      */
     for (const [distance, pitch] of CLAMP_CORNERS) {
-      const frame = groundFrame(distance, pitch, RING_ASPECT);
-      const lateral = Math.max(frame.halfWidthNear, frame.halfWidthFar);
-      assert.ok(lateral <= RING_COVER.lateral, `${lateral} m wide vs ${RING_COVER.lateral} built, at ${distance}/${pitch}`);
-      assert.ok(frame.north <= RING_COVER.north, `${frame.north} m ahead vs ${RING_COVER.north} built`);
-      assert.ok(frame.south <= RING_COVER.south, `${frame.south} m behind vs ${RING_COVER.south} built`);
+      const radius = groundRadius(groundFrame(distance, pitch, RING_ASPECT));
+      assert.ok(radius <= RING_COVER.radius, `${radius} m of frame vs ${RING_COVER.radius} built, at ${distance}/${pitch}`);
     }
+  });
+
+  it('lands every corner of the frame on a built cell, at every yaw, at every corner of the clamp', () => {
+    /*
+     * **M8's own acceptance, and it is a property rather than a derivation.**
+     *
+     * The ring's arithmetic could be re-derived wrongly and still be internally consistent; what
+     * cannot be faked is this: take the four corners of the ground the frame actually shows, at a
+     * pose, at a yaw, with the character standing at the *worst* corner of their own cell, and ask
+     * whether the cell each one lands in is a cell the streamer built. A hole anywhere in that sweep
+     * is a frame with void in it — which is the failure M3 named and every camera slice since has
+     * owed an answer for.
+     *
+     * 52 yaws x 4 clamp corners x 4 player positions x 4 frame corners = 3,328 samples, and the
+     * expensive part (the window's own key set) is built once.
+     */
+    const built = new Set<string>();
+    for (const address of windowAddresses(0, 0, 0)) {
+      if (address.level === 0) built.add(chunkKey(address));
+    }
+    const stride = RING_COVER.radius; // only used in the message below
+    let checked = 0;
+    let worst = 0;
+    for (const [distance, pitch] of CLAMP_CORNERS) {
+      const frame = groundFrame(distance, pitch, RING_ASPECT);
+      // The trapezoid, in the camera's own axes: `u` across, `v` forward.
+      const corners: readonly (readonly [number, number])[] = [
+        [frame.halfWidthFar, frame.ahead],
+        [-frame.halfWidthFar, frame.ahead],
+        [frame.halfWidthNear, -frame.behind],
+        [-frame.halfWidthNear, -frame.behind],
+      ];
+      for (const yaw of SWEEP_YAWS) {
+        const radians = (yaw * Math.PI) / 180;
+        const sin = Math.sin(radians);
+        const cos = Math.cos(radians);
+        // The character anywhere in their own cell. The corners of it are the worst cases, and they
+        // are what the `- 1` in `WINDOW_HALF` exists to pay for.
+        for (const [px, pz] of [
+          [0, 0],
+          [9.999, 0],
+          [0, 9.999],
+          [9.999, 9.999],
+        ] as const) {
+          for (const [u, v] of corners) {
+            // Camera axes to world: right is `(cos, -sin)`, forward is `(-sin, -cos)`.
+            const x = px + u * cos - v * sin;
+            const z = pz - u * sin - v * cos;
+            const key = `0:${Math.floor(x / 10)}:${Math.floor(z / 10)}`;
+            checked += 1;
+            worst = Math.max(worst, Math.hypot(x - px, z - pz));
+            assert.ok(built.has(key), `void at yaw ${yaw}, ${distance} m / ${pitch}°, corner ${u},${v} -> ${key}`);
+          }
+        }
+      }
+    }
+    console.log(
+      `[M8 ring] ${checked} frame corners over 52 yaws x 4 clamp corners x 4 cell positions all on ` +
+        `built ground; furthest corner ${worst.toFixed(2)} m against ${stride.toFixed(2)} m of guarantee`,
+    );
   });
 
   it('uses most of the ring at the widest corner, or the extra cells are waste', () => {
     // The other half of M3's pair of assertions: a ring the frame never comes near is chunks built,
-    // dressed and drawn for nobody. At 48 m and 45° the frame should be filling it.
-    const frame = groundFrame(CAMERA_DISTANCE_MAX, CAMERA_PITCH_MIN, RING_ASPECT);
-    assert.ok(frame.halfWidthFar / RING_COVER.lateral > 0.7, `${frame.halfWidthFar} of ${RING_COVER.lateral}`);
-    assert.ok(frame.north / RING_COVER.north > 0.7, `${frame.north} of ${RING_COVER.north}`);
-    assert.ok(frame.south / RING_COVER.south > 0.7, `${frame.south} of ${RING_COVER.south}`);
+    // dressed and drawn for nobody. At 96 m and 45° the frame should be filling it.
+    const radius = groundRadius(groundFrame(CAMERA_DISTANCE_MAX, CAMERA_PITCH_MIN, RING_ASPECT));
+    assert.ok(radius / RING_COVER.radius > 0.9, `${radius} of ${RING_COVER.radius}`);
+    // And the disc is a disc: the diagonal is genuinely cut, or this is a square wearing a radius.
+    assert.ok(cellReach(9, 4) > RING_COVER.radius, 'the corners of the square are still being built');
+    assert.ok(cellReach(9, 0) <= RING_COVER.radius, 'the axis reach was cut instead');
   });
 
-  it('grows the moon’s shadow volume with the frame, and keeps it inside the ring', () => {
+  it('grows the moon’s shadow volume with the frame, and keeps it inside the ring at every yaw', () => {
     /*
      * The per-frame refit already follows the camera's *position*; M6 makes it follow the camera's
      * *pose* as well. Two things have to hold at every corner and they pull against each other: the
      * box must contain the visible ground (or shadows stop at a line across the frame), and it must
      * not reach outside the built ring (or it is fitted to ground that does not exist, spending texel
      * density on nothing). The pad is the slack between them.
+     *
+     * **M8 keeps both by turning the box rather than growing it** (`night.fitShadowCamera`'s `yaw`),
+     * which is why the second assertion is yaw-free: the box's furthest corner is at
+     * `hypot(width, depth)` from the character whatever the yaw, and that is the same circumradius
+     * the ring was sized on. An axis-aligned box would have reached `width + depth` on the diagonal —
+     * asserted here as the thing that was avoided, so nobody quietly re-flattens it.
      */
     for (const [distance, pitch] of CLAMP_CORNERS) {
       const frame = groundFrame(distance, pitch, RING_ASPECT);
       const half = shadowExtentsFor(frame);
       assert.ok(half.width >= frame.halfWidthFar, `shadow box is narrower than the frame at ${distance}/${pitch}`);
-      assert.ok(half.depth >= frame.north, `shadow box is shallower than the frame at ${distance}/${pitch}`);
-      assert.ok(half.width + SHADOW_PAD <= RING_COVER.lateral, 'the shadow box reaches past the built ring');
-      assert.ok(half.depth + SHADOW_PAD <= RING_COVER.north);
+      assert.ok(half.depth >= frame.ahead, `shadow box is shallower than the frame at ${distance}/${pitch}`);
+      const corner = Math.hypot(half.width, half.depth);
+      assert.ok(corner + SHADOW_PAD <= RING_COVER.radius, `the shadow box reaches past the built ring at ${distance}/${pitch}`);
+      // What an axis-aligned hull would have cost, stated so the trade is visible in the test too.
+      if (distance === CAMERA_DISTANCE_MAX && pitch === CAMERA_PITCH_MIN) {
+        assert.ok(half.width + half.depth > RING_COVER.radius, 'a world-aligned box would have fitted after all');
+      }
     }
     // And it is the *live* number, not a constant: the widest corner must want a bigger box than the
     // authored pose does, or nothing about this is actually derived.
@@ -247,7 +406,7 @@ describe('the frame the rig shows', () => {
     rig.resize(900, 900);
     const square = rig.ground();
     assert.ok(wide.halfWidthFar > square.halfWidthFar);
-    assert.equal(wide.north, square.north);
+    assert.equal(wide.ahead, square.ahead);
     assert.equal(wide.farDepth, square.farDepth);
   });
 });

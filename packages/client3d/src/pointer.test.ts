@@ -3,6 +3,13 @@
  * — no `PointerEvent`, no `three`, no `World3D` — plus one integration case that assembles a `resolve`
  * the way `main.ts` really does, against a real `World3D` and the fixture zone, to prove the seen-gate
  * wiring and the `ty * grid.width + tx` index it depends on.
+ *
+ * **The M8 property lives in `orbit.test.ts`, not here**, and on purpose: "a Shift+drag is neither of
+ * these two gestures" is a statement about the *split*, so it is tested where both sides of it can be
+ * driven at once — through this class's real `pointerdown` listener, which is where the refusal is,
+ * and against `orbit.claimsOrbit`, which is the predicate both files share. What this file owns is
+ * unchanged and had better stay so: an unmodified press is still a click and still becomes a steer at
+ * 150 ms.
  */
 
 import assert from 'node:assert/strict';

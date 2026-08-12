@@ -38,7 +38,7 @@ import {
 } from '@mygame/shared';
 
 import { planChunk } from './chunkPlan.ts';
-import { ROOM_METRES, cellOriginTiles, placeFrame } from './frame.ts';
+import { ROOM_METRES, cellOriginTiles, metresOfTile, placeFrame } from './frame.ts';
 import {
   CHORDS_PER_SIDE,
   ROOF_RIDGE,
@@ -119,9 +119,8 @@ describe('what the camera is behind', () => {
     const report: string[] = [];
     for (const [distance, pitch] of corners) {
       const seen = occludingSides(pitch);
-      // The yaw is fixed and the camera is pulled back along +Z, so only the south wall can ever be
-      // between it and the room. A second entry here would mean the rig had gained free yaw and every
-      // caller of this needs to be revisited.
+      // At yaw 0 the camera is pulled back along +Z, so only the south wall is between it and the
+      // room — M6's answer, unchanged, and the fixed point the whole generalisation is checked from.
       assert.deepEqual([...seen.sides], ['south']);
       // **The frame never shows the camera looking at a wall instead of the player.** The sightline
       // to the character's feet passes the south boundary line 4.5 m out; it must be above the wall.
@@ -140,6 +139,58 @@ describe('what the camera is behind', () => {
     // room's depth, with whatever is standing in it, is behind a wall the camera can see over.
     assert.ok(occludingSides(CAMERA_PITCH_MIN).hidden > 2.9);
     assert.ok(occludingSides(CAMERA_PITCH_MAX).hidden < 1.6);
+  });
+
+  it('follows the camera round: one wall on a cardinal, two on a diagonal — M8', () => {
+    /*
+     * M6 left this returning a set *"so that the day free yaw arrives, the callers are already asking
+     * the right question"*. The day arrived. The answers are asserted against where the camera
+     * physically stands rather than against a table, because a table is the thing that would be wrong
+     * in the same direction as the code.
+     */
+    const at = (degrees: number): string[] => [...occludingSides(50, (degrees * Math.PI) / 180).sides].sort();
+    assert.deepEqual(at(0), ['south'], 'yaw 0 stands due south — M6, unchanged');
+    assert.deepEqual(at(90), ['east'], 'looking west means standing east');
+    assert.deepEqual(at(180), ['north']);
+    assert.deepEqual(at(-90), ['west']);
+    // Halfway between, two walls stand between the camera and the player, and fading only the nearer
+    // one would leave a solid corner in the way — the exact frame the fade exists to prevent.
+    assert.deepEqual(at(45), ['east', 'south']);
+    assert.deepEqual(at(135), ['east', 'north']);
+    assert.deepEqual(at(-45), ['south', 'west']);
+    assert.deepEqual(at(-135), ['north', 'west']);
+  });
+
+  it('never fades a wall the camera is edge-on to, and never fades a wall behind it', () => {
+    // `cos 90°` is 6e-17, not 0. Without the deadband a camera due east of the room fades the south
+    // wall as well, forever, invisibly — and worse, a yaw resting on the boundary would flip the set
+    // on floating-point noise and rebuild the building the player is standing in, frame after frame.
+    for (const cardinal of [0, 90, 180, -90]) {
+      assert.equal(occludingSides(50, (cardinal * Math.PI) / 180).sides.size, 1, `two walls at yaw ${cardinal}`);
+    }
+    // Two is the ceiling everywhere, and the two are never opposites — a camera cannot be north and
+    // south of the same room.
+    for (let yaw = -180; yaw < 180; yaw += 3) {
+      const sides = occludingSides(50, (yaw * Math.PI) / 180).sides;
+      assert.ok(sides.size >= 1 && sides.size <= 2, `${sides.size} walls at yaw ${yaw}`);
+      assert.ok(!(sides.has('north') && sides.has('south')), `north and south together at yaw ${yaw}`);
+      assert.ok(!(sides.has('east') && sides.has('west')), `east and west together at yaw ${yaw}`);
+    }
+  });
+
+  it('answers with the same object for the same set, so a rebuild is a `!==` and not a walk', () => {
+    // `world3d.setCameraFrame` compares by identity to decide whether any wall in the window has to
+    // be rebuilt. A fresh `Set` per call would rebuild the player's building sixty times a second,
+    // which is the one place in this renderer a camera move would allocate.
+    const a = occludingSides(50, 0).sides;
+    const b = occludingSides(64, 0).sides;
+    assert.equal(a, b, 'the pitch changed the set object');
+    assert.equal(occludingSides(50, 0.01).sides, a, 'a yaw inside the deadband changed the set object');
+    // And within one octant — where the answer is the same *pair* — it is also the same object, so
+    // sixty frames of a slow orbit through the south-east cost sixty comparisons and no rebuild.
+    const pair = occludingSides(50, 0.5).sides;
+    assert.equal(occludingSides(64, 0.9).sides, pair, 'two yaws in one octant gave two set objects');
+    assert.notEqual(pair, a, 'a quarter turn did not change the set');
   });
 });
 
@@ -513,6 +564,57 @@ if (!existsSync(ZONES_DIR)) {
       }
       console.log(`[M6 fade] ${opened} south-wall placements drawn open across Bryn Shander`);
       assert.ok(opened > 100);
+    });
+
+    it('fades the walls the camera is behind at any yaw, and the corner opens both — M8', () => {
+      /*
+       * The same sweep, turned. What is checked is not "the south wall" but the geometric fact
+       * underneath it: a wall placement is drawn open exactly when the camera stands out past *that
+       * side's* boundary line. The corner case is the point — orbit to the south-east and a room
+       * opens two of its four walls, because both stand between the camera and the floor.
+       *
+       * Bryn Shander rather than the fixture because a real town has rooms with every combination of
+       * mouths and edges, and the arch on a mouth takes the same `open` flag the flanking chords do.
+       */
+      const zone = zones.find((candidate) => candidate.id === 123)!;
+      const context = sceneZone(zone);
+      const cells = cellIndex(zone);
+      const tally = new Map<string, number>();
+      for (const yawDegrees of [0, 45, 90, 135, 180, -135, -90, -45]) {
+        const yaw = (yawDegrees * Math.PI) / 180;
+        const sides = occludingSides(50, yaw).sides;
+        for (const room of zone.rooms) {
+          const scene = describeRoom(context, room, neighboursOf(cells, room, rooms), sceneSeed(context, room));
+          if (!dressable(scene)) continue;
+          const frame = placeFrame(zone, room.pos.z);
+          const origin = cellOriginTiles(frame, room.pos.x, room.pos.y);
+          const plan = planInterior({ scene, origin, elevation: 0, roofOpen: true, top: true, openSides: sides });
+          const x0 = metresOfTile(origin.tx);
+          const z0 = metresOfTile(origin.ty);
+          for (const p of plan) {
+            const role = roleOfPlacement(p);
+            if (role !== 'wall' && role !== 'arch') continue;
+            // Which side this placement sits on, from where it was put rather than from a label.
+            const side =
+              Math.abs(p.z - (z0 + ROOM_METRES)) < 1e-6
+                ? 'south'
+                : Math.abs(p.z - z0) < 1e-6
+                  ? 'north'
+                  : Math.abs(p.x - (x0 + ROOM_METRES)) < 1e-6
+                    ? 'east'
+                    : 'west';
+            const open = p.material.endsWith('|open');
+            assert.equal(open, sides.has(side), `yaw ${yawDegrees}, room ${room.id}: ${side} wall open=${open}`);
+            if (open) tally.set(`${yawDegrees}`, (tally.get(`${yawDegrees}`) ?? 0) + 1);
+          }
+        }
+      }
+      const cardinal = tally.get('0') ?? 0;
+      const diagonal = tally.get('45') ?? 0;
+      console.log(`[M8 fade] Bryn Shander opens ${cardinal} placements due south and ${diagonal} on the south-east diagonal`);
+      // The diagonal opens roughly two sides' worth where a cardinal opens one — the whole difference
+      // free yaw makes to this file, stated as a number rather than as a claim.
+      assert.ok(diagonal > cardinal * 1.5, `${diagonal} vs ${cardinal}`);
     });
 
     it('dresses a street’s block faces without inventing a building', () => {

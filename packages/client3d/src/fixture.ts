@@ -40,6 +40,26 @@ export const CLAMP_CORNERS: readonly (readonly [distance: number, pitch: number]
   [CAMERA_DISTANCE_MAX, CAMERA_PITCH_MAX],
 ];
 
+/**
+ * Yaws to sweep — M8's third axis, and it is **swept rather than cornered.**
+ *
+ * The distance and the pitch have ends and every consequence of them is monotone, so four corners are
+ * the whole domain. A yaw has neither: it wraps, and the things derived from it are worst *between*
+ * the cardinals rather than at them — the ring's tightest case is the diagonal, the near-wall fade
+ * answers two walls there instead of one, and an axis-aligned box around a rotated frame is biggest
+ * at 45°. A test that took "the corners" of the yaw would take exactly the four angles at which
+ * everything is easiest.
+ *
+ * 7° rather than a round number, deliberately: 360 is divisible by every round step anybody would
+ * reach for, and a stride that lands on the cardinals and the diagonals is a stride that never
+ * samples the awkward angles. This one visits 52 yaws, hits no cardinal exactly, and comes within
+ * 3.5° of every angle on the circle.
+ */
+export const SWEEP_YAWS: readonly number[] = Array.from({ length: Math.ceil(360 / 7) }, (_, i) => -180 + i * 7);
+
+/** The eight angles worth naming when a test wants a handful rather than a sweep. */
+export const CARDINAL_YAWS: readonly number[] = [0, 45, 90, 135, 180, -135, -90, -45];
+
 interface RoomSpec {
   readonly id: number;
   readonly x: number;

@@ -17,21 +17,47 @@
  * depth spread, trees don't lean outward at frame edges, and post-processing support for ortho is
  * patchier. That parallax is most of what reads as modern indie 3D."*
  *
- * ## Yaw is fixed, and north is up the screen
+ * ## The yaw was fixed. It is the owner's now — M8
  *
- * `space.ts` fixes `+Z` as south, so a camera pulled back along `+Z` looks north and the world's
- * north is the top of the frame — the same reading the Phaser client has always had, which is what
- * makes the 2D map and the 3D view describe the same place to a player who has both open. Free yaw
- * is not a missing feature at M3; it is a decision that would change how every wall occludes, and it
- * belongs after M4 has settled what the light does.
+ * M3 wrote, and every slice since read: *"`space.ts` fixes `+Z` as south, so a camera pulled back
+ * along `+Z` looks north and the world's north is the top of the frame — the same reading the Phaser
+ * client has always had, which is what makes the 2D map and the 3D view describe the same place to a
+ * player who has both open. Free yaw is not a missing feature at M3; it is a decision that would
+ * change how every wall occludes."* That ruling is **overturned**, by the owner, in their own words
+ * (2026-08-13): *"whats the chance we can rotate the screen when I hold the shift key and move my
+ * mouse side to side?"*, *"always having the camera behind my player"*, *"like a full 3d game"*.
  *
- * ## The follow is rigid
+ * What replaced the ruling is not a free variable but a **complete answer to the thing the ruling was
+ * protecting**, and that answer is most of this slice:
  *
- * The camera is the character's position plus a constant offset, with no smoothing at all. The
+ * - The 2D map and the 3D view still describe one place, because **the frame now says which way it is
+ *   pointing**: `compass.ts` puts a rose in the corner that reads {@link CameraRig.yaw} directly. The
+ *   agreement M3 bought by nailing the camera down is bought instead by telling the player the truth,
+ *   which is what every 3D game with a minimap does.
+ * - *"How every wall occludes"* was the real cost and it is paid in `interior.ts`: the near-wall fade
+ *   asks **which wall stands between the camera and the player**, not "the south one", and answers one
+ *   or two sides depending on where the camera has been swung to.
+ * - Everything else that quietly meant "the camera looks north" was found and re-derived: the
+ *   streaming ring is a **disc** now rather than a rectangle with a lookahead (`streamer.ts`), and the
+ *   moon's shadow volume is an **oriented** box that turns with the frame (`night.ts`).
+ *
+ * **What is deliberately still north is the keyboard.** `input.ts` maps W to the world's north and
+ * Shift+W to the exit named *north*, and it still does at any yaw — a MUD's directions are cardinal,
+ * `move north` is the command the server takes, and making the walk keys camera-relative is a
+ * gameplay decision the owner has not made. The compass is what keeps that honest. It is the obvious
+ * next ask and it is not this slice's to take.
+ *
+ * ## The follow is rigid in position, eased in yaw
+ *
+ * The camera is the character's position plus an offset, with no positional smoothing at all. The
  * Phaser client's camera lerp exists to hide a *sprite* being reconciled; here the body is already
  * eased (`entities.ts` carries the same 0.12 and 0.22 it always did) and a second filter on top of
- * the first is two time constants to tune and one of them invisible. M4 can add lag when there is a
- * reason to.
+ * the first is two time constants to tune and one of them invisible.
+ *
+ * The **yaw** is the one exception and it is not the same kind of number: under `orbit.ts`'s follow
+ * mode the yaw chases the *body's* heading, which the wire delivers in four cardinal jumps, so
+ * without easing every corner turned would be a 90° cut. That easing lives in `orbit.ts` and writes
+ * {@link CameraRig.yaw} like any other writer; this file still has no time constant in it.
  *
  * ## M6: the distance and the pitch are live, and everything derived follows them
  *
@@ -48,6 +74,11 @@
  * contain the visible ground), and the streaming ring (`streamer.ts`, sized so built ground always
  * reaches past the frame's far edge). All three now read {@link CameraRig.ground} instead of a
  * constant, and each has a test that walks the four corners of the clamp rather than one pose.
+ *
+ * M8 adds a third axis to that clamp and the same duty falls out of it: the corners are now
+ * `{distance} x {pitch} x {yaw}`, and because the yaw is a full circle the tests sweep it rather than
+ * taking its ends. `fixture.CLAMP_CORNERS` is unchanged and `fixture.SWEEP_YAWS` is the new outer
+ * loop.
  *
  * ## The exact trapezoid, and why the old approximation had to go
  *
@@ -140,16 +171,48 @@ export function clampPitch(degrees: number): number {
 }
 
 /**
+ * `degrees`, wrapped into `(-180, 180]` — the yaw's answer to {@link clampPitch}, and it **wraps
+ * rather than clamps** because a circle has no ends.
+ *
+ * The half-open range is the same choice `space.yawOf` makes for the wire's body yaw and for the same
+ * reason: two representations of one heading is what turns a shortest-arc ease the long way round,
+ * exactly once per turn. `-180` folds to `+180` so the range has one representative of due south.
+ *
+ * The yaw is in the **protocol's own units**, which is the whole reason follow mode is a copy rather
+ * than a conversion: `0` is north and it runs anticlockwise seen from above, so west is `+90`, south
+ * is `180` and east is `-90`. That is `object.rotation.y` for a thing whose rest forward is `-Z`,
+ * which is what the camera is and what every body on the wire is (`shared/space.ts`'s `yawOf`).
+ */
+export function wrapYaw(degrees: number): number {
+  if (!Number.isFinite(degrees)) return 0;
+  // An angle already in range comes back **bit-identical**, and the fast path is there for that
+  // rather than for the two arithmetic operations it saves: `((90.025 + 180) % 360 + 360) % 360 -
+  // 180` is 90.02499999999998, so without this a yaw would not survive being wrapped twice, a
+  // settled follow would never compare equal to its own target, and a stored 52.5 would come back as
+  // something a human did not type.
+  if (degrees > -180 && degrees <= 180) return degrees;
+  const folded = (((degrees + 180) % 360) + 360) % 360 - 180;
+  // `((-180 + 180) % 360)` is 0, which comes back as -180; a circle's one south is +180.
+  return folded === -180 ? 180 : folded;
+}
+
+/**
  * Where the frame meets the ground, exactly — the trapezoid, not the rectangle.
  *
  * All six numbers are metres and all six are measured from the **focus point**, which is the
  * character: the camera looks at their feet, so the frame's centre line passes through them.
  */
 export interface GroundFrame {
-  /** Metres of ground visible *ahead* of the character (north, -Z). The far edge of the frame. */
-  readonly north: number;
-  /** Metres visible behind them (south, +Z). Always the smaller of the two — the camera is pitched. */
-  readonly south: number;
+  /**
+   * Metres of ground visible *ahead* of the character — up the frame. The far edge.
+   *
+   * **Called `north` until M8**, when the yaw opened and the name became a lie: this is the camera's
+   * own forward, and which compass direction that is now depends on {@link CameraRig.yaw}. The rename
+   * is the point — three of this field's four readers were doing world-axis arithmetic with it.
+   */
+  readonly ahead: number;
+  /** Metres visible behind them, down the frame. Always the smaller — the camera is pitched. */
+  readonly behind: number;
   /** Half the frame's width where it is narrowest, at the near edge. */
   readonly halfWidthNear: number;
   /** Half its width where it is widest, at the far edge. What the ring and the shadow box must hold. */
@@ -189,8 +252,8 @@ export function groundFrame(
   const rangeNear = height / Math.sin(near);
   const spread = Math.tan(half);
   return {
-    north: height / Math.tan(far) - behind,
-    south: behind - height / Math.tan(near),
+    ahead: height / Math.tan(far) - behind,
+    behind: behind - height / Math.tan(near),
     halfWidthNear: rangeNear * spread * aspect,
     halfWidthFar: rangeFar * spread * aspect,
     nearDepth: rangeNear * Math.cos(half),
@@ -198,13 +261,40 @@ export function groundFrame(
   };
 }
 
+/**
+ * How far the frame's ground reaches from the character, in the worst direction — **the one number
+ * the whole yaw-independent half of M8 is built on.**
+ *
+ * Under a fixed yaw the frame's extent was three numbers with three different world-axis meanings
+ * (ahead, behind, either side) and every consumer could take the one it needed. Once the yaw turns,
+ * the *only* statement about the footprint that survives a rotation is its **circumradius about the
+ * character**: rotate the trapezoid to any angle and its furthest corner is still exactly this far
+ * away, and no world-axis extent is stable for a degree.
+ *
+ * So this is what `streamer.ts` sizes the ring against and what `night.ts`'s oriented shadow box is
+ * checked against. It is the far pair of corners in every case the clamp can reach — the near edge is
+ * both narrower and closer — but taking the max of both pairs costs one comparison and does not
+ * depend on that staying true.
+ */
+export function groundRadius(frame: GroundFrame): number {
+  return Math.max(Math.hypot(frame.halfWidthFar, frame.ahead), Math.hypot(frame.halfWidthNear, frame.behind));
+}
+
 export class CameraRig {
   readonly camera: PerspectiveCamera;
-  /** Metres of the offset, recomputed whenever the pose moves: `(0, D·sin θ, D·cos θ)`. */
+  /**
+   * Metres of the offset, recomputed whenever the pose moves.
+   *
+   * `(b·sin ψ, D·sin θ, b·cos ψ)` with `b = D·cos θ` the ground offset behind the focus, `θ` the
+   * pitch and `ψ` the yaw. At `ψ = 0` that is M3's `(0, D·sin θ, D·cos θ)` exactly, which is the
+   * arithmetic proof that opening the yaw moved nothing at the pose everything was authored at.
+   */
+  private offsetX = 0;
   private offsetY = 0;
   private offsetZ = 0;
   private metres = CAMERA_DISTANCE;
   private degrees = CAMERA_PITCH_DEGREES;
+  private yawDegrees = 0;
   /**
    * A ceiling below {@link CAMERA_DISTANCE_MAX}, imposed from outside.
    *
@@ -244,6 +334,27 @@ export class CameraRig {
     this.recompute();
   }
 
+  /**
+   * Which way the camera looks, in degrees. Writing it wraps; see {@link wrapYaw}.
+   *
+   * `0` is north — the pose M3 nailed down and the one the world was authored at — and the sign is
+   * the protocol's, so `follow`ing a body is `rig.yaw = body.yaw` in degrees and nothing else. Two
+   * writers: `orbit.ts`'s Shift+drag and `orbit.ts`'s follow mode, never both in one frame.
+   */
+  get yaw(): number {
+    return this.yawDegrees;
+  }
+
+  set yaw(degrees: number) {
+    this.yawDegrees = wrapYaw(degrees);
+    this.recompute();
+  }
+
+  /** The same angle in radians — what `night.ts`'s oriented box and `interior.ts`'s wall test take. */
+  get yawRadians(): number {
+    return this.yawDegrees * RADIANS;
+  }
+
   get maxDistance(): number {
     return this.ceiling;
   }
@@ -255,16 +366,23 @@ export class CameraRig {
     this.recompute();
   }
 
-  /** Back to the pose the world was authored at. The **C** key and `__debug3d.camera.reset()`. */
+  /**
+   * Back to the pose the world was authored at. The **C** key and `__debug3d.camera.reset()`.
+   *
+   * **The yaw goes home too**, and it is the most useful third of the key: a player who has orbited
+   * themselves somewhere confusing wants north back at the top of the frame, and hunting for it by
+   * hand through a full circle is the thing a reset key exists to spare them.
+   */
   reset(): void {
     this.metres = clampDistance(CAMERA_DISTANCE, this.ceiling);
     this.degrees = CAMERA_PITCH_DEGREES;
+    this.yawDegrees = 0;
     this.recompute();
   }
 
   /** Whether the rig is anywhere other than home — what decides if the pose is worth remembering. */
   get moved(): boolean {
-    return this.metres !== CAMERA_DISTANCE || this.degrees !== CAMERA_PITCH_DEGREES;
+    return this.metres !== CAMERA_DISTANCE || this.degrees !== CAMERA_PITCH_DEGREES || this.yawDegrees !== 0;
   }
 
   resize(width: number, height: number): void {
@@ -272,9 +390,14 @@ export class CameraRig {
     this.camera.updateProjectionMatrix();
   }
 
-  /** Point the rig at a world position, in metres. */
+  /**
+   * Point the rig at a world position, in metres.
+   *
+   * Not to be confused with `orbit.CameraPose.follow`, which is the *mode* — this is the per-frame
+   * aim and it happens whether or not the mode is on.
+   */
   follow(x: number, y: number, z: number): void {
-    this.camera.position.set(x, y + this.offsetY, z + this.offsetZ);
+    this.camera.position.set(x + this.offsetX, y + this.offsetY, z + this.offsetZ);
     this.camera.lookAt(x, y, z);
   }
 
@@ -294,12 +417,18 @@ export class CameraRig {
    */
   footprint(): { width: number; depth: number } {
     const ground = this.ground();
-    return { width: 2 * ground.halfWidthFar, depth: ground.north + ground.south };
+    return { width: 2 * ground.halfWidthFar, depth: ground.ahead + ground.behind };
   }
 
   private recompute(): void {
     const pitch = this.degrees * RADIANS;
+    const yaw = this.yawDegrees * RADIANS;
+    const behind = this.metres * Math.cos(pitch);
+    // `+Z` is south and yaw 0 must leave the camera exactly where M3 put it, due south of the focus:
+    // `sin 0 = 0`, `cos 0 = 1`. A rotation of `ψ` about `+Y` sends `(0, 0, 1)` to `(sin ψ, 0, cos ψ)`,
+    // which is the same rotation the wire's body yaw means and is why follow mode is a plain copy.
+    this.offsetX = behind * Math.sin(yaw);
     this.offsetY = this.metres * Math.sin(pitch);
-    this.offsetZ = this.metres * Math.cos(pitch);
+    this.offsetZ = behind * Math.cos(yaw);
   }
 }

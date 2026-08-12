@@ -131,21 +131,42 @@ function alongX(dir: Cardinal): boolean {
  * the rig rather than written down**, because the rig moves now and a hard-coded answer would be a
  * statement about the pose M6 happened to be authored at.
  *
- * The yaw is fixed (`rig.ts`: the camera is pulled back along `+Z` and looks north), so the camera is
- * always due **south** of its focus and only the south wall can be between the two. The pitch decides
- * how much that wall costs: the sightline from the camera to the player's feet passes the south
- * boundary line — 4.5 m out — at `4.5 x tan(pitch)` above the floor, which is **4.5 m at the
- * shallowest pose in the clamp and 9.2 m at the steepest**, against a wall 3.0 m tall. So the wall
- * never hides the *player* at any pose the dolly can reach.
+ * M6 wrote: *"the yaw is fixed, so the camera is always due **south** of its focus and only the south
+ * wall can be between the two,"* and closed with *"returned as a set rather than the constant `south`
+ * so that the day free yaw arrives, the callers are already asking the right question."* **That day
+ * is M8.** The answer is now the real one: a side's wall stands between the camera and the room's
+ * floor exactly when the camera is out past that side's plane, which is `outward · toCamera > 0` —
+ * the same test a renderer uses to ask which faces of a box are facing it.
  *
- * What it does hide is the strip of floor immediately inside it, `wallHeight / tan(pitch)` deep:
- * **3.00 m at 45 degrees and 1.46 m at 64**. A third of the room's depth at the shallow end, with
- * whatever is standing in it — which is why the wall fades rather than the ceiling alone coming off.
+ * Two consequences the fixed yaw hid, and both are visible in a tavern:
  *
- * Returned as a set rather than the constant `south` so that the day free yaw arrives, the callers
- * are already asking the right question.
+ * - **The usual answer is two walls, not one.** A box has four sides and a camera at any angle other
+ *   than a cardinal is outside two of their planes; each hides a strip of the floor inside it, deep
+ *   in the direction the camera is offset and shallow in the other. Orbit to the south-east and both
+ *   the south and east walls hide floor; fading only the "nearest" leaves a solid corner post
+ *   between the camera and the player, which is the exact frame the fade exists to prevent, arrived
+ *   at by rounding.
+ * - **On a cardinal it must be exactly one.** `cos 90°` is 6e-17 rather than 0, so a bare `> 0` test
+ *   fades the south wall of a camera due east of the room, forever, invisibly. {@link SIDE_DEADBAND}
+ *   is the answer and it is free: a wall the camera is within two degrees of being edge-on to hides
+ *   9 cm of floor at the authored pose, and 9 cm of floor is not worth a transparent wall.
+ *
+ * The pitch still decides how much a faded wall was costing: the sightline from the camera to the
+ * player's feet passes the boundary line — 4.5 m out — at `4.5 x tan(pitch)` above the floor, which is
+ * **4.5 m at the shallowest pose in the clamp and 9.2 m at the steepest**, against a wall 3.0 m tall.
+ * So the wall never hides the *player* at any pose the dolly can reach. What it does hide is the strip
+ * of floor immediately inside it, `wallHeight / tan(pitch)` deep: **3.00 m at 45 degrees and 1.46 m at
+ * 64**. A third of the room's depth at the shallow end, with whatever is standing in it — which is why
+ * the wall fades rather than the ceiling alone coming off.
+ *
+ * The returned set is one of {@link OCCLUDING_SETS}' eight, **by identity**: `world3d.ts` compares the
+ * set it gets against the set it holds to decide whether any wall in the window has to be rebuilt, and
+ * a fresh `Set` per frame would rebuild the building the player is standing in sixty times a second.
  */
-export function occludingSides(pitchDegrees: number): {
+export function occludingSides(
+  pitchDegrees: number,
+  yawRadians = 0,
+): {
   readonly sides: ReadonlySet<Cardinal>;
   /** Metres of floor the wall hides, measured inward from its own plane. */
   readonly hidden: number;
@@ -154,18 +175,47 @@ export function occludingSides(pitchDegrees: number): {
 } {
   const tangent = Math.tan((pitchDegrees * Math.PI) / 180);
   const head = DIMENSIONS.ceilingHeight;
+  // Where the camera stands relative to its focus, on the ground: `rig.ts`'s own offset, normalised.
+  // Yaw 0 puts it at `(0, +1)` — due south — which is M6's answer and the fixed point of the change.
+  const toCameraX = Math.sin(yawRadians);
+  const toCameraZ = Math.cos(yawRadians);
+  let key = 0;
+  for (let i = 0; i < CARDINALS.length; i++) {
+    const dir = CARDINALS[i]!;
+    const [ox, oz] = OUTWARD[dir];
+    if (ox * toCameraX + oz * toCameraZ > SIDE_DEADBAND) key |= 1 << i;
+  }
   return {
-    sides: OCCLUDING,
+    sides: OCCLUDING_SETS[key]!,
     hidden: Math.round((head / tangent) * 1000) / 1000,
     clearance: Math.round((HALF_ROOM * tangent - head) * 1000) / 1000,
   };
 }
 
 /**
- * The one side the fixed yaw can put behind the camera. A module constant so the returned set is the
- * same object at every pose and a caller may hold it across frames.
+ * `sin 2°` — how far round onto a side the camera must be before that side's wall counts as being in
+ * the way.
+ *
+ * Not an epsilon against floating point (though it covers that too); an **angular** deadband, chosen
+ * so that a camera parked on a cardinal gets one wall rather than two-minus-a-rounding-error, and so
+ * that a yaw resting exactly on a quadrant boundary cannot flip the set — and therefore rebuild the
+ * building — on the last bit of a `sin`. Two degrees of orbit is 8 px of drag.
  */
-const OCCLUDING: ReadonlySet<Cardinal> = new Set<Cardinal>(['south']);
+export const SIDE_DEADBAND = Math.sin((2 * Math.PI) / 180);
+
+/**
+ * Every set {@link occludingSides} can return, indexed by a bitmask over {@link CARDINALS}.
+ *
+ * Sixteen slots for eight reachable answers — four cardinals and four diagonals; the empty set and
+ * the opposite-pair sets are unreachable by construction and are here so the lookup is an index
+ * rather than a branch. Built once so the returned set is the *same object* for the same answer,
+ * which is what lets `world3d.ts` decide "has the near wall changed?" with a `!==`.
+ */
+const OCCLUDING_SETS: readonly ReadonlySet<Cardinal>[] = Array.from({ length: 16 }, (_, mask) => {
+  const sides: Cardinal[] = [];
+  for (let i = 0; i < CARDINALS.length; i++) if (mask & (1 << i)) sides.push(CARDINALS[i]!);
+  return new Set<Cardinal>(sides);
+});
 
 /* -------------------------------------------------------------------------- */
 /* Roof groups                                                                 */

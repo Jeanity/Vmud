@@ -10,57 +10,71 @@
  * spatial radius, and the room graph keeps the job it is correct for, which is interest management
  * and already works.
  *
- * ## The window, and why it is the shape it is — M6
+ * ## The window, and why it is the shape it is — M6, and then M8
  *
  * A cell is one room block plus its gap — a **stride cell**, 11 m in a normal zone and 10 m in a
- * seamless one — and the window is a rectangle of them around the camera's own cell. M3 wrote that
- * rectangle down (5x3 plus a ring of margin, 7x5) from the 64° frame's 34 x 22 m of ground. M6 makes
- * the frame *movable*, so the rectangle is no longer a number to write down: it is **derived, here,
- * from the far corner of the rig's clamp** — {@link rig.CAMERA_DISTANCE_MAX} metres back at
- * {@link rig.CAMERA_PITCH_MIN} degrees, the pose that shows the most ground of any the owner can
- * dial in.
+ * seamless one — and the window is a set of them around the camera's own cell. M3 wrote a rectangle
+ * down (5x3 plus a ring of margin, 7x5) from the 64° frame's 34 x 22 m of ground. M6 made the frame
+ * *movable*, so the rectangle became **derived** from the far corner of the rig's clamp —
+ * {@link rig.CAMERA_DISTANCE_MAX} metres back at {@link rig.CAMERA_PITCH_MIN} degrees, the pose that
+ * shows the most ground of any the owner can dial in — and asymmetric, one extra row of lookahead
+ * *north*, "because that is where the camera looks".
  *
- * The derivation is three divisions. At that pose the frame's ground trapezoid reaches 24.8 m ahead
- * of the character, 14.3 m behind, and 32.3 m either side at its widest (16:9). Against the
- * **smaller** of the two strides — a seamless zone's 10 m, because sizing against the 11 m one would
- * leave a seamless zone short — that is 3 cells of lookahead, 2 behind and 4 to each side. Nine
- * columns by six rows, twice over for the two levels: {@link MAX_WINDOW_CHUNKS}.
+ * **M8 turned the camera.** A lookahead in a fixed direction is the single most yaw-dependent thing
+ * this renderer contained: at 180° of orbit it builds the row behind the frame and starves the row in
+ * front of it, and it would look exactly like the streamer working. The brief's two options were to
+ * rotate the lookahead with the view or to make the ring symmetric at the worst case. **Symmetric,
+ * and the reason is churn**: a window whose shape is a function of the yaw changes shape *during the
+ * gesture*, so an orbit — one continuous drag — would load and unload chunks the whole way round,
+ * and a chunk load is `planChunk` plus scatter plus interior. The owner would have bought a camera
+ * that stutters every time they use it. A window sized for the worst case is paid once, at boot, in
+ * a currency (`pool.ts`'s pre-warm) this renderer already agreed to spend.
  *
- * Two consequences worth stating plainly, because both cost something:
+ * ## The ring is a disc now, and 293 cells is what that costs
  *
- * - **The ring is asymmetric now.** The camera looks north and the frame is a trapezoid, so it sees
- *   73% further ahead than behind; a symmetric window would have to be sized for the far edge in
- *   both directions and would build a row nobody can see. {@link WINDOW_CELLS_NORTH} is one more
- *   than {@link WINDOW_CELLS_SOUTH} for exactly that reason, and it is the *only* asymmetry — east
- *   and west are the same, because the frame is.
- * - **108 chunks, not 70.** That is 54% more pre-warmed wrappers (`pool.ts` sizes itself off
- *   {@link MAX_WINDOW_CHUNKS}) and 2.8 MB more instance buffer, paid at boot whether or not the owner
- *   ever pulls the camera back. It is paid because the pool is minted once — that is the flat-ledger
+ * Symmetric does **not** mean the square that circumscribes the frame. Once the yaw is free the only
+ * statement about the footprint that survives a rotation is its circumradius about the character
+ * (`rig.groundRadius`), so the window is the set of cells that can hold a point within
+ * {@link RING_RADIUS} of the player — a **disc**, rasterised to cells, and 19% cheaper than the
+ * 19 x 19 square that would cover the same guarantee (293 cells a level against 361).
+ *
+ * The rasterisation rule is the coverage guarantee restated, and it is the one line to get right. The
+ * window is centred on the **cell** the character is in and they can stand anywhere inside it, so the
+ * distance the ring must answer for is measured from the *worst* point of the centre cell to the
+ * *nearest* point of a candidate cell — which for axis-aligned cells of one stride is
+ * `hypot(max(0, |dx| - 1), max(0, |dy| - 1)) x stride`. Every cell that could contain a point within
+ * {@link RING_RADIUS} of any point of the centre cell is built; nothing else is. Along an axis that
+ * reaches 9 cells out, on the diagonal 6, and `rig.test.ts` checks the *property* rather than the
+ * arithmetic — the frame's own corners, swept through a full circle of yaw at every corner of the
+ * clamp, must land on cells the ring built.
+ *
+ * Three consequences worth stating plainly, because all three cost something:
+ *
+ * - **586 chunks, not 300.** That is 95% more pre-warmed wrappers (`pool.ts` sizes itself off
+ *   {@link MAX_WINDOW_CHUNKS}) and 22.1 MB more instance buffer, paid at boot whether or not the
+ *   owner ever orbits. It is paid because the pool is minted once — that is the flat-ledger
  *   acceptance — so the ceiling has to be the worst case rather than the current one.
+ * - **At any one yaw about half of it is behind the frame.** That is not waste to be trimmed; it is
+ *   the *same* half that will be in front of the frame two seconds later, which is the whole reason
+ *   the shape does not move.
+ * - **The lookahead is gone as a concept.** There is no `WINDOW_CELLS_NORTH` any more, and nothing
+ *   downstream may reintroduce a directional term without answering the yaw question again.
  *
- * ## What the coverage guarantee actually says
- *
- * The window is centred on the **cell** the character is in, and they can stand anywhere inside it.
- * So the guaranteed built ground in a direction is `stride x (cells beyond the centre cell)` and no
- * more: at the far side of their own cell the character has consumed the centre cell's whole stride.
- * {@link RING_COVER} states the three numbers that fall out, and `rig.test.ts` checks them against
- * the frame at all four corners of the clamp.
- *
- * The margin left over is the pop-in guard and the **hysteresis**: crossing a cell boundary changes
- * the window by one row, so a player pacing back and forth over the line rebuilds one row rather
- * than the world. There is no separate hysteresis parameter, deliberately, because a second one
- * would have to be kept consistent with this one.
+ * The margin between the disc and the frame is the pop-in guard and the **hysteresis**: crossing a
+ * cell boundary changes the window by one ragged column, so a player pacing back and forth over the
+ * line rebuilds a column rather than the world. There is no separate hysteresis parameter,
+ * deliberately, because a second one would have to be kept consistent with this one.
  *
  * ## The aspect the ring is sized at, and the screens wider than it
  *
  * The frame's width scales with the canvas aspect and the ring does not. Sized at 16:9, the ring
- * covers every aspect up to **2.199:1** at the fully-pulled-back pose — 16:10, 16:9, 2:1 — and falls
- * short of a 3440x1440 ultrawide by about three metres at the two far corners. Rather than ship a
- * documented hole (the fog would hide it at night and would not in daylight, where
+ * covers the full 96 m of pull-back at that aspect **exactly** — {@link RING_RADIUS} is derived from
+ * it, so the two agree by construction rather than by luck — and falls short on anything wider.
+ * Rather than ship a documented hole (the fog would hide it at night and would not in daylight, where
  * `daylight.DAY_SKY` runs a third the density), {@link maxDistanceForAspect} pulls the *dolly's*
- * ceiling in on such a screen: 44.2 m instead of 48. The invariant then holds at every aspect
- * without another cell, which is the trade that is actually worth making — nobody will notice four
- * metres of zoom, and everybody would notice the world ending inside the frame.
+ * ceiling in on such a screen. The invariant then holds at every aspect and every yaw without another
+ * cell, which is the trade that is actually worth making — nobody will notice a few metres of zoom,
+ * and everybody would notice the world ending inside the frame.
  *
  * ## Two levels, never three
  *
@@ -75,7 +89,7 @@
 import { ROOM_TILES, SEAM_GAP } from '@mygame/shared';
 
 import { METRES_PER_TILE } from './frame.ts';
-import { CAMERA_DISTANCE_MAX, CAMERA_DISTANCE_MIN, CAMERA_PITCH_MIN, groundFrame } from './rig.ts';
+import { CAMERA_DISTANCE_MAX, CAMERA_DISTANCE_MIN, CAMERA_PITCH_MIN, groundFrame, groundRadius } from './rig.ts';
 import { SHADOW_PAD } from './night.ts';
 
 /**
@@ -100,67 +114,93 @@ export const RING_ASPECT = 16 / 9;
 const WORST = groundFrame(CAMERA_DISTANCE_MAX, CAMERA_PITCH_MIN, RING_ASPECT);
 
 /**
- * Cells either side of the centre cell — sized for the frame *plus the moon's shadow pad*.
+ * Metres of built ground the window guarantees **in every direction** — 84.06 m.
  *
- * The pad joined the derivation when the dolly ceiling doubled (48 → 96, owner's ask): at 48 m the
- * `ceil` slack happened to swallow {@link SHADOW_PAD}'s 2.5 m and `rig.test`'s "shadow box fits
- * inside the built ring" held by luck; at 96 m the slack shrank and it did not. The invariant now
- * lives in the arithmetic instead of the rounding.
+ * `rig.groundRadius` of the worst pose (81.56 m at 96 m / 45° / 16:9), plus the moon's
+ * {@link SHADOW_PAD}. Two things are folded in here rather than left to a `ceil` to absorb, and both
+ * were bought with a failure:
+ *
+ * - **The pad** joined the derivation when the dolly ceiling doubled (48 → 96, owner's ask): at 48 m
+ *   the slack happened to swallow its 2.5 m and `rig.test`'s "shadow box fits inside the built ring"
+ *   held by luck; at 96 m the slack shrank and it did not.
+ * - **The radius, rather than three extents**, is M8's: the frame's *widest* point is the far corner
+ *   of the trapezoid, not the middle of its far edge, and once the yaw turns that corner can point
+ *   down any axis. Sizing off `halfWidthFar` alone would leave the ring 17 m short on the diagonal —
+ *   which is a hole that appears only when the owner orbits to 45°, i.e. immediately.
  */
-export const WINDOW_HALF_X = Math.ceil(
-  (Math.max(WORST.halfWidthNear, WORST.halfWidthFar) + SHADOW_PAD) / STRIDE_METRES,
-);
+export const RING_RADIUS = groundRadius(WORST) + SHADOW_PAD;
 
-/** Cells **ahead** of the centre cell, north — frame plus shadow pad, as above. The lookahead. */
-export const WINDOW_CELLS_NORTH = Math.ceil((WORST.north + SHADOW_PAD) / STRIDE_METRES);
-
-/** Cells behind it, south. Two: the near edge is 14.3 m back. */
-export const WINDOW_CELLS_SOUTH = Math.ceil(WORST.south / STRIDE_METRES);
-
-/** Columns in the window. Nine. */
-export const WINDOW_CELLS_X = 2 * WINDOW_HALF_X + 1;
-
-/** Rows. Six — and not centred; see {@link WINDOW_CELLS_NORTH}. */
-export const WINDOW_CELLS_Y = WINDOW_CELLS_NORTH + WINDOW_CELLS_SOUTH + 1;
+/**
+ * Cells out along an axis. **Nine.**
+ *
+ * The `+ 1` is the coverage guarantee, not a fudge: the character may stand anywhere in the centre
+ * cell, so the ring has to answer from the *far* side of it, and the nearest point of the cell `k`
+ * out is only `(k - 1)` strides away. See the header for the whole rasterisation rule.
+ */
+export const WINDOW_HALF = Math.floor(RING_RADIUS / STRIDE_METRES) + 1;
 
 /** The camera's level and the one below it. Never the one above — see the header. */
 export const WINDOW_LEVELS = 2;
 
 /**
- * Metres of built ground the window guarantees in each direction, **whatever the character's
- * position inside their own cell**. See the header: the centre cell's own stride is theirs to spend.
+ * Every cell offset in the disc, in build order — **the window's shape, computed once at load.**
+ *
+ * A list rather than a nested loop with a predicate, because {@link windowAddresses} runs on every
+ * cell boundary the player crosses and the shape never changes; and because a shape that is a value
+ * is a shape a test can hold up against the frame's own corners.
  */
-export const RING_COVER = {
-  lateral: WINDOW_HALF_X * STRIDE_METRES,
-  north: WINDOW_CELLS_NORTH * STRIDE_METRES,
-  south: WINDOW_CELLS_SOUTH * STRIDE_METRES,
-} as const;
+export const RING_CELLS: readonly (readonly [dx: number, dy: number])[] = (() => {
+  const out: [number, number][] = [];
+  for (let dy = -WINDOW_HALF; dy <= WINDOW_HALF; dy++) {
+    for (let dx = -WINDOW_HALF; dx <= WINDOW_HALF; dx++) {
+      if (cellReach(dx, dy) <= RING_RADIUS) out.push([dx, dy]);
+    }
+  }
+  return out;
+})();
 
-/** The hard ceiling on live chunks, asserted by the traversal test — see `streamer.test` for the
- * current cell arithmetic (it moved when the dolly ceiling doubled). */
-export const MAX_WINDOW_CHUNKS = WINDOW_CELLS_X * WINDOW_CELLS_Y * WINDOW_LEVELS;
+/**
+ * Metres from the worst point of the centre cell to the nearest point of the cell `(dx, dy)` out.
+ *
+ * Adjacent cells touch, so the first ring out is at zero distance and the `k`-th at `(k - 1)`
+ * strides. Exported for the test that checks the window against this rule rather than against a
+ * copy of it.
+ */
+export function cellReach(dx: number, dy: number): number {
+  return Math.hypot(Math.max(0, Math.abs(dx) - 1), Math.max(0, Math.abs(dy) - 1)) * STRIDE_METRES;
+}
+
+/**
+ * What the window guarantees, as the one number that survives a rotation. See {@link RING_RADIUS}.
+ *
+ * Kept as an object with a named field rather than a bare number so that `__debug3d.window` and
+ * `rig.test.ts` read the same shape they always did — and so the day something needs a second term,
+ * adding it does not silently change what an existing caller was comparing against.
+ */
+export const RING_COVER = { radius: RING_RADIUS } as const;
+
+/** The hard ceiling on live chunks, asserted by the traversal test. 586 — see the header. */
+export const MAX_WINDOW_CHUNKS = RING_CELLS.length * WINDOW_LEVELS;
 
 /**
  * The furthest the dolly may pull back on a canvas of this shape, so the frame stays inside the ring.
  *
- * Every extent of {@link rig.groundFrame} is linear in the distance, so the answer is a ratio rather
- * than a search: take the tightest of the three coverage margins at the fully-pulled-back, fully
- * lowered pose and scale the ceiling by it. Only the lateral term can ever bind (the north and south
- * margins are 1.21x and 1.39x at 16:9), and it binds only past 2.199:1.
+ * Every extent of {@link rig.groundFrame} is linear in the distance and so, therefore, is its
+ * circumradius — the answer is one division rather than a search. The shadow pad is *not* linear, so
+ * it comes off the radius before the division rather than scaling with it; getting that backwards
+ * would cost two metres of ceiling and would never show up as anything but a slightly shorter zoom.
  *
  * Evaluated at {@link rig.CAMERA_PITCH_MIN} rather than at the live pitch on purpose: a ceiling that
  * moved as the owner tilted would pull the camera in under their hand, and a fixed number per window
- * size is one they can read off `__debug3d.camera` and reason about.
+ * size is one they can read off `__debug3d.camera` and reason about. **And not at the live yaw, for
+ * the same reason and more loudly** — a ceiling that varied with the yaw would zoom the camera in and
+ * out as the owner orbited, which is the one behaviour a rotation control must not have.
  */
 export function maxDistanceForAspect(aspect: number): number {
   if (!Number.isFinite(aspect) || aspect <= 0) return CAMERA_DISTANCE_MAX;
-  const frame = groundFrame(CAMERA_DISTANCE_MAX, CAMERA_PITCH_MIN, aspect);
-  const slack = Math.min(
-    RING_COVER.lateral / Math.max(frame.halfWidthNear, frame.halfWidthFar),
-    RING_COVER.north / frame.north,
-    RING_COVER.south / frame.south,
-  );
-  return Math.max(CAMERA_DISTANCE_MIN, Math.min(CAMERA_DISTANCE_MAX, CAMERA_DISTANCE_MAX * slack));
+  const radiusPerMetre = groundRadius(groundFrame(CAMERA_DISTANCE_MAX, CAMERA_PITCH_MIN, aspect)) / CAMERA_DISTANCE_MAX;
+  const ceiling = (RING_RADIUS - SHADOW_PAD) / radiusPerMetre;
+  return Math.max(CAMERA_DISTANCE_MIN, Math.min(CAMERA_DISTANCE_MAX, ceiling));
 }
 
 /** A chunk's address: one stride cell on one level, in **zone** cell coordinates. */
@@ -177,18 +217,16 @@ export function chunkKey(address: ChunkAddress): string {
 /**
  * Every address the window covers, centred on a cell. Always {@link MAX_WINDOW_CHUNKS} long.
  *
- * `y` grows **south** (`CLAUDE.md`'s coordinate convention), so the lookahead is the negative side:
- * `dy` runs from `-WINDOW_CELLS_NORTH` to `+WINDOW_CELLS_SOUTH`. Getting that sign wrong would build
- * the extra row behind the camera and starve the frame, and it would look exactly like the streamer
- * working.
+ * There is no sign to get wrong here any more, and that is M8's whole point: the shape is symmetric
+ * in both axes, so the bug M6 warned about — *"getting that sign wrong would build the extra row
+ * behind the camera and starve the frame, and it would look exactly like the streamer working"* — is
+ * not available to be written. The direction the camera faces is no longer this file's business.
  */
 export function windowAddresses(cellX: number, cellY: number, level: number): ChunkAddress[] {
   const out: ChunkAddress[] = [];
   for (let l = 0; l < WINDOW_LEVELS; l++) {
-    for (let dy = -WINDOW_CELLS_NORTH; dy <= WINDOW_CELLS_SOUTH; dy++) {
-      for (let dx = -WINDOW_HALF_X; dx <= WINDOW_HALF_X; dx++) {
-        out.push({ cellX: cellX + dx, cellY: cellY + dy, level: level - l });
-      }
+    for (const [dx, dy] of RING_CELLS) {
+      out.push({ cellX: cellX + dx, cellY: cellY + dy, level: level - l });
     }
   }
   return out;

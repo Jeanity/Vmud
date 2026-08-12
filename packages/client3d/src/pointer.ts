@@ -54,18 +54,39 @@
  * differently-worded sentences about one click."* So an unseen click is a plain no-op: `onPress` still
  * fires (a hold can still start from it), nothing is sent, nothing is drawn.
  *
+ * ## The gesture this class does *not* get: Shift+drag — M8
+ *
+ * The camera orbits on a shifted left drag now (`orbit.ts`), on the same element, from the same
+ * button. That gesture must be **neither** of this file's two: a Shift+drag may not send a `moveTo`
+ * and may not start a steer, and — the half that is easy to forget — an unshifted press must behave
+ * exactly as it always did, including the 150 ms hold that turns it into a joystick.
+ *
+ * The split is one predicate, `orbit.claimsOrbit`, imported here rather than restated: this listener
+ * refuses what it claims and `OrbitControl`'s takes only what it claims, so the two cannot disagree
+ * about a press. **The refusal is at `pointerdown`, before `press` is ever called**, which is what
+ * makes it total — `onPress` never fires, so `main.ts` has no target to send, and `tick` returns on
+ * the first line because no pointer is held, so no hold can cross the threshold. There is no path
+ * from a shifted press to either outcome, rather than a flag checked at each of them.
+ *
+ * Shift is read **once, off the `pointerdown` event**, and never polled — `CLAUDE.md` gotcha 5b, the
+ * same discipline `input.ts` keeps for Shift+W. Releasing Shift mid-drag therefore does not hand the
+ * gesture over to this class: the press was already spoken for, `this.pointerId` was never set, and
+ * the moves and the release go to the orbit that started them.
+ *
  * ## Also not ported
  *
  * **Right-drag panning.** In 2D it lets go of the camera follow while the left button is the joystick;
- * in 3D the camera is fixed-yaw and rigidly follows the player (`rig.ts`) with no follow to let go of,
- * so the gesture has nothing to attach to here. A right or middle press is left alone entirely —
- * {@link PointerControl}'s `pointerdown` listener returns before touching the event at all, so the
- * browser's own context menu still opens on a right click, exactly as it would over any other canvas.
+ * here the camera is rigidly bolted to the player's position and only its *angles* are free, so there
+ * is no follow to let go of and the gesture has nothing to attach to. A right or middle press is left
+ * alone entirely — {@link PointerControl}'s `pointerdown` listener returns before touching the event
+ * at all, so the browser's own context menu still opens on a right click, exactly as it would over
+ * any other canvas.
  */
 
 import { normaliseIntent } from '@mygame/shared';
 
 import { intoFormControl } from './input.ts';
+import { claimsOrbit } from './orbit.ts';
 
 /** Milliseconds a press must be held before it stops being a click and starts steering. `scene.ts:853`. */
 export const HOLD_THRESHOLD_MS = 150;
@@ -257,6 +278,9 @@ export class PointerControl {
     // aimed at a form control or arriving while the caret is in the command line or the login card.
     if (this.typing || intoFormControl(event.target)) return;
     if (event.button !== 0) return; // right/middle would pan in 2D; skipped here, see the file header
+    // M8's split, and it has to be here rather than inside `press`: a shifted press must produce no
+    // `onPress` at all, or `main.ts` sends a `moveTo` for the ground the orbit started over.
+    if (claimsOrbit(event)) return;
     const element = this.element;
     if (!element) return;
     event.preventDefault();

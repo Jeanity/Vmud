@@ -1,5 +1,5 @@
 /**
- * The wheel, the tilt and the remembered pose — M6's live camera rig, from the owner's two questions.
+ * The wheel and the remembered pose — M6's live camera rig, from the owner's two questions.
  *
  * > *"are we going to be able to zoom out?"* and *"we may need to lower the angles so we can see more
  * > what is in front"* — 2026-08-13.
@@ -32,28 +32,30 @@
  * in page mode, so a step scaled off the raw number is thirty times bigger on a mouse Firefox has
  * decided to report in lines. Normalised to notches here, once.
  *
+ * ## M8: the wheel stopped caring about Shift, and the pose grew a third number
+ *
+ * Both angles left this file for `orbit.ts`'s Shift+drag, which is where the owner asked for them.
+ * That leaves the wheel doing **one** thing — zoom — and it now does it **whether or not Shift is
+ * down**, which is not a shrug but the point: Shift is *held for the length of an orbit gesture*
+ * now, and a wheel notch during an orbit has to mean what a wheel notch always means. A shifted wheel
+ * that tilted (M6) or that refused (the angle lock) would both read as the zoom breaking whenever the
+ * owner used the new camera. `wheelNotches`'s `deltaX` reading matters more than ever for the same
+ * reason — see the trap below.
+ *
+ * The remembered pose gains `yaw` and `follow`, migration-safe, and `PITCH_LOCKED` is gone: the
+ * owner's *"lock that angle in for now"* was answered by a gate because there was no better gesture
+ * to give the tilt; there is one now, and a gate over a gesture the owner asked for by name is just
+ * an off switch.
+ *
  * ## What is deliberately not here
  *
- * **No yaw.** `rig.ts`'s header makes fixed yaw a decision rather than an omission — north is up the
- * frame, which is what makes the 2D map and the 3D view describe the same place — and a milestone
- * about how far away the camera stands is not the milestone to overturn it in.
- *
- * **No smoothing.** The dolly writes the rig directly, exactly as the follow does, and for the same
- * reason: a second time constant is one more thing to tune and the one that would be invisible when
- * it was wrong.
+ * **No smoothing.** The dolly writes the rig directly, exactly as the positional follow does, and for
+ * the same reason: a second time constant is one more thing to tune and the one that would be
+ * invisible when it was wrong. (`orbit.ts`'s follow mode has one, and its docblock argues for it.)
  */
 
 import { intoFormControl } from './input.ts';
-import { CAMERA_DISTANCE, CAMERA_PITCH_MIN, clampDistance, clampPitch } from './rig.ts';
-
-/**
- * The owner's ruling, 2026-08-13, after an evening of tuning: *"the current view Azder is seeing is
- * what I like.. that angle.. I would still like to be able to zoom in and out but lock that angle
- * in for now."* So: the wheel still dollies, the tilt is **gated off**, and the pose store moved
- * from `sessionStorage` to `localStorage` (with a one-way migration) so the exact angle the owner
- * had on screen when they said it outlives the tab that heard it. Flip this to re-open the tilt.
- */
-export const PITCH_LOCKED = true;
+import { CAMERA_DISTANCE, CAMERA_PITCH_MIN, clampDistance, clampPitch, wrapYaw } from './rig.ts';
 
 /**
  * Metres per notch, as a **ratio**. 1.06 — about a twelfth of the range per notch.
@@ -66,11 +68,13 @@ export const PITCH_LOCKED = true;
 export const DOLLY_RATIO = 1.06;
 
 /**
- * Degrees per notch of a shifted wheel. 1.5 — about a thirteenth of the 45..64 range.
+ * Degrees per notch of a wheel that is tilting rather than dollying. 1.5 — a thirteenth of 45..64.
  *
- * Additive, because a degree is already the unit the eye judges a tilt in and the range is small
- * enough that a ratio would buy nothing. Matched to the dolly's twelve notches on purpose: both
- * controls cross their whole range in one comfortable flick, so neither feels like the slow one.
+ * **Nothing in the client drives this any more**: M8 moved the tilt to `orbit.ts`'s vertical drag,
+ * where the owner asked for it. {@link tiltTo} stays exported and tested because it is the *mapping*
+ * — the direction a tilt runs and the clamp it stops at — and `__debug3d.camera.pitch` still writes
+ * a pitch through the same clamp. Additive, because a degree is already the unit the eye judges a
+ * tilt in and the range is small enough that a ratio would buy nothing.
  */
 export const PITCH_DEGREES_PER_NOTCH = 1.5;
 
@@ -85,7 +89,43 @@ export const CAMERA_STORAGE_KEY = 'mygame:camera3d';
 export interface CameraPose {
   readonly distance: number;
   readonly pitch: number;
+  /**
+   * Degrees, `(-180, 180]`, `0` = north — M8. See `rig.wrapYaw` for the units and the sign.
+   *
+   * A *wrapped* member of a type whose other two are clamped, which is the one thing to remember
+   * about it: `orbitTo` can hand back 179.9 → -179.9 across one drag frame and every consumer has to
+   * be fine with that.
+   */
+  readonly yaw: number;
+  /**
+   * Whether the camera keeps itself behind the player — M8, and the owner's *"always having the
+   * camera behind my player"*.
+   *
+   * On the pose because it is remembered with it and reset with it, not because it is geometry. Not
+   * to be confused with `rig.CameraRig.follow(x, y, z)`, which is the per-frame aim and happens
+   * either way; the mode is `orbit.FollowCamera` and this is the flag that arms it.
+   */
+  readonly follow: boolean;
 }
+
+/**
+ * **Whether a machine with nothing remembered starts with the camera glued behind the player. Off.**
+ *
+ * The one constant the brief asked to be reversible, and the argument for the value is not about the
+ * camera at all — it is about `input.ts`. W is the world's **north** and Shift+W takes the exit named
+ * *north*, at any yaw, because a MUD's directions are cardinal and `move north` is what the server
+ * takes. With follow on, the camera sits behind the player and up-the-frame is wherever they last
+ * walked — so a player facing south presses W to go north and walks *toward the camera*, which then
+ * swings 180° behind them. That is the first thing anybody would try, and it would read as the
+ * feature being broken rather than as two features that have not been introduced to each other.
+ *
+ * So: the gesture the owner asked for ships **on** (Shift+drag, always available) and the mode ships
+ * **off**, one keypress (**O**) away, with the log line saying so. The honest fix is camera-relative
+ * movement keys; that is a gameplay decision, it changes what `steer` means, and it is the owner's to
+ * make with their eyes open rather than mine to make while they are asleep. Flip this to `true` when
+ * it is made.
+ */
+export const FOLLOW_ON_FRESH = false;
 
 /**
  * What a fresh machine starts at, and what a reset returns to.
@@ -94,8 +134,16 @@ export interface CameraPose {
  * arc ("lower the angles so we can see more what is in front" → the lock) points down-range, and a
  * machine with a remembered pose never reads this anyway — the migration keeps the owner's own
  * angle to the degree.
+ *
+ * **Yaw is north and follow is off**, and both are one edit away — see {@link FOLLOW_ON_FRESH} for
+ * the argument, which is about the keyboard rather than about the camera.
  */
-export const DEFAULT_POSE: CameraPose = { distance: CAMERA_DISTANCE, pitch: CAMERA_PITCH_MIN };
+export const DEFAULT_POSE: CameraPose = {
+  distance: CAMERA_DISTANCE,
+  pitch: CAMERA_PITCH_MIN,
+  yaw: 0,
+  follow: FOLLOW_ON_FRESH,
+};
 
 /**
  * Notches of wheel in a wheel event, normalised — positive is *away from the viewer*, which zooms out.
@@ -114,19 +162,20 @@ export function wheelNotches(event: Pick<WheelEvent, 'deltaX' | 'deltaY' | 'delt
   return raw / perNotch;
 }
 
-/** The pose `notches` of an unshifted wheel moves `from` to. Clamped. */
+/** The pose `notches` of the wheel moves `from` to. Clamped; everything else carried through. */
 export function dollyTo(from: CameraPose, notches: number, ceiling?: number): CameraPose {
-  return { distance: clampDistance(from.distance * DOLLY_RATIO ** notches, ceiling), pitch: from.pitch };
+  return { ...from, distance: clampDistance(from.distance * DOLLY_RATIO ** notches, ceiling) };
 }
 
 /**
- * The pose `notches` of a shifted wheel moves `from` to. Clamped.
+ * The pose `notches` of tilt moves `from` to. Clamped.
  *
  * Scrolling away from the viewer — the same direction that pulls the camera back — *lowers* the
- * pitch, because both are the same instinct: show me more of what is out there.
+ * pitch, because both are the same instinct: show me more of what is out there. `orbit.ts`'s drag
+ * maps the same way and says so.
  */
 export function tiltTo(from: CameraPose, notches: number): CameraPose {
-  return { distance: from.distance, pitch: clampPitch(from.pitch - notches * PITCH_DEGREES_PER_NOTCH) };
+  return { ...from, pitch: clampPitch(from.pitch - notches * PITCH_DEGREES_PER_NOTCH) };
 }
 
 /** Wrapped because storage access throws outright in a partitioned or cookie-blocked context. */
@@ -169,33 +218,59 @@ function erase(key: string): void {
  * The remembered pose, or `undefined`.
  *
  * Parsed defensively and clamped on the way out: the value is user-editable by definition (it is one
- * `sessionStorage.setItem` away in the same console the owner is reading `__debug3d` in), and a
- * pitch of 89 degrees out of storage would put the rig somewhere `rig.ts`'s own constructor refuses
- * to go.
+ * `localStorage.setItem` away in the same console the owner is reading `__debug3d` in), and a pitch
+ * of 89 degrees out of storage would put the rig somewhere `rig.ts`'s own constructor refuses to go.
+ *
+ * **Two fields or four, and a two-field value is the owner's own.** The angle lock's era wrote
+ * `distance,pitch`; every such string still parses, taking north and follow-off — which is exactly
+ * the pose that machine was showing, so the owner's remembered frame survives M8 to the degree, the
+ * same promise the `sessionStorage` migration made. Missing fields default rather than voiding the
+ * whole value, because a camera that silently forgot its distance over a new field would be a worse
+ * bug than the new field is a feature.
  */
 export function rememberedPose(): CameraPose | undefined {
   const stored = read(CAMERA_STORAGE_KEY);
   if (!stored) return undefined;
-  const [rawDistance, rawPitch] = stored.split(',');
+  const [rawDistance, rawPitch, rawYaw, rawFollow] = stored.split(',');
   const distance = Number(rawDistance);
   const pitch = Number(rawPitch);
   if (!Number.isFinite(distance) || !Number.isFinite(pitch)) return undefined;
-  return { distance: clampDistance(distance), pitch: clampPitch(pitch) };
+  const yaw = rawYaw === undefined || rawYaw === '' ? 0 : Number(rawYaw);
+  return {
+    distance: clampDistance(distance),
+    pitch: clampPitch(pitch),
+    // `wrapYaw` answers 0 for a NaN, so a corrupt third field is north rather than a broken camera.
+    yaw: wrapYaw(yaw),
+    follow: rawFollow === undefined || rawFollow === '' ? DEFAULT_POSE.follow : rawFollow === '1',
+  };
 }
 
 /**
  * Remember a pose, or forget it when it is the default one.
  *
- * Forgetting matters: a tab that stored `36,64` and a tab that stored nothing must behave
+ * Forgetting matters: a tab that stored `36,45,0,0` and a tab that stored nothing must behave
  * identically, or the day the default moves the owner's browser will quietly keep showing them the
  * old frame and they will report that the change did not land.
+ *
+ * **Follow's yaw is deliberately not written here.** `main.ts` calls this from the gestures — the
+ * wheel, the drag, the debug knob — and never from the per-frame follow ease, which would be a
+ * `localStorage` write sixty times a second. So what is remembered is the yaw the owner's *hand* last
+ * chose, which is the one they would expect back.
  */
 export function rememberPose(pose: CameraPose): void {
-  if (pose.distance === DEFAULT_POSE.distance && pose.pitch === DEFAULT_POSE.pitch) {
+  if (
+    pose.distance === DEFAULT_POSE.distance &&
+    pose.pitch === DEFAULT_POSE.pitch &&
+    pose.yaw === DEFAULT_POSE.yaw &&
+    pose.follow === DEFAULT_POSE.follow
+  ) {
     erase(CAMERA_STORAGE_KEY);
     return;
   }
-  write(CAMERA_STORAGE_KEY, `${round(pose.distance)},${round(pose.pitch)}`);
+  write(
+    CAMERA_STORAGE_KEY,
+    `${round(pose.distance)},${round(pose.pitch)},${round(pose.yaw)},${pose.follow ? 1 : 0}`,
+  );
 }
 
 /** Two decimals. A pose is a thing a human reads and retypes; 36.000000000000004 helps nobody. */
@@ -246,20 +321,21 @@ export class Dolly {
   /**
    * A wheel gesture, already normalised — exported as its own method so the whole mapping is
    * exercised in `dolly.test.ts` with plain numbers and no `WheelEvent`.
+   *
+   * **Shift is not a parameter any more**, and that is M8's decision rather than an omission: the
+   * modifier is held for the length of an orbit drag, so a notch rolled mid-orbit must zoom like any
+   * other notch. See the file header.
    */
-  apply(notches: number, shift: boolean): CameraPose | undefined {
+  apply(notches: number): CameraPose | undefined {
     // The gate lives here as well as in the listener, and this is the copy that matters: the listener
     // has to check first so it does not `preventDefault` a wheel it is going to ignore, but *this* is
     // the one place a pose can change, so this is where the refusal has to be true.
     if (this.typing) return undefined;
     if (notches === 0) return undefined;
-    // The angle lock: a shifted wheel changes nothing while the owner's ruling stands. `tiltTo`
-    // stays exported and tested — the instrument is gated, not dismantled.
-    if (shift && PITCH_LOCKED) return undefined;
     const from = this.poseOf?.();
     if (!from) return undefined;
-    const next = shift ? tiltTo(from, notches) : dollyTo(from, notches, this.ceilingOf?.());
-    if (next.distance === from.distance && next.pitch === from.pitch) return undefined;
+    const next = dollyTo(from, notches, this.ceilingOf?.());
+    if (next.distance === from.distance) return undefined;
     this.onPose?.(next);
     return next;
   }
@@ -269,6 +345,10 @@ export class Dolly {
     // The browser's own zoom. Not ours to take.
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     event.preventDefault();
-    this.apply(wheelNotches(event), event.shiftKey);
+    // `wheelNotches` reads whichever of `deltaY`/`deltaX` carries the scroll, which is what makes a
+    // shifted wheel work at all on Chrome and Safari — see the header's trap. It stopped being about
+    // the tilt and started being about zooming during an orbit; the code is the same and the reason
+    // it is load-bearing is different.
+    this.apply(wheelNotches(event));
   };
 }

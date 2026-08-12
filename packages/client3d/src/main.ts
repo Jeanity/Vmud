@@ -52,6 +52,17 @@
  * stack in this client and it is pmndrs', and `three/examples`' `UnrealBloomPass` must never be added
  * beside it.** Everything else in the loop is where it was: movement settles, then the window
  * recentres, then the light and the camera take the same position, then it draws.
+ *
+ * ## The frame, after M8
+ *
+ * One line joins it and its position is load-bearing: **the follow ease writes the rig's yaw before
+ * `rig.follow` aims it.** The camera's angle and its position are settled in the same tick or the
+ * frame is drawn at last tick's angle from this tick's place, which at a half-second ease is a
+ * visible lag on every corner the player turns. Four writers now touch the camera and they are
+ * ordered rather than merely present: the wheel and the drag write a whole pose through
+ * `applyCameraPose`; the ease writes the yaw alone through `applyCameraYaw`, which is the same path
+ * minus the two things a yaw cannot change (the fade band and the shadow box's *size*) and minus the
+ * `localStorage` write; and `resize` re-derives the dolly's ceiling from the new aspect.
  */
 
 import { WebGLRenderer } from 'three';
@@ -61,8 +72,10 @@ import { TILE_SIZE, samePlace, type Direction, type Place, type SkyView } from '
 import { DAY_SKY, NIGHT_SKY, clockOf, hourOf, normaliseHour, skyAt } from './daylight.ts';
 import { approach, skyFor, type Enclosure } from './indoors.ts';
 import { CharacterSet } from './characters.ts';
-import { Dolly, rememberPose, rememberedPose, type CameraPose } from './dolly.ts';
+import { Compass, bearingOf, cardinalOf } from './compass.ts';
+import { DEFAULT_POSE, Dolly, rememberPose, rememberedPose, type CameraPose } from './dolly.ts';
 import { EntityLayer } from './entities.ts';
+import { FollowCamera, OrbitControl } from './orbit.ts';
 import { PlateSet } from './plates.ts';
 import { metresOfPixel, pixelOfMetres } from './frame.ts';
 import { Input, intoFormControl } from './input.ts';
@@ -75,18 +88,17 @@ import { BODY_POOL_SIZE } from './pool.ts';
 import { Grade, TONE_MAPPINGS, type ToneMapping } from './post.ts';
 import { PointerControl, type PointerTarget } from './pointer.ts';
 import { Rain } from './rain.ts';
-import { CAMERA_DISTANCE_MAX, CAMERA_DISTANCE_MIN, CAMERA_PITCH_MAX, CAMERA_PITCH_MIN, CameraRig } from './rig.ts';
+import {
+  CAMERA_DISTANCE_MAX,
+  CAMERA_DISTANCE_MIN,
+  CAMERA_PITCH_MAX,
+  CAMERA_PITCH_MIN,
+  CameraRig,
+  groundRadius,
+} from './rig.ts';
 import { PrecipFade, SkyClock, stormy, type Falling } from './sky.ts';
 import { Snow } from './snow.ts';
-import {
-  MAX_WINDOW_CHUNKS,
-  RING_COVER,
-  WINDOW_CELLS_NORTH,
-  WINDOW_CELLS_SOUTH,
-  WINDOW_CELLS_X,
-  WINDOW_CELLS_Y,
-  maxDistanceForAspect,
-} from './streamer.ts';
+import { MAX_WINDOW_CHUNKS, RING_CELLS, RING_COVER, WINDOW_HALF, WINDOW_LEVELS, maxDistanceForAspect } from './streamer.ts';
 import { unprojectToGround } from './unproject.ts';
 import type { WarpVec } from './warp.ts';
 import { Wetness } from './wetness.ts';
@@ -114,6 +126,10 @@ const input = new Input();
 const marker = new Marker(world.scene, world.pool);
 const pointer = new PointerControl();
 const dolly = new Dolly();
+/** M8: the Shift+drag, the mode that keeps the camera behind the player, and the rose that says which way is north. */
+const orbit = new OrbitControl();
+const followCamera = new FollowCamera(DEFAULT_POSE.follow);
+const compass = new Compass();
 
 const canvasHost = document.getElementById('view');
 if (!canvasHost) throw new Error('missing element #view');
@@ -268,6 +284,8 @@ const applyTyping = (): void => {
   // And the wheel, on the same one boolean. Three listeners that each decided for themselves what
   // counts as typing is the shape gotcha 5a warns about; there is one answer and they all read it.
   dolly.typing = input.typing;
+  // Four now. M8's orbit is a fourth listener on the canvas and it reads the same answer.
+  orbit.typing = input.typing;
 };
 login.onVisibility = (visible) => {
   gateUp = visible;
@@ -388,18 +406,62 @@ pointer.attach(renderer.domElement);
 function applyCameraPose(pose: CameraPose, remember = true): void {
   rig.distance = pose.distance;
   rig.pitch = pose.pitch;
+  rig.yaw = pose.yaw;
+  followCamera.enabled = pose.follow;
   // The undergrowth's fade band, the moon's shadow volume and M6's near-wall set, in one call. See
-  // `World3D.setCameraFrame`.
-  world.setCameraFrame(rig.ground(), rig.pitch);
-  if (remember) rememberPose({ distance: rig.distance, pitch: rig.pitch });
+  // `World3D.setCameraFrame`. The yaw goes with them since M8: the volume is oriented and the wall
+  // set is a question about where the camera stands.
+  world.setCameraFrame(rig.ground(), rig.pitch, rig.yawRadians);
+  compass.update(rig.yaw);
+  if (remember) rememberPose(cameraPose());
 }
 
-dolly.poseOf = () => ({ distance: rig.distance, pitch: rig.pitch });
+/** The rig's live pose as the value everything that moves it reads and writes. */
+function cameraPose(): CameraPose {
+  return { distance: rig.distance, pitch: rig.pitch, yaw: rig.yaw, follow: followCamera.enabled };
+}
+
+/**
+ * The **yaw only**, for the per-frame follow ease — deliberately not `applyCameraPose`.
+ *
+ * Two things the full path does that this must not: it writes the distance and pitch back through
+ * their clamps sixty times a second for no reason, and it calls `rememberPose`, which is a
+ * `localStorage` write. What is remembered is the yaw the owner's *hand* chose; a followed yaw is
+ * derived from where the player is standing and will be re-derived on the next frame anyway.
+ */
+function applyCameraYaw(degrees: number): void {
+  rig.yaw = degrees;
+  // `setCameraYaw` and not `setCameraFrame`: the fade bands are a function of the view depth and the
+  // shadow box's *size* is a function of the frame's, and a yaw changes neither. Only which way the
+  // box points, and which wall is in the way. See `World3D.setCameraYaw`.
+  world.setCameraYaw(rig.yawRadians);
+  compass.update(rig.yaw);
+}
+
+dolly.poseOf = cameraPose;
 // The ring cannot cover the fully-pulled-back frame on a very wide canvas, so the *dolly* stops
 // sooner rather than the frame showing void at its far corners. Recomputed on every resize below.
 dolly.ceilingOf = () => rig.maxDistance;
 dolly.onPose = (pose) => applyCameraPose(pose);
 dolly.attach(renderer.domElement);
+
+/**
+ * M8's Shift+drag. The pose it produces goes through exactly the path the wheel's does — and it
+ * **switches follow off**, because a hand on the camera outranks a rule about where the camera
+ * should be. `orbit.ts`'s header for why that is one boolean rather than a suspended third state.
+ */
+orbit.poseOf = cameraPose;
+orbit.onPose = (pose) => {
+  const wasFollowing = followCamera.enabled;
+  // `remember: false` — a `localStorage` write per `pointermove` is sixty a second. `onSettled` below
+  // writes once, when the hand lets go, which is also the only moment the stored value is a pose the
+  // owner chose rather than one they dragged through.
+  applyCameraPose({ ...pose, follow: false }, false);
+  if (wasFollowing) log.write('system', 'camera: free — the orbit took it; O to put it back behind you');
+};
+orbit.onSettled = (pose) => rememberPose(pose);
+orbit.attach(renderer.domElement);
+compass.attach(document);
 
 /* -------------------------------------------------------------------------- */
 /* Messages                                                                    */
@@ -420,6 +482,10 @@ net.on('welcome', (message) => {
   // handling drops the same two things, for the same reason `buildZone` does below.
   marker.hide();
   pointer.cancel();
+  // M8. A fresh body has no heading to have turned *from*, so the next one it reports is a first
+  // sight and the camera takes it whole rather than swinging in from the old session's angle —
+  // `orbit.FollowCamera`'s `seeded`, which is `body.ts`'s `yawSeeded` one level up.
+  followCamera.clear();
 });
 
 net.on('zone', (message) => {
@@ -428,6 +494,9 @@ net.on('zone', (message) => {
   // Everyone else was in the Place just left; the local body is what the camera follows.
   entities.clear(true);
   resendIntent = true;
+  // Arriving somewhere else is the other first sight: a portal can land you facing anywhere, and an
+  // eased swing on arrival would be a second of the camera catching up to a room you are already in.
+  followCamera.clear();
   // The route was drawn in the old map's tiles, which mean nothing here — `scene.ts:2878-2886`'s
   // `buildZone`: the server sends a fresh `path` if it is still walking us somewhere, and a drag in
   // flight was aimed at ground that has just been replaced, so the button has to be pressed again.
@@ -781,6 +850,13 @@ function frame(now: number): void {
     const x = metresOfPixel(self.x) + selfScratch.x;
     const y = groundAt(self.x, self.y);
     const z = metresOfPixel(self.y) + selfScratch.z;
+    // M8. Before the aim, so the frame the camera takes this tick is the eased one and not last
+    // tick's — a yaw applied after `rig.follow` would put the camera one frame behind its own angle,
+    // which at a half-second ease is a visible lag on every corner turned. `self.view.yaw` is M7a's
+    // wire float, the same field M7b turns the *body* with; `orbit.ts` owns the fact that the camera
+    // eases where the body snaps. A live Shift+drag suspends the chase without disarming the mode.
+    const eased = followCamera.update(rig.yaw, self.view.yaw, seconds, orbit.orbiting);
+    if (eased !== undefined) applyCameraYaw(eased);
     rig.follow(x, y, z);
     // The moon's shadow camera and the clearing light take the *same* three numbers the camera did,
     // in the same frame. Anything else and the shadow volume trails the frame by a tick.
@@ -873,15 +949,22 @@ function resize(): void {
   // dragged out to 21:9 can no longer show 48 m of pull-back inside the built ring. Writing
   // `maxDistance` pulls the live distance in with it if it has to.
   rig.maxDistance = maxDistanceForAspect(rig.camera.aspect);
-  applyCameraPose({ distance: rig.distance, pitch: rig.pitch }, false);
+  applyCameraPose(cameraPose(), false);
 }
 
 window.addEventListener('resize', resize);
 resize();
 // The pose this tab was last left at, if it is not the default one. Applied after the first `resize`
-// so the aspect-derived ceiling is already in force and a remembered 48 m on a now-narrower window
+// so the aspect-derived ceiling is already in force and a remembered 96 m on a now-narrower window
 // is clamped rather than honoured.
-applyCameraPose(rememberedPose() ?? { distance: rig.distance, pitch: rig.pitch }, false);
+//
+// **`DEFAULT_POSE` rather than whatever the rig's constructor happens to hold**, and that is a fix
+// rather than a rewording: `rememberPose` *erases* storage when a pose equals `DEFAULT_POSE`, on the
+// stated invariant that "a tab that stored the default and a tab that stored nothing must behave
+// identically". Since the angle lock moved `DEFAULT_POSE.pitch` to the clamp's floor, the two ends
+// disagreed — dialling to exactly 36 m / 45° erased the store and the next reload came up at the
+// rig's authored 64°. One expression, and the invariant is true again.
+applyCameraPose(rememberedPose() ?? DEFAULT_POSE, false);
 requestAnimationFrame(frame);
 
 /* -------------------------------------------------------------------------- */
@@ -907,19 +990,39 @@ const cameraKnob = {
     return Number(rig.distance.toFixed(3));
   },
   set distance(metres: number) {
-    applyCameraPose({ distance: metres, pitch: rig.pitch });
+    applyCameraPose({ ...cameraPose(), distance: metres });
   },
   get pitch(): number {
     return Number(rig.pitch.toFixed(3));
   },
   set pitch(degrees: number) {
-    applyCameraPose({ distance: rig.distance, pitch: degrees });
+    applyCameraPose({ ...cameraPose(), pitch: degrees });
+  },
+  /** M8. Degrees, `0` north, wrapping — `rig.wrapYaw` for the sign. Writing it does not stop a follow. */
+  get yaw(): number {
+    return Number(rig.yaw.toFixed(3));
+  },
+  set yaw(degrees: number) {
+    applyCameraPose({ ...cameraPose(), yaw: degrees });
+  },
+  /** M8. Whether the camera keeps itself behind the player. The **O** key. */
+  get follow(): boolean {
+    return followCamera.enabled;
+  },
+  set follow(on: boolean) {
+    applyCameraPose({ ...cameraPose(), follow: on });
+  },
+  /** The compass bearing the frame is pointing along, and the point it rounds to. `compass.ts`. */
+  get facing(): { bearing: number; point: string } {
+    return { bearing: Number(bearingOf(rig.yaw).toFixed(1)), point: cardinalOf(rig.yaw) };
   },
   /** The clamp, so a value that refuses to take is obviously a clamp and not a broken setter. */
-  get limits(): { distance: [number, number]; pitch: [number, number] } {
+  get limits(): { distance: [number, number]; pitch: [number, number]; yaw: string } {
     return {
       distance: [CAMERA_DISTANCE_MIN, Math.min(rig.maxDistance, CAMERA_DISTANCE_MAX)],
       pitch: [CAMERA_PITCH_MIN, CAMERA_PITCH_MAX],
+      // Not a pair, because a circle has no ends — the yaw wraps where the other two clamp.
+      yaw: 'wraps, (-180, 180]',
     };
   },
   /** Lower than {@link CAMERA_DISTANCE_MAX} only on a canvas too wide for the ring. `streamer.ts`. */
@@ -930,11 +1033,14 @@ const cameraKnob = {
   get ground(): Record<string, number> {
     const g = rig.ground();
     return {
-      north: Number(g.north.toFixed(2)),
-      south: Number(g.south.toFixed(2)),
+      // `ahead`/`behind` since M8, and renamed rather than left alone: they are the *camera's* axes
+      // and calling them north and south was true only while the yaw was nailed down.
+      ahead: Number(g.ahead.toFixed(2)),
+      behind: Number(g.behind.toFixed(2)),
       halfWidthFar: Number(g.halfWidthFar.toFixed(2)),
       nearDepth: Number(g.nearDepth.toFixed(2)),
       farDepth: Number(g.farDepth.toFixed(2)),
+      radius: Number(groundRadius(g).toFixed(2)),
     };
   },
   /** Where the undergrowth fades, live. Both bands must sit outside `ground.nearDepth`. */
@@ -946,11 +1052,17 @@ const cameraKnob = {
     const { width, depth } = world.night.extents;
     return { width: Number(width.toFixed(2)), depth: Number(depth.toFixed(2)) };
   },
-  /** Back to the authored pose, and forget the remembered one. Also the **C** key. */
+  /**
+   * Back to the shipped pose, and forget the remembered one. Also the **C** key.
+   *
+   * `DEFAULT_POSE` rather than `rig.reset()`: the rig's own reset goes to the pose the world was
+   * *authored* at (64°), and the shipped default has been the clamp's floor since the angle lock.
+   * Going through the dolly's constant is what makes this key's other half — *forget* — actually
+   * erase, because `rememberPose` erases exactly what equals `DEFAULT_POSE`.
+   */
   reset(): CameraPose {
-    rig.reset();
-    applyCameraPose({ distance: rig.distance, pitch: rig.pitch });
-    return { distance: rig.distance, pitch: rig.pitch };
+    applyCameraPose(DEFAULT_POSE);
+    return cameraPose();
   },
 };
 
@@ -1073,26 +1185,30 @@ const debug = {
   get pointerDown(): boolean {
     return pointer.pointerDown;
   },
+  /** M8. Whether a Shift+drag is live — the state that suspends the follow ease without disarming it. */
+  get orbiting(): boolean {
+    return orbit.orbiting;
+  },
 
   /**
-   * The streaming ring's shape and the metres of built ground it guarantees in each direction.
+   * The streaming ring's shape and the metres of built ground it guarantees.
    *
-   * Asymmetric since M6 — `north` is one cell more than `south`, because the camera looks north and
-   * the frame is a trapezoid. See `streamer.ts`.
+   * A **disc** since M8, and one number rather than three: the camera can be pointed anywhere, so the
+   * only guarantee that survives a rotation is a radius. `cells` is the rasterisation — how many of
+   * the `(2·reach + 1)²` candidates actually made it in, which is the 19% the disc saves over the
+   * square that would cover the same radius. See `streamer.ts`.
    */
   get window(): {
-    cellsX: number;
-    cellsY: number;
-    north: number;
-    south: number;
+    cells: number;
+    reach: number;
+    levels: number;
     max: number;
     coverMetres: typeof RING_COVER;
   } {
     return {
-      cellsX: WINDOW_CELLS_X,
-      cellsY: WINDOW_CELLS_Y,
-      north: WINDOW_CELLS_NORTH,
-      south: WINDOW_CELLS_SOUTH,
+      cells: RING_CELLS.length,
+      reach: WINDOW_HALF,
+      levels: WINDOW_LEVELS,
       max: MAX_WINDOW_CHUNKS,
       coverMetres: RING_COVER,
     };
@@ -1574,6 +1690,12 @@ const debug = {
  * because a hunt for a frame wants a dial and because every letter bound here is a letter that can
  * go missing out of the command line.
  *
+ * **M8 adds exactly one, O**, and for the same accounting: its two real controls are a drag and a
+ * drag (`orbit.ts`), and the only thing that genuinely needs a key is a *mode* — you cannot toggle a
+ * boolean with a gesture that is already the boolean's opposite. The letter is O because everything
+ * else this file binds is taken and W/A/S/D/Q/E belong to movement, which leaves the vowel that
+ * starts the word.
+ *
  * **V** is M5c's own version of what **F** does for trap 1: the warp is applied in two places, in a
  * vertex shader for the continuous surfaces and on the CPU for everything that is an object, and the
  * only way those two can be seen to agree is to switch them off together and watch nothing move
@@ -1660,14 +1782,32 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
       log.write('system', `warp: ${world.warpEnabled ? 'on' : 'off (the grid, as it was)'}`);
       return;
     case 'KeyC': {
-      // M6. The wheel is a hunt and a hunt needs a way home: **C** puts the rig back on the pose the
-      // world was authored at and forgets the remembered one, so the next reload starts there too.
+      // M6. The wheel is a hunt and a hunt needs a way home: **C** puts the rig back on the shipped
+      // pose and forgets the remembered one, so the next reload starts there too.
       //
-      // A key rather than a double-tap of the tilt control, which is Shift+wheel and has no tap to
-      // double. It is also the only *letter* this milestone binds, which is why it goes through the
-      // same `input.typing` / `intoFormControl` gate as every other one — `CLAUDE.md` gotcha 5a.
+      // **M8 makes it the most useful key on the list**, because the yaw goes home with everything
+      // else: a player who has orbited themselves somewhere confusing gets north back at the top of
+      // the frame in one press, rather than hunting for it through a full circle.
       const pose = cameraKnob.reset();
-      log.write('system', `camera: ${pose.distance} m at ${pose.pitch}° (default)`);
+      log.write('system', `camera: ${pose.distance} m at ${pose.pitch}°, facing north (default)`);
+      return;
+    }
+    case 'KeyO': {
+      // M8. *"Always having the camera behind my player."* Off by default and one press away — see
+      // `dolly.FOLLOW_ON_FRESH` for why that way round, which is a fact about W being world-north
+      // rather than a doubt about the mode.
+      //
+      // **O**, because every other letter this client binds is taken (T/R/B/F/G/V/K/C and the two
+      // brackets) and Q/E/W/A/S/D belong to movement. Through the same `input.typing` /
+      // `intoFormControl` gate as the rest — `CLAUDE.md` gotcha 5a: it is a letter, and every letter
+      // bound here is a letter that can go missing out of the command line.
+      applyCameraPose({ ...cameraPose(), follow: !followCamera.enabled });
+      log.write(
+        'system',
+        followCamera.enabled
+          ? 'camera: behind you — it swings round as you turn; shift+drag or O takes it back'
+          : `camera: free — held at ${cardinalOf(rig.yaw)}; O puts it behind you again`,
+      );
       return;
     }
     case 'KeyK':
@@ -1715,8 +1855,10 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
 
 log.write(
   'system',
-  'M6 — wheel: zoom (24-48 m)   shift+wheel: tilt (45-64°)   C: camera home   K: roof cull.  ' +
+  'M8 — shift+drag: side to side orbits, up and down tilts (45-64°)   wheel: zoom (24-96 m)   ' +
+    'O: camera behind you   C: camera home, facing north   K: roof cull.  ' +
     'T: tone mapping   R: weather   B: bloom   F: wind   V: warp   G: day/night   [ ]: sweep the hour.  ' +
+    'The compass in the corner is which way the frame points — W still walks north whatever it says.  ' +
     'The sky follows the world clock: G and [ ] hold it, shift+G gives it back, shift+R the weather.  ' +
     'Rain and snow are two fields and the world picks; R forces whichever this place would have.  ' +
     'Read the frame you like off window.__debug3d.camera, the interior off .interior, the clock and ' +

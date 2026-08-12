@@ -19,6 +19,17 @@
  * of the ray-plane intersection genuinely does get worse as the pitch drops and the rays graze. So
  * the round trip is measured, at all four corners: grid point -> warp -> project -> unproject ->
  * unwarp, back to the grid point it started at, against M5c's own sub-millimetre bar.
+ *
+ * ## M8: and around the whole circle
+ *
+ * The yaw is a third axis of the same argument and it deserves less trust, not more, because it is
+ * the one that changes the *shape* of the view matrix rather than one term in it. Two things could
+ * have gone wrong and the sweep is what says neither did: the ray-plane solve could condition
+ * differently off-axis (it does not — the ray's angle to the plane depends on the pitch alone), and
+ * the warp inversion could pick up a directional bias (it cannot — the field is keyed on world
+ * position, and this is the test that says so rather than the file that claims it). The bar is
+ * unchanged at sub-millimetre, which is the point: a pointer that got worse when the camera turned
+ * would be a click-to-move that drifted only for players who use the new camera.
  */
 
 import assert from 'node:assert/strict';
@@ -28,7 +39,7 @@ import { Vector3 } from 'three';
 
 import { WORLD_SCALE } from '@mygame/shared';
 
-import { CLAMP_CORNERS, sampleZone } from './fixture.ts';
+import { CARDINAL_YAWS, CLAMP_CORNERS, SWEEP_YAWS, sampleZone } from './fixture.ts';
 import { metresOfPixel, pixelOfMetres, placeFrame } from './frame.ts';
 import { CameraRig } from './rig.ts';
 import { unprojectToGround } from './unproject.ts';
@@ -99,6 +110,22 @@ describe('unprojectToGround', () => {
     assert.equal(hit, undefined);
   });
 
+  it('hits the followed target dead centre at every yaw, which is the whole claim in one line', () => {
+    // If the pointer read the camera's *pose* anywhere — and it reads none of it — this is where a
+    // yaw would show up first: the centre of the screen is exactly the point the rig is looking at,
+    // at any angle, or the click is aimed somewhere the player is not.
+    const rig = new CameraRig(16 / 9);
+    for (const yaw of SWEEP_YAWS) {
+      rig.yaw = yaw;
+      rig.follow(12, 3, -7);
+      rig.camera.updateMatrixWorld(true);
+      const hit = unprojectToGround(rig.camera, 0, 0, 3);
+      assert.ok(hit, `no hit at yaw ${yaw}`);
+      assert.ok(Math.abs(hit.x - 12) < 1e-6, `yaw ${yaw}: x ${hit.x}`);
+      assert.ok(Math.abs(hit.z - -7) < 1e-6, `yaw ${yaw}: z ${hit.z}`);
+    }
+  });
+
   it('round-trips a click through the M5c lens at every corner of the dolly clamp', () => {
     // A synthetic Place rather than the built world, so this runs on a checkout that has never
     // generated one — `warp.test.ts` owns the world-wide sweep and measures 186,176 samples of it.
@@ -119,45 +146,54 @@ describe('unprojectToGround', () => {
     let worstPush = 0;
 
     for (const [distance, pitch] of CLAMP_CORNERS) {
-      const rig = new CameraRig(16 / 9);
-      rig.distance = distance;
-      rig.pitch = pitch;
-      // `main.ts` follows the *drawn* body, not the grid one — the camera goes through the lens with
-      // everything else. Following the grid position instead would put every residual below out by
-      // the field's local displacement, which is metres, not millimetres.
-      field.displaceInto(drawn, homeX, homeZ, 0);
-      rig.follow(homeX + drawn.x, 0, homeZ + drawn.z);
-      rig.camera.updateMatrixWorld(true);
-      rig.camera.updateProjectionMatrix();
+      for (const yaw of CARDINAL_YAWS) {
+        const rig = new CameraRig(16 / 9);
+        rig.distance = distance;
+        rig.pitch = pitch;
+        rig.yaw = yaw;
+        // `main.ts` follows the *drawn* body, not the grid one — the camera goes through the lens
+        // with everything else. Following the grid position instead would put every residual below
+        // out by the field's local displacement, which is metres, not millimetres.
+        field.displaceInto(drawn, homeX, homeZ, 0);
+        rig.follow(homeX + drawn.x, 0, homeZ + drawn.z);
+        rig.camera.updateMatrixWorld(true);
+        rig.camera.updateProjectionMatrix();
 
-      const ground = rig.ground();
-      for (let ix = -3; ix <= 3; ix++) {
-        for (let iz = -3; iz <= 3; iz++) {
-          // Grid positions spread across the ground the frame actually contains at this pose.
-          const gx = homeX + (ix / 3) * ground.halfWidthNear * 0.9;
-          const gz = homeZ + (iz < 0 ? (iz / 3) * ground.north : (iz / 3) * ground.south) * 0.9;
-          field.displaceInto(drawn, gx, gz, 0);
-          const push = Math.hypot(drawn.x, drawn.z);
-          if (push > 0.01) moved += 1;
-          worstPush = Math.max(worstPush, push);
-          // Where that patch of ground is *drawn*, projected to the screen the player is looking at.
-          const ndc = new Vector3(gx + drawn.x, 0, gz + drawn.z).project(rig.camera);
-          // …and the pointer's own two steps, in `main.ts`'s order.
-          const hit = unprojectToGround(rig.camera, ndc.x, ndc.y, 0);
-          assert.ok(hit, `no ground hit at ${distance} m / ${pitch}°, offset ${ix},${iz}`);
-          field.invertInto(back, hit.x, hit.z, 0);
-          const error = Math.hypot(back.x - gx, back.z - gz);
-          samples += 1;
-          if (error > worst) {
-            worst = error;
-            worstAt = `${distance} m / ${pitch}° at ${ix},${iz}`;
+        const ground = rig.ground();
+        for (let ix = -3; ix <= 3; ix++) {
+          for (let iz = -3; iz <= 3; iz++) {
+            // Grid positions spread across the ground the frame actually contains at this pose —
+            // and since M8 the frame is turned, so the offsets are laid out in the *camera's* axes
+            // and rotated into the world. Sampling a world-axis square would walk off the top of
+            // the frame at 45° of yaw and test the sky.
+            const radians = (yaw * Math.PI) / 180;
+            const across = (ix / 3) * ground.halfWidthNear * 0.9;
+            const along = (iz < 0 ? (-iz / 3) * ground.ahead : (-iz / 3) * ground.behind) * 0.9;
+            const gx = homeX + across * Math.cos(radians) - along * Math.sin(radians);
+            const gz = homeZ - across * Math.sin(radians) - along * Math.cos(radians);
+            field.displaceInto(drawn, gx, gz, 0);
+            const push = Math.hypot(drawn.x, drawn.z);
+            if (push > 0.01) moved += 1;
+            worstPush = Math.max(worstPush, push);
+            // Where that patch of ground is *drawn*, projected to the screen the player is looking at.
+            const ndc = new Vector3(gx + drawn.x, 0, gz + drawn.z).project(rig.camera);
+            // …and the pointer's own two steps, in `main.ts`'s order.
+            const hit = unprojectToGround(rig.camera, ndc.x, ndc.y, 0);
+            assert.ok(hit, `no ground hit at ${distance} m / ${pitch}° / yaw ${yaw}, offset ${ix},${iz}`);
+            field.invertInto(back, hit.x, hit.z, 0);
+            const error = Math.hypot(back.x - gx, back.z - gz);
+            samples += 1;
+            if (error > worst) {
+              worst = error;
+              worstAt = `${distance} m / ${pitch}° / yaw ${yaw} at ${ix},${iz}`;
+            }
           }
         }
       }
     }
 
     console.log(
-      `[M6 pointer] ${samples} round trips over the four clamp corners: ` +
+      `[M8 pointer] ${samples} round trips over four clamp corners x eight yaws: ` +
         `worst ${(worst * 1000).toExponential(2)} mm at ${worstAt}; ` +
         `the lens pushed the ground up to ${worstPush.toFixed(2)} m under them`,
     );

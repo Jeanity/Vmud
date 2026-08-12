@@ -38,15 +38,24 @@
  * the camera is still. The worst pose costs 3.4 cm of texel instead of 2.2, and only while the owner
  * is standing in it.
  *
+ * **M8 opens the yaw and the box turns with it, for nothing.** The extents are the camera's own two
+ * axes, so the fit takes a `yaw` and rotates its eight corners before projecting them
+ * ({@link fitShadowCamera}) — the same eight corners, two more multiplies each. The alternative was
+ * to leave the box world-aligned and grow it to contain the turned frame, which costs `(w + d)/√2`
+ * on each axis at 45° of orbit: a quarter of the texel density, given away exactly when the owner
+ * uses the new camera, and a box whose corners reach half again as far as the streaming ring
+ * guarantees ground. At yaw 0 every number in this file is M4's, unchanged.
+ *
  * ## The fog density is derived from the frame, not chosen
  *
  * See {@link FOG_DENSITY}. What matters for the acceptance is the plan's other clause — *"tuned so the
  * streaming window's edge is never a visible hard line"* — and that is answered by geometry rather
- * than by the fog: the streamer's ring guarantees 40 m of built ground either side and 30 m ahead of
- * the character (`streamer.RING_COVER`), and the widest frame the dolly can produce reaches 32.3 m
- * either side and 24.8 m ahead. **The window's boundary is never inside the frame at all, at any pose
- * in the clamp** (`rig.test.ts` walks all four corners), so the fog is free to be tuned for mood
- * rather than for concealment. It is still a runtime knob, because mood is the owner's call.
+ * than by the fog: the streamer's ring guarantees 84.1 m of built ground in **every** direction since
+ * M8 made it a disc (`streamer.RING_COVER`), and the furthest corner of the widest frame the dolly
+ * can produce is 81.6 m away. **The window's boundary is never inside the frame at all, at any pose
+ * in the clamp and at any yaw** (`rig.test.ts` sweeps the whole circle at all four corners), so the
+ * fog is free to be tuned for mood rather than for concealment. It is still a runtime knob, because
+ * mood is the owner's call.
  *
  * That separation is load-bearing and M6 is where it would have broken. Leaning on the fog to hide
  * the ring's rim only works at *night*: at 65.6 m of view depth — the far edge of the fully
@@ -99,9 +108,13 @@ export const MOON_INTENSITY = 1.15;
 /**
  * Where the moon is, as a unit vector **from the scene toward the light**.
  *
- * North-west and 41 degrees up, so shadows rake to the south-east — which at this fixed yaw is down
- * and to the right of the frame, toward the camera. Long enough to read (a 3 m wall throws 3.4 m) and
- * never parallel to the up vector, which is what keeps {@link shadowBasis} out of its degenerate case.
+ * North-west and 41 degrees up, so shadows rake to the south-east. At M4's fixed yaw that was always
+ * down and to the right of the frame, toward the camera; since M8 opened the yaw it is wherever the
+ * owner has swung round to, and half a turn puts the lit faces away from you instead of toward you.
+ * That is the sun being in the sky rather than on the camera, it is correct, and it is the most
+ * visible thing free yaw changed that no code had to change for. Long enough to read (a 3 m wall
+ * throws 3.4 m) and never parallel to the up vector, which is what keeps {@link shadowBasis} out of
+ * its degenerate case.
  */
 export const MOON_FROM = { x: -0.55, y: 0.66, z: -0.51 } as const;
 
@@ -143,22 +156,30 @@ export const FOG_DENSITY = 0.018;
 /**
  * The half-extents a frame needs, in metres — M6, the same numbers as above at the default pose.
  *
- * The box is axis-aligned and centred on the character, so its half-extents are the *furthest* the
- * frame reaches in each axis: the trapezoid's widest edge, and the greater of how far it sees ahead
- * and behind. Centring it on the character rather than on the frame's own centroid wastes some of it
- * to the south — but it keeps `fitShadowCamera` a function of one point, which is what makes the
- * refit eight dot products, and the waste is 12 m of ground at the shallowest pose.
+ * The box is centred on the character, so its half-extents are the *furthest* the frame reaches in
+ * each of its own two axes: the trapezoid's widest edge, and the greater of how far it sees ahead and
+ * behind. Centring it on the character rather than on the frame's own centroid wastes some of it
+ * behind — but it keeps `fitShadowCamera` a function of one point, which is what makes the refit
+ * eight dot products, and the waste is 12 m of ground at the shallowest pose.
  *
  * At the default pose this returns 20.4 x 12.3 against the constants' hand-derived 20 x 13, so the
- * default frame's texel density is unchanged; at 48 m and 45 degrees it returns 32.3 x 24.8, which
- * over a 2048 map is a 3.4 cm texel rather than 2.2. That is the honest cost of the wider frame, and
- * it is paid only while the owner is standing in it — which is the whole point of deriving it rather
- * than sizing the constant for the worst case and losing a third of the resolution everywhere.
+ * default frame's texel density is unchanged; at 96 m and 45 degrees it returns 64.7 x 49.7. That is
+ * the honest cost of the wider frame, and it is paid only while the owner is standing in it — which
+ * is the whole point of deriving it rather than sizing the constant for the worst case and losing
+ * resolution everywhere.
+ *
+ * **These are the *camera's* two axes, not the world's, and since M8 that distinction is load-bearing
+ * rather than pedantic.** The box turns with the frame ({@link fitShadowCamera}'s `yaw`), so these
+ * numbers do not change when the owner orbits and neither does the texel density. The alternative —
+ * keeping the box axis-aligned in world space and growing it to contain the rotated frame — costs
+ * `(width + depth)/√2` on each axis at 45° of yaw, a 25% coarser shadow at the worst pose for exactly
+ * nothing, and it would break the ring invariant besides: an axis-aligned hull of a rotated rectangle
+ * has corners at `width + depth` from the centre, half as far again as the disc the ring guarantees.
  */
 export function shadowExtentsFor(frame: GroundFrame): { readonly width: number; readonly depth: number } {
   return {
     width: Math.max(frame.halfWidthNear, frame.halfWidthFar),
-    depth: Math.max(frame.north, frame.south),
+    depth: Math.max(frame.ahead, frame.behind),
   };
 }
 
@@ -217,7 +238,7 @@ export function shadowUpFor(toLight: Point3): Point3 {
 }
 
 /**
- * Fit an orthographic shadow camera to an axis-aligned box, exactly.
+ * Fit an orthographic shadow camera to a box, exactly.
  *
  * The eight corners are projected into the light's own basis and the extents taken from the result —
  * which is the only fit that is correct for an oblique light. Taking the box's half-extents directly
@@ -226,6 +247,13 @@ export function shadowUpFor(toLight: Point3): Point3 {
  *
  * The basis matches `Object3D.lookAt`'s: `+Z` from the target toward the light, `X = up x Z`,
  * `Y = Z x X`. It has to, or the fit and the camera three actually builds describe different volumes.
+ *
+ * `yaw` turns the box about `+Y` before the corners are taken — M8, and it is free: the corners were
+ * always being computed, and this rotates each one with two multiplies. At `yaw = 0` the arithmetic
+ * is `sin 0 = 0`, `cos 0 = 1` and every corner is where M4 put it, which is why nothing about the
+ * shadows moved when the yaw opened. The sign is the rig's ({@link rig.wrapYaw}), because the box
+ * being fitted *is* the camera's frame and the two must turn together or the shadow volume trails the
+ * view by however wrong the sign is — a failure that looks like shadows cut off down one side.
  */
 export function fitShadowCamera(
   centre: Point3,
@@ -233,7 +261,10 @@ export function fitShadowCamera(
   toLight: Point3,
   distance: number,
   pad: number,
+  yaw = 0,
 ): ShadowFit {
+  const yawSin = Math.sin(yaw);
+  const yawCos = Math.cos(yaw);
   const forward = normalise(toLight);
   const up = shadowUpFor(forward);
   const right = normalise(cross(up, forward));
@@ -254,10 +285,14 @@ export function fitShadowCamera(
   for (const sx of [-1, 1]) {
     for (const sy of [-1, 1]) {
       for (const sz of [-1, 1]) {
+        // The corner in the frame's own axes, turned into the world's. A rotation of `ψ` about `+Y`
+        // sends `(across, ·, along)` to `(across·cos ψ + along·sin ψ, ·, along·cos ψ - across·sin ψ)`.
+        const across = sx * half.width;
+        const along = sz * half.depth;
         const p: Point3 = {
-          x: centre.x + sx * half.width - position.x,
+          x: centre.x + across * yawCos + along * yawSin - position.x,
           y: centre.y + sy * half.height - position.y,
-          z: centre.z + sz * half.depth - position.z,
+          z: centre.z + along * yawCos - across * yawSin - position.z,
         };
         const u = dot(p, right);
         const v = dot(p, realUp);
@@ -328,6 +363,14 @@ export class NightRig {
    * where the shadows stop. `world3d.setCameraFrame` writes it whenever the wheel does.
    */
   private half = { width: SHADOW_HALF_WIDTH, depth: SHADOW_HALF_DEPTH };
+  /**
+   * Which way the box is turned — M8, and it is {@link half}'s other half.
+   *
+   * The extents are in the *camera's* axes, so a rig that knew the extents and not the yaw would fit
+   * a correctly-sized box to the wrong quarter of the world the moment the owner orbited. Written by
+   * the same `world3d.setCameraFrame` call the extents are, so the two can never be a frame apart.
+   */
+  private yaw = 0;
 
   constructor(scene: Scene) {
     this.scene = scene;
@@ -375,11 +418,12 @@ export class NightRig {
    * volume that changed a frame after the camera did is a frame of shadows cut off at the old edge,
    * and the owner turning the wheel would see it flicker.
    */
-  setExtents(halfWidth: number, halfDepth: number): void {
+  setExtents(halfWidth: number, halfDepth: number, yawRadians = 0): void {
     const width = Math.max(1, halfWidth);
     const depth = Math.max(1, halfDepth);
-    if (width === this.half.width && depth === this.half.depth) return;
+    if (width === this.half.width && depth === this.half.depth && yawRadians === this.yaw) return;
     this.half = { width, depth };
+    this.yaw = yawRadians;
     this.fit = this.apply(this.centre);
   }
 
@@ -432,6 +476,7 @@ export class NightRig {
       this.toLight,
       SHADOW_DISTANCE,
       SHADOW_PAD,
+      this.yaw,
     );
     this.moon.position.set(fit.position.x, fit.position.y, fit.position.z);
     this.moon.up.set(fit.up.x, fit.up.y, fit.up.z);

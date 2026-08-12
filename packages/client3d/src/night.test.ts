@@ -93,6 +93,39 @@ describe('the moon shadow camera fit', () => {
     assert.ok(Math.abs(fit.top - (widestV + SHADOW_PAD)) < 1e-9, 'top is not the extent plus the pad');
   });
 
+  it('turns the box with the frame rather than growing a hull around it — M8', () => {
+    /*
+     * The box's extents are the *camera's* two axes, so under free yaw it has to rotate with the
+     * camera. Two things follow and both are asserted here, because the cheap alternative — leaving
+     * the box world-aligned and growing it to contain the rotated frame — passes a containment test
+     * and fails everything else:
+     *
+     * - **The volume is the same at every yaw.** A grown hull would be `(w + d)/√2` on each axis at
+     *   45°, which over a fixed 2048 map is a 25% coarser shadow texel exactly when the owner orbits.
+     * - **Its furthest corner stays `hypot(w, d)` from the centre**, which is the circumradius
+     *   `streamer.ts` sized the ring against. A grown hull reaches `w + d` — half as far again — and
+     *   would be fitted to ground outside the built world.
+     */
+    const centre = { x: 0, y: 0, z: 0 };
+    const flat = fitShadowCamera(centre, HALF, MOON_FROM, SHADOW_DISTANCE, SHADOW_PAD, 0);
+    const oblique = { x: 0, y: 1, z: 0.0001 }; // straight down, so the fit is the box's own footprint
+    let widest = 0;
+    for (const yaw of [0, Math.PI / 8, Math.PI / 4, 1.1, -2.4, Math.PI]) {
+      const fit = fitShadowCamera(centre, HALF, oblique, SHADOW_DISTANCE, SHADOW_PAD, yaw);
+      widest = Math.max(widest, fit.right - fit.left, fit.top - fit.bottom);
+    }
+    const diagonal = 2 * Math.hypot(HALF.width, HALF.depth) + 2 * SHADOW_PAD;
+    assert.ok(widest <= diagonal + 1e-9, `the box grew to ${widest} m, past its own diagonal ${diagonal}`);
+    // A grown world-aligned hull would have reached this instead — stated so the trade stays visible.
+    assert.ok(diagonal < 2 * (HALF.width + HALF.depth) + 2 * SHADOW_PAD);
+    // And a turn is not a no-op: the box really did move, so the assertion above is not passing
+    // because the yaw was ignored. Measured on the light's own footprint, which is where it shows —
+    // a box turned 45° into a raking light is *narrower* in that basis, not wider, which is the
+    // second small dividend of turning it rather than growing it.
+    const turned = fitShadowCamera(centre, HALF, MOON_FROM, SHADOW_DISTANCE, SHADOW_PAD, Math.PI / 4);
+    assert.ok(Math.abs(turned.right - turned.left - (flat.right - flat.left)) > 1, 'the yaw was ignored');
+  });
+
   it('is a translation of itself: walking the world does not change the volume, only where it is', () => {
     const a = fitShadowCamera({ x: 0, y: 0, z: 0 }, HALF, MOON_FROM, SHADOW_DISTANCE, SHADOW_PAD);
     const b = fitShadowCamera({ x: 900, y: -12, z: 40 }, HALF, MOON_FROM, SHADOW_DISTANCE, SHADOW_PAD);

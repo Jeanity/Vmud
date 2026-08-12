@@ -320,11 +320,21 @@ describe('the pool key set', () => {
     // are the only bodies carrying a per-instance colour and so cannot share the two white ones. The
     // `character` archetype itself adds none — a body is a `SkinnedMesh` off `BODY_POOL_SIZE`, not a
     // wrapper — which is why it is carved out of `CHUNK_BUCKET_CEILING` beside `self`/`other`/`marker`.
-    assert.equal(WRAPPER_POOL_SIZE, 5404);
-    assert.equal(start.prewarmed, 5854);
-    assert.equal(start.blendWrappers, 450, 'ground and water both own their instanced attributes');
-    assert.equal(start.wrappersCreated, 5854, 'all three free lists are whole before anything asks');
-    assert.equal(start.wrappersFree, 5854);
+    //
+    // **M8 moves all of it once more, and it is the free yaw's whole bill.** The owner asked to orbit
+    // the camera; a streaming ring with a lookahead in it is a claim about which way the camera
+    // points, so the ring became a symmetric **disc** of 293 cells a level, 586 chunks against 300.
+    // The pool followed by arithmetic and nothing else: `586 x 10 + 293 x 16 + 3 + 1 = 10,552`, plus
+    // 586 ground and 293 water wrappers on their own lists = **11,431**. `+5,577` wrappers at 3,968 B
+    // is `+22.1 MB`, all of it instance buffer and not one byte of geometry. See `streamer.ts` for
+    // why symmetric beat rotating the window (churn: an orbit is one continuous drag, and a window
+    // that changed shape during it would rebuild the world under the gesture) and why the disc beat
+    // the 19 x 19 square that covers the same radius (19% of the cells, for one `hypot`).
+    assert.equal(WRAPPER_POOL_SIZE, 10_552);
+    assert.equal(start.prewarmed, 11_431);
+    assert.equal(start.blendWrappers, 879, 'ground and water both own their instanced attributes');
+    assert.equal(start.wrappersCreated, 11_431, 'all three free lists are whole before anything asks');
+    assert.equal(start.wrappersFree, 11_431);
     assert.equal(start.wrappersLive, 0);
     // M7b: no rig exists until a base body has loaded, and none has. The body family is the one
     // allocation in this pool that is *not* pre-warmed — see `BODY_POOL_SIZE`.
@@ -507,7 +517,7 @@ describe('the pool key set', () => {
     pool.writeBlend(wall, 0, [1, 1, 1, 1], [1, 1, 1, 1]);
     pool.writeWarp(wall, 0, [1, 1, 1, 1]);
     pool.release(wall);
-    assert.equal(pool.snapshot().wrappersCreated, 5854, 'the split lists must not mint');
+    assert.equal(pool.snapshot().wrappersCreated, 11_431, 'the split lists must not mint');
     pool.dispose();
   });
 
@@ -539,7 +549,7 @@ describe('the pool key set', () => {
     const again = pool.acquire('waterPlane', 'water');
     assert.equal(again, water, 'LIFO: the water list gave its own wrapper back');
     pool.release(again);
-    assert.equal(pool.snapshot().wrappersCreated, 5854, 'the three lists must not mint');
+    assert.equal(pool.snapshot().wrappersCreated, 11_431, 'the three lists must not mint');
     pool.dispose();
   });
 

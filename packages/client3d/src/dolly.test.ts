@@ -6,7 +6,9 @@
  *
  * 1. **Shift + wheel arrives on `deltaX` in half the browsers.** Chrome and Safari swap a shifted
  *    wheel to horizontal scroll before dispatch; Firefox does not. A handler that reads `deltaY`
- *    alone tilts on one machine and does nothing on another. Both shapes are driven here.
+ *    alone works on one machine and does nothing on another — and since M8 that is not about the
+ *    tilt but about the *zoom*, because Shift is held for the length of an orbit gesture. Both
+ *    shapes are driven here.
  * 2. **`deltaMode` is not a unit.** The same notch is 100 in pixel mode and 3 in line mode, so a
  *    step scaled off the raw number is thirty times bigger on some mice.
  * 3. **The gate.** `CLAUDE.md` gotcha 5a's discipline: a wheel while the caret is in the command
@@ -74,8 +76,9 @@ describe('the wheel, normalised', () => {
   });
 
   it('finds the notches of a shift-swapped wheel, which arrive horizontally', () => {
-    // Chrome/Safari on a shifted wheel: `deltaY` is 0 and `deltaX` carries it. Firefox: the other way.
-    // Both must tilt, or the pitch control works on some of the owner's machines and not others.
+    // Chrome/Safari on a shifted wheel: `deltaY` is 0 and `deltaX` carries it. Firefox: the other
+    // way. Both must zoom, or a notch rolled in the middle of an orbit does nothing on half the
+    // owner's machines — which would read as the new camera having broken the wheel.
     assert.equal(wheelNotches({ deltaX: 100, deltaY: 0, deltaMode: 0 }), 1);
     assert.equal(wheelNotches({ deltaX: -300, deltaY: 0, deltaMode: 1 }), -100);
     // When both are present, vertical wins — that is the axis the gesture is actually on.
@@ -96,17 +99,23 @@ describe('the two mappings', () => {
     // Twenty-four notches crosses the whole range — two comfortable flicks. It was one flick of
     // twelve when the ceiling was 48; the range doubled on the owner's ask and the RATIO is what a
     // notch feels like, so the ratio stayed and the journey lengthened.
-    assert.equal(dollyTo({ distance: CAMERA_DISTANCE_MIN, pitch: 64 }, 24).distance, CAMERA_DISTANCE_MAX);
-    assert.ok(dollyTo({ distance: CAMERA_DISTANCE_MIN, pitch: 64 }, 23).distance < CAMERA_DISTANCE_MAX);
+    const near: CameraPose = { ...home, distance: CAMERA_DISTANCE_MIN, pitch: 64 };
+    assert.equal(dollyTo(near, 24).distance, CAMERA_DISTANCE_MAX);
+    assert.ok(dollyTo(near, 23).distance < CAMERA_DISTANCE_MAX);
+    // M8: the yaw and the mode are carried through untouched. A wheel notch must not straighten the
+    // camera and must not disarm a follow.
+    const orbited = dollyTo({ ...home, yaw: -137, follow: true }, 1);
+    assert.equal(orbited.yaw, -137);
+    assert.equal(orbited.follow, true);
   });
 
   it('tilts by degrees, in the same direction the dolly pulls back', () => {
     // The authored top of the range, explicitly — DEFAULT_POSE moved to the forward-looking floor
     // when the owner locked the angle, so it is no longer a pose a tilt can descend from.
-    const authored: CameraPose = { distance: home.distance, pitch: CAMERA_PITCH_MAX };
+    const authored: CameraPose = { ...home, pitch: CAMERA_PITCH_MAX };
     const out = tiltTo(authored, 1);
     assert.ok(Math.abs(out.pitch - (CAMERA_PITCH_MAX - PITCH_DEGREES_PER_NOTCH)) < 1e-9);
-    assert.equal(out.distance, authored.distance, 'the shifted wheel must not touch the distance');
+    assert.equal(out.distance, authored.distance, 'the tilt must not touch the distance');
     // Down the range in thirteen notches, and it cannot climb past the authored pose.
     assert.equal(tiltTo(authored, 20).pitch, CAMERA_PITCH_MIN);
     assert.equal(tiltTo(authored, -1).pitch, CAMERA_PITCH_MAX);
@@ -119,7 +128,7 @@ describe('the two mappings', () => {
     assert.equal(dollyTo(home, -100).distance, CAMERA_DISTANCE_MIN);
     assert.equal(dollyTo(home, 100, 40).distance, 40, 'an ultrawide canvas lowered the ceiling');
     for (const [distance, pitch] of CLAMP_CORNERS) {
-      const at: CameraPose = { distance, pitch };
+      const at: CameraPose = { ...home, distance, pitch };
       // Every corner is a fixed point of a push further into its own corner, which is what "clamped"
       // has to mean for a control the owner will hold against the stop.
       assert.deepEqual(dollyTo(at, distance === CAMERA_DISTANCE_MAX ? 5 : -5), at);
@@ -143,69 +152,114 @@ describe('the Dolly listener', () => {
 
   it('moves the pose it is given, and reports every move', () => {
     const { dolly, poses } = harness();
-    dolly.apply(1, false);
-    dolly.apply(1, false);
+    dolly.apply(1);
+    dolly.apply(1);
     assert.equal(poses.length, 2);
     assert.ok(poses[1]!.distance > poses[0]!.distance, 'the second notch must build on the first');
-    // The angle lock: a shifted gesture is refused outright while the owner's ruling stands —
-    // no pose change, no report, exactly like a wheel during typing.
-    assert.equal(dolly.apply(2, true), undefined);
-    assert.equal(poses.length, 2);
   });
 
   it('says nothing when the pose did not actually move', () => {
     const { dolly, poses } = harness();
-    assert.equal(dolly.apply(0, false), undefined, 'a zero-delta event is not a gesture');
+    assert.equal(dolly.apply(0), undefined, 'a zero-delta event is not a gesture');
     // Held against the stop: the clamp refuses, and a `setFadeBands` + shadow refit per wheel event
     // for a pose that is not changing is work nobody asked for.
-    for (let i = 0; i < 20; i++) dolly.apply(3, false);
+    for (let i = 0; i < 20; i++) dolly.apply(3);
     const settled = poses.length;
-    assert.equal(dolly.apply(3, false), undefined);
+    assert.equal(dolly.apply(3), undefined);
     assert.equal(poses.length, settled);
   });
 
   it('refuses a wheel while the caret is in the command line', () => {
     const { dolly, poses } = harness();
     dolly.typing = true;
-    assert.equal(dolly.apply(1, false), undefined);
+    assert.equal(dolly.apply(1), undefined);
     assert.equal(poses.length, 0, 'the gate is checked before the pose is read, not after');
   });
 
   it('does nothing at all with no rig wired to it', () => {
     const dolly = new Dolly();
-    assert.equal(dolly.apply(1, false), undefined);
+    assert.equal(dolly.apply(1), undefined);
+  });
+
+  it('zooms whether or not Shift is down, because Shift is now held for an orbit — M8', () => {
+    /*
+     * The wheel's listener no longer looks at the modifier at all, and this is the test that says so
+     * from the outside: the same event with `shiftKey` true and false must produce the same pose.
+     * M6 tilted on the shifted one and the angle lock refused it; both would now mean that rolling
+     * the wheel in the middle of an orbit did something other than zoom, which is the one thing a
+     * wheel must never do.
+     */
+    const shifted = harness();
+    const plain = harness();
+    shifted.dolly.apply(wheelNotches({ deltaX: 100, deltaY: 0, deltaMode: 0 }));
+    plain.dolly.apply(wheelNotches({ deltaX: 0, deltaY: 100, deltaMode: 0 }));
+    assert.deepEqual(shifted.pose.current, plain.pose.current);
+    assert.ok(shifted.pose.current.distance > DEFAULT_POSE.distance, 'a shifted wheel did not zoom');
   });
 });
 
 describe('the remembered pose', () => {
   it('survives a round trip through storage, rounded to something a human can retype', () => {
     installStorages();
-    rememberPose({ distance: 41.234567, pitch: 52.5 });
-    const back = rememberedPose();
-    assert.deepEqual(back, { distance: 41.23, pitch: 52.5 });
+    rememberPose({ distance: 41.234567, pitch: 52.5, yaw: -137.891, follow: true });
+    assert.deepEqual(rememberedPose(), { distance: 41.23, pitch: 52.5, yaw: -137.89, follow: true });
   });
 
   it('forgets the default rather than storing it', () => {
     const { local: store } = installStorages();
-    rememberPose({ distance: 44, pitch: 50 });
+    rememberPose({ ...DEFAULT_POSE, distance: 44, pitch: 50 });
     assert.ok(store.has(CAMERA_STORAGE_KEY));
     rememberPose(DEFAULT_POSE);
-    // A tab that stored `36,64` and a tab that stored nothing must behave identically, or the day the
-    // default moves this browser quietly keeps showing the old frame and the change looks unlanded.
+    // A tab that stored the default and a tab that stored nothing must behave identically, or the day
+    // the default moves this browser quietly keeps showing the old frame and the change looks
+    // unlanded. All four fields count: an orbited camera at the default distance is still a pose.
     assert.equal(store.has(CAMERA_STORAGE_KEY), false);
     assert.equal(rememberedPose(), undefined);
+    rememberPose({ ...DEFAULT_POSE, yaw: 90 });
+    assert.ok(store.has(CAMERA_STORAGE_KEY), 'a turned camera at the default distance was forgotten');
+    rememberPose({ ...DEFAULT_POSE, follow: !DEFAULT_POSE.follow });
+    assert.ok(store.has(CAMERA_STORAGE_KEY), 'the follow mode was forgotten');
   });
 
   it('clamps and rejects whatever it finds there, because a console can write anything', () => {
     const { local: store } = installStorages();
-    store.set(CAMERA_STORAGE_KEY, '900,89');
-    assert.deepEqual(rememberedPose(), { distance: CAMERA_DISTANCE_MAX, pitch: CAMERA_PITCH_MAX });
-    store.set(CAMERA_STORAGE_KEY, '1,1');
-    assert.deepEqual(rememberedPose(), { distance: CAMERA_DISTANCE_MIN, pitch: CAMERA_PITCH_MIN });
+    store.set(CAMERA_STORAGE_KEY, '900,89,0,0');
+    assert.deepEqual(rememberedPose(), {
+      distance: CAMERA_DISTANCE_MAX,
+      pitch: CAMERA_PITCH_MAX,
+      yaw: 0,
+      follow: false,
+    });
+    store.set(CAMERA_STORAGE_KEY, '1,1,0,0');
+    assert.deepEqual(rememberedPose(), {
+      distance: CAMERA_DISTANCE_MIN,
+      pitch: CAMERA_PITCH_MIN,
+      yaw: 0,
+      follow: false,
+    });
+    // The yaw wraps rather than clamping, and garbage in the third field is north rather than a
+    // camera pointing at NaN — which would put the rig somewhere `lookAt` cannot recover from.
+    store.set(CAMERA_STORAGE_KEY, '40,50,540,1');
+    assert.deepEqual(rememberedPose(), { distance: 40, pitch: 50, yaw: 180, follow: true });
+    store.set(CAMERA_STORAGE_KEY, '40,50,due-west,1');
+    assert.deepEqual(rememberedPose(), { distance: 40, pitch: 50, yaw: 0, follow: true });
     store.set(CAMERA_STORAGE_KEY, 'north-by-northwest');
     assert.equal(rememberedPose(), undefined);
     store.set(CAMERA_STORAGE_KEY, '42');
     assert.equal(rememberedPose(), undefined, 'half a pose is not a pose');
+  });
+
+  it('reads the angle lock’s two-field pose as north with the mode off — M8’s own migration', () => {
+    // Every machine that has run this client since the angle lock has a `distance,pitch` string in
+    // localStorage, and that machine was looking north with no follow mode to speak of. So the
+    // shortest possible value is not a corrupt one: it is the owner's own frame, and it must come
+    // back to the degree rather than being discarded for want of two fields that did not exist.
+    const { local } = installStorages();
+    local.set(CAMERA_STORAGE_KEY, '31.5,52.5');
+    assert.deepEqual(rememberedPose(), { distance: 31.5, pitch: 52.5, yaw: 0, follow: DEFAULT_POSE.follow });
+    // A three-field value — a yaw remembered before the mode was persisted — takes the mode's default.
+    local.set(CAMERA_STORAGE_KEY, '31.5,52.5,90');
+    assert.deepEqual(rememberedPose(), { distance: 31.5, pitch: 52.5, yaw: 90, follow: DEFAULT_POSE.follow });
   });
 
   it('migrates a sessionStorage-era pose into localStorage on first read', () => {
@@ -214,12 +268,12 @@ describe('the remembered pose', () => {
     // so their chosen frame becomes permanent without a console ever being opened.
     const { local, session } = installStorages();
     session.set(CAMERA_STORAGE_KEY, '31.5,52.5');
-    assert.deepEqual(rememberedPose(), { distance: 31.5, pitch: 52.5 });
+    assert.deepEqual(rememberedPose(), { distance: 31.5, pitch: 52.5, yaw: 0, follow: DEFAULT_POSE.follow });
     assert.equal(local.get(CAMERA_STORAGE_KEY), '31.5,52.5', 'migrated, not merely read');
     assert.equal(session.has(CAMERA_STORAGE_KEY), false, 'and the old home is emptied');
     // A localStorage value outranks any sessionStorage leftover.
     session.set(CAMERA_STORAGE_KEY, '96,64');
-    assert.deepEqual(rememberedPose(), { distance: 31.5, pitch: 52.5 });
+    assert.deepEqual(rememberedPose(), { distance: 31.5, pitch: 52.5, yaw: 0, follow: DEFAULT_POSE.follow });
   });
 
   it('shrugs when storage throws, which is a partitioned context and not a bug', () => {
@@ -237,7 +291,7 @@ describe('the remembered pose', () => {
     (globalThis as unknown as Record<string, unknown>)['localStorage'] = blocked;
     (globalThis as unknown as Record<string, unknown>)['sessionStorage'] = blocked;
     assert.equal(rememberedPose(), undefined);
-    rememberPose({ distance: 40, pitch: 50 });
+    rememberPose({ distance: 40, pitch: 50, yaw: 12, follow: true });
     rememberPose(DEFAULT_POSE);
   });
 });

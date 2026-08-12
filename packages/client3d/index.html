@@ -10,8 +10,8 @@
        * character sheet, an inventory drawer, a place map and a group roster; none of that is M3's,
        * and copying it would be copying a hundred ids this client has no writer for. What is here is
        * the shell the salvaged `log.ts` requires by id (#shell, #log, #log-bar, #log-caret,
-       * #log-lines, #log-status, #log-entry, #log-input), a canvas host, two HUD lines, and the
-       * login card.
+       * #log-lines, #log-status, #log-entry, #log-input), a canvas host, two HUD lines, M8's
+       * compass (#compass-rose, #compass-facing — `compass.ts`), and the login card.
        */
       :root {
         color-scheme: dark;
@@ -62,6 +62,81 @@
       }
       #hud-name {
         color: var(--dim);
+      }
+
+      /*
+       * The compass — M8. Once the camera can be orbited, north is no longer up the frame, and every
+       * cardinal sentence the log prints ("you go east", "the sun rises over the northern horizon")
+       * needs something on screen to be read against. Top-right of the view, opposite the HUD lines
+       * and clear of the log's edge. `pointer-events: none` throughout: a badge that ate a click
+       * aimed at the ground behind it would be a click-to-move dead spot in the corner of the map.
+       */
+      #compass {
+        position: absolute;
+        top: 0.6rem;
+        right: 0.9rem;
+        width: 2.75rem;
+        pointer-events: none;
+        text-align: center;
+        user-select: none;
+      }
+      #compass-dial {
+        position: relative;
+        width: 2.75rem;
+        height: 2.75rem;
+        border: 1px solid #ffffff26;
+        border-radius: 50%;
+        background: #0b0d1073;
+      }
+      /* Turned as one, by `compass.ts`, so the letter at the top is the way the frame points. */
+      #compass-rose {
+        position: absolute;
+        inset: 0;
+        will-change: transform;
+      }
+      #compass-rose span {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 0.62rem;
+        line-height: 1;
+        color: var(--dim);
+      }
+      #compass-rose .c-n {
+        top: 0.2rem;
+        color: #e0c060;
+        font-weight: 700;
+      }
+      #compass-rose .c-s {
+        bottom: 0.2rem;
+      }
+      #compass-rose .c-e {
+        top: 50%;
+        left: auto;
+        right: 0.24rem;
+        transform: translateY(-50%);
+      }
+      #compass-rose .c-w {
+        top: 50%;
+        left: 0.24rem;
+        transform: translateY(-50%);
+      }
+      /* The fixed pip at the top of the dial: what the frame is pointing at, whatever the rose says. */
+      #compass-dial::after {
+        content: "";
+        position: absolute;
+        top: -0.2rem;
+        left: 50%;
+        width: 1px;
+        height: 0.32rem;
+        margin-left: -0.5px;
+        background: #ffffff59;
+      }
+      #compass-facing {
+        margin-top: 0.15rem;
+        font-size: 0.65rem;
+        color: var(--dim);
+        text-shadow: 0 1px 3px #000;
       }
 
       /* ------------------------------------------------------------------ log */
@@ -210,6 +285,15 @@
         <div id="hud">
           <div id="hud-where"></div>
           <div id="hud-name"></div>
+        </div>
+        <div id="compass">
+          <div id="compass-dial">
+            <div id="compass-rose">
+              <span class="c-n">N</span><span class="c-e">E</span><span class="c-s">S</span
+              ><span class="c-w">W</span>
+            </div>
+          </div>
+          <div id="compass-facing">N</div>
         </div>
       </div>
       <aside id="log">

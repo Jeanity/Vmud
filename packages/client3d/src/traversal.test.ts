@@ -66,6 +66,12 @@
  * property that matters; the absolute number is here because M6 moved it by 52% in one commit and a
  * figure that large should be a line somebody chose rather than a line in a log nobody reads.
  *
+ * **M8 is the largest single move that pin has ever caught, and it caught it.** The owner asked to
+ * orbit the camera; the ring stopped being a rectangle with a lookahead and became a disc; 300 chunks
+ * became 586 and the ledger 45.6 MB. Every byte of it is instance buffer, none of it is geometry, and
+ * the whole of it is one decision in `streamer.ts` — which is exactly what this file exists to make
+ * visible rather than surprising.
+ *
  * Follows `worldgen/src/roomscene-world.test.ts`'s skip-if-absent shape: `data/world` is git-ignored
  * and reproducible with `npm run worldgen`.
  */
@@ -125,6 +131,7 @@ const BASELINE_ROOM = 100;
  * | M6 interiors | 8,582,412 | the `ceiling` archetype (+108 wrappers) and 19 village stand-ins |
  * | zoom x2 | 23,438,604 | **the owner's "about 100% more"**: the dolly ceiling 48 -> 96 m, the ring 108 -> 300 cells with the shadow pad folded into the derivation — +3,744 wrappers at 3,968 B, zero geometry |
  * | M7b | 23,517,236 | **+78,632 B, and it is the first per-*entity* term in this table.** `+3,968` is one more wrapper — the `creature:` capsules' own, which carry a per-instance colour the two people wrappers must not. `+73,920` is **seven body rigs at 10,560 B**, the high-water of the churn this walk now runs; unlike everything else here they cannot be pre-warmed (there are no bones to clone until a pack has loaded), so they climb from zero and then stop, and the stopping is what is asserted. `+744` is four stand-in character geometries. |
+ * | M8 orbit | 45,646,772 | **+22,129,536 B: `+5,577` wrappers at 3,968 B, zero geometry, zero rigs.** The owner's Shift+drag. A streaming ring with a lookahead is a claim about which way the camera points, so the ring became a symmetric **disc** — 293 cells a level, 586 chunks against 300 — and `pool.ts` derived its pre-warm from it as it always has: `586 x 10 + 293 x 16 + 4 = 10,552`, plus 586 ground and 293 water wrappers on their own lists = 11,431. Nothing here was chosen; the shape was. The two alternatives and their prices are in `streamer.ts`: rotating the window with the view costs a rebuild *during* every orbit gesture, and the 19 x 19 square that covers the same radius costs another 136 cells a level (`+10.8 MB`) for the corners no frame can reach. |
  *
  * The camera delta was `+2,789,504` B, all of it instance buffer and all of it a consequence of one
  * decision: the dolly's clamp reaches 48 m at 45°, `streamer.ts` derives the ring from that pose, and
@@ -142,7 +149,7 @@ const BASELINE_ROOM = 100;
  * a room is dressed by `interior.ts` only when it is roofed and `inside`, and none of the four
  * scatter tables has an `inside` row. Interiors fit inside the budget the understory already had.
  */
-const LEDGER_BYTES = 23_517_236;
+const LEDGER_BYTES = 45_646_772;
 
 /**
  * The stand-in armature and cast the body churn runs on — M7b.
