@@ -14,8 +14,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  PLAYER_SPEED,
   ROOM_TILES,
   TILE_SIZE,
+  WORLD_SCALE,
   boundsOf,
   huntRule,
   isWalkableAt,
@@ -33,7 +35,7 @@ import {
   type Zone,
 } from '@mygame/shared';
 
-import { PROVOKED_LEASH_ROOMS, PROVOKED_PATIENCE_MS, advanceHunts, beginHunt, beginWalkTo, effectivePursuit, firstStepToward, forgetQuarry, provokedLeash, wanderRoll, type Hunt } from './hunt.ts';
+import { AMBLE_SPEED, HUNT_SPEED, PROVOKED_LEASH_ROOMS, PROVOKED_PATIENCE_MS, advanceHunts, beginHunt, beginWalkTo, effectivePursuit, firstStepToward, forgetQuarry, provokedLeash, wanderRoll, type Hunt } from './hunt.ts';
 import { Simulation, type Mob, type Player } from './sim.ts';
 import { GameWorld } from './world.ts';
 
@@ -140,6 +142,32 @@ function makeFixture(pursuit: PursuitRule = hunter(), zone: Zone = corridor()): 
 /* -------------------------------------------------------------------------- */
 /* The flags, and §4.11's traps                                                */
 /* -------------------------------------------------------------------------- */
+
+describe('the pace a mob keeps', () => {
+  // The client picks a walk/jog/sprint clip from a body's *measured* speed (`client3d/anim.ts`), and
+  // its thresholds are fractions of a player at full tilt. Those fractions are restated here as
+  // literals rather than imported, because a server package must not depend on a renderer — so if
+  // `anim.JOG_SPEED`'s 0.4 ever moves, this test is the thing that should be revisited with it.
+  const FULL = PLAYER_SPEED * WORLD_SCALE;
+  const JOG_THRESHOLD = FULL * 0.4;
+  const SPRINT_THRESHOLD = FULL * 0.77;
+
+  it('ambles at a human walking pace when it has nowhere urgent to be', () => {
+    const amble = AMBLE_SPEED * WORLD_SCALE;
+    assert.ok(Math.abs(amble - 1.5) < 1e-9, `${amble} m/s should be a walk`);
+    // Inside the walk band with room to spare, not against its ceiling: a remote body is *eased*
+    // toward its authoritative position, so the speed the client measures undershoots this one and
+    // must not be allowed to land back on a boundary.
+    assert.ok(amble < JOG_THRESHOLD * 0.85, 'an amble must not read as a jog');
+  });
+
+  it('still runs a chase down, because that rule was never about the animation', () => {
+    // `pursuit.ts`: "a hunter gains on you. You cannot stroll away from one." Untouched by the amble.
+    assert.ok(HUNT_SPEED > PLAYER_SPEED, 'a hunter must out-pace a fleeing player');
+    assert.ok(HUNT_SPEED * WORLD_SCALE > SPRINT_THRESHOLD, 'and it should look like a run');
+    assert.equal(AMBLE_SPEED * 4, HUNT_SPEED);
+  });
+});
 
 describe('what makes a mob a hunter at all', () => {
   it('refuses to hunt without ACT_MEMORY, however loudly it is flagged HUNTER', () => {

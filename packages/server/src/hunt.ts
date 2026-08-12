@@ -51,6 +51,36 @@ import type { GameWorld } from './world.ts';
 export const HUNT_SPEED = (ROOM_TILES * TILE_SIZE * 1000) / HUNT_STEP_MS;
 
 /**
+ * How fast a mob moves when **nothing is chasing and nothing is being chased** — px/s. A quarter of
+ * {@link HUNT_SPEED}, which is 48 px/s, which is **1.5 m/s: a human walking pace.**
+ *
+ * The owner, 2026-08-13: *"can the mobs walk instead of run everywhere? if you have to make them take
+ * less steps that is fine"*, and then *"they can run when in fights of course"* — which is exactly the
+ * seam this constant cuts.
+ *
+ * **It is a rendering fact that made a simulation number wrong.** `HUNT_SPEED` is a room crossed in
+ * `HUNT_STEP_MS`, or 6.0 m/s, and it was chosen against `pursuit.ts`'s rule that *"a hunter gains on
+ * you. You cannot stroll away from one"* — still true, still untouched, and correct for a chase. But
+ * the client's gait ladder (`anim.ts`) reads a body's *measured* speed and picks a clip from it, and
+ * its bands are anchored on a player at full tilt: walk below 1.875 m/s, jog to 3.61, sprint above.
+ * So every ambient mob in the world came out above the sprint line or deep in the jog band, and the
+ * whole population moved as though it were late for something.
+ *
+ * Both ambient paths were wrong, and by different amounts:
+ *
+ * - the in-room shuffle ran at `HUNT_SPEED / 2` — 3.0 m/s, a jog. Its own comment already called it
+ *   *"an amble"*, so the intent was right and only the number was stale: it predates the ladder.
+ * - **the room-to-room walk ran at the full chase pace**, because `walkTo` and a live quarry share one
+ *   step site. Patrols and the mundane wander are the commonest movement in the world, and all of it
+ *   was a dead sprint.
+ *
+ * 1.5 m/s sits at 80% of the jog threshold rather than against it, which matters because a *remote*
+ * body is eased toward its authoritative position rather than teleported (`entities.ts`), so the speed
+ * the client measures undershoots this one and must not be allowed to land back on a boundary.
+ */
+export const AMBLE_SPEED = HUNT_SPEED / 4;
+
+/**
  * One mob's chase, in progress.
  *
  * `quarry` is an entity id rather than a `Player` so that a disconnect cannot leave a live reference to a
@@ -526,9 +556,10 @@ export function advanceHunts(
     let destination: RoomId;
 
     if (hunt.driftTo !== undefined) {
-      // The shuffle: no policy at all, just motion toward a point in this room, at an amble — half
-      // the chase's pace, because nobody hurries to stand somewhere else. Arrival is within half a
-      // tile; the stall-heal below covers a shuffle aimed somewhere the slide cannot round.
+      // The shuffle: no policy at all, just motion toward a point in this room, at {@link
+      // AMBLE_SPEED}, because nobody hurries to stand somewhere else. This said "an amble" and moved
+      // at a jog until 2026-08-13 — see that constant. Arrival is within half a tile; the stall-heal
+      // below covers a shuffle aimed somewhere the slide cannot round.
       const grid = world.grid(mob.place);
       if (!grid) {
         hunts.delete(id);
@@ -541,7 +572,7 @@ export function advanceHunts(
         continue;
       }
       const intent = normaliseIntent(dx, dy);
-      const distance = Math.min(((HUNT_SPEED / 2) * elapsedMs) / 1000, Math.hypot(dx, dy));
+      const distance = Math.min((AMBLE_SPEED * elapsedMs) / 1000, Math.hypot(dx, dy));
       const startX = mob.x;
       const startY = mob.y;
       const next = stepMovement(grid, mob.x, mob.y, intent.x, intent.y, distance);
@@ -653,9 +684,15 @@ export function advanceHunts(
     const intent = normaliseIntent(dx, dy);
     if (intent.x === 0 && intent.y === 0) continue;
 
+    // **One step site, two errands, and only one of them is in a hurry.** `walkTo` is the mundane
+    // wander and the patrol beat — the commonest movement in the world — while a live quarry is a
+    // chase; they share this code and shared its pace until 2026-08-13, so every patrolling guard
+    // crossed the map at a dead sprint. `pursuit.ts`'s rule that a hunter gains on you is a rule
+    // about *hunting*, and it is untouched: only the errand with no quarry slows down.
+    const pace = hunt.walkTo !== undefined ? AMBLE_SPEED : HUNT_SPEED;
     // Never overshoot the doorway: the same clamp the player's route walker uses, and for the same reason
     // — overshooting is what makes a follower orbit the thing it is walking at.
-    const distance = Math.min((HUNT_SPEED * elapsedMs) / 1000, Math.hypot(dx, dy));
+    const distance = Math.min((pace * elapsedMs) / 1000, Math.hypot(dx, dy));
     const before = mob.roomId;
     const startX = mob.x;
     const startY = mob.y;
