@@ -1,7 +1,7 @@
 # Handoff
 
-_Last updated 2026-08-13, the day the world's look was chosen. Read this first; it is the shortest
-path back into the project._
+_Last updated 2026-08-13 (late), the day the world got its look, its weather, and its people. Read
+this first; it is the shortest path back into the project._
 
 ---
 
@@ -543,6 +543,47 @@ the 2D client's cards once). Azder and Trewe enter fine. A `greybox-check` test 
 reads 0 and pointer clicks do not resolve; front the pane before judging anything visual. Ollama
 inference needs `--cpu` when ComfyUI holds the GPU. `gh auth setup-git` fixed the 403s. CLAUDE.md
 gotcha 8 (no TS parameter properties) came from client3d.
+
+### Start here — 2026-08-13, late: everyone has a body
+
+**The owner went to bed with the world full of capsules and wakes up to people in it.** Six more
+slices landed after the day block below; `main` runs from `189aadf` through the night's work. The
+suite is **2,749 green, 0 skipped** with **both** `GAME_NATURE_KIT` and `GAME_VILLAGE_KIT` set.
+
+- **M7a** `9caae58` — the wire learns appearance. `shared/appearance.ts` is the authority (pure,
+  I/O-free): `EntityView` gains `model`, `gear`, `yaw`, **additively** — no version bump, the 2D
+  client compiles untouched, because character creation still lives only there and a break would
+  strand every new character. 99.0% of 1,503 templates resolve to a real outfitted humanoid.
+- **M7b** `189aadf` — the bodies. Base meshes + outfit parts composed on one 65-joint skeleton with
+  covered regions culled per vertex (a dressed male keeps 2,922 of 12,566 triangles — parts
+  *replace*, measured at up to −147 mm inside the naked silhouette). 16-clip animation state
+  machine, weapons in hand, nameplates, damage numbers, `Death01` held until despawn. Body pool 24
+  rigs; over the cap a body draws as a capsule, so the cap bounds performance, never correctness.
+- **Angle lock** `20eb6bc` — the owner's chosen pitch is permanent (`localStorage`, migrating the
+  `sessionStorage` pose in on first read); Shift+wheel tilt retired behind `PITCH_LOCKED`.
+- **Female mobs** `6c8f295` — `BODY_WORDS` had no `female` row, so **every mob in the world was
+  male**. 78 override rows re-bodied by a deterministic pass, no LLM: the MUD's own keyword lists
+  carry the fact (two Newhaven citizens share a name and differ only there). The full LLM re-sweep
+  is **left for the owner** — its quality history wants a human eye.
+- **The orbit camera** (task #33) was building when this was written. If `git log` shows it, it
+  landed under the same verification; if not, its brief is in the task and its files are untouched.
+
+**Morning eyes-on list** (server already restarted; just refresh):
+1. Azder stands in **the Overgrown Field, room 41260** — kobolds in this field and, through
+   next-room vision, the three around it. `__debug3d.bodies` should read `refused: 0`.
+2. **`wear` a mail shirt** — torso *and* sleeves change with no reload. This is the one path no
+   headless test can reach (`index.ts` binds its socket at import), so it is the real check.
+3. **Wield a sword, then a mace** — the sword appears, the mace leaves the hand empty *on purpose*
+   (1,888 of 7,415 hand items have meshes; empty beats wrong).
+4. **Kill something** — the swing rotates A/B/C over rounds, numbers rise, the corpse falls and holds.
+5. Verified live already, so it is not on you: every character asset serves over HTTP with the right
+   content type (bodies, all 20 parts, both animation libraries, weapons, textures — 35 MB).
+
+**Known gaps, all deliberate:** bodies are bald (hair is chargen identity, which the 2D client
+owns); mobs have empty hands (no equipment list until Phase 16); 25 MB of uncompressed atlas is 71%
+of the payload and heads the deferred KTX2 slice; monster models still unsourced (Quaternius's
+animated-animal packs are pre-2022 flat-colour and the art rule forbids mixing eras — **Ultimate
+Monsters on their Patreon is a purchase decision for the owner**).
 
 ### 2026-08-13: the look is chosen, and its packs are on disk
 
