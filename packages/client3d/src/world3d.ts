@@ -286,6 +286,20 @@ export class World3D implements ChunkSink {
   }
 
   /**
+   * Click-to-move's gate: has this tile index — `ty * grid.width + tx`, the same key `stateOf` reads
+   * below and `vision.ts`'s `computeVisible` writes — ever been seen.
+   *
+   * `true` before the first `seen` snapshot arrives, matching {@link stateOf}'s own default: *"before
+   * the `seen` snapshot arrives everything is drawn present"*, so a click in the first frame after a
+   * `zone` message is not refused by a client-side gate answering a question the server has not
+   * answered yet either.
+   */
+  hasSeenTile(index: number): boolean {
+    const seen = this.seen;
+    return seen ? bitsetHas(seen, index) : true;
+  }
+
+  /**
    * The character moved to a new room — the `room` message.
    *
    * Recomputes the lit set: this room and every room one exit away, which is the MUD's own

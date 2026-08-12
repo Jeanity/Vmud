@@ -101,6 +101,20 @@ export function metresOfPixel(px: number): number {
   return px * WORLD_SCALE;
 }
 
+/**
+ * The inverse of {@link metresOfPixel} — simulation pixels from a metres position.
+ *
+ * Pointer click-to-move needs this: a pointer ray meets the ground in renderer metres, and the tile
+ * it landed on, the `moveTo` it sends and the `seen` bitset it is gated on are all in simulation
+ * pixels. `WORLD_SCALE` is `space.ts`'s (`@mygame/shared`) — this file cannot own the constant, only
+ * the direction it runs, because the axis contract has to stay the one file every determinism check
+ * agrees with (see `space.ts`'s own header). Division rather than a second stored reciprocal, because
+ * a pointer click is once a frame at most and is nowhere near the budget that would justify it.
+ */
+export function pixelOfMetres(metres: number): number {
+  return metres / WORLD_SCALE;
+}
+
 /** Metres east/south of the frame origin, from a tile coordinate. */
 export function metresOfTile(tile: number): number {
   return tile * METRES_PER_TILE;

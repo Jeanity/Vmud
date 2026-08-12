@@ -183,7 +183,7 @@ export function fogTint(base: Color, state: FogState, out = new Color()): Color 
 /**
  * The three tints for one base colour, packed `[unseen rgb, remembered rgb, visible rgb]`.
  *
- * Nine floats a material, 112 materials — three kilobytes for the whole world's fog of war, built once
+ * Nine floats a material, 113 materials — four kilobytes for the whole world's fog of war, built once
  * in the pool's constructor and read with an offset from {@link FOG_INDEX} thereafter.
  */
 export function fogTintRow(base: Color): Float32Array {

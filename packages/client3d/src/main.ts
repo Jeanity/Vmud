@@ -11,9 +11,9 @@
  *
  * Wired, because M3's brief names them: `welcome`, `zone`, `seen`, `seenDelta`, `door`, `room`,
  * `self`, `entityEnter`, `entityLeave`, `entityUpdate`, `entityMoved`, `log`, `rejected`, and
- * `path` — the last because it drives the prediction gate (`serverWalking` zeroes the intent while
- * the server is walking you), which is part of the reconciliation semantics being carried over even
- * though nothing here can *start* a route yet.
+ * `path` — which at M3 only drove the prediction gate (`serverWalking` zeroes the intent while the
+ * server is walking you). Click-to-move gives it a second job: the destination marker is positioned
+ * from this same message, never from the click itself — see the handler's own comment.
  *
  * Not wired, each for a reason rather than by omission:
  *
@@ -21,7 +21,7 @@
  * |---|---|
  * | `attackResolved`, `died` | No combat visuals until M7. The plan notes the *2D* client had no handler for these either until protocol 22. |
  * | `places`, `group` | DOM panels (`placemap.ts`, `grouproster.ts`) that owe the renderer nothing. Pure UI, and copying 600 lines of it would say nothing about whether the 3D world streams. |
- * | `pathFailed` | The refusal already arrives as a `log` line, which is rendered. The 2D client's extra flash is a 2D effect. |
+ * | `pathFailed` | The refusal already arrives as a `log` line, which is rendered. The 2D client's extra flash is a 2D effect, and click-to-move's client-side seen-gate means most refusals this client could cause never reach the server to answer at all — see `pointer.ts`'s header. |
  * | `pong` | No latency HUD. Nothing sends `ping`. |
  * | `loggedOut`, `charRolled` | The handshake this client implements stops short of both — see `login.ts`. |
  *
@@ -49,19 +49,22 @@
 
 import { WebGLRenderer } from 'three';
 
-import { samePlace, type Direction, type Place } from '@mygame/shared';
+import { TILE_SIZE, samePlace, type Direction, type Place } from '@mygame/shared';
 
 import { EntityLayer } from './entities.ts';
-import { metresOfPixel } from './frame.ts';
+import { metresOfPixel, pixelOfMetres } from './frame.ts';
 import { Input, intoFormControl } from './input.ts';
 import { LogPanel } from './log.ts';
 import { LoginGate } from './login.ts';
+import { Marker } from './marker.ts';
 import { Net } from './net.ts';
 import { SHADOW_MAP_TYPE, type ShadowFit } from './night.ts';
 import { Grade, TONE_MAPPINGS, type ToneMapping } from './post.ts';
+import { PointerControl, type PointerTarget } from './pointer.ts';
 import { Rain } from './rain.ts';
 import { CameraRig } from './rig.ts';
 import { MAX_WINDOW_CHUNKS, WINDOW_CELLS_X, WINDOW_CELLS_Y, WINDOW_MARGIN } from './streamer.ts';
+import { unprojectToGround } from './unproject.ts';
 import { World3D } from './world3d.ts';
 
 /* -------------------------------------------------------------------------- */
@@ -80,6 +83,8 @@ const world = new World3D();
 const rig = new CameraRig();
 const entities = new EntityLayer(world.scene, world.pool);
 const input = new Input();
+const marker = new Marker(world.scene, world.pool);
+const pointer = new PointerControl();
 
 const canvasHost = document.getElementById('view');
 if (!canvasHost) throw new Error('missing element #view');
@@ -126,6 +131,9 @@ let logTyping = false;
 let gateUp = true; // the overlay is visible from the first paint
 const applyTyping = (): void => {
   input.typing = logTyping || gateUp;
+  // Composed identically to `input.typing` — a click aimed at the command line or the login card must
+  // never fall through to the world. `pointer.ts`'s header, and `CLAUDE.md` gotcha 5a's discipline.
+  pointer.typing = input.typing;
 };
 login.onVisibility = (visible) => {
   gateUp = visible;
@@ -147,13 +155,77 @@ net.onStateChange = (state) => {
   if (state === 'open') login.onConnected();
 };
 
-input.onTravel = (dir: Direction) => net.send({ t: 'move', dir });
+input.onTravel = (dir: Direction) => {
+  net.send({ t: 'move', dir });
+  // Taking an exit is manual control exactly as pressing a movement key is — `scene.ts:4681-4689`'s
+  // `takeExit` grabs the wheel back from *both* a server-walked path and a live drag, because `update`
+  // (there) or `frame` (here) only watch the steering keys and cannot notice a vertical step on its own.
+  if (serverWalking || pointer.pointerDown) {
+    net.send({ t: 'stop' });
+    serverWalking = false;
+    pointer.cancel();
+  }
+};
 input.onManual = () => {
+  // Touching a movement key takes the wheel back from a held pointer too, on the same press edge —
+  // `scene.ts:4397-4410`'s single grab covers both a server-walked path and a live drag.
+  pointer.cancel();
   if (!serverWalking) return;
   net.send({ t: 'stop' });
   serverWalking = false;
 };
 input.attach();
+
+/* -------------------------------------------------------------------------- */
+/* Click-to-move and hold-to-steer                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Screen point to world tile, the composition `pointer.ts`'s header promises: a ground-plane
+ * unprojection (`unproject.ts`) through metres back to simulation pixels (`frame.ts`'s
+ * `pixelOfMetres`, the inverse of `space.ts`'s `WORLD_SCALE`) to a tile index tested against the
+ * `seen` bitset (`World3D.hasSeenTile`) — the same `ty * grid.width + tx` maths `vision.ts`'s
+ * `computeVisible` writes and `fogOfWar.ts`'s per-chunk states read.
+ *
+ * The plane is the *player's own* ground: `world.groundAt(self.x, self.y)`, not the tile eventually
+ * clicked — see `unproject.ts`'s header for why one flat plane is the right amount of truth at
+ * grey-box, and gated on there being a body to plant it under at all.
+ */
+pointer.resolve = (ndcX: number, ndcY: number): PointerTarget | undefined => {
+  const self = entities.self();
+  if (!self) return undefined;
+  const hit = unprojectToGround(rig.camera, ndcX, ndcY, world.groundAt(self.x, self.y));
+  if (!hit) return undefined;
+  const simX = pixelOfMetres(hit.x);
+  const simY = pixelOfMetres(hit.z);
+  const tx = Math.floor(simX / TILE_SIZE);
+  const ty = Math.floor(simY / TILE_SIZE);
+  const grid = world.grid;
+  const seen = grid !== undefined && world.hasSeenTile(ty * grid.width + tx);
+  return { tx, ty, simX, simY, seen };
+};
+
+pointer.onPress = (target) => {
+  // Clicking the world means you want to play, not type — `scene.ts:2521-2524`'s reasoning: done
+  // explicitly because a click that left the caret in the log would silently swallow the next WASD.
+  if (log.inputFocused) log.blurInput();
+  // The client-side half of the seen-gate: `moveTo` only ever goes out for ground already in the
+  // `seen` bitset. The server would refuse an unseen tile regardless (`pathFailed`'s `'unexplored'`);
+  // see `pointer.ts`'s header for why this class asks first rather than letting every ray-plane click
+  // make the round trip. `target` is `undefined` off the ground plane — nothing to send either way.
+  if (target?.seen) net.send({ t: 'moveTo', tx: target.tx, ty: target.ty });
+};
+
+/**
+ * A hold crossed `pointer.ts`'s `HOLD_THRESHOLD_MS` — `scene.ts:2669-2677`'s pair: the route the click
+ * fired has to go, because the player is now steering by hand.
+ */
+pointer.onSteerStart = () => {
+  net.send({ t: 'stop' });
+  serverWalking = false;
+};
+
+pointer.attach(renderer.domElement);
 
 /* -------------------------------------------------------------------------- */
 /* Messages                                                                    */
@@ -170,6 +242,10 @@ net.on('welcome', (message) => {
   // A reconnect spawns a fresh server-side player whose intent is zero, whatever this client last
   // sent down the old socket.
   resendIntent = true;
+  // Whatever the old body was doing is nobody's business now — `scene.ts:2145-2152`'s reconnect
+  // handling drops the same two things, for the same reason `buildZone` does below.
+  marker.hide();
+  pointer.cancel();
 });
 
 net.on('zone', (message) => {
@@ -178,6 +254,12 @@ net.on('zone', (message) => {
   // Everyone else was in the Place just left; the local body is what the camera follows.
   entities.clear(true);
   resendIntent = true;
+  // The route was drawn in the old map's tiles, which mean nothing here — `scene.ts:2878-2886`'s
+  // `buildZone`: the server sends a fresh `path` if it is still walking us somewhere, and a drag in
+  // flight was aimed at ground that has just been replaced, so the button has to be pressed again.
+  serverWalking = false;
+  marker.hide();
+  pointer.cancel();
 });
 
 net.on('seen', (message) => {
@@ -221,8 +303,20 @@ net.on('entityMoved', (message) => {
 
 net.on('path', (message) => {
   // An empty array is the protocol's "no path", whether the route arrived, was abandoned, or was
-  // dropped by a step through an exit. Nothing draws it at M3; it gates prediction.
+  // dropped by a step through an exit. At M3 it only gated prediction; click-to-move gives it a
+  // second job — `scene.ts:2767-2797`'s `drawPath`, minus the line: the marker sits at the *last*
+  // point of the server's own route, authoritative rather than wherever the click's ray landed, so a
+  // refused destination leaves an already-drawn marker alone exactly as `scene.ts:2808-2809` does —
+  // nothing here reacts to `pathFailed` at all, on purpose.
   serverWalking = message.points.length > 0;
+  const destination = message.points[message.points.length - 1];
+  if (destination) {
+    const simX = (destination.tx + 0.5) * TILE_SIZE;
+    const simY = (destination.ty + 0.5) * TILE_SIZE;
+    marker.show(metresOfPixel(simX), world.groundAt(simX, simY), metresOfPixel(simY));
+  } else {
+    marker.hide();
+  }
 });
 
 net.on('log', (message) => log.write(message.channel, message.text));
@@ -255,11 +349,27 @@ function frame(now: number): void {
   fps = seconds > 0 ? 1 / seconds : fps;
   renderer.info.reset();
 
+  // Taken before the step below and reused after it: `entities.step` mutates this same `Body` in
+  // place, so one lookup serves both the *pre*-step position a held pointer steers from and the
+  // *post*-step position the camera follows.
+  const self = entities.self();
+
+  // Once a frame, on the position the character was at when this frame began — `scene.ts:2657-2694`'s
+  // `updateDrag` reads `self.x/self.y` before `stepMovement` runs for the same reason: the frame has
+  // not decided where the body is going yet, so the heading is aimed from where it last settled. See
+  // `pointer.ts`'s header for why this cannot instead wait for the next `pointermove`.
+  if (self) pointer.tick(now, self.x, self.y);
+
   const raw = input.intent();
+  // The joystick outranks both the keyboard and a stale server route, exactly as `scene.ts:4431-4438`
+  // ranks them: it is a deliberate, held instruction, so it beats a route it has already told the
+  // server to drop and it beats the keyboard for the one frame a key goes down before `onManual` has
+  // cancelled the drag.
+  const pointerIntent = pointer.steering ? pointer.intent() : undefined;
   // A key held *across* a click is being ignored by the server for as long as the route lasts, so
   // the intent is zeroed rather than the raw keys: nothing is predicted that the character is not
   // doing, and the `steer 0,0` that goes out reads as a key release rather than as a cancellation.
-  const intent = serverWalking ? { x: 0, y: 0 } : raw;
+  const intent = pointerIntent ?? (serverWalking ? { x: 0, y: 0 } : raw);
   if (resendIntent || intent.x !== lastIntentX || intent.y !== lastIntentY) {
     resendIntent = false;
     lastIntentX = intent.x;
@@ -269,7 +379,6 @@ function frame(now: number): void {
 
   entities.step(seconds, world.grid, intent, canMovePredicted);
 
-  const self = entities.self();
   if (self) {
     // Recentred on the *predicted* position, for the same reason the 2D client's lit set is:
     // streaming a fifth of a room behind the character shows its seam every time they turn round.
@@ -293,6 +402,7 @@ function frame(now: number): void {
   entities.render(groundAt);
 
   world.pool.pulse(now / 1000);
+  marker.pulse(now / 1000);
 
   grade.render(seconds);
 }
@@ -374,6 +484,23 @@ const debug = {
     const self = entities.self();
     return self ? { x: self.x, y: self.y } : undefined;
   },
+
+  /* ------------------------------------------------------------- click-to-move */
+
+  /** Where the pointer currently resolves to, simulation pixels — `null` when not held or off the ground. */
+  get clickTarget(): { x: number; y: number } | null {
+    const target = pointer.lastTarget;
+    return target ? { x: target.simX, y: target.simY } : null;
+  },
+  /** Whether a hold has crossed the threshold and is currently driving a steer intent. */
+  get steering(): boolean {
+    return pointer.steering;
+  },
+  /** Whether the primary pointer button is currently held over the canvas. */
+  get pointerDown(): boolean {
+    return pointer.pointerDown;
+  },
+
   get window(): { cellsX: number; cellsY: number; margin: number; max: number } {
     return { cellsX: WINDOW_CELLS_X, cellsY: WINDOW_CELLS_Y, margin: WINDOW_MARGIN, max: MAX_WINDOW_CHUNKS };
   },

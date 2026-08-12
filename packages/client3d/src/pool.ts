@@ -96,12 +96,22 @@ const WRAPPER_BYTES = WRAPPER_CAPACITY * (16 + 3) * Float32Array.BYTES_PER_ELEME
  *
  * Every placement in a chunk carries the same sector and the same fade, so its material is decided
  * by its archetype alone — which makes the ceiling simply "the archetypes a room plan can contain",
- * i.e. all of them except the two body ones. Nine.
+ * i.e. all of them except the ones that are never part of a room plan. Ten: M4's `glow` archetype
+ * took this from nine to ten, and click-to-move's `marker` does **not** take it to eleven — see below.
  */
-const CHUNK_BUCKET_CEILING = ARCHETYPES.filter((a) => a !== 'self' && a !== 'other').length;
+const CHUNK_BUCKET_CEILING = ARCHETYPES.filter((a) => a !== 'self' && a !== 'other' && a !== 'marker').length;
 
 /** `EntityLayer` takes two and never gives them back: one for you, one for everybody else. */
 const ENTITY_WRAPPERS = 2;
+
+/**
+ * `marker.ts` takes one and never gives it back — the destination ring click-to-move drops under the
+ * pointer. Excluded from {@link CHUNK_BUCKET_CEILING} for the same reason `self`/`other` are: it is
+ * never a placement `planChunk` produces, so counting it against every one of {@link
+ * MAX_WINDOW_CHUNKS} chunks would charge the ceiling for wrappers the streamer can never actually ask
+ * a room to hold, the same over-count `ENTITY_WRAPPERS` was carved out to avoid at M3.
+ */
+const MARKER_WRAPPERS = 1;
 
 /**
  * Wrappers minted in the constructor — **the architectural ceiling, allocated once**.
@@ -114,18 +124,19 @@ const ENTITY_WRAPPERS = 2;
  *
  * So the whole pool is built at startup from a number that is a product of two constants: the window
  * can hold {@link MAX_WINDOW_CHUNKS} chunks and a chunk can want {@link CHUNK_BUCKET_CEILING}
- * buckets. 70 x 10 + 2 = **702 wrappers, 1.71 MB of per-instance buffer, and not one byte more for
- * the rest of the session.** (M4's `glow` archetype took the per-chunk ceiling from nine to ten.)
- * Measured against the real world, the walk's high-water is a sixth of that, so the headroom is real;
- * the reason to allocate the ceiling anyway is that the ceiling is the thing that can be *reasoned*
- * about, and an empirical high-water is only ever a statement about the zones somebody happened to
- * walk.
+ * buckets. 70 x 10 + 2 + 1 = **703 wrappers, 1.71 MB of per-instance buffer, and not one byte more for
+ * the rest of the session.** (M4's `glow` archetype took the per-chunk ceiling from nine to ten;
+ * click-to-move's `marker` adds the trailing `+ 1`, alongside the bodies rather than inside the
+ * per-chunk term — see {@link MARKER_WRAPPERS}.) Measured against the real world, the walk's
+ * high-water is a sixth of that, so the headroom is real; the reason to allocate the ceiling anyway is
+ * that the ceiling is the thing that can be *reasoned* about, and an empirical high-water is only ever
+ * a statement about the zones somebody happened to walk.
  *
  * The pool does not *cap* at this figure — a bucket that overflowed would still get a wrapper,
  * because dropping geometry to protect a counter is the wrong trade — and {@link
  * LedgerSnapshot.wrappersCreated} exceeding it is exactly how that would be found.
  */
-export const WRAPPER_POOL_SIZE = MAX_WINDOW_CHUNKS * CHUNK_BUCKET_CEILING + ENTITY_WRAPPERS;
+export const WRAPPER_POOL_SIZE = MAX_WINDOW_CHUNKS * CHUNK_BUCKET_CEILING + ENTITY_WRAPPERS + MARKER_WRAPPERS;
 
 /**
  * What the pool has handed out, maintained by the pool itself.

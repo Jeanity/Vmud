@@ -18,11 +18,12 @@
  * means by "dressed by biome: forest→tree wall, cave→rock, city→facade". So:
  *
  * - {@link BIOME_ARCHETYPES} are crossed with all 16 {@link SECTORS}: 3 x 16 = 48.
- * - Everything else gets one material: 9.
- * - Everything except the two body archetypes gets a faded twin (see {@link FADE_OPACITY}): 55.
+ * - Everything else gets one material: 10 (nine at M3; click-to-move's `marker` is the tenth).
+ * - Everything except the three archetypes that never fade (`self`, `other`, `marker` — see
+ *   {@link NEVER_FADED}) gets a faded twin (see {@link FADE_OPACITY}): 55.
  *
- * **112 materials, created once at startup, never again.** That reads like a lot and is not: colour
- * is a uniform rather than a shader define, so all 112 share two compiled programs (opaque and
+ * **113 materials, created once at startup, never again.** That reads like a lot and is not: colour
+ * is a uniform rather than a shader define, so all 113 share two compiled programs (opaque and
  * transparent) and the objects themselves are a few hundred bytes each.
  *
  * ## What M4 added, and what it deliberately did not
@@ -35,9 +36,22 @@
  * - Fog of war is `InstancedMesh.instanceColor` (see `fogOfWar.ts`) — per *instance*, so the three
  *   states are three floats a chunk rather than three times the material pool. Keying them into the
  *   material would have taken 112 to 336 and, worse, made "which state is this room in" a property of
- *   the pool rather than of the room.
+ *   the pool rather than of the room. (336 was the M4 figure; click-to-move's `marker` would make it
+ *   339 had this file taken the same wrong turn.)
  *
  * The pool is still two programs. That was the constraint M4 was asked to respect and it held.
+ *
+ * ## Click-to-move's one addition: `marker`
+ *
+ * The destination ring click-to-move drops under the pointer (`marker.ts`) is a thirteenth archetype
+ * rather than a repaint of `glow` or `portal`, because a pool whose keys are *legible* is the property
+ * `materialKey`'s own docblock names — "a dump of the pool should be legible" — and a ring meaning "you
+ * clicked here" sharing a name with a ring meaning "a way down" or "a way out" is a future reader's
+ * false cognate waiting to happen. It follows `self`/`other`'s pattern exactly, not `glow`'s: never
+ * faded (it is only ever drawn on the camera's own level, exactly where a body is), so it costs one
+ * material and not two, and it is excluded from the per-chunk bucket ceiling in `pool.ts` because it is
+ * never part of a room plan — `marker.ts` acquires its one wrapper once, the way `entities.ts` acquires
+ * two, and never gives it back.
  *
  * ## Geometry is not keyed by biome at all
  *
@@ -82,6 +96,7 @@ export const ARCHETYPES = [
   'landmark',
   'self',
   'other',
+  'marker',
 ] as const;
 
 export type Archetype = (typeof ARCHETYPES)[number];
@@ -101,9 +116,12 @@ const BIOME_KEYED: ReadonlySet<Archetype> = new Set<Archetype>(BIOME_ARCHETYPES)
  * Archetypes that never fade.
  *
  * A body is only ever on your own level — interest management is room-scoped and a room is on one
- * level — so a faded capsule would be a variant nothing can produce.
+ * level — so a faded capsule would be a variant nothing can produce. `marker` joins them for the same
+ * reason: click-to-move only ever aims at ground on the level the player is walking (`main.ts` gates
+ * the unprojection plane on the player's own `groundAt`), so a faded destination ring is equally a
+ * variant nothing can produce.
  */
-const NEVER_FADED: ReadonlySet<Archetype> = new Set<Archetype>(['self', 'other']);
+const NEVER_FADED: ReadonlySet<Archetype> = new Set<Archetype>(['self', 'other', 'marker']);
 
 export const ARCHETYPE_GEOMETRY: Readonly<Record<Archetype, GeometryKey>> = {
   ground: 'box',
@@ -118,6 +136,9 @@ export const ARCHETYPE_GEOMETRY: Readonly<Record<Archetype, GeometryKey>> = {
   landmark: 'cone',
   self: 'capsule',
   other: 'capsule',
+  // A flat ring, exactly `glow`'s shape — see `marker.ts` for why the geometry is shared but the
+  // material is not.
+  marker: 'torus',
 };
 
 /**
@@ -137,6 +158,9 @@ export const ARCHETYPE_GEOMETRY: Readonly<Record<Archetype, GeometryKey>> = {
  *   shadow pass's draw calls, because ground is the one archetype every chunk has.
  * - **`portal` and `glow` do not cast.** They are light sources. A ring that occludes the moon reads
  *   as a hole in the world rather than as a thing that shines.
+ * - **`marker` does not cast**, for the same reason as `portal`/`glow`: it is a UI cue floating a few
+ *   centimetres off the ground, not an object, and a shadow under a destination ring would read as a
+ *   solid disc sitting on the grass rather than as a mark on it.
  * - Everything with height casts, including bodies: the plan's *"soft moon shadows"* is mostly walls
  *   and props, but a character with no shadow floats however good the terrain looks.
  */
@@ -153,6 +177,7 @@ export const ARCHETYPE_CASTS: Readonly<Record<Archetype, boolean>> = {
   landmark: true,
   self: true,
   other: true,
+  marker: false,
 };
 
 /**
@@ -167,10 +192,18 @@ export const ARCHETYPE_CASTS: Readonly<Record<Archetype, boolean>> = {
  * horizontal rings the full emissive treatment"* and stairwells only a *"subtle glow marker"*, and the
  * cheapest way to keep those apart is a value that cannot reach the bloom even if the selection
  * mask fails.
+ *
+ * `marker` sits between the two at 1.1: brighter than the stairwell hint, because a destination the
+ * player just chose should read more insistently than a passive "there is a way down here", but nowhere
+ * near the portal's 5.5 — a walk-to ring is not a gate to somewhere else and must not compete with one
+ * for the eye. Fixed rather than pulsed through this table: `marker.ts` breathes its *scale* instead,
+ * carrying over `scene.ts:2756-2764`'s tween rather than reusing the portal's emissive swing, so it is
+ * never added to `pool.ts`'s `pulse()` list and this number never changes at runtime.
  */
 export const ARCHETYPE_EMISSIVE: Readonly<Partial<Record<Archetype, number>>> = {
   portal: 5.5,
   glow: 0.9,
+  marker: 1.1,
 };
 
 /**
@@ -264,17 +297,23 @@ const OBJECT_COLOUR: Readonly<Record<Archetype, number>> = {
   // Self and others are told apart by colour and by nothing else at M3 — no nameplates until M7.
   self: 0x5fd0ff,
   other: 0xff9a5c,
+  // Near-black, the same reasoning as `portal`/`glow` above: a destination ring emits, it is not lit.
+  marker: 0x1a1710,
 };
 
 /**
  * What the emissive archetypes actually shine, as distinct from what they reflect.
  *
  * The reference's gate is a saturated cyan and the stairwell marker a colder, quieter teal, so that
- * one reads as "somewhere else" and the other as "another floor" without a legend.
+ * one reads as "somewhere else" and the other as "another floor" without a legend. The destination
+ * marker takes a third, warm hue for the same reason: `0xffe9a8` is `scene.ts:822`'s `PATH_COLOUR`,
+ * unchanged — the one piece of the 2D route's look this port keeps, so a player who has used both
+ * clients reads "that is where I am walking" in the same colour on either one.
  */
 export const EMISSIVE_COLOUR: Readonly<Partial<Record<Archetype, number>>> = {
   portal: 0x64e2ff,
   glow: 0x74d9c0,
+  marker: 0xffe9a8,
 };
 
 /** The colour a material key paints. A pure function of the key's three parts. */

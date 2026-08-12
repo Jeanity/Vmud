@@ -31,20 +31,25 @@ describe('the pool key set', () => {
     assert.deepEqual([...GEOMETRY_KEYS], ['box', 'cone', 'torus', 'capsule']);
   });
 
-  it('has exactly 112 materials, and the arithmetic is legible', () => {
-    // 3 terrain archetypes x 16 sectors = 48, plus 9 object archetypes = 57 distinct looks;
-    // everything but the two body archetypes gets a faded twin, so + 55 = 112.
+  it('has exactly 113 materials, and the arithmetic is legible', () => {
+    // 3 terrain archetypes x 16 sectors = 48, plus 10 object archetypes = 58 distinct looks;
+    // everything but the three archetypes that never fade gets a faded twin, so + 55 = 113.
     //
-    // 110 at M3. The two M4 added are `glow` and its twin — the stairwell marker — and that is the
-    // *whole* of M4's growth: the emissive ring is a uniform on an existing material and the
-    // three-state fog of war is a per-instance colour, so neither multiplied this table. See
-    // `prototypes.ts` for why keying fog of war into the material would have taken it to 336.
+    // 110 at M3. M4 added `glow` and its twin — the stairwell marker — the *whole* of M4's growth,
+    // because the emissive ring is a uniform on an existing material and the three-state fog of war is
+    // a per-instance colour, so neither multiplied this table. See `prototypes.ts` for why keying fog
+    // of war into the material would have taken it to 336. Click-to-move added one more: `marker`,
+    // never faded like `self`/`other` so it costs exactly one, not two — 112 to 113.
     const terrain = BIOME_ARCHETYPES.length * SECTORS.length;
     const objects = ARCHETYPES.length - BIOME_ARCHETYPES.length;
     assert.equal(terrain, 48);
-    assert.equal(objects, 9);
-    assert.equal(MATERIAL_KEYS.length, 112);
-    assert.equal(MATERIAL_KEYS.length, terrain + objects + (terrain + objects - 2));
+    assert.equal(objects, 10);
+    assert.equal(MATERIAL_KEYS.length, 113);
+    // The `- 3` is `self`, `other` and `marker` — the archetypes with no faded twin. A literal here
+    // rather than `NEVER_FADED.size` on purpose, the same reasoning the file header gives for the
+    // whole test: recomputing the exclusion from the table under test would let the table widen
+    // silently and this assertion would still agree with it.
+    assert.equal(MATERIAL_KEYS.length, terrain + objects + (terrain + objects - 3));
   });
 
   it('enumerates without duplicates', () => {
@@ -83,9 +88,10 @@ describe('the pool key set', () => {
     const start = pool.snapshot();
     assert.equal(start.geometries, GEOMETRY_KEYS.length);
     assert.equal(start.materials, MATERIAL_KEYS.length);
-    // 70 window chunks x 10 buckets a chunk + 2 for the bodies. Derived, not chosen — see `pool.ts`.
-    // Nine buckets at M3; M4's `glow` archetype is the tenth a single room can want.
-    assert.equal(WRAPPER_POOL_SIZE, 702);
+    // 70 window chunks x 10 buckets a chunk + 2 for the bodies + 1 for the click-to-move marker.
+    // Derived, not chosen — see `pool.ts`. Nine buckets at M3; M4's `glow` archetype is the tenth a
+    // single room can want; the marker is never a bucket at all, only a fixed extra wrapper.
+    assert.equal(WRAPPER_POOL_SIZE, 703);
     assert.equal(start.prewarmed, WRAPPER_POOL_SIZE);
     assert.equal(start.wrappersCreated, WRAPPER_POOL_SIZE, 'the free list is whole before anything asks');
     assert.equal(start.wrappersFree, WRAPPER_POOL_SIZE);
