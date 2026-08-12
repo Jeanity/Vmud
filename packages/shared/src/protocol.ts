@@ -287,6 +287,22 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * `identity` (race, class, the six scores — the sheet shows numbers; the roll showed words) and
  * {@link CharacterSummary} gains `race`/`class`, so the picker can say what a body is.
  *
+ * **Still 31, on purpose — M7a: the wire learns what a body looks like in three dimensions.**
+ * `EntityView` gains `model`, `gear` and `yaw`, and the `x`/`y` doc comment stops lying about its
+ * units. `PLAN-3d-migration.md` §6-M7 planned all three as *replacements* — `sprite` → a model id,
+ * `facing` → a float — and said in as many words that this is the milestone where the Phaser client
+ * stops compiling and the version bumps.
+ *
+ * **It does not, and the coordinator's ruling is why: character creation and `charAdopt` still live
+ * only in the 2D client.** Breaking its protocol would strand every new character with no way to
+ * make one, so the fields land *beside* the old ones. `sprite` and `facing` keep their meanings to
+ * the letter, both renderers read one server, and retiring the 2D vocabulary becomes a later slice's
+ * deliberate act rather than this one's side effect.
+ *
+ * **No bump, because nothing on the wire changed meaning.** Three optional fields a client may ignore
+ * are the same compatibility shape `sky` took, and the version number exists to say *"we can no
+ * longer talk"* — which is not true here. It bumps the day `sprite` goes.
+ *
  * Is 31: **the world gains furniture.** `Room` gains `scenery` — a list of props standing on the
  * floor, each a catalogue name and a tile offset inside the room's own block. It rides on the
  * `zone` message, which already carries whole rooms, so nothing new is sent and nothing is sent
@@ -559,10 +575,79 @@ export interface EntityView {
    * is what stops a peek chaining into the room beyond).
    */
   readonly revealed?: true;
-  /** Position within the room cell, in tiles. Sub-tile precision for smooth movement. */
+  /**
+   * Where this body stands, in **world pixels on its Place's grid** — not tiles, and not an offset
+   * within the room cell.
+   *
+   * The comment here used to say *"within the room cell, in tiles"* and had said so since Phase 7.
+   * It was wrong in both halves: `sim.ts` sends `actor.x`/`actor.y` unchanged, and those are absolute
+   * coordinates on the whole Place's tilemap, measured in pixels at `TILE_SIZE` per tile. Nothing
+   * ever read it as tiles — `scene.ts` and `pickups.ts` both treat it as pixels, and `pickups.ts`
+   * says so in as many words — so this is the doc catching up with the code, not a change.
+   * `PLAN-3d-migration.md` §6-M7 lists it as the third of its three protocol items; corrected here
+   * (M7a) rather than at the breaking change, because a lie in a comment costs whoever reads it next.
+   *
+   * Sub-tile precision, for smooth movement. Divide by `TILE_SIZE` for tiles, or hand the pair to
+   * `toRenderPoint` in `space.ts` for renderer metres.
+   */
   readonly x: number;
   readonly y: number;
   readonly facing: Direction;
+  /**
+   * The 3D mesh this body draws as — **M7a**, and the additive half of §6-M7's first item.
+   *
+   * A prefixed id from `appearance.ts` (`base:Superhero_Male_FullBody`, `creature:wolf`), never a
+   * path: which file under `public/models/` that is stays the renderer's business, exactly as
+   * {@link sprite} and {@link wearing} already are, so a re-stage is not a protocol change.
+   *
+   * **Beside {@link sprite} rather than replacing it, and that is a deliberate deviation from the
+   * plan.** §6-M7 says this milestone is where the Phaser client stops compiling and
+   * `PROTOCOL_VERSION` bumps. It does not, because character creation and `charAdopt` still live
+   * *only* in the 2D client: breaking it would strand every new character with no way to make one.
+   * So both vocabularies ride the wire, `sprite` keeps its meaning to the letter, and retiring it is
+   * a later slice's deliberate act rather than this one's side effect. Nothing was bumped; the
+   * version this shipped under is 31.
+   *
+   * Absent for anything with no body, which is every ground object — the same rule {@link posture}
+   * follows, and for the same reason.
+   */
+  readonly model?: string;
+  /**
+   * Visible garments hung on {@link model} — **M7a**, the equipment half of §6-M7's first item.
+   *
+   * The 3D twin of {@link wearing} and *not* a replacement for it: `wearing` is slot → art class in
+   * the MUD's own 24-slot vocabulary and stays exactly what the 2D client reads, while this is the
+   * six attachment points the Quaternius outfit pack actually has, already resolved to meshes. Both
+   * come out of one pass in `viewOf`, so they cannot disagree about what is on the body.
+   *
+   * A list rather than a record because a renderer walks it once to build a rig and never looks a
+   * slot up by name; it arrives in `GEAR_SLOTS` order, so two characters in the same kit produce
+   * identical payloads and a diff on the wire means something genuinely changed.
+   *
+   * **On the wire for every body, not just yourself** — 15a's rule for `wearing`, which is the whole
+   * point of drawing gear at all: a stranger in mail has to read as a stranger in mail. Re-sent by
+   * the same `afterKitChange` → `syncEntityState` seam every kit change already passes through.
+   *
+   * Absent when nothing is drawn, which is a naked player and every ground object. It is also absent
+   * for a body whose {@link model} is a `creature:` id, since there is no rig to hang anything on.
+   */
+  readonly gear?: readonly { readonly slot: string; readonly part: string }[];
+  /**
+   * Which way this body is turned, as a **renderer yaw in radians** — M7a, §6-M7's second item.
+   *
+   * `0` is north and it runs anticlockwise seen from above (west `+π/2`, south `±π`, east `-π/2`),
+   * because it is `object.rotation.y` in `space.ts`'s axis map for a mesh whose rest forward is
+   * `-Z`. `yawOf` in `space.ts` is the derivation and carries the full argument for the sign.
+   *
+   * **Derived from {@link facing}, which stays.** §6-M7 wanted `facing` *replaced* by a float, on the
+   * grounds that a six-value cardinal makes a 3D character snap while strafing. True — but the
+   * snapping is in the simulation, which holds four headings and no more, so a float today would be
+   * four values wearing a continuous type. This puts the value on the wire in the units a renderer
+   * wants, always present and always correct, and leaves `facing` untouched for the 2D client's four
+   * sheet rows. A genuinely continuous server-side heading is future work and needs no protocol
+   * change when it lands.
+   */
+  readonly yaw?: number;
   /** Fraction in `[0, 1]`. Exact HP is deliberately not exposed for entities that are not you. */
   readonly healthFraction?: number;
   readonly level?: number;

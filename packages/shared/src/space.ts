@@ -36,7 +36,13 @@
  * and an axis convention; they are as true before the renderer exists as after, and keeping them free
  * of it is what lets `worldgen` bake against the same map without pulling a WebGL library into an
  * offline pipeline.
+ *
+ * The one import is `Direction`, and it is a **type**, erased at run time — {@link yawOf} maps the
+ * simulation's own compass onto this axis map, and re-spelling those six words here would be a second
+ * copy of the encoding `CLAUDE.md`'s gotcha 1 already counts three of.
  */
+
+import type { Direction } from './world.ts';
 
 /** Renderer metres per simulation pixel. One tile ({@link TILE_SIZE}) is one metre. */
 export const WORLD_SCALE = 1 / 32;
@@ -83,3 +89,55 @@ export const CAMERA_PITCH_DEGREES = 64;
 
 /** Renderer up. Named rather than spelled out at each camera, because the pitch limit depends on it. */
 export const RENDER_UP: RenderPoint = { x: 0, y: 1, z: 0 };
+
+/**
+ * A compass facing as a **renderer yaw in radians** — M7a, `PLAN-3d-migration.md` §6-M7's second item.
+ *
+ * §6-M7 says `EntityView.facing` must become a float because *"a 6-value cardinal enum makes a 3D
+ * character snap visibly while strafing"*. It does; but the snap is a *simulation* fact — the server
+ * genuinely only holds four headings (`faceDirection` refuses `up` and `down` outright) — so a float
+ * on the wire today would be four values wearing a continuous type. This is therefore the **adapter,
+ * not the fix**: it puts the field on the wire in the units a renderer wants, always present and
+ * always correct, so the day the simulation grows a real heading nothing downstream changes shape.
+ * M7b interpolates between these; a genuinely smooth server-side yaw is a later slice.
+ *
+ * **The number is `object.rotation.y` directly**, in this file's axis map, for a mesh whose rest
+ * forward is `-Z` — which is Three.js' own convention and the Quaternius packs'. No negation, no
+ * offset, no second convention to get wrong: M7b assigns it.
+ *
+ * Working it through, because the sign is the trap this file exists for. `+X` is east and `+Z` is
+ * south, so the frame is right-handed with `+Y` up. A rotation of `θ` about `+Y` sends `(0,0,-1)` to
+ * `(-sin θ, 0, -cos θ)`. At `θ = 0` that is due north; at `θ = π/2` it is `-X`, due **west**. So yaw
+ * runs *anticlockwise seen from above* — north, west, south, east — which is the opposite of a
+ * compass bearing and is stated here rather than left to be discovered:
+ *
+ * ```
+ *   north  0        west  +π/2       south  ±π       east  -π/2
+ * ```
+ *
+ * East is `-π/2` rather than `3π/2` so the range is `(-π, π]`: M7b's shortest-arc interpolation wants
+ * a signed angle, and two representations of one heading is the kind of thing that spins a character
+ * the long way round exactly once per turn.
+ *
+ * **`up` and `down` answer `0`.** A vertical facing has no horizontal heading at all, and the
+ * simulation never produces one — `index.ts`'s `faceDirection` returns early on both, on the 2D note
+ * that LPC has four sheet rows and no stair-ward one. Returning north rather than `undefined` keeps
+ * the wire field non-optional in practice and keeps this function total; a caller that ever sees one
+ * has a bug upstream, not here.
+ */
+export function yawOf(facing: Direction): number {
+  switch (facing) {
+    case 'north':
+      return 0;
+    case 'west':
+      return Math.PI / 2;
+    case 'south':
+      return Math.PI;
+    case 'east':
+      return -Math.PI / 2;
+    // No horizontal heading exists; see the note above.
+    case 'up':
+    case 'down':
+      return 0;
+  }
+}

@@ -7,9 +7,10 @@ import {
   RENDER_UP,
   WORLD_SCALE,
   toRenderPoint,
+  yawOf,
 } from './space.ts';
 import { ROOM_STRIDE, ROOM_TILES, PLAYER_RADIUS, PLAYER_SPEED, TILE_SIZE } from './tilemap.ts';
-import { DIRECTION_DELTA } from './world.ts';
+import { DIRECTIONS, DIRECTION_DELTA } from './world.ts';
 
 describe('the coordinate adapter', () => {
   it('walking north moves -Z', () => {
@@ -72,5 +73,62 @@ describe('the coordinate adapter', () => {
     const twoSteps = toRenderPoint(100 + 200, -70 - 100, 1.5);
     assert.deepEqual(twoSteps, oneStep);
     assert.deepEqual(toRenderPoint(0, 0), { x: 0, y: 0, z: 0 }, 'and the origin is the origin');
+  });
+});
+
+/**
+ * The heading half of the same map — M7a, `PLAN-3d-migration.md` §6-M7's second item.
+ *
+ * This is the headline test's sibling and it guards the same class of bug: a yaw whose sign is
+ * reversed leaves every character correctly *animated* and facing the wrong way, in a world where the
+ * camera looks down at 64° and "wrong way" is not obvious from one frame. So the cardinals are
+ * asserted against `DIRECTION_DELTA` and `toRenderPoint` — the two things that already define which
+ * way north is — rather than against four written-down constants that could all be wrong together.
+ */
+describe('the heading adapter', () => {
+  /** Where a mesh at this yaw is looking, in renderer space. Rest forward is `-Z`; see `yawOf`. */
+  const forward = (yaw: number) => ({ x: -Math.sin(yaw), z: -Math.cos(yaw) });
+  const near = (a: number, b: number) => Math.abs(a - b) < 1e-12;
+
+  it('points each cardinal the way a step in that direction moves', () => {
+    // The claim, derived rather than asserted: turn to face north, and the direction you are looking
+    // is the direction `DIRECTION_DELTA.north` would carry you. If either table flips, this fails.
+    for (const dir of ['north', 'east', 'south', 'west'] as const) {
+      const [dx, dy] = DIRECTION_DELTA[dir];
+      const step = toRenderPoint(dx * TILE_SIZE, dy * TILE_SIZE);
+      const look = forward(yawOf(dir));
+      assert.ok(near(look.x, step.x), `${dir}: looking x=${look.x}, walking x=${step.x}`);
+      assert.ok(near(look.z, step.z), `${dir}: looking z=${look.z}, walking z=${step.z}`);
+    }
+  });
+
+  it('puts north at zero and runs anticlockwise from there', () => {
+    // Spelled out because it is the opposite of a compass bearing and somebody will assume otherwise.
+    assert.equal(yawOf('north'), 0);
+    assert.equal(yawOf('west'), Math.PI / 2);
+    assert.equal(yawOf('south'), Math.PI);
+    assert.equal(yawOf('east'), -Math.PI / 2);
+  });
+
+  it('answers in the signed range, so a turn takes the short way round', () => {
+    // East as `3π/2` would be the same heading and would spin a character 270° to reach it.
+    for (const dir of DIRECTIONS) {
+      const yaw = yawOf(dir);
+      assert.ok(yaw > -Math.PI && yaw <= Math.PI, `${dir} yaw ${yaw} is outside (-π, π]`);
+      assert.ok(Number.isFinite(yaw), `${dir} yaw must be a number`);
+    }
+  });
+
+  it('answers for all six directions, including the two with no heading', () => {
+    // `up` and `down` are in the `Direction` type and the simulation never produces them —
+    // `faceDirection` returns early on both. Total anyway, so no caller has to guard.
+    assert.equal(DIRECTIONS.length, 6);
+    assert.equal(yawOf('up'), 0, 'a vertical facing has no horizontal heading; north is the resting value');
+    assert.equal(yawOf('down'), 0);
+  });
+
+  it('gives the four cardinals four distinct yaws', () => {
+    const yaws = new Set((['north', 'east', 'south', 'west'] as const).map(yawOf));
+    assert.equal(yaws.size, 4, 'two facings sharing a yaw would make a turn invisible');
   });
 });

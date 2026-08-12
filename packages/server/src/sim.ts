@@ -65,6 +65,10 @@ import {
   armourClassFrom,
   wornBulk,
   wornIds,
+  // M7a: what a body draws as in 3D, and which way it is turned. Both pure, both in `shared` for the
+  // usual reason — the renderer draws the answer and the server is the only thing allowed to decide it.
+  appearanceOf,
+  yawOf,
   experienceToNext,
   rollStarterKit,
   weaponFrom,
@@ -2203,8 +2207,26 @@ export class Simulation {
    * did it for players, so the two cannot come to disagree about what a body looks like.
    *
    * Exact hit points are still not on it. `healthFraction` is what a stranger may know about you.
+   *
+   * **M7a: the 3D fields ride here and nowhere else.** `model`, `gear` and `yaw` are derived from
+   * facts already on this object — the sprite key, the worn kit and the compass facing — by pure
+   * functions in `@mygame/shared`, so every path that already re-sent a view re-sends the new fields
+   * for free. That is the point of putting them here rather than at the six senders: `afterKitChange`
+   * has re-published a wearer's view since the owner's shield report of 2026-08-07, and a wear or a
+   * remove therefore reaches the mesh without a line being added anywhere else.
    */
   viewOf(actor: Actor): EntityView {
+    // Built once and spread, because `wearing` and `gear` are the same fact in two vocabularies and
+    // computing them from two different reads of `actor.equipped` is how they would come to disagree.
+    const wearing =
+      isPlayer(actor) && Object.keys(actor.equipped).length > 0
+        ? wornIds(actor.equipped, this.artClassOf)
+        : undefined;
+    const look = appearanceOf({
+      kind: actor.kind,
+      sprite: actor.sprite,
+      ...(wearing ? { wearing } : {}),
+    });
     return {
       id: actor.id,
       kind: actor.kind,
@@ -2235,9 +2257,16 @@ export class Simulation {
       // What they are wearing, so the body on screen is the one the character sheet describes.
       // Players only — a mob's appearance is its template's `sprite`, and dressing mobs from an
       // equipment list is Phase 16's, when they have gear worth taking off them.
-      ...(isPlayer(actor) && Object.keys(actor.equipped).length > 0
-        ? { wearing: wornIds(actor.equipped, this.artClassOf) }
-        : {}),
+      ...(wearing ? { wearing } : {}),
+      // M7a. `sprite` above is untouched and still says `human`; these say the same thing in the
+      // renderer's vocabulary. `appearanceOf` answers `undefined` only for ground objects, which
+      // never reach this function — every caller passes an `Actor` — so the guard is a type narrowing
+      // rather than a case anybody expects to hit.
+      ...(look ? { model: look.model } : {}),
+      ...(look?.gear ? { gear: look.gear } : {}),
+      // Derived rather than stored: the simulation holds four headings, so a yaw field of its own
+      // would be a second copy of `facing` to keep in step. `space.ts` owns the axis argument.
+      yaw: yawOf(actor.facing),
     };
   }
 
