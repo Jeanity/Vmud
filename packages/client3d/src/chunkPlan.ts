@@ -37,15 +37,17 @@
  *    thickness a correctness requirement — you must not be able to see into a room you cannot reach —
  *    so the difference is in the geometry, where it cannot be lost to a palette change.
  *
- * ## M4's one addition: a `glow` ring at every stairwell
+ * ## The rings: portals only — the stairwell glow was retired by the owner
  *
- * §6-M4 asks for *"emissive portal rings on `portal` edges … plus vertical stairwell features; give
- * stairwells a subtle glow marker, the horizontal rings the full emissive treatment"*. M2's seam
- * ruling left exactly **two** horizontal portal edges in the world and moved every other non-seam
- * portal to a vertical link — which is not an edge at all, it is a `stair` feature. So the two are
- * dressed differently on purpose: the ring gets an emissive that clears the bloom threshold, the
- * stairwell gets a flat ring on its floor at a fifth of that, under the threshold, so a way down
- * announces itself across a dark room without competing with a gate to somewhere else.
+ * §6-M4 asked for *"emissive portal rings on `portal` edges … give stairwells a subtle glow
+ * marker"*, and M4 built both. M2's seam ruling left exactly **two** horizontal portal edges in
+ * the world (plus whatever an override adds — the faerie ring is one), and every other vertical
+ * link is a `stair` feature that {@link planStair} draws as a real flight or ramp, ascending and
+ * descending alike. The owner, standing in front of one on 2026-08-13: *"I don't think we need the
+ * portal circle if the stairs are visible."* The flight **is** the marker — geometry announcing
+ * itself beats a ring annotating geometry — so stairs place no `glow` and the emissive ring
+ * survives only where a crossing has no shape at all: the true portals. (The `glow` archetype
+ * stays registered — `marker.ts` shares its torus, and an unplaced archetype costs nothing.)
  */
 
 import { CARDINALS, LEVEL_SEPARATION, hashCell, type Cardinal, type RoomScene } from '@mygame/shared';
@@ -492,8 +494,8 @@ export function planChunk(input: ChunkPlanInput): readonly Placement[] {
       );
       continue;
     }
+    // No glow beside it: the flight is its own marker — the owner's ruling, see the header.
     planStair(put, feature, x0, z0, elevation, scene);
-    planStairGlow(put, feature, x0, z0, elevation);
   }
 
   /* ----------------------------------------------------------------- the lid */
@@ -591,43 +593,5 @@ function planStair(
   }
 }
 
-/**
- * The flat marker a flight lays around its own mouth. M4.
- *
- * At the room's floor level and not the flight's, always: the marker's job is to be visible from
- * across the room at a 64 degree camera, and a ring that climbed with the steps would be edge-on from
- * exactly the direction a player approaches from. `rx = pi/2` lays the torus in the XZ plane; the
- * unit torus has radius 1, so a uniform scale by {@link DIMENSIONS.glowRadius} keeps the tube in
- * proportion the same way the portal ring does.
- */
-function planStairGlow(
-  put: (
-    archetype: Archetype,
-    x: number,
-    y: number,
-    z: number,
-    sx: number,
-    sy: number,
-    sz: number,
-    rx?: number,
-    ry?: number,
-    rz?: number,
-  ) => void,
-  feature: Extract<RoomScene['features'][number], { t: 'stair' }>,
-  x0: number,
-  z0: number,
-  elevation: number,
-): void {
-  const run = feature.span * METRES_PER_TILE;
-  const radius = DIMENSIONS.glowRadius;
-  put(
-    'glow',
-    x0 + metresOfTile(feature.tx) + run / 2,
-    elevation + DIMENSIONS.glowLift,
-    z0 + metresOfTile(feature.ty) + run / 2,
-    radius,
-    radius,
-    radius,
-    Math.PI / 2,
-  );
-}
+// `planStairGlow` lived here from M4 to 2026-08-13 — a flat `glow` torus on the floor at every
+// flight's mouth. Retired on the owner's ruling (see the header): the flight is its own marker.

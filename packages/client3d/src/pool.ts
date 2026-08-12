@@ -662,6 +662,15 @@ export class ScenePool {
         // leave a full-strength glow behind a 30% ring.
         material.emissiveIntensity = faded ? emissive * FADE_OPACITY : emissive;
         if (kind === 'portal') this.pulsing.push({ material, base: material.emissiveIntensity });
+        // The ring hangs millimetres from the surfaces it decorates (a cave mouth's strip, an
+        // arch), and the doubled 96 m dolly stretched the depth buffer until it could no longer
+        // separate them — the owner watched the Faerie Court's ring shimmer. Slope-scaled offset
+        // wins that tie in screen space at every distance, where a bigger lift would only move
+        // the same fight further away. Depth semantics are otherwise untouched: the ring still
+        // writes and tests depth like any opaque thing.
+        material.polygonOffset = true;
+        material.polygonOffsetFactor = -2;
+        material.polygonOffsetUnits = -2;
       }
       material.name = key;
       this.materials.set(key, material);
