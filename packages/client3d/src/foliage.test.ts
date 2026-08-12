@@ -28,18 +28,25 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { ShaderLib } from 'three';
+import { DataTexture, ShaderLib } from 'three';
+
+import { CAMERA_FOV_DEGREES, CAMERA_PITCH_DEGREES } from '@mygame/shared';
 
 import {
   FOLIAGE_MASK_GLSL,
   FOLIAGE_VERTEX_DECL,
   FOLIAGE_WIND_GLSL,
+  GRASS_FADE,
+  KIT_LEAF_FADE,
+  MASK_NEEDLE,
+  MASK_TEXTURE,
   WIND_STRENGTH,
   createFoliageMaterial,
   createWindClock,
   foliageWindOffset,
   type ShaderPatch,
 } from './foliage.ts';
+import { CAMERA_DISTANCE } from './rig.ts';
 
 /** A stand-in for what three hands `onBeforeCompile`, built from the real chunk sources. */
 function shaderFor(kind: 'lambert' | 'depth'): ShaderPatch {
@@ -181,6 +188,77 @@ describe('the card-foliage material', () => {
     // `DoubleSide` is 2 in three's enum. Both the translucency term and the crossed cards need it.
     assert.equal(pair.material.side, 2);
     assert.equal(pair.depth.side, 2);
+  });
+
+  it('fades the ground layer outside the frame and not across it', () => {
+    /*
+     * **The M5a bug this pins.** `uFade` is compared against `-mvPosition.z`, which is depth along the
+     * camera's own forward axis and not distance from the character — and the camera stands 36 m back
+     * (`rig.CAMERA_DISTANCE`) at 64 degrees. So every square metre of ground the frame contains sits
+     * at a view depth of 31.3 m to 40.7 m, and M5a's `[17, 27]` put the whole frame past the end of
+     * the fade: `vFoliageFade` was 0 everywhere and the alpha test discarded every tuft in the world.
+     *
+     * Nothing caught it, because nothing about it is testable as a picture and every *placement* was
+     * correct. This is the arithmetic version, derived from the rig rather than restated, so the band
+     * cannot drift back inside the frame — and so that moving the camera moves this test with it.
+     */
+    const radians = Math.PI / 180;
+    const half = Math.tan((CAMERA_FOV_DEGREES / 2) * radians) * CAMERA_DISTANCE;
+    const groundDepth = (2 * half) / Math.sin(CAMERA_PITCH_DEGREES * radians);
+    const swing = (groundDepth / 2) * Math.cos(CAMERA_PITCH_DEGREES * radians);
+    const nearest = CAMERA_DISTANCE - swing;
+    const farthest = CAMERA_DISTANCE + swing;
+    assert.ok(nearest > 30 && farthest < 42, `the frame's ground is at ${nearest}..${farthest} m of view depth`);
+
+    for (const [label, band] of [['grass', GRASS_FADE] as const, ['kit understory', KIT_LEAF_FADE] as const]) {
+      assert.ok(band[0] < band[1], `${label}'s fade band is inverted`);
+      // The fade must not begin before the frame's near edge, or the ground in front of the character
+      // is already dissolving.
+      assert.ok(band[0] > nearest + 4, `${label} starts fading at ${band[0]} m, inside the frame`);
+      // …and it must not begin after the far edge either, or it is a fade that never happens and the
+      // clutter accumulates out to the streaming window's rim.
+      assert.ok(band[0] < farthest, `${label} never fades: it starts at ${band[0]} m, past the frame`);
+    }
+    // The kit's understory outlives the tufts, which is the only difference between the two bands.
+    assert.ok(KIT_LEAF_FADE[0] > GRASS_FADE[0] && KIT_LEAF_FADE[1] > GRASS_FADE[1]);
+  });
+
+  it('lets a textured leaf switch the procedural mask off with a uniform, not a define', () => {
+    /*
+     * M5b. A Quaternius leaf carries its silhouette in its own alpha channel, so the needle spray
+     * this file draws must contribute nothing but the distance fade — and the switch has to be a
+     * *uniform*, because the whole reason `pool.ts` costs seven programs and not two hundred is that
+     * every difference inside a family is one.
+     *
+     * The branch is coherent across every fragment of every draw (one material, one value), so it
+     * costs a jump and not a program, and `uMaskKind` is already the uniform the needle and the blade
+     * are told apart by.
+     */
+    const clock = createWindClock();
+    const needle = createFoliageMaterial(clock, { height: 12, maskKind: MASK_NEEDLE }, 0x2c4a30, 'canopy|baked');
+    const textured = createFoliageMaterial(clock, { height: 2, maskKind: MASK_TEXTURE }, 0xffffff, 'kit|leaf');
+    assert.equal(needle.uniforms.uMaskKind.value, MASK_NEEDLE);
+    assert.equal(textured.uniforms.uMaskKind.value, MASK_TEXTURE);
+    // One shader, both materials: the mask block is a constant and the kind is read out of it.
+    const lit = compile(needle.material, 'lambert');
+    const kit = compile(textured.material, 'lambert');
+    assert.ok(lit.fragmentShader.includes(FOLIAGE_MASK_GLSL));
+    assert.ok(kit.fragmentShader.includes(FOLIAGE_MASK_GLSL));
+    assert.ok(FOLIAGE_MASK_GLSL.includes('if (uMaskKind > 1.5) return vFoliageFade;'));
+    // …and the same `customProgramCacheKey`, so the family is one family however many masks it has.
+    assert.equal(needle.material.customProgramCacheKey?.(), textured.material.customProgramCacheKey?.());
+  });
+
+  it('carries a leaf’s texture into its depth twin, or the shadow is the card it is painted on', () => {
+    // Trap 1 in its second costume. The wind was the first thing the shadow could lose; the *mask* is
+    // the second, and for a kit leaf the mask lives in the texture. `pool.dressKit` writes both from
+    // one object; this asserts the constructor already wired them that way.
+    const clock = createWindClock();
+    const map = new DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+    const pair = createFoliageMaterial(clock, { height: 2, maskKind: MASK_TEXTURE }, 0xffffff, 'kit|leaf', map);
+    assert.equal(pair.material.map, map);
+    assert.equal(pair.depth.map, map, 'the depth material cannot see the leaf’s alpha');
+    map.dispose();
   });
 
   it('bends the normal onto a cone and its tiers, not onto a sphere', () => {

@@ -72,19 +72,28 @@ import {
   CapsuleGeometry,
   Color,
   ConeGeometry,
+  DataTexture,
+  DoubleSide,
   DynamicDrawUsage,
+  FrontSide,
   InstancedBufferAttribute,
   InstancedMesh,
   MeshDepthMaterial,
   MeshLambertMaterial,
+  PlaneGeometry,
+  SRGBColorSpace,
   TorusGeometry,
+  type Texture,
 } from 'three';
 
 import { createBlendControls, patchGroundBlend, type BlendControls } from './blend.ts';
 import {
   GRASS_FADE,
+  KIT_ALPHA_TEST,
+  KIT_LEAF_FADE,
   MASK_BLADE,
   MASK_NEEDLE,
+  MASK_TEXTURE,
   createFoliageMaterial,
   createWindClock,
   type FoliageUniforms,
@@ -98,6 +107,9 @@ import {
   ARCHETYPE_EMISSIVE,
   EMISSIVE_COLOUR,
   FADE_OPACITY,
+  KIT_MODELS_PER_ROOM,
+  KIT_PARTS_MAX,
+  KIT_TEXTURE_CASTS,
   MATERIAL_KEYS,
   PORTAL_PULSE_DEPTH,
   PORTAL_PULSE_HZ,
@@ -105,15 +117,19 @@ import {
   TREE_VARIANTS_PER_ROOM,
   TREE_PARTS,
   archetypeColour,
+  kitRoleOf,
   materialFamily,
   materialKey,
   type Archetype,
   type GeometryKey,
+  type KitTextureId,
   type MaterialFamily,
   type MaterialKey,
   type ShapeKey,
 } from './prototypes.ts';
 import { MAX_WINDOW_CHUNKS, WINDOW_LEVELS } from './streamer.ts';
+import { createPuddleMaterial, createWetControls, patchWetGround, type WetControls } from './wetness.ts';
+import { createWaterMaterial, type WaterControls, createWaterControls } from './water.ts';
 import { SECTORS, type Sector } from '@mygame/shared';
 
 /**
@@ -153,7 +169,15 @@ const CHUNK_BUCKET_CEILING = ARCHETYPES.filter(
     a !== 'trunk' &&
     a !== 'canopy' &&
     a !== 'grass' &&
-    // `ground` comes off its own free list — see `ScenePool.mintBlend`.
+    // M5b's four are all counted elsewhere: the kit's two against the scatter term, the puddle
+    // against {@link PUDDLE_WRAPPERS}, and water off its own free list. Counting them here as well
+    // would charge the ceiling for four wrappers on all seventy chunks, including the thirty-five on
+    // the level below that can never grow any of them.
+    a !== 'kitSolid' &&
+    a !== 'kitLeaf' &&
+    a !== 'water' &&
+    a !== 'puddle' &&
+    // `ground` comes off its own free list — see `ScenePool.mintAttributed`.
     a !== 'ground',
 ).length;
 
@@ -175,7 +199,18 @@ const BLEND_POOL_SIZE = MAX_WINDOW_CHUNKS;
  * and `GRASS_PER_ROOM_MAX` are both exactly that number. Seven, and the arithmetic is in that file's
  * header.
  */
-const SCATTER_WRAPPER_CEILING = TREE_VARIANTS_PER_ROOM * TREE_PARTS.length + 1;
+const SCATTER_WRAPPER_CEILING =
+  TREE_VARIANTS_PER_ROOM * TREE_PARTS.length + 1 + KIT_MODELS_PER_ROOM * KIT_PARTS_MAX;
+
+/**
+ * The wet-weather decal's own bucket — M5b. One per ground-level chunk, and provably one: every
+ * puddle in a room is the same archetype with no sector and no variant, so they are one bucket of at
+ * most eight instances in a wrapper that holds thirty-two.
+ *
+ * The water *surface* is not counted here: it comes off its own free list, for the same three.js
+ * reason ground does. See {@link mintAttributed}.
+ */
+const PUDDLE_WRAPPERS = 1;
 
 /**
  * Chunks that can carry scatter: the window's own cells, on one level.
@@ -224,9 +259,18 @@ const MARKER_WRAPPERS = 1;
  */
 export const WRAPPER_POOL_SIZE =
   MAX_WINDOW_CHUNKS * CHUNK_BUCKET_CEILING +
-  SCATTER_CHUNKS * SCATTER_WRAPPER_CEILING +
+  SCATTER_CHUNKS * (SCATTER_WRAPPER_CEILING + PUDDLE_WRAPPERS) +
   ENTITY_WRAPPERS +
   MARKER_WRAPPERS;
+
+/**
+ * The water surface's own pre-warm: one wrapper per ground-level chunk the window can hold.
+ *
+ * Exactly one, and provably: a room is one sector, so a water room has one surface. Water is in
+ * `prototypes.ts`'s never-faded set, so the level below never grows one — see that set for why a
+ * 30%-alpha transparent surface over a transparent surface is two lies about depth in one pixel.
+ */
+const WATER_POOL_SIZE = SCATTER_CHUNKS;
 
 /**
  * What the pool has handed out, maintained by the pool itself.
@@ -262,12 +306,16 @@ export interface LedgerSnapshot {
   /** `wrappersCreated x WRAPPER_BYTES`. */
   readonly instanceBytes: number;
   readonly bytes: number;
-  /** M5a: wrappers that own a `BufferGeometry` view carrying `iBlend`/`iTint`. See `mintBlend`. */
+  /** M5a: wrappers that own a `BufferGeometry` view carrying `iBlend`/`iTint`. See `mintAttributed`. */
   readonly blendWrappers: number;
   /** Distinct compiled programs the material pool can produce — {@link ScenePool.programKeys}. */
   readonly programs: number;
   /** The same for `customDepthMaterial`s. {@link ScenePool.depthPrograms}. */
   readonly depthProgramCount: number;
+  /** M5b: distinct kit textures loaded. Twelve when the kit is whole; zero headless. */
+  readonly textures: number;
+  /** Estimated texture memory, mip chain included. See {@link ScenePool.registerTexture}. */
+  readonly textureBytes: number;
 }
 
 interface LedgerState {
@@ -316,7 +364,41 @@ function buildGeometry(key: ShapeKey): BufferGeometry {
       return new CapsuleGeometry(0.5, 1, 4, 8);
     case 'grassCross':
       return buildGrassCross();
+    case 'waterPlane':
+      return buildWaterPlane();
   }
+}
+
+/**
+ * A one-metre quad lying in the XZ plane, facing up, centred on its own origin.
+ *
+ * `PlaneGeometry` is built in XY facing `+Z`, so it is rotated once here rather than per instance:
+ * a placement's `rx/ry/rz` are then free to mean what they mean everywhere else, and a water surface
+ * with a rotation baked into every instance matrix would be a trap for the first person to try to
+ * tilt one. Two triangles — the depth fade, the foam and the wave normal are all per *fragment*, so
+ * there is nothing a subdivision would buy.
+ */
+function buildWaterPlane(): BufferGeometry {
+  const geometry = new PlaneGeometry(1, 1);
+  geometry.rotateX(-Math.PI / 2);
+  return geometry;
+}
+
+/**
+ * The 1x1 white texture every kit material is born with — and the reason it exists is the same one
+ * `createFoliageDepth` gives for setting `alphaTest` before the first compile.
+ *
+ * `USE_MAP` is a `#define`. A kit material created without a map and given one when the PNG lands
+ * would compile a *second* program on the frame the texture arrives, and — worse for this project —
+ * `ScenePool.programKeys()`, the headless proxy the tests assert against, would report a different
+ * number than the browser does. A white 1x1 multiplies to nothing and is four bytes.
+ */
+function whiteTexture(): DataTexture {
+  const texture = new DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+  texture.colorSpace = SRGBColorSpace;
+  texture.name = 'kit:placeholder';
+  texture.needsUpdate = true;
+  return texture;
 }
 
 function buildGrassCross(): BufferGeometry {
@@ -350,14 +432,30 @@ function buildGrassCross(): BufferGeometry {
   return geometry;
 }
 
-/** Splits a material key back into the parts {@link prototypes.materialKey} put in it. */
+/** Splits a material key back into the parts the three key builders in `prototypes.ts` put in it. */
 function partsOf(key: MaterialKey): {
   archetype: string;
   sector: Sector | undefined;
   faded: boolean;
   variant: string | undefined;
+  /** M5b: the kit texture a `kit|model|texture` key names. Undefined for every other key shape. */
+  texture: KitTextureId | undefined;
 } {
   const bits = key.split('|');
+  // `kit|bush-common-flowers|flowers` — the one key shape with a marker rather than a deduced
+  // middle, because a kit model id and a tree variant id are both "a lowercase hyphenated word" and
+  // nothing about the string itself would tell them apart.
+  if (bits[0] === 'kit') {
+    const texture = bits[2] as KitTextureId | undefined;
+    const role = kitRoleOf(texture ?? '');
+    return {
+      archetype: role === 'leaf' ? 'kitLeaf' : 'kitSolid',
+      sector: undefined,
+      faded: false,
+      variant: bits[1],
+      texture,
+    };
+  }
   const archetype = bits[0] ?? '';
   const faded = bits[bits.length - 1] === 'dim';
   const middle = bits.length > 1 && bits[1] !== 'dim' ? bits[1] : undefined;
@@ -366,7 +464,7 @@ function partsOf(key: MaterialKey): {
   // are told apart by what the middle *is*, not by a marker, because `materialKey` and
   // `treeMaterialKey` between them can only ever produce one or the other.
   const variant = sector === undefined && middle !== undefined ? middle : undefined;
-  return { archetype, sector, faded, variant };
+  return { archetype, sector, faded, variant, texture: undefined };
 }
 
 export class ScenePool {
@@ -386,11 +484,30 @@ export class ScenePool {
   readonly wind: WindClock = createWindClock();
   /** The one set of ground-blend knobs. Same pattern, same reason. */
   readonly blend: BlendControls = createBlendControls();
-  /** Which of the three families each key belongs to, so `acquire` routes without re-parsing a string. */
+  /** The one set of wetness knobs — the rain's after-effect on ground and the puddle opacity. */
+  readonly wet: WetControls = createWetControls();
+  /** The one set of water knobs: wave speed, foam width, how far the depth fade reaches. */
+  readonly water: WaterControls = createWaterControls();
+  /** Which family each key belongs to, so `acquire` routes without re-parsing a string. */
   private readonly families = new Map<MaterialKey, MaterialFamily>();
+  /** Kit textures, by manifest id. Loaded once at boot by `kit.ts`; owned here so teardown finds them. */
+  private readonly textures = new Map<string, Texture>();
+  private textureBytes = 0;
+  /** The white 1x1 every kit material is born with. See {@link whiteTexture}. */
+  private readonly placeholder = whiteTexture();
+  /**
+   * Geometries whose bytes are already on the ledger, **by object identity**.
+   *
+   * A kit tree has no LOD ladder and registers one mesh under three keys (`prototypes.ts`'s
+   * `TREE_GEOMETRY_KEYS`). Counting its bytes per key would put 105 kit tree geometries on a ledger
+   * that holds 35, and the ledger's whole job is to be the honest proxy for GPU memory.
+   */
+  private readonly counted = new Set<BufferGeometry>();
   private readonly free: InstancedMesh[] = [];
-  /** The ground's own free list. See {@link mintBlend} for why there are two. */
+  /** The ground's own free list. See {@link mintAttributed} for why there are three. */
   private readonly blendFree: InstancedMesh[] = [];
+  /** The water surface's, over `waterPlane` rather than `box`. Same three.js fact, different shape. */
+  private readonly waterFree: InstancedMesh[] = [];
   private readonly blendWrappers = new Set<InstancedMesh>();
   private readonly state: LedgerState = {
     geometries: 0,
@@ -404,19 +521,20 @@ export class ScenePool {
   };
 
   constructor() {
-    // Only the shapes this package builds. The 48 baked tree geometries arrive at boot through
+    // Only the shapes this package builds. The tree and kit geometries arrive at boot through
     // `registerGeometry` — see the header for why that does not unbind the key set.
     for (const key of SHAPE_KEYS) {
       const geometry = buildGeometry(key);
       this.geometries.set(key, geometry);
+      this.counted.add(geometry);
       this.state.geometryBytes += geometryBytes(geometry);
     }
     this.state.geometries = this.geometries.size;
 
     for (const key of MATERIAL_KEYS) {
-      const { archetype, sector, faded } = partsOf(key);
+      const { archetype, sector, faded, variant, texture } = partsOf(key);
       const kind = archetype as Archetype;
-      const material = this.buildMaterial(key, kind, sector);
+      const material = this.buildMaterial(key, kind, sector, variant);
       if (faded) {
         material.transparent = true;
         material.opacity = FADE_OPACITY;
@@ -433,29 +551,96 @@ export class ScenePool {
       this.materials.set(key, material);
       // The fog-of-war table is a pure function of the material's own colour, so it is built here,
       // once, and never recomputed. See `fogOfWar.ts` for why the desaturation cannot be a shader.
-      this.tints.set(key, fogTintRow(new Color(archetypeColour(kind, sector))));
-      this.casts.set(key, ARCHETYPE_CASTS[kind] && !faded);
-      this.families.set(key, materialFamily(kind));
+      this.tints.set(key, fogTintRow(new Color(archetypeColour(kind, sector, variant))));
+      // A kit part's shadow behaviour is its *texture's*, not its role's — a 10 cm path stone and a
+      // 3 m boulder are both `kitSolid` and only one is worth a draw in the shadow pass.
+      const casts = texture !== undefined ? KIT_TEXTURE_CASTS[texture] : ARCHETYPE_CASTS[kind];
+      this.casts.set(key, casts && !faded);
+      this.families.set(key, materialFamily(kind, variant));
     }
     this.state.materials = this.materials.size;
 
-    // Both free lists, whole, before a single chunk exists. See `WRAPPER_POOL_SIZE`.
+    // All three free lists, whole, before a single chunk exists. See `WRAPPER_POOL_SIZE`.
     const box = this.geometry('box');
     const first = this.material(MATERIAL_KEYS[0]!);
     for (let i = 0; i < WRAPPER_POOL_SIZE; i++) this.free.push(this.mint(box, first));
     const ground = this.material(materialKey('ground', SECTORS[0], false));
-    for (let i = 0; i < BLEND_POOL_SIZE; i++) this.blendFree.push(this.mintBlend(box, ground));
+    for (let i = 0; i < BLEND_POOL_SIZE; i++) this.blendFree.push(this.mintAttributed(box, ground));
+    const surface = this.geometry('waterPlane');
+    const waterMaterial = this.material(materialKey('water', undefined, false));
+    for (let i = 0; i < WATER_POOL_SIZE; i++) this.waterFree.push(this.mintAttributed(surface, waterMaterial));
   }
 
   /**
-   * One material, in whichever of the three families its archetype belongs to.
+   * One material, in whichever of the seven families its archetype belongs to.
    *
    * The dispatch is `prototypes.materialFamily`'s and lives there rather than here so that the test
    * that counts programs and the code that creates them read the same table.
    */
-  private buildMaterial(key: MaterialKey, kind: Archetype, sector: Sector | undefined): MeshLambertMaterial {
-    const colour = archetypeColour(kind, sector);
-    const family = materialFamily(kind);
+  private buildMaterial(
+    key: MaterialKey,
+    kind: Archetype,
+    sector: Sector | undefined,
+    variant: string | undefined,
+  ): MeshLambertMaterial {
+    const colour = archetypeColour(kind, sector, variant);
+    const family = materialFamily(kind, variant);
+
+    if (family === 'water') return createWaterMaterial(this.wind, this.water, colour, key);
+    if (family === 'puddle') return createPuddleMaterial(this.wind, this.wet, colour, key);
+
+    if (family === 'kitSolid') {
+      // Bark, rock, path stone and mushroom cap. A Lambert with the kit's own texture and its baked
+      // vertex AO, single-sided because every one of these is a closed mesh and a back face is an
+      // overdrawn fragment. **No alpha test**: the kit marks bark `MASK` out of Blender habit and its
+      // bark textures are opaque, so clipping would buy `USE_ALPHATEST` and nothing else.
+      const material = new MeshLambertMaterial({ color: colour });
+      material.map = this.placeholder;
+      material.vertexColors = true;
+      material.side = FrontSide;
+      material.onBeforeCompile = (shader): void => {
+        // Wetness reaches the kit's solids too: a wet boulder is the most legible wet thing in a
+        // frame, and it is the same shared uniform the ground uses.
+        patchWetGround(shader as unknown as ShaderPatch, this.wet, 0.55);
+      };
+      material.customProgramCacheKey = (): string => 'kit-solid';
+      return material;
+    }
+
+    if (family === 'kitLeaf') {
+      // The kit's leaves, grass and flowers, on **exactly** M5a's foliage material family — the wind,
+      // the two-sided translucency and the shared clock — with the procedural needle/blade mask
+      // switched off by a uniform, because a kit leaf's silhouette is already in its own alpha and
+      // carving a needle spray out of a painted leaf would put holes in it.
+      const pair = createFoliageMaterial(
+        this.wind,
+        {
+          // Overwritten per model from the manifest by `kit.ts`; this is what a leaf wears if the
+          // manifest never arrives.
+          height: 2,
+          windGain: 1.4,
+          // No cone, no tiers: the bent-normal recipe is for intersecting cards and a kit leaf mesh
+          // has real normals of its own. `foliage.ts`'s trap 2 in the other direction.
+          bend: 0,
+          // **A canopy never fades and an understory does.** `kitLeaf` serves both — a kit tree's
+          // leaf primitive and a fern — and the difference is the one thing about them that is not a
+          // shared uniform value. A tree that dissolved inside the frame would be the most visible
+          // bug in the build; a fern that does not is a few hundred fragments at the back of it.
+          ...(kind === 'canopy' ? {} : { fade: KIT_LEAF_FADE }),
+          maskKind: MASK_TEXTURE,
+          translucency: 0.5,
+        },
+        colour,
+        key,
+        this.placeholder,
+      );
+      pair.material.alphaTest = KIT_ALPHA_TEST;
+      pair.depth.alphaTest = KIT_ALPHA_TEST;
+      pair.material.side = DoubleSide;
+      this.depths.set(key, pair.depth);
+      this.foliages.set(key, pair.uniforms);
+      return pair.material;
+    }
 
     if (family === 'foliage') {
       // A canopy's real shape constants arrive from the manifest (`trees.ts`); these are the defaults
@@ -493,7 +678,11 @@ export class ScenePool {
     const material = new MeshLambertMaterial({ color: colour });
     if (family === 'blend') {
       material.onBeforeCompile = (shader): void => {
-        patchGroundBlend(shader as unknown as ShaderPatch, this.blend);
+        const patch = shader as unknown as ShaderPatch;
+        patchGroundBlend(patch, this.blend);
+        // M5b: the ground is the surface the rain actually lands on, so the wet response goes on the
+        // same 48 materials and in the same patch. Still one program — see `patchWetGround`.
+        patchWetGround(patch, this.wet);
       };
       // One key for all 32 ground materials. The whole of §4's *"one shader handles all 98 pairs"*.
       material.customProgramCacheKey = (): string => 'ground-blend';
@@ -521,29 +710,35 @@ export class ScenePool {
   }
 
   /**
-   * A wrapper that owns its own per-instance blend data — the ground, and only the ground. M5a.
+   * A wrapper that owns its own per-instance data — the ground and the water surface, and nothing
+   * else. M5a, generalised at M5b.
    *
-   * **This is the one place the pool has two free lists, and the reason is a three.js fact rather
-   * than a design preference.** `InstancedMesh` special-cases exactly two per-instance buffers,
-   * `instanceMatrix` and `instanceColor`, and both live on the *mesh*. Anything else — like
+   * **This is the one place the pool has more than one free list, and the reason is a three.js fact
+   * rather than a design preference.** `InstancedMesh` special-cases exactly two per-instance
+   * buffers, `instanceMatrix` and `instanceColor`, and both live on the *mesh*. Anything else — like
    * `blend.ts`'s four corner weights and its layer-B colour — has to be an `InstancedBufferAttribute`
    * on the **geometry**, and the geometry in this pool is shared by every wrapper that draws a box.
    * Putting `iBlend` on the pooled `BoxGeometry` would give one buffer to seventy chunks: every room
    * would blend toward the last room built.
    *
-   * So a blend wrapper carries a `BufferGeometry` of its own. It is a *view*, not a copy — the
-   * position, normal, uv and index attributes are the pooled box's own objects, so they upload once
+   * So such a wrapper carries a `BufferGeometry` of its own. It is a *view*, not a copy — the
+   * position, normal, uv and index attributes are the pooled shape's own objects, so they upload once
    * and there is no extra vertex data on the GPU at all — with two instanced attributes added that
-   * are genuinely its own. Seventy of them, minted at boot beside everything else, one per chunk the
-   * window can hold, and never re-pointed at another shape because ground is always a box.
+   * are genuinely its own. Minted at boot beside everything else and never re-pointed at another
+   * shape, because ground is always a box and a water surface is always a plane.
+   *
+   * **Water reuses the same two attributes rather than inventing a third pair**, and that is not a
+   * saving, it is the observation that the two problems have one shape: `iBlend` is a field over the
+   * quad's four corners — layer B's weight for ground, how near the land is for water — and `iTint`
+   * is four floats of per-room look. One buffer layout, two readings, and `writeBlend` serves both.
    */
-  private mintBlend(box: BufferGeometry, material: MeshLambertMaterial): InstancedMesh {
+  private mintAttributed(shape: BufferGeometry, material: MeshLambertMaterial): InstancedMesh {
     const geometry = new BufferGeometry();
-    for (const [name, attribute] of Object.entries(box.attributes)) geometry.setAttribute(name, attribute);
-    geometry.setIndex(box.index);
-    const shape = new InstancedBufferAttribute(new Float32Array(WRAPPER_CAPACITY * 4), 4);
-    shape.setUsage(DynamicDrawUsage);
-    geometry.setAttribute('iBlend', shape);
+    for (const [name, attribute] of Object.entries(shape.attributes)) geometry.setAttribute(name, attribute);
+    geometry.setIndex(shape.index);
+    const corners = new InstancedBufferAttribute(new Float32Array(WRAPPER_CAPACITY * 4), 4);
+    corners.setUsage(DynamicDrawUsage);
+    geometry.setAttribute('iBlend', corners);
     const tint = new InstancedBufferAttribute(new Float32Array(WRAPPER_CAPACITY * 4), 4);
     tint.setUsage(DynamicDrawUsage);
     geometry.setAttribute('iTint', tint);
@@ -568,17 +763,66 @@ export class ScenePool {
   }
 
   /**
-   * Hand the pool a baked mesh — `trees.ts`, once per GLB, at boot.
+   * Hand the pool a mesh — `trees.ts` and `kit.ts`, once per model, at boot.
    *
    * Refuses a key that is already filled rather than replacing it, because a second registration is
    * either a double load (harmless, and the first answer is as good) or a key collision (a bug, and
    * silently swapping the geometry under a live wrapper is the worst way to find it).
+   *
+   * Bytes are counted **per geometry object, not per key**. A kit tree has no LOD ladder and is
+   * registered under all three LOD keys (see `prototypes.TREE_GEOMETRY_KEYS`); charging it three
+   * times would put 105 kit meshes on a ledger that holds 35, and the ledger's entire job is to be an
+   * honest proxy for what the GPU is actually holding.
    */
   registerGeometry(key: GeometryKey, geometry: BufferGeometry): void {
     if (this.geometries.has(key)) return;
     this.geometries.set(key, geometry);
-    this.state.geometryBytes += geometryBytes(geometry);
+    if (!this.counted.has(geometry)) {
+      this.counted.add(geometry);
+      this.state.geometryBytes += geometryBytes(geometry);
+    }
     this.state.geometries = this.geometries.size;
+  }
+
+  /**
+   * Hand the pool a kit texture — `kit.ts`, once per distinct PNG, at boot.
+   *
+   * Twelve of them across sixty-eight models: `Bark_NormalTree` alone dresses ten. The cache is by
+   * manifest id and lives here rather than in `kit.ts` for two reasons. It is the pool that owns
+   * teardown, and a texture is the one GPU resource in this renderer that `dispose()` genuinely has
+   * to reach; and it is the pool that keeps the ledger, and **texture memory is the largest single
+   * number in M5b** — 2048² RGBA is 16 MB before mipmaps, so twelve of them dwarf the 4.5 MB of
+   * instance buffers the ledger was built to watch.
+   *
+   * The byte figure is `w x h x 4 x 4/3`: four bytes a texel and the geometric series of the mip
+   * chain, which is what a driver actually allocates for a mipmapped RGBA8 texture. It is an estimate
+   * and says so; `__debug3d.rendererMemory.textures` is the count the renderer will confirm.
+   */
+  registerTexture(id: string, texture: Texture, width: number, height: number): void {
+    if (this.textures.has(id)) return;
+    this.textures.set(id, texture);
+    this.textureBytes += Math.round(width * height * 4 * (4 / 3));
+  }
+
+  /** A loaded kit texture, or the white placeholder every kit material was born with. */
+  texture(id: string): Texture | undefined {
+    return this.textures.get(id);
+  }
+
+  /**
+   * Point a kit material at its real texture, now that it has arrived.
+   *
+   * Not `material.map = t` at the call site, because the pooled material's `customDepthMaterial` — the
+   * one that clips the *shadow* — needs the same map or every kit leaf casts the shadow of a solid
+   * quad. That is `foliage.ts`'s trap 1 in its second costume: not the wind this time but the mask,
+   * and the same answer, which is that the two are wired in one place from one object.
+   */
+  dressKit(key: MaterialKey, texture: Texture): void {
+    const material = this.materials.get(key);
+    if (!material) return;
+    material.map = texture;
+    const depth = this.depths.get(key);
+    if (depth) depth.map = texture;
   }
 
   material(key: MaterialKey): MeshLambertMaterial {
@@ -616,8 +860,8 @@ export class ScenePool {
    * camera a third of the window is behind the near plane. The caller fills the matrices, sets
    * `count`, and calls {@link finish}.
    *
-   * Ground comes off a second free list — see {@link mintBlend} for the three.js fact behind that —
-   * and the routing is by material family so the caller never has to know.
+   * Ground and water come off their own free lists — see {@link mintAttributed} for the three.js fact
+   * behind that — and the routing is by material family so the caller never has to know.
    */
   acquire(geometry: GeometryKey, material: MaterialKey): InstancedMesh {
     this.state.acquires += 1;
@@ -626,13 +870,19 @@ export class ScenePool {
       this.state.wrapperHighWater = this.state.wrappersLive;
     }
 
-    const wantsBlend = this.families.get(material) === 'blend';
-    const reused = wantsBlend
-      ? this.blendFree.pop() ?? this.mintBlend(this.geometry('box'), this.material(material))
-      : this.free.pop() ?? this.mint(this.geometry(geometry), this.material(material));
-    // A blend wrapper keeps its own geometry for ever: it is a box with two extra buffers on it, and
-    // re-pointing it at the shared box would take those buffers away.
-    if (!wantsBlend) reused.geometry = this.geometry(geometry);
+    const family = this.families.get(material);
+    const owns = family === 'blend' || family === 'water';
+    let reused: InstancedMesh;
+    if (family === 'blend') {
+      reused = this.blendFree.pop() ?? this.mintAttributed(this.geometry('box'), this.material(material));
+    } else if (family === 'water') {
+      reused = this.waterFree.pop() ?? this.mintAttributed(this.geometry('waterPlane'), this.material(material));
+    } else {
+      reused = this.free.pop() ?? this.mint(this.geometry(geometry), this.material(material));
+    }
+    // An attributed wrapper keeps its own geometry for ever: it is a shape with two extra buffers on
+    // it, and re-pointing it at the shared shape would take those buffers away.
+    if (!owns) reused.geometry = this.geometry(geometry);
     reused.material = this.material(material);
     reused.castShadow = this.casts.get(material) ?? false;
     // Trap 1, at the one place it can actually be wired: the depth material is a property of the
@@ -647,10 +897,12 @@ export class ScenePool {
   }
 
   /**
-   * Write one ground instance's blend: four corner weights, and layer B's linear colour and phase.
+   * Write one instance's four corner weights and four floats of look.
    *
-   * A no-op on a wrapper that is not a blend wrapper, which is every wrapper that is not ground —
-   * the caller passes every placement's optional blend data through here and this is where the
+   * Ground reads them as layer B's weight and its linear colour plus a breakup phase; water reads the
+   * same two attributes as how near the land is at each corner, and as `(depth, phase, 0, 0)`. A
+   * no-op on any wrapper that owns neither buffer, which is every wrapper that is not one of those
+   * two — the caller passes every placement's optional data through here and this is where the
    * question "does this archetype have any" is answered once.
    */
   writeBlend(
@@ -718,22 +970,32 @@ export class ScenePool {
     mesh.visible = false;
     this.state.releases += 1;
     this.state.wrappersLive -= 1;
-    if (this.blendWrappers.has(mesh)) this.blendFree.push(mesh);
-    else this.free.push(mesh);
+    // Back to the list it was minted on, by the shape it owns rather than by what it last drew: an
+    // attributed wrapper's geometry is a view over one specific pooled shape and can never serve the
+    // other. `waterPlane` is the discriminator because it is the only shape a water wrapper carries.
+    if (!this.blendWrappers.has(mesh)) this.free.push(mesh);
+    else if (mesh.geometry.getAttribute('position') === this.geometries.get('waterPlane')?.getAttribute('position')) {
+      this.waterFree.push(mesh);
+    } else this.blendFree.push(mesh);
   }
 
   /**
    * The distinct compiled programs this pool's materials can produce — the M5a number, headless.
    *
    * `renderer.info.programs` is the real answer and needs a GPU; `__debug3d.programs` exposes it. This
-   * is what a test can check, and it is a faithful proxy because it is built from the same four things
-   * three's own program cache key is built from for these materials: the material type, whether the
-   * alpha test is live (`USE_ALPHATEST`), the side (`DOUBLE_SIDED`), and `customProgramCacheKey`.
+   * is what a test can check, and it is a faithful proxy because it is built from the same things
+   * three's own program cache key is built from for these materials: the material type, the side
+   * (`DOUBLE_SIDED`), whether the alpha test is live (`USE_ALPHATEST`), whether there is a map
+   * (`USE_MAP`), whether vertex colours are on (`USE_COLOR_ALPHA`), and `customProgramCacheKey`.
    *
-   * Expect **three** entries — plain Lambert, blended ground, card foliage — plus {@link
-   * depthPrograms} for the shadow pass. Everything that differs within a family is a uniform, which
-   * is the discipline `prototypes.ts` has kept since M3 and the reason 145 materials cost three
-   * programs.
+   * **`map` and `vertexColors` are in the key from M5b and were not before**, and the reason is that
+   * they became load-bearing: they are `#define`s, and a kit material with a texture genuinely cannot
+   * share a program with a `MeshLambertMaterial` that has none. Leaving them out would have made this
+   * proxy report five where the browser compiles seven, which is worse than not having a proxy.
+   *
+   * Expect **seven** entries — plain Lambert, blended ground, card foliage, kit solid, kit leaf,
+   * water, puddle — plus {@link depthPrograms} for the shadow pass. All 48 ground materials still
+   * share one, and all 83 kit materials share two. That is the property.
    */
   programKeys(): ReadonlySet<string> {
     const keys = new Set<string>();
@@ -741,7 +1003,7 @@ export class ScenePool {
     return keys;
   }
 
-  /** The same, for the `customDepthMaterial` family. One: the foliage's. */
+  /** The same, for the `customDepthMaterial` family. Two: the card foliage's and the kit leaf's. */
   depthPrograms(): ReadonlySet<string> {
     const keys = new Set<string>();
     for (const material of this.depths.values()) keys.add(programKeyOf(material));
@@ -753,10 +1015,10 @@ export class ScenePool {
     return {
       geometries: this.state.geometries,
       materials: this.state.materials,
-      prewarmed: WRAPPER_POOL_SIZE + BLEND_POOL_SIZE,
+      prewarmed: WRAPPER_POOL_SIZE + BLEND_POOL_SIZE + WATER_POOL_SIZE,
       wrappersCreated: this.state.wrappersCreated,
       wrappersLive: this.state.wrappersLive,
-      wrappersFree: this.free.length + this.blendFree.length,
+      wrappersFree: this.free.length + this.blendFree.length + this.waterFree.length,
       wrapperHighWater: this.state.wrapperHighWater,
       acquires: this.state.acquires,
       releases: this.state.releases,
@@ -766,6 +1028,8 @@ export class ScenePool {
       blendWrappers: this.blendWrappers.size,
       programs: this.programKeys().size,
       depthProgramCount: this.depthPrograms().size,
+      textures: this.textures.size,
+      textureBytes: this.textureBytes,
     };
   }
 
@@ -784,16 +1048,24 @@ export class ScenePool {
     // disposed as well, or a hot reload leaks 70 pairs of buffers. The vertex data inside the view is
     // the pooled box's and is released once, below; `WebGLAttributes.remove` is idempotent, so the
     // double release is a no-op rather than a fault.
-    for (const mesh of this.blendFree) {
+    for (const mesh of [...this.blendFree, ...this.waterFree]) {
       mesh.geometry.dispose();
       mesh.dispose();
     }
     this.blendFree.length = 0;
+    this.waterFree.length = 0;
     this.blendWrappers.clear();
     for (const geometry of this.geometries.values()) geometry.dispose();
     for (const material of this.materials.values()) material.dispose();
     for (const material of this.depths.values()) material.dispose();
+    // A texture is the one GPU resource here that nothing else will release — a geometry's buffers go
+    // with the geometry and a material owns none — so twelve 2048² PNGs would survive every hot
+    // reload of the session if this line were missing. That is 200 MB by the tenth reload.
+    for (const texture of this.textures.values()) texture.dispose();
+    this.placeholder.dispose();
+    this.textures.clear();
     this.geometries.clear();
+    this.counted.clear();
     this.materials.clear();
     this.depths.clear();
     this.foliages.clear();
@@ -804,8 +1076,18 @@ export class ScenePool {
   }
 }
 
-/** See {@link ScenePool.programKeys}: the parts of three's own cache key these materials can vary. */
+/**
+ * See {@link ScenePool.programKeys}: the parts of three's own cache key these materials can vary.
+ *
+ * `map` and `vertexColors` joined the key at M5b. Both are `#define`s in three's `WebGLProgram`
+ * parameters (`USE_MAP`, `USE_COLOR_ALPHA`), so two materials that differ in either are two compiled
+ * programs however identical everything else is — and a proxy that said otherwise would under-report
+ * exactly the thing it exists to bound.
+ */
 function programKeyOf(material: MeshLambertMaterial | MeshDepthMaterial): string {
   const custom = material.customProgramCacheKey?.() ?? 'default';
-  return `${material.type}:${material.side}:${material.alphaTest > 0 ? 'clip' : 'opaque'}:${custom}`;
+  const map = material.map ? 'map' : 'nomap';
+  const colours = 'vertexColors' in material && material.vertexColors ? 'vcol' : 'novcol';
+  const clip = material.alphaTest > 0 ? 'clip' : 'opaque';
+  return `${material.type}:${material.side}:${clip}:${map}:${colours}:${custom}`;
 }

@@ -43,6 +43,8 @@
 
 import { Color, DirectionalLight, FogExp2, HemisphereLight, PCFSoftShadowMap, Scene } from 'three';
 
+import type { SkyRecipe } from './daylight.ts';
+
 /* -------------------------------------------------------------------------- */
 /* The palette                                                                 */
 /* -------------------------------------------------------------------------- */
@@ -266,6 +268,19 @@ export class NightRig {
   private readonly scene: Scene;
   private mapSize = SHADOW_MAP_SIZE;
   private colour = NIGHT_COLOUR;
+  /**
+   * Where the key light stands — M5b.
+   *
+   * A field rather than the module constant, because the sun moves and the moon does not. It starts
+   * at {@link MOON_FROM} and stays there unless {@link sky} is written, so a rig nobody talks to is
+   * M4's rig exactly and `night.test.ts`'s assertions about the moon still describe the object it
+   * constructs.
+   */
+  private toLight: Point3 = MOON_FROM;
+  /** The last recipe applied, for `__debug3d.sky`. `undefined` means "M4's night, untouched". */
+  private recipe: SkyRecipe | undefined;
+  /** The last focus point, so a recipe change can re-fit without waiting for the next frame. */
+  private centre: Point3 = { x: 0, y: 0, z: 0 };
 
   constructor(scene: Scene) {
     this.scene = scene;
@@ -302,14 +317,52 @@ export class NightRig {
    * too tightly bounded to need them.
    */
   refit(x: number, y: number, z: number): void {
-    this.fit = this.apply({ x, y, z });
+    this.centre = { x, y, z };
+    this.fit = this.apply(this.centre);
+  }
+
+  /**
+   * The last {@link SkyRecipe} applied, or `undefined` while the rig is still M4's untouched night.
+   *
+   * `__debug3d.sky`. Nothing in the renderer reads it back; it exists so a human can ask what they
+   * are looking at without counting hex digits.
+   */
+  get sky(): SkyRecipe | undefined {
+    return this.recipe;
+  }
+
+  /**
+   * Apply a whole sky at once — M5b's day/night switch.
+   *
+   * **One write for the lot, and that is the point.** A hemisphere brightened without its fog, or a
+   * sun moved without its shadow re-fit, is a frame that is half past dawn; and the failure mode of
+   * eight separate setters is that somebody adds a ninth field and forgets one call site. So the
+   * recipe is a value, this is the only thing that consumes it, and the refit happens here rather
+   * than waiting for the next frame — the owner pressing **G** should see the shadows swing in the
+   * same frame the colours change.
+   *
+   * `exposure` is deliberately *not* applied here: it belongs to the composer, which this file does
+   * not own and must not import (`post.ts` is `main.ts`'s). See `main.ts`'s `applySky`.
+   */
+  set sky(recipe: SkyRecipe | undefined) {
+    if (!recipe) return;
+    this.recipe = recipe;
+    this.hemisphere.color.setHex(recipe.sky);
+    this.hemisphere.groundColor.setHex(recipe.ground);
+    this.hemisphere.intensity = recipe.hemisphere;
+    this.moon.color.setHex(recipe.sun);
+    this.moon.intensity = recipe.sunIntensity;
+    this.toLight = recipe.from;
+    this.fogDensity = recipe.fogDensity;
+    this.nightColour = recipe.fog;
+    this.fit = this.apply(this.centre);
   }
 
   private apply(centre: Point3): ShadowFit {
     const fit = fitShadowCamera(
       centre,
       { width: SHADOW_HALF_WIDTH, height: SHADOW_HALF_HEIGHT, depth: SHADOW_HALF_DEPTH },
-      MOON_FROM,
+      this.toLight,
       SHADOW_DISTANCE,
       SHADOW_PAD,
     );

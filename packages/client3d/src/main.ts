@@ -51,6 +51,7 @@ import { WebGLRenderer } from 'three';
 
 import { TILE_SIZE, samePlace, type Direction, type Place } from '@mygame/shared';
 
+import { DAY_SKY, NIGHT_SKY, clockOf, hourOf, normaliseHour } from './daylight.ts';
 import { EntityLayer } from './entities.ts';
 import { metresOfPixel, pixelOfMetres } from './frame.ts';
 import { Input, intoFormControl } from './input.ts';
@@ -65,6 +66,7 @@ import { Rain } from './rain.ts';
 import { CameraRig } from './rig.ts';
 import { MAX_WINDOW_CHUNKS, WINDOW_CELLS_X, WINDOW_CELLS_Y, WINDOW_MARGIN } from './streamer.ts';
 import { unprojectToGround } from './unproject.ts';
+import { Wetness } from './wetness.ts';
 import { World3D } from './world3d.ts';
 
 /* -------------------------------------------------------------------------- */
@@ -118,6 +120,30 @@ world.scene.add(rain.mesh);
 void world.trees.load(world.pool).then((problem) => {
   if (problem) log.write('error', problem);
   else log.write('system', `trees: ${world.trees.loaded} variants, ${world.trees.triangles} tris at LOD0`);
+});
+
+/**
+ * M5b's boot step: fetch the Quaternius kit — sixty-three models and twelve shared textures.
+ *
+ * Not awaited either, and the argument is the tree bake's with one number changed: this is ~30 MB
+ * uncompressed (the brief defers Draco/KTX2/meshopt deliberately, and this is the figure that
+ * deferral costs), so blocking the renderer on it would trade a world with no understory for a black
+ * screen for a second or two. Chunks built before it lands have M5a's dressing and the first cell the
+ * player crosses rebuilds them with the kit's.
+ *
+ * `world.kit.load` is a *second* registry rather than a second call to `TreeSet.load`, and the seam
+ * still holds: the twenty kit trees are registered under the same `(variant, part, lod)` keys the
+ * baked ones use, so nothing downstream of `trees.ts` can tell them apart. See `kit.ts`'s header.
+ */
+void world.kit.load(world.pool).then((problem) => {
+  if (problem) log.write('error', problem);
+  else {
+    log.write(
+      'system',
+      `kit: ${world.kit.loaded} models, ${world.kit.triangles} tris, ` +
+        `${world.kit.textures} textures (${(world.kit.textureBytes / 1024 / 1024).toFixed(1)} MB)`,
+    );
+  }
 });
 
 /** Server-authoritative facts the loop reads. Held here rather than in the world: none of it draws. */
@@ -351,6 +377,37 @@ let fps = 0;
  */
 let rainWanted = true;
 
+/**
+ * How wet the world is, and the ramp that gets it there. M5b.
+ *
+ * Held here beside `rainWanted` because it is driven by the same question the rain is — *is it
+ * falling on this character right now* — and answered on the frame that already knows. See
+ * `wetness.ts` for why the rise is fast and the dry-off is slow.
+ */
+const wetness = new Wetness();
+
+/**
+ * The hour of the game day. **A client value, and the reason is recorded rather than assumed.**
+ *
+ * Verified again while building M5b: `packages/server/src` ticks no game clock — the only `hour`
+ * matches are the scheduler's and the noticeboards' wall-clock timestamps, and no wire message
+ * carries a time of day. So the world starts at midnight, which is M4's world and the one the
+ * lighting was signed off on, and the **G** key and `[`/`]` move it. `World3D.setGameHour` is the
+ * named hook a future server clock writes; nothing else would change.
+ */
+let gameHour = 0;
+
+/** Apply a sky: the scene graph takes the lights and the fog, the composer takes the exposure. */
+function applySky(hour: number): void {
+  gameHour = normaliseHour(hour);
+  const recipe = world.setGameHour(gameHour);
+  // The one part of a recipe `night.ts` cannot apply, because the composer is this file's and not the
+  // scene graph's — see `NightRig.sky`. 1.6 lifts a moonlit 0.11 into readability and would put a
+  // sunlit clearing through the bloom threshold, so it travels with the rest of the recipe.
+  grade.exposure = recipe.exposure;
+}
+applySky(gameHour);
+
 /** Hoisted out of the loop: one closure for the session rather than one per frame. */
 const groundAt = (px: number, py: number): number => world.groundAt(px, py);
 
@@ -413,6 +470,10 @@ function frame(now: number): void {
     // No body yet: the login card is still up and the storm has nowhere to be centred.
     rain.enabled = false;
   }
+  // The ground's memory of the rain. Wall-clock, like the rain's own time, and driven by whether it
+  // is *actually* falling rather than by whether the player wants it — step under a roof and the
+  // street outside stays wet, which is right, and the roof you are under dries.
+  world.setWetness(wetness.update(now / 1000, rain.enabled));
   entities.render(groundAt);
 
   world.pool.pulse(now / 1000);
@@ -688,6 +749,51 @@ const debug = {
   set windEnabled(on: boolean) {
     world.windEnabled = on;
   },
+
+  /* ------------------------------------------------------------------ M5b */
+
+  /** Quaternius models whose every primitive is in the pool. Sixty-three when the import is whole. */
+  get kitLoaded(): number {
+    return world.kit.loaded;
+  },
+  /** Kit textures loaded, and the megabytes they cost on the wire. The compression slice's target. */
+  get kitTextures(): { count: number; megabytes: number } {
+    return { count: world.kit.textures, megabytes: Number((world.kit.textureBytes / 1024 / 1024).toFixed(2)) };
+  },
+  /** Kit understory instances standing in the loaded window — trees excluded, they are `treeInstances`. */
+  get kitInstances(): number {
+    return world.scatterCensus().kit;
+  },
+  /** Chunks in the window currently drawing a water surface. Zero everywhere but a shore. */
+  get waterChunks(): number {
+    return world.scatterCensus().water;
+  },
+  /**
+   * 0..1. Writable, because *"is the wet response too strong"* is a judgement made by looking and
+   * waiting six seconds for a storm to soak in is six seconds too long to hold an opinion.
+   */
+  get wetness(): number {
+    return world.wetness;
+  },
+  set wetness(value: number) {
+    wetness.value = value;
+    world.setWetness(wetness.value);
+  },
+  /** The hour of the game day, 0..24. See `World3D.setGameHour`: the server ticks no clock. */
+  get hour(): number {
+    return gameHour;
+  },
+  set hour(value: number) {
+    applySky(value);
+  },
+  /** Which recipe the rig is wearing, by name — `night`, `day`, or a blend like `dawn->day`. */
+  get sky(): string {
+    return world.night.sky?.name ?? 'night';
+  },
+  /** The estimated texture memory, beside the ledger, because at M5b it is the biggest number. */
+  get textureBytes(): number {
+    return world.ledger().textureBytes;
+  },
 };
 
 (window as unknown as { __debug3d: typeof debug }).__debug3d = debug;
@@ -697,24 +803,38 @@ const debug = {
 /* -------------------------------------------------------------------------- */
 
 /**
- * **T** cycles the tone mapping, **R** toggles the rain, **B** toggles the bloom, **F** the wind.
+ * **T** cycles the tone mapping, **R** toggles the rain, **B** toggles the bloom, **F** the wind —
+ * and M5b's **G** flips day against night, with **[** and **]** sweeping the hour an hour at a time.
  *
- * Four keys because M4 and M5 are judgements made by looking, and reaching for the console between
- * looks costs the comparison its immediacy — the plan's *"judge it side by side with the reference on
- * the same monitor"* is a thing you do with a keyboard. **F** earns its place twice over: it is the
- * mood knob for the foliage *and* the fastest hand check of `foliage.ts`'s trap 1, because a shadow
- * that jumps when the wind stops is a depth material that was never carrying the displacement.
+ * Keys because M4 and M5 are judgements made by looking, and reaching for the console between looks
+ * costs the comparison its immediacy — the plan's *"judge it side by side with the reference on the
+ * same monitor"* is a thing you do with a keyboard. **F** earns its place twice over: it is the mood
+ * knob for the foliage *and* the fastest hand check of `foliage.ts`'s trap 1, because a shadow that
+ * jumps when the wind stops is a depth material that was never carrying the displacement. **G** is
+ * M5b's equivalent: the kit was chosen off sunlit screenshots and M4 tuned only the night, so the two
+ * have to be comparable in one keystroke or one of them will quietly stay wrong.
+ *
+ * `[` and `]` are `BracketLeft`/`BracketRight` by **code**, not by key, so they are the same two
+ * physical keys on every layout — the sweep is a gesture (hold and step) and a gesture wants a
+ * position, not a character.
  *
  * Both of `CLAUDE.md`'s input traps apply and both are answered the way `input.ts` answers them. The
  * gate is checked *and* `intoFormControl` is asked, so a **t** typed into the command line reaches the
  * command line — the letter-eating failure in gotcha 5a arrived through exactly this door, from a
  * listener that read a key it had no business reading. Nothing here calls `preventDefault`, and the
  * decision is taken on the `keydown` event with `event.repeat` refused rather than polled, which is
- * gotcha 5b.
+ * gotcha 5b. **The bracket keys deliberately do not refuse `repeat`**: a sweep is the one case where
+ * auto-repeat is the feature, and they are read off the event rather than polled either way.
  */
 window.addEventListener('keydown', (event: KeyboardEvent) => {
-  if (input.typing || event.repeat || intoFormControl(event.target)) return;
+  if (input.typing || intoFormControl(event.target)) return;
   if (event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.code === 'BracketLeft' || event.code === 'BracketRight') {
+    applySky(gameHour + (event.code === 'BracketRight' ? 1 : -1));
+    log.write('system', `time: ${clockOf(gameHour)} (${world.night.sky?.name ?? 'night'})`);
+    return;
+  }
+  if (event.repeat) return;
   switch (event.code) {
     case 'KeyT': {
       const at = TONE_MAPPINGS.indexOf(grade.toneMapping);
@@ -735,6 +855,14 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
       world.windEnabled = !world.windEnabled;
       log.write('system', `wind: ${world.windEnabled ? 'on' : 'off'}`);
       return;
+    case 'KeyG': {
+      // Jump to whichever of the two the rig is not near. Midnight and noon are the two keys the
+      // recipes were authored at, so the flip lands on an authored sky rather than on a blend.
+      const day = gameHour >= 9 && gameHour < 17;
+      applySky(hourOf(day ? NIGHT_SKY : DAY_SKY));
+      log.write('system', `time: ${clockOf(gameHour)} — ${day ? NIGHT_SKY.name : DAY_SKY.name}`);
+      return;
+    }
     default:
       return;
   }
@@ -742,7 +870,8 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
 
 log.write(
   'system',
-  'M5a — T: tone mapping (neutral/agx)   R: rain   B: bloom   F: wind.  Knobs on window.__debug3d.',
+  'M5b — T: tone mapping (neutral/agx)   R: rain   B: bloom   F: wind   G: day/night   [ ]: sweep the hour.' +
+    '  Knobs on window.__debug3d.',
 );
 
 net.connect();

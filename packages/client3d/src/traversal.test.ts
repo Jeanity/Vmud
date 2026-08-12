@@ -129,11 +129,17 @@ describe('M3: streaming a real world with a flat ledger', () => {
     const world = new World3D();
     // M5a: the scatter must be running or this measures the wrong renderer. See the header.
     world.trees.standIn(world.pool);
+    // M5b: and so must the kit, which after this milestone is a third of what a forest room grows
+    // and *all* of what a road grows. A flat ledger measured with the understory switched off would
+    // be a statement about M5a wearing M5b's version number.
+    world.kit.standIn(world.pool);
     let visited = 0;
     let places = 0;
     let chunkHigh = 0;
     let treeHigh = 0;
     let scatterHigh = 0;
+    let kitHigh = 0;
+    let waterHigh = 0;
     let baseline: ReturnType<World3D['ledger']> | undefined;
 
     outer: for (const zone of zones) {
@@ -155,6 +161,8 @@ describe('M3: streaming a real world with a flat ledger', () => {
         const census = world.scatterCensus();
         treeHigh = Math.max(treeHigh, census.trees);
         scatterHigh = Math.max(scatterHigh, census.instances);
+        kitHigh = Math.max(kitHigh, census.kit);
+        waterHigh = Math.max(waterHigh, census.water);
         assert.ok(
           world.chunksLoaded <= MAX_WINDOW_CHUNKS,
           `${world.chunksLoaded} chunks live, over the ${MAX_WINDOW_CHUNKS} bound, at room ${visited}`,
@@ -169,16 +177,19 @@ describe('M3: streaming a real world with a flat ledger', () => {
     const end = world.ledger();
 
     console.log(
-      `[M5a traversal] ${visited} rooms across ${places} Places in ${Date.now() - started} ms\n` +
+      `[M5b traversal] ${visited} rooms across ${places} Places in ${Date.now() - started} ms\n` +
         `  pool          geometries ${end.geometries}  materials ${end.materials}  prewarmed ${end.prewarmed}\n` +
         `  programs      materials ${end.programs}  depth ${end.depthProgramCount}\n` +
         `  wrappers      created ${end.wrappersCreated}  live ${end.wrappersLive}  free ${end.wrappersFree}` +
-        `  high-water ${end.wrapperHighWater}  of which blend ${end.blendWrappers}\n` +
+        `  high-water ${end.wrapperHighWater}  of which attributed ${end.blendWrappers}\n` +
         `  churn         acquires ${end.acquires}  releases ${end.releases}\n` +
         `  chunks        high-water ${chunkHigh} of ${MAX_WINDOW_CHUNKS}\n` +
-        `  scatter       trees high-water ${treeHigh}  instances high-water ${scatterHigh}\n` +
+        `  scatter       trees high-water ${treeHigh}  kit high-water ${kitHigh}  ` +
+        `instances high-water ${scatterHigh}\n` +
+        `  water         chunks high-water ${waterHigh}\n` +
         `  bytes         at room ${BASELINE_ROOM}: ${baseline.bytes}   at room ${visited}: ${end.bytes}\n` +
-        `                geometry ${end.geometryBytes} + instance ${end.instanceBytes}`,
+        `                geometry ${end.geometryBytes} + instance ${end.instanceBytes}` +
+        `  textures ${end.textureBytes}`,
     );
 
     assert.equal(end.geometries, baseline.geometries, 'the geometry pool grew');
@@ -197,9 +208,18 @@ describe('M3: streaming a real world with a flat ledger', () => {
     // boot and unmoved by a thousand rooms of streaming.
     assert.ok(treeHigh > 20, `only ${treeHigh} trees ever stood in the window`);
     assert.ok(scatterHigh > 200, `only ${scatterHigh} scatter instances at the peak`);
-    assert.equal(end.programs, 3, 'the material pool grew a program while streaming');
-    assert.equal(end.depthProgramCount, 1);
+    // M5b: the kit and the water both ran. Without these the flat ledger above would be a statement
+    // about a renderer with the understory and the lakes switched off.
+    assert.ok(kitHigh > 40, `only ${kitHigh} kit instances at the peak`);
+    // Seven colour programs and two depth, fixed at boot and unmoved by a thousand rooms of
+    // streaming. See `pool.programKeys` for why `map` and `vertexColors` are in the proxy's key.
+    assert.equal(end.programs, 7, 'the material pool grew a program while streaming');
+    assert.equal(end.depthProgramCount, 2);
     assert.equal(end.programs, baseline.programs);
+    // Nothing loaded a texture headlessly, so the texture ledger must still be zero — the number that
+    // would otherwise hide a per-chunk load creeping in behind the geometry pool's back.
+    assert.equal(end.textures, 0);
+    assert.equal(end.textureBytes, 0);
 
     world.dispose();
   });

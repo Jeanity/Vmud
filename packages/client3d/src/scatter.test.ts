@@ -43,11 +43,16 @@ import {
 import { ROOM_METRES, cellOriginTiles, metresOfTile, placeFrame } from './frame.ts';
 import {
   GRASS_PER_ROOM_MAX,
+  KIT_BLOCKS,
+  KIT_MODELS,
+  KIT_MODELS_PER_ROOM,
+  KIT_PARTS_MAX,
+  KIT_PER_ROOM_MAX,
   TREES_PER_ROOM_MAX,
   TREE_VARIANTS,
   TREE_VARIANTS_PER_ROOM,
 } from './prototypes.ts';
-import { freeTiles, paletteFor, planScatter } from './scatter.ts';
+import { freeTiles, kitPaletteFor, paletteFor, planScatter } from './scatter.ts';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const ZONES_DIR = join(REPO_ROOT, 'data', 'world', 'zones');
@@ -169,26 +174,33 @@ describe('the three-layer scatter', () => {
   it('never exceeds the caps pool.ts sizes its free list from', () => {
     let worstTrees = 0;
     let worstTufts = 0;
+    let worstKit = 0;
     let worstBuckets = 0;
+    // The ceiling `pool.SCATTER_WRAPPER_CEILING` is derived from, restated where it is checked: three
+    // species x two parts, one undergrowth bucket, and four kit models x two primitives.
+    const ceiling = TREE_VARIANTS_PER_ROOM * 2 + 1 + KIT_MODELS_PER_ROOM * KIT_PARTS_MAX;
     for (const { room, scene, origin, placements } of grown()) {
       let trees = 0;
       let tufts = 0;
+      let kit = 0;
       const buckets = new Map<string, number>();
       for (const placement of placements) {
         if (placement.archetype === 'trunk') trees += 1;
         if (placement.archetype === 'grass') tufts += 1;
+        if (placement.archetype === 'kitSolid' || placement.archetype === 'kitLeaf') kit += 1;
         const key = `${placement.geometry}|${placement.material}`;
         buckets.set(key, (buckets.get(key) ?? 0) + 1);
       }
       assert.ok(trees <= TREES_PER_ROOM_MAX, `room ${room.id} grew ${trees} trees`);
       assert.ok(tufts <= GRASS_PER_ROOM_MAX, `room ${room.id} grew ${tufts} tufts`);
-      // Seven, and provably: 3 species x 2 parts, plus one undergrowth bucket.
-      assert.ok(buckets.size <= TREE_VARIANTS_PER_ROOM * 2 + 1, `room ${room.id} wanted ${buckets.size} buckets`);
+      assert.ok(kit <= KIT_PER_ROOM_MAX, `room ${room.id} grew ${kit} kit instances`);
+      assert.ok(buckets.size <= ceiling, `room ${room.id} wanted ${buckets.size} buckets of ${ceiling}`);
       for (const [key, count] of buckets) {
         assert.ok(count <= 32, `room ${room.id} put ${count} instances in ${key}, over one wrapper`);
       }
-      // The palette is bounded whatever the hash rolls.
+      // Both palettes are bounded whatever the hash rolls.
       assert.ok(paletteFor(scene.biome.sector, scene.seed).length <= TREE_VARIANTS_PER_ROOM);
+      assert.ok(kitPaletteFor(scene.biome.sector, scene.seed).length <= KIT_MODELS_PER_ROOM);
       // `freeTiles` must never offer a tile a feature is standing on.
       if (scene.features.length > 0) {
         const free = new Set(freeTiles(scene));
@@ -198,14 +210,77 @@ describe('the three-layer scatter', () => {
       }
       worstTrees = Math.max(worstTrees, trees);
       worstTufts = Math.max(worstTufts, tufts);
+      worstKit = Math.max(worstKit, kit);
       worstBuckets = Math.max(worstBuckets, buckets.size);
       void origin;
     }
     console.log(
-      `[M5a caps] worst room: ${worstTrees} trees of ${TREES_PER_ROOM_MAX}, ` +
-        `${worstTufts} tufts of ${GRASS_PER_ROOM_MAX}, ${worstBuckets} buckets of ${TREE_VARIANTS_PER_ROOM * 2 + 1}`,
+      `[M5b caps] worst room: ${worstTrees} trees of ${TREES_PER_ROOM_MAX}, ` +
+        `${worstTufts} tufts of ${GRASS_PER_ROOM_MAX}, ${worstKit} kit of ${KIT_PER_ROOM_MAX}, ` +
+        `${worstBuckets} buckets of ${ceiling}`,
     );
     assert.ok(worstTrees > 0, 'nothing grew anywhere');
+    assert.ok(worstKit > 0, 'the kit never dressed a single room');
+  });
+
+  it('holds the kit to its palette, its ration and the scatter-block rule', () => {
+    // The three things the brief asks of the kit layer, over the whole world rather than a fixture.
+    const known = new Set(KIT_MODELS);
+    const required = walkableRequired();
+    let kitInstances = 0;
+    let boulders = 0;
+    let worstTwisted = 0;
+    const problems: string[] = [];
+
+    for (const { room, scene, origin, placements } of grown()) {
+      const x0 = metresOfTile(origin.tx);
+      const z0 = metresOfTile(origin.ty);
+      const blocked = new Set<number>(required);
+      for (const feature of scene.features) {
+        for (const tile of featureFootprint(feature)) blocked.add(tile);
+      }
+      let twisted = 0;
+      for (const placement of placements) {
+        if (placement.archetype === 'trunk' && placement.material.includes('twisted-tree')) twisted += 1;
+        if (placement.archetype !== 'kitSolid' && placement.archetype !== 'kitLeaf') continue;
+        kitInstances += 1;
+        // `kit|<model>|<texture>` — the model must be one this package has a pool key for.
+        const model = placement.material.split('|')[1] ?? '';
+        if (!known.has(model) && problems.length < 8) problems.push(`room ${room.id}: unknown kit model ${model}`);
+
+        const tx = Math.floor(placement.x - x0);
+        const ty = Math.floor(placement.z - z0);
+        const inside = tx >= 0 && tx < ROOM_TILES && ty >= 0 && ty < ROOM_TILES;
+        if (KIT_BLOCKS.has(model)) {
+          boulders += 1;
+          // A blocking model is held to the treeline's rule: outside the room block entirely, in the
+          // void the collision grid has no tiles for. Never merely "on a free tile".
+          const outside =
+            Math.abs(placement.x - (x0 + HALF_ROOM)) > HALF_ROOM
+            || Math.abs(placement.z - (z0 + HALF_ROOM)) > HALF_ROOM;
+          if (!outside && problems.length < 8) {
+            problems.push(`room ${room.id}: ${model} blocks and stands inside the block at ${tx},${ty}`);
+          }
+          continue;
+        }
+        // Understory never blocks, so it stands inside — but never where a player arrives or walks.
+        if (!inside && problems.length < 8) problems.push(`room ${room.id}: ${model} outside the block`);
+        else if (inside && blocked.has(ty * ROOM_TILES + tx) && problems.length < 8) {
+          problems.push(`room ${room.id}: ${model} on required-walkable tile ${tx},${ty}`);
+        }
+      }
+      // The brief's ration, over the built world: at most one twisted tree in any room, ever.
+      assert.ok(twisted <= 1, `room ${room.id} grew ${twisted} twisted trees`);
+      worstTwisted = Math.max(worstTwisted, twisted);
+    }
+
+    console.log(
+      `[M5b kit] ${kitInstances} kit instances world-wide, of which ${boulders} blocking; ` +
+        `worst room ${worstTwisted} twisted tree`,
+    );
+    assert.deepEqual(problems, [], problems.join('\n'));
+    assert.ok(kitInstances > 100000, `only ${kitInstances} kit instances — the world is undressed`);
+    assert.ok(boulders > 1000, `only ${boulders} boulders — the hills grew nothing`);
   });
 
   it('grows nothing at all under a roof', () => {
@@ -224,7 +299,7 @@ describe('the three-layer scatter', () => {
     let checked = 0;
     for (const { placements } of grown()) {
       for (const placement of placements) {
-        if (placement.archetype === 'grass') continue;
+        if (placement.archetype !== 'trunk' && placement.archetype !== 'canopy') continue;
         const variant = placement.material.split('|')[1] ?? '';
         assert.ok(known.has(variant), `unknown variant ${variant}`);
         checked += 1;

@@ -67,9 +67,11 @@ import type { ScenePool } from './pool.ts';
 import {
   TREE_LODS,
   TREE_PARTS,
+  TREE_SOURCE,
   TREE_VARIANTS,
   treeGeometryKey,
   treeMaterialKey,
+  treePartsOf,
   type TreePart,
   type TreeVariant,
 } from './prototypes.ts';
@@ -250,10 +252,16 @@ export class TreeSet {
     for (const variant of TREE_VARIANTS) {
       const entry = STAND_IN[TREE_VARIANTS.indexOf(variant) % STAND_IN.length]!;
       this.entries.set(variant, { ...entry, id: variant });
+      // The parts this variant actually has. M5b's kit `DeadTree` is a trunk and nothing else, and a
+      // stand-in canopy for it would register a mesh the material pool has no material for.
+      const parts = treePartsOf(variant);
       for (const lod of TREE_LODS) {
-        const trunk = new BoxGeometry(entry.trunkRadius * 2, entry.height, entry.trunkRadius * 2);
-        trunk.translate(0, entry.height / 2, 0);
-        pool.registerGeometry(treeGeometryKey(variant, 'trunk', lod), trunk);
+        if (parts.includes('trunk')) {
+          const trunk = new BoxGeometry(entry.trunkRadius * 2, entry.height, entry.trunkRadius * 2);
+          trunk.translate(0, entry.height / 2, 0);
+          pool.registerGeometry(treeGeometryKey(variant, 'trunk', lod), trunk);
+        }
+        if (!parts.includes('canopy')) continue;
         const canopy = new ConeGeometry(entry.radius, entry.canopy.top - entry.canopy.base, 6 - lod);
         canopy.translate(0, (entry.canopy.top + entry.canopy.base) / 2, 0);
         canopy.setAttribute(
@@ -347,7 +355,7 @@ function prepare(geometry: BufferGeometry, part: TreePart): BufferGeometry {
 }
 
 function complete(pool: ScenePool, variant: TreeVariant): boolean {
-  for (const part of TREE_PARTS) {
+  for (const part of treePartsOf(variant)) {
     for (const lod of TREE_LODS) {
       if (!pool.hasGeometry(treeGeometryKey(variant, part, lod))) return false;
     }
@@ -363,6 +371,11 @@ function complete(pool: ScenePool, variant: TreeVariant): boolean {
  * cone and not a house default.
  */
 function applyLook(pool: ScenePool, variant: TreeVariant, entry: TreeEntry): void {
+  // **A kit tree's colour is its texture.** `diffuse` multiplies the map, so painting a bark colour
+  // over a bark photograph would tint the whole Quaternius palette by a number nobody chose — and the
+  // fog-of-war ratio, which is computed off the base colour, is the identity at white and correct.
+  // `kit.ts` writes the parts of the look that *are* a kit tree's: its texture and its wind gain.
+  if (TREE_SOURCE[variant] === 'kit') return;
   // `recolour` rather than `material(...).color.setHex`, because the fog-of-war tint is a ratio
   // computed from the base colour and has to be recomputed with it. See `ScenePool.recolour`.
   pool.recolour(treeMaterialKey('trunk', variant), entry.bark);

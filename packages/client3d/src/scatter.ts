@@ -91,11 +91,21 @@ import { METRES_PER_TILE, ROOM_METRES, metresOfTile } from './frame.ts';
 import {
   DIMENSIONS,
   GRASS_PER_ROOM_MAX,
+  KIT_BLOCKS,
+  KIT_MODELS_PER_ROOM,
+  KIT_PART_TEXTURES,
+  KIT_PER_ROOM_MAX,
   TREES_PER_ROOM_MAX,
   TREE_VARIANTS_PER_ROOM,
+  kitGeometryKey,
+  kitMaterialKey,
+  kitRoleOf,
   materialKey,
+  treeFamily,
   treeGeometryKey,
   treeMaterialKey,
+  treePartsOf,
+  treeRationOf,
   type TreeVariant,
 } from './prototypes.ts';
 
@@ -106,20 +116,39 @@ import {
 /**
  * What grows at the edge of each biome that has one.
  *
- * Three sectors and no more, deliberately: the brief's *"forest/hills/swamp"*, which is where a
- * treeline is the right answer. `field` gets undergrowth and no trees — an open field walled by
- * conifers is a forest clearing, and calling every open sector a clearing would put the reference
- * image's one composition on 18,818 rooms. Rock faces for `mountain` and `cave`, facades for `city`
- * and shorelines for water are the rest of §4's *"dressed by biome"* table and are M5b's and M6's.
+ * At M5a this was three sectors of ez-tree conifers. **M5b's kit is what the owner chose the world to
+ * look like**, so the kit's trees lead every list and the baked conifers are the supporting cast that
+ * keeps a treeline from being one vendor's silhouette repeated — which is exactly the mix §5 asked
+ * for and the opposite of the asset-flip failure it warns about.
+ *
+ * `field` still gets undergrowth and no trees — an open field walled by trees is a forest clearing,
+ * and calling every open sector a clearing would put the reference image's one composition on 18,818
+ * rooms. **The brief's *"field: … lone CommonTree"* is the one palette line not implemented, and it is
+ * a deliberate refusal**: the only layer that places a full-size tree is the boundary one, which
+ * places *beyond* the room block, and a lone tree standing inside a field would be a nine-metre object
+ * on ground the collision grid says is walkable — the precise lie this file's header forbids. It wants
+ * a fourth placement rule (a tree in the *gap* between two field rooms) and that is a slice of its own.
+ *
+ * `desert` and `arctic` are thin on purpose and the brief says so: *"rocks + DeadTree only — **thin,
+ * and named as a gap**; do not pad with off-palette models."* Two dead trees each, and the gap is
+ * recorded rather than filled with a conifer that does not belong in a dune.
  *
  * The order inside a palette matters, because {@link paletteFor} takes the first
  * {@link TREE_VARIANTS_PER_ROOM} after a hashed rotation: the earlier entries are the ones a room is
- * most likely to draw, so each list leads with the tree that should dominate that biome.
+ * most likely to draw. Each list therefore leads with the tree that should dominate the biome **and,
+ * within a family, with the cheapest member of it** — `common-tree-5` is 3,182 triangles and
+ * `common-tree-1` is 6,265 for the same silhouette at 30 m, so the leading entry being the light one
+ * is worth about a third of a forest room's triangles.
  */
 const TREES_BY_SECTOR: Readonly<Partial<Record<Sector, readonly TreeVariant[]>>> = {
-  forest: ['pine-tall', 'fir-dense', 'pine-broad', 'fir-ragged', 'pine-young', 'pine-crooked'],
-  hills: ['pine-broad', 'pine-young', 'pine-crooked', 'snag-bare'],
-  swamp: ['aspen-thin', 'snag-bare', 'pine-crooked', 'pine-young'],
+  forest: ['common-tree-5', 'common-tree-3', 'common-tree-4', 'common-tree-2', 'common-tree-1', 'fir-dense', 'pine-tall'],
+  hills: ['pine-5', 'pine-2', 'pine-1', 'pine-broad', 'pine-young', 'snag-bare'],
+  // Pine belts and mountain aprons, the brief's own phrase. Sparse rather than a wall: `mountain` had
+  // no treeline at M5a and a solid one would hide the rock faces M6 is going to grow there.
+  mountain: ['pine-5', 'pine-4', 'pine-crooked'],
+  swamp: ['dead-tree-1', 'dead-tree-3', 'aspen-thin', 'twisted-tree-2', 'snag-bare', 'dead-tree-5'],
+  desert: ['dead-tree-4', 'dead-tree-2'],
+  arctic: ['dead-tree-5', 'snag-bare'],
 };
 
 /** How many tufts a sector's floor carries. Absent means bare — a road, a street, a cave. */
@@ -134,6 +163,119 @@ const GRASS_BY_SECTOR: Readonly<Partial<Record<Sector, number>>> = {
 const CLUTTER_BY_SECTOR: Readonly<Partial<Record<Sector, number>>> = {
   forest: 4,
 };
+
+/* ------------------------------------------------------ M5b: the kit palettes */
+
+/**
+ * What the kit dresses each sector with — the brief's palette draft, as data.
+ *
+ * > *forest: CommonTree (bulk), Bush, Clover, Mushroom_Common, Flower singles, Grass_Common, Fern-patch
+ * > · pine belts / mountain aprons: Pine, Rock_Medium, Pebbles, Grass_Wispy_Short
+ * > · swamp: DeadTree, TwistedTree (≤1/room), Plant_1_Big, Grass_Wispy_Tall, Mushroom_Laetiporus
+ * > · field: Grass tall kinds, Flower groups, Clover, lone CommonTree
+ * > · hills: Rock_Medium, Pebbles, sparse lone trees
+ * > · road: RockPath pieces + Grass_Common_Short along edges*
+ *
+ * The trees in that draft are in {@link TREES_BY_SECTOR} above; what is left here is the understory,
+ * and it is one list per sector rather than three layered ones because **the bucket budget is a
+ * property of how many distinct models a room draws, not of how they are laid out**. A room takes at
+ * most {@link KIT_MODELS_PER_ROOM} of these by hashed rotation and each one is then placed according
+ * to its own nature — see {@link kitLayerOf}. That keeps the ceiling `4 x 2 = 8` buckets whatever a
+ * palette contains, so a palette can be as long as the biome deserves.
+ *
+ * `city` gets the road's treatment minus the grass: a street is hard ground with stones in it.
+ */
+const KIT_BY_SECTOR: Readonly<Partial<Record<Sector, readonly string[]>>> = {
+  forest: [
+    'fern-1',
+    'clover-1',
+    'mushroom-common',
+    'bush-common',
+    'flower-3-single',
+    'grass-common-tall',
+    'clover-2',
+    'plant-1',
+  ],
+  field: [
+    'grass-common-tall',
+    'flower-4-group',
+    'clover-1',
+    'flower-3-group',
+    'grass-wispy-tall',
+    'clover-2',
+    'bush-common-flowers',
+  ],
+  hills: ['rock-medium-2', 'pebble-round-1', 'grass-wispy-short', 'rock-medium-1', 'pebble-round-4', 'pebble-square-2'],
+  mountain: ['rock-medium-3', 'pebble-square-1', 'rock-medium-1', 'pebble-round-3', 'pebble-square-5'],
+  swamp: ['plant-1-big', 'grass-wispy-tall', 'mushroom-laetiporus', 'plant-7-big', 'fern-1', 'mushroom-common'],
+  road: [
+    'rock-path-round-small-1',
+    'grass-common-short',
+    'rock-path-square-small-2',
+    'pebble-round-2',
+    'rock-path-round-thin',
+    'rock-path-square-small-3',
+    'pebble-square-3',
+  ],
+  city: ['rock-path-square-small-1', 'pebble-square-4', 'rock-path-square-thin', 'pebble-round-5', 'rock-path-square-wide'],
+  desert: ['rock-medium-2', 'pebble-square-6', 'pebble-round-3'],
+  arctic: ['rock-medium-1', 'pebble-round-5'],
+};
+
+/** How many kit instances a sector's room grows. Absent means undressed — a cave, a lake, the astral. */
+const KIT_COUNT_BY_SECTOR: Readonly<Partial<Record<Sector, number>>> = {
+  forest: 14,
+  field: 12,
+  hills: 9,
+  mountain: 6,
+  swamp: 11,
+  road: 10,
+  city: 7,
+  desert: 4,
+  arctic: 3,
+};
+
+/**
+ * Per-instance scale, as a multiplier on the kit's own metres. **The kit is already at world scale.**
+ *
+ * The brief settled that headlessly and it is the finding this whole layer rests on: *"One room cell
+ * is 9 m; a CommonTree is 7–9.4 m tall on a ~4 m crown. **No normalization pass** — apply only
+ * per-instance jitter."* So the default is a tenth either side of life size and nothing else.
+ *
+ * `fern-1` is the exception the brief also named: *"one mesh, one primitive, 243 vertices genuinely
+ * spread over 9.0x8.5 m — a multi-frond ground patch, not a bad export. Scatter it at 0.3–0.5 scale
+ * as forest-floor fill."* At life size one fern covers an entire room.
+ */
+const KIT_SCALE: Readonly<Record<string, readonly [number, number]>> = {
+  'fern-1': [0.3, 0.5],
+  'plant-1-big': [0.7, 1.0],
+  'plant-7-big': [0.7, 1.0],
+  'mushroom-laetiporus': [0.8, 1.2],
+};
+
+const KIT_SCALE_DEFAULT: readonly [number, number] = [0.85, 1.15];
+
+/**
+ * Where a kit model belongs, from what it is.
+ *
+ * Three answers and the rule behind each is `scatter.ts`'s own, not a new one:
+ *
+ * - **`boundary`** — it blocks. `prototypes.KIT_BLOCKS` is `Rock_Medium` and nothing else, and the
+ *   brief's *"trees and `Rock_Medium` block"* puts it under the treeline's rule: outside the room
+ *   block, in the void the collision grid has no tiles for and where the player already cannot walk.
+ *   A room with no `edge` side grows none, because there is nowhere honest to put one.
+ * - **`edging`** — it is flat and belongs at the margin. Path stones and pebbles, on the ring of tiles
+ *   just inside the block's wall, which is where a track's edge is. That is the whole of *"the road
+ *   **reads** as a road before M5c ever bends it"*: a strip of laid stone down each side.
+ * - **`understory`** — everything else, on any free tile.
+ */
+export type KitLayer = 'boundary' | 'edging' | 'understory';
+
+export function kitLayerOf(model: string): KitLayer {
+  if (KIT_BLOCKS.has(model)) return 'boundary';
+  if (model.startsWith('rock-path') || model.startsWith('pebble')) return 'edging';
+  return 'understory';
+}
 
 /* -------------------------------------------------------------------------- */
 /* Numbers                                                                     */
@@ -182,6 +324,14 @@ const SALT_CLUTTER_JITTER = 0x5c12;
 const SALT_GRASS_TILE = 0x5c20;
 const SALT_GRASS_JITTER = 0x5c21;
 const SALT_GRASS_SCALE = 0x5c22;
+const SALT_KIT_PALETTE = 0x5c30;
+const SALT_KIT_MODEL = 0x5c31;
+const SALT_KIT_TILE = 0x5c32;
+const SALT_KIT_JITTER = 0x5c33;
+const SALT_KIT_SCALE = 0x5c34;
+const SALT_KIT_YAW = 0x5c35;
+const SALT_KIT_TILT = 0x5c36;
+const SALT_KIT_SIDE = 0x5c37;
 
 /** One decision, in `[0, 1)`. A pure function of the seed, the salt and the index — never of a cursor. */
 function roll(seed: number, salt: number, index: number): number {
@@ -223,6 +373,25 @@ export function paletteFor(sector: Sector, seed: number): readonly TreeVariant[]
   return out;
 }
 
+/**
+ * The kit models one room may dress itself with — at most {@link KIT_MODELS_PER_ROOM}, by the same
+ * hashed rotation {@link paletteFor} uses and for the same reason.
+ *
+ * A rotation rather than a subset keeps the list contiguous, so the leading entry — the one the
+ * palette author put first, and the one that should characterise the biome — is in every room's set.
+ * A forest floor is therefore always ferny, and which of clover, mushrooms and a bush joins the ferns
+ * changes from room to room.
+ */
+export function kitPaletteFor(sector: Sector, seed: number): readonly string[] {
+  const palette = KIT_BY_SECTOR[sector];
+  if (!palette || palette.length === 0) return [];
+  const take = Math.min(KIT_MODELS_PER_ROOM, palette.length);
+  const start = Math.floor(roll(seed, SALT_KIT_PALETTE, 0) * palette.length);
+  const out: string[] = [];
+  for (let i = 0; i < take; i++) out.push(palette[(start + i) % palette.length]!);
+  return out;
+}
+
 /* -------------------------------------------------------------------------- */
 /* The plan                                                                    */
 /* -------------------------------------------------------------------------- */
@@ -246,18 +415,83 @@ export function planScatter(input: ScatterInput, order: readonly Cardinal[] = CA
   const out: Placement[] = [];
   const palette = paletteFor(scene.biome.sector, scene.seed);
   if (palette.length > 0) {
-    boundary(input, palette, order, out);
-    clutter(input, palette, out);
+    // **The species are chosen before a single side is walked, and that is M5b's doing.** The
+    // rationing the brief asks for is a *running count* — "at most one twisted tree in this room" —
+    // and a running count over `order` is the one thing this file has never allowed itself: which
+    // tree got the last twisted slot would depend on which way the cardinals were iterated, and §4's
+    // byte-identical verification would fail. So {@link speciesPlan} decides every slot up front in a
+    // canonical order, and the loop below only reads its answer.
+    const species = speciesPlan(scene, palette);
+    boundary(input, species, order, out);
+    clutter(input, species, out);
   }
   undergrowth(input, out);
+  kit(input, out);
   return out;
+}
+
+/* ------------------------------------------------- the species plan (rationed) */
+
+/**
+ * Which variant stands in each boundary slot and each clutter slot, decided once, in canonical order.
+ *
+ * The brief rations `TwistedTree` to one a room and `DeadTree` to four (see
+ * `prototypes.TREE_RATION`), and a ration is inherently stateful: the *n*th twisted tree is refused
+ * because of the *n-1* before it. This file's whole determinism contract is that a placement is a
+ * pure function of `(seed, salt, index)` and never of a cursor, so the state has to be resolved
+ * somewhere the cursor cannot reach — which is here, over `CARDINALS` in their own fixed order,
+ * before the caller's `order` is looked at.
+ *
+ * Two details that are decisions:
+ *
+ * - **The skipped back-row slots are skipped here too.** The gap roll is a pure function of the index
+ *   like everything else, so the plan can and does apply it; a slot that will not be planted must not
+ *   consume a ration.
+ * - **A refused variant falls back to the first palette entry that is still under its own ration**,
+ *   not blindly to `palette[0]`. In a swamp whose hashed rotation happens to lead with the twisted
+ *   tree, a blind fallback would turn a ration of one into a room full of them — which is the exact
+ *   opposite of the instruction, and is what the first draft of this did.
+ */
+function speciesPlan(
+  scene: RoomScene,
+  palette: readonly TreeVariant[],
+): { readonly boundary: ReadonlyMap<number, TreeVariant>; readonly clutter: readonly TreeVariant[] } {
+  const grown = new Map<string, number>();
+  const boundaryPlan = new Map<number, TreeVariant>();
+
+  for (const dir of CARDINALS) {
+    if (scene.edges[dir].kind !== 'edge') continue;
+    const side = CARDINALS.indexOf(dir);
+    for (let row = 0; row < 2; row++) {
+      const count = row === 0 ? BOUNDARY_FRONT : BOUNDARY_BACK;
+      for (let i = 0; i < count; i++) {
+        const index = side * 64 + row * 16 + i;
+        if (row === 1 && roll(scene.seed, SALT_SKIP, index) < 0.25) continue;
+        const rolled = palette[Math.floor(roll(scene.seed, SALT_SPECIES, index) * palette.length)]!;
+        const chosen = ration(rolled, palette, grown);
+        if (chosen) boundaryPlan.set(index, chosen);
+      }
+    }
+  }
+
+  const clutterPlan: TreeVariant[] = [];
+  const wanted = CLUTTER_BY_SECTOR[scene.biome.sector] ?? 0;
+  for (let i = 0; i < wanted; i++) {
+    const rolled = palette[Math.floor(roll(scene.seed, SALT_SPECIES, 512 + i) * palette.length)]!;
+    // A sapling is a small tree and still a tree: it counts against the ration, or a room could hold
+    // one twisted tree at the treeline and four more in the middle of it.
+    const chosen = ration(rolled, palette, grown);
+    if (chosen) clutterPlan.push(chosen);
+  }
+
+  return { boundary: boundaryPlan, clutter: clutterPlan };
 }
 
 /* --------------------------------------------------------- layer (a): boundary */
 
 function boundary(
   input: ScatterInput,
-  palette: readonly TreeVariant[],
+  species: { readonly boundary: ReadonlyMap<number, TreeVariant> },
   order: readonly Cardinal[],
   out: Placement[],
 ): void {
@@ -281,9 +515,10 @@ function boundary(
       const count = row === 0 ? BOUNDARY_FRONT : BOUNDARY_BACK;
       for (let i = 0; i < count; i++) {
         const index = side * 64 + row * 16 + i;
-        // A gap in the back row now and then. Without it the second row is a copy of the first and
-        // the treeline reads as two fences rather than as depth.
-        if (row === 1 && roll(scene.seed, SALT_SKIP, index) < 0.25) continue;
+        // A gap in the back row now and then, and the species plan's own refusals. Both are decided
+        // in `speciesPlan`, over the same indices, so a slot missing here is a slot missing there.
+        const variant = species.boundary.get(index);
+        if (!variant) continue;
         if (countTrees(out) >= TREES_PER_ROOM_MAX) return;
 
         // Spread across the side and a little past its corners, so two adjacent sides close up.
@@ -293,7 +528,6 @@ function boundary(
         const depth = ROW_OFFSET[row === 0 ? 0 : 1]
           + (roll(scene.seed, SALT_OUT, index) - 0.5) * JITTER_OUT;
 
-        const variant = palette[Math.floor(roll(scene.seed, SALT_SPECIES, index) * palette.length)]!;
         const scale = SCALE_MIN + roll(scene.seed, SALT_SCALE, index) * SCALE_RANGE;
         const yaw = roll(scene.seed, SALT_YAW, index) * Math.PI * 2;
         // A degree or two off vertical. Trees that all stand plumb read as telegraph poles.
@@ -309,9 +543,13 @@ function boundary(
 
 /* ---------------------------------------------------------- layer (b): clutter */
 
-function clutter(input: ScatterInput, palette: readonly TreeVariant[], out: Placement[]): void {
+function clutter(
+  input: ScatterInput,
+  species: { readonly clutter: readonly TreeVariant[] },
+  out: Placement[],
+): void {
   const { scene, origin, elevation, lod } = input;
-  const wanted = CLUTTER_BY_SECTOR[scene.biome.sector] ?? 0;
+  const wanted = species.clutter.length;
   if (wanted === 0) return;
 
   const free = freeTiles(scene);
@@ -329,14 +567,16 @@ function clutter(input: ScatterInput, palette: readonly TreeVariant[], out: Plac
     const x = x0 + metresOfTile(tx) + jx * METRES_PER_TILE;
     const z = z0 + metresOfTile(ty) + jz * METRES_PER_TILE;
 
-    const variant = palette[Math.floor(roll(scene.seed, SALT_SPECIES, 512 + i) * palette.length)]!;
+    const variant = species.clutter[i]!;
     const stump = roll(scene.seed, SALT_CLUTTER_KIND, i) < 0.45;
     const scale = stump ? STUMP_SCALE : SAPLING_SCALE;
     const yaw = roll(scene.seed, SALT_YAW, 512 + i) * Math.PI * 2;
     // A stump is a trunk and nothing else. Half the point of the layer: the *absence* of a canopy is
     // what says "this was cut", and it costs one draw rather than two.
     pushTrunk(out, variant, lod, x, elevation, z, scale, yaw, 0);
-    if (!stump) pushCanopy(out, variant, lod, x, elevation, z, scale, yaw, 0);
+    if (!stump && treePartsOf(variant).includes('canopy')) {
+      pushCanopy(out, variant, lod, x, elevation, z, scale, yaw, 0);
+    }
   }
 }
 
@@ -378,9 +618,157 @@ function undergrowth(input: ScatterInput, out: Placement[]): void {
   }
 }
 
+/* ------------------------------------------------------------- layer (d): kit */
+
+/**
+ * The Quaternius understory — M5b's whole visible contribution to a room's floor.
+ *
+ * One loop over one palette, because the *bucket* budget is about how many distinct models a room
+ * draws and not about how many rules laid them out (see {@link KIT_BY_SECTOR}). Each rolled model is
+ * then placed by {@link kitLayerOf}'s answer, and every one of those three answers obeys a rule this
+ * file already had:
+ *
+ * - a **boundary** model blocks, so it stands beyond `HALF_ROOM` on an `edge` side exactly as a tree
+ *   does, in the void the collision grid has no tiles for. If the room has no `edge` side it grows
+ *   none — there is nowhere to put a boulder that is not a lie.
+ * - an **edging** model is flat and goes on the ring of tiles just inside the wall, which is where a
+ *   track's margin is.
+ * - an **understory** model goes on any free tile, which is `walkableRequired()`-clear and
+ *   feature-clear by construction.
+ *
+ * Every model contributes one placement **per part**, because a flowering bush is a leaf primitive
+ * and a flower primitive in two materials and they must be instanced separately — the same reason a
+ * tree is a trunk and a canopy.
+ */
+function kit(input: ScatterInput, out: Placement[]): void {
+  const { scene, origin, elevation } = input;
+  const sector = scene.biome.sector;
+  const palette = kitPaletteFor(sector, scene.seed);
+  if (palette.length === 0) return;
+  const wanted = Math.min(KIT_COUNT_BY_SECTOR[sector] ?? 0, KIT_PER_ROOM_MAX);
+  if (wanted === 0) return;
+
+  const free = freeTiles(scene);
+  const rim = ringTiles(free);
+  /**
+   * **`CARDINALS` and not the caller's `order`.** The boundary layer above walks the sides in the
+   * order it is handed because it emits *one row per side* and the row is what the order describes.
+   * This layer picks a side per *instance* from a hash, so an order-dependent candidate list would
+   * put the same boulder on the north side going one way and the west side going the other — which
+   * is exactly the failure §4's *"forward and reverse iteration produce byte-identical positions"*
+   * verification exists to catch, and did catch, the first time this was written with `order`.
+   */
+  const sides = CARDINALS.filter((dir) => scene.edges[dir].kind === 'edge');
+  const x0 = metresOfTile(origin.tx);
+  const z0 = metresOfTile(origin.ty);
+  const cx = x0 + HALF_ROOM;
+  const cz = z0 + HALF_ROOM;
+
+  for (let i = 0; i < wanted; i++) {
+    const model = palette[Math.floor(roll(scene.seed, SALT_KIT_MODEL, i) * palette.length)]!;
+    const layer = kitLayerOf(model);
+    const range = KIT_SCALE[model] ?? KIT_SCALE_DEFAULT;
+    const scale = range[0] + roll(scene.seed, SALT_KIT_SCALE, i) * (range[1] - range[0]);
+    const yaw = roll(scene.seed, SALT_KIT_YAW, i) * Math.PI * 2;
+    // A degree or two off vertical, as the brief asks — and none at all for the flat pieces, because
+    // a tilted paving stone is a paving stone sticking out of the road.
+    const tilt = layer === 'edging' ? 0 : (roll(scene.seed, SALT_KIT_TILT, i) - 0.5) * 0.1;
+
+    let x: number;
+    let z: number;
+    if (layer === 'boundary') {
+      if (sides.length === 0) continue;
+      const dir = sides[Math.floor(roll(scene.seed, SALT_KIT_SIDE, i) * sides.length)]!;
+      const lateral = dir === 'north' || dir === 'south';
+      const outward = dir === 'north' || dir === 'west' ? -1 : 1;
+      const along = (roll(scene.seed, SALT_KIT_JITTER, i * 2) - 0.5) * (ROOM_METRES - 1);
+      const depth = 1.1 + roll(scene.seed, SALT_KIT_JITTER, i * 2 + 1) * 1.4;
+      x = lateral ? cx + along : cx + outward * (HALF_ROOM + depth);
+      z = lateral ? cz + outward * (HALF_ROOM + depth) : cz + along;
+    } else {
+      const pool = layer === 'edging' && rim.length > 0 ? rim : free;
+      if (pool.length === 0) continue;
+      const tile = pool[Math.floor(roll(scene.seed, SALT_KIT_TILE, i) * pool.length)]!;
+      x = x0 + metresOfTile(tile % ROOM_TILES)
+        + roll(scene.seed, SALT_KIT_JITTER, i * 2) * METRES_PER_TILE;
+      z = z0 + metresOfTile(Math.floor(tile / ROOM_TILES))
+        + roll(scene.seed, SALT_KIT_JITTER, i * 2 + 1) * METRES_PER_TILE;
+    }
+
+    for (const texture of KIT_PART_TEXTURES[model] ?? []) {
+      out.push({
+        archetype: kitRoleOf(texture) === 'leaf' ? 'kitLeaf' : 'kitSolid',
+        geometry: kitGeometryKey(model, texture),
+        material: kitMaterialKey(model, texture),
+        x,
+        y: elevation,
+        z,
+        // A multiplier, not an extent — the kit is already at world scale. See `pushPart`'s docblock
+        // for the same note about baked trees, and `KIT_SCALE` for the one model that needs shrinking.
+        sx: scale,
+        sy: scale,
+        sz: scale,
+        rx: tilt,
+        ry: yaw,
+        rz: tilt * 0.6,
+      });
+    }
+  }
+}
+
+/**
+ * The free tiles on the outer ring of the room block — where a road's edging goes.
+ *
+ * Derived from the free set rather than computed independently, so it inherits
+ * `walkableRequired()`'s exclusions for nothing: the arrival ring is one tile *in* from the wall
+ * (`scenery.ts`'s law), so the wall ring itself is free and is exactly the strip a track's margin
+ * occupies. If a room's features have eaten it, the caller falls back to the whole free set.
+ */
+function ringTiles(free: readonly number[]): readonly number[] {
+  const out: number[] = [];
+  for (const tile of free) {
+    const tx = tile % ROOM_TILES;
+    const ty = Math.floor(tile / ROOM_TILES);
+    if (tx === 0 || ty === 0 || tx === ROOM_TILES - 1 || ty === ROOM_TILES - 1) out.push(tile);
+  }
+  return out;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Helpers                                                                     */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * Hold a family to its ration, falling back to the first palette entry that is still under its own.
+ *
+ * See {@link speciesPlan} for why this is called from there and not from the placement loops. Two
+ * things it must get right and one it must not do:
+ *
+ * - **The fallback is searched, not assumed.** `palette[0]` is the leading entry after a *hashed
+ *   rotation*, so in a swamp it is as likely to be the twisted tree as anything else — and falling
+ *   back to a rationed variant turns a ration of one into a room full of them. That was the first
+ *   draft, and `scatter.test.ts`'s whole-world sweep found it in a bog at room 11667.
+ * - **Every accepted variant is charged**, fallback included, so the count is what grew and not what
+ *   was rolled.
+ * - It must **not** silently plant nothing when the whole palette is rationed out. `undefined` says
+ *   so and the caller leaves the slot empty, which is a gap in a treeline rather than a lie.
+ */
+function ration(
+  rolled: TreeVariant,
+  palette: readonly TreeVariant[],
+  grown: Map<string, number>,
+): TreeVariant | undefined {
+  const take = (variant: TreeVariant): TreeVariant => {
+    const family = treeFamily(variant);
+    grown.set(family, (grown.get(family) ?? 0) + 1);
+    return variant;
+  };
+  if ((grown.get(treeFamily(rolled)) ?? 0) < treeRationOf(rolled)) return take(rolled);
+  for (const candidate of palette) {
+    if ((grown.get(treeFamily(candidate)) ?? 0) < treeRationOf(candidate)) return take(candidate);
+  }
+  return undefined;
+}
 
 /**
  * The room tiles anything may stand on: not required-walkable, and not already under a feature.
@@ -410,6 +798,15 @@ function countTrees(out: readonly Placement[]): number {
   return count;
 }
 
+/**
+ * One tree, as its parts.
+ *
+ * `treePartsOf` rather than both, always: M5b's kit `DeadTree` is a blasted snag with one primitive
+ * and no leaves, so there is no canopy mesh to place and no canopy material to place it with. The
+ * renderer would drop the placement anyway (`world3d.ts` refuses a geometry the pool cannot resolve),
+ * but a plan that emits one is a plan that counts a bucket nothing will draw — and the bucket count
+ * is what `pool.ts`'s ceiling is derived from.
+ */
 function pushTree(
   out: Placement[],
   variant: TreeVariant,
@@ -421,8 +818,9 @@ function pushTree(
   yaw: number,
   lean: number,
 ): void {
-  pushTrunk(out, variant, lod, x, y, z, scale, yaw, lean);
-  pushCanopy(out, variant, lod, x, y, z, scale, yaw, lean);
+  const parts = treePartsOf(variant);
+  if (parts.includes('trunk')) pushTrunk(out, variant, lod, x, y, z, scale, yaw, lean);
+  if (parts.includes('canopy')) pushCanopy(out, variant, lod, x, y, z, scale, yaw, lean);
 }
 
 /**

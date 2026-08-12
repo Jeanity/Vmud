@@ -112,12 +112,16 @@ import {
   placeFrame,
   type PlaceFrame,
 } from './frame.ts';
+import { type SkyRecipe, skyAt } from './daylight.ts';
+import { KitSet } from './kit.ts';
 import { LightPool, type LightRequest } from './lights.ts';
 import { NightRig } from './night.ts';
 import { ScenePool, WRAPPER_CAPACITY, type LedgerSnapshot } from './pool.ts';
-import { planScatter } from './scatter.ts';
+import { freeTiles, planScatter } from './scatter.ts';
 import { ChunkStreamer, chunkKey, type ChunkAddress, type ChunkSink } from './streamer.ts';
 import { TreeSet } from './trees.ts';
+import { planWater } from './water.ts';
+import { planPuddles } from './wetness.ts';
 
 /** The centre tile of a room block, room-relative. Used only to ask "has this room been seen". */
 const CENTRE_TILE = (ROOM_TILES - 1) / 2;
@@ -150,9 +154,21 @@ interface LoadedChunk {
   /** Trees and tufts this chunk drew. `__debug3d.treeInstances` / `scatterInstances`. */
   trees: number;
   scatter: number;
+  /** Kit instances — trees excluded, so it reads as "how much understory". `__debug3d.kitInstances`. */
+  kit: number;
+  /** True when this chunk drew a water surface. `__debug3d.waterChunks`. */
+  water: boolean;
   readonly meshes: InstancedMesh[];
   /** The material key each mesh was drawn with, so a retint knows which tint row to write. */
   readonly keys: string[];
+  /**
+   * The puddle wrappers, held apart so the wetness can hide them without walking every mesh.
+   *
+   * See `wetness.ts`'s header for why they are planned dry and hidden rather than planned when it
+   * starts raining: making their *existence* weather-dependent would rebuild seventy chunks the
+   * moment a storm began.
+   */
+  readonly puddles: InstancedMesh[];
 }
 
 export class World3D implements ChunkSink {
@@ -162,6 +178,8 @@ export class World3D implements ChunkSink {
   readonly lights: LightPool;
   /** The baked tree set. Empty until `main.ts` loads the manifest; the scatter is gated on it. */
   readonly trees = new TreeSet();
+  /** The Quaternius kit. Same contract, same gate, a second manifest. See `kit.ts`. */
+  readonly kit = new KitSet();
   private readonly streamer = new ChunkStreamer(this);
   private readonly chunks = new Map<string, LoadedChunk>();
   private readonly scratch = new Object3D();
@@ -190,6 +208,8 @@ export class World3D implements ChunkSink {
   private lightsStale = true;
   /** Scratch for {@link focus}: reused so the per-frame light pass allocates nothing. */
   private readonly requests: LightRequest[] = [];
+  /** The hour {@link setGameHour} was last given. 0 is midnight, which is M4's world. */
+  private hourOfDay = 0;
 
   constructor() {
     this.night = new NightRig(this.scene);
@@ -282,14 +302,69 @@ export class World3D implements ChunkSink {
    * the pool, because the pool counts *wrappers* and the question a dense forest room raises is how
    * many things are in it.
    */
-  scatterCensus(): { trees: number; instances: number } {
+  scatterCensus(): { trees: number; instances: number; kit: number; water: number } {
     let trees = 0;
     let instances = 0;
+    let kit = 0;
+    let water = 0;
     for (const chunk of this.chunks.values()) {
       trees += chunk.trees;
       instances += chunk.scatter;
+      kit += chunk.kit;
+      if (chunk.water) water += 1;
     }
-    return { trees, instances };
+    return { trees, instances, kit, water };
+  }
+
+  /* ------------------------------------------------------------- M5b: weather */
+
+  /**
+   * How wet the world is, 0..1 — one uniform write, and the puddles shown or hidden with it.
+   *
+   * The uniform reaches every ground material, every kit solid and every puddle because they were all
+   * handed the *same* {@link WetControls} object at construction (see `wetness.ts`'s header); this is
+   * one write, not a loop over 48 materials. The visibility pass is a loop, but only over the puddle
+   * wrappers and only when the boolean actually flips — a dry world costs nothing per frame.
+   */
+  setWetness(wet: number): void {
+    const clamped = Math.min(1, Math.max(0, wet));
+    const was = this.pool.wet.uWet.value > 0;
+    this.pool.wet.uWet.value = clamped;
+    const now = clamped > 0;
+    if (was === now) return;
+    for (const chunk of this.chunks.values()) {
+      for (const mesh of chunk.puddles) mesh.visible = now;
+    }
+  }
+
+  get wetness(): number {
+    return this.pool.wet.uWet.value;
+  }
+
+  /* ------------------------------------------------------------- M5b: the hour */
+
+  /**
+   * The hour of the game day, 0..24 — the **named hook** M5b owes and the toggle it ships instead.
+   *
+   * *Settled 2026-08-13 and re-verified while building this:* the server ticks no game-hour clock.
+   * The only `hour` matches under `packages/server/src` are the scheduler's and the noticeboards'
+   * wall-clock timestamps, and no message on the wire carries a time of day. So the hour is a client
+   * value, driven by a debug key, and **this method is where a server clock will land** — a `time`
+   * message handler in `main.ts` calling `world.setGameHour(message.hour)` is the whole of that future
+   * change, because everything else is already downstream of this one number.
+   *
+   * Writes the whole sky at once (`NightRig.sky`) rather than a colour at a time; `main.ts` picks the
+   * exposure off the returned recipe, because the composer is its and not the scene graph's.
+   */
+  setGameHour(hour: number): SkyRecipe {
+    const recipe = skyAt(hour);
+    this.hourOfDay = hour;
+    this.night.sky = recipe;
+    return recipe;
+  }
+
+  get gameHour(): number {
+    return this.hourOfDay;
   }
 
   /**
@@ -576,8 +651,11 @@ export class World3D implements ChunkSink {
       lod: this.lodOf(address),
       trees: 0,
       scatter: 0,
+      kit: 0,
+      water: false,
       meshes: [],
       keys: [],
+      puddles: [],
     };
     this.chunks.set(key, chunk);
     this.build(chunk, room, frame, context, cells);
@@ -609,6 +687,7 @@ export class World3D implements ChunkSink {
     }
     chunk.meshes.length = 0;
     chunk.keys.length = 0;
+    chunk.puddles.length = 0;
   }
 
   /** A loaded chunk whose *geometry* changed — a door, or a level that is now the one below. */
@@ -690,8 +769,10 @@ export class World3D implements ChunkSink {
     // asked for the room's vegetation and this is where the renderer's own conditions are applied.
     chunk.trees = 0;
     chunk.scatter = 0;
+    chunk.kit = 0;
+    chunk.water = false;
     let placements = room3d;
-    if (!chunk.faded && this.trees.available) {
+    if (!chunk.faded && (this.trees.available || this.kit.available)) {
       const grown = planScatter({ scene, origin, elevation, lod: chunk.lod }).filter((p) =>
         this.pool.hasGeometry(p.geometry),
       );
@@ -699,8 +780,21 @@ export class World3D implements ChunkSink {
         placements = [...room3d, ...grown];
         for (const placement of grown) {
           if (placement.archetype === 'trunk') chunk.trees += 1;
+          if (placement.archetype === 'kitSolid' || placement.archetype === 'kitLeaf') chunk.kit += 1;
         }
         chunk.scatter = grown.length;
+      }
+    }
+
+    // M5b's two surfaces. Both are `prototypes.ts` never-faded archetypes, so both are gated on the
+    // same "this is the camera's own level" condition the scatter is — see that set's docblock for
+    // why a transparent surface drawn at 30% over a transparent surface is two lies about depth.
+    if (!chunk.faded) {
+      const surface = planWater({ scene, origin, elevation, gap: frame.gap });
+      const puddles = planPuddles({ scene, origin, elevation, free: freeTiles(scene) });
+      if (surface || puddles.length > 0) {
+        placements = [...placements, ...(surface ? [surface] : []), ...puddles];
+        chunk.water = surface !== undefined;
       }
     }
 
@@ -752,6 +846,12 @@ export class World3D implements ChunkSink {
         // touching any of the above — see `repaint`.
         this.pool.paint(mesh, first.material, chunk.state, slice.length);
         if (first.archetype === 'portal') this.glowSet?.add(mesh);
+        if (first.archetype === 'puddle') {
+          // Born hidden unless it is already raining. A hidden `InstancedMesh` costs no draw call, so
+          // a dry world pays nothing for the puddles it is not showing. See `setWetness`.
+          mesh.visible = this.pool.wet.uWet.value > 0;
+          chunk.puddles.push(mesh);
+        }
         this.scene.add(mesh);
         chunk.meshes.push(mesh);
         chunk.keys.push(first.material);

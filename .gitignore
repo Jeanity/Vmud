@@ -36,10 +36,13 @@ assets/**
 !assets/**/LICENSE
 !assets/**/*.md
 
-# Generated 3D model artefacts: baked by worldgen (treegen today, modelgen at M5b) into the
-# client's public dir. Reproducible like data/world — a fresh checkout or worktree re-bakes them
-# (node packages/worldgen/src/treegen.ts, byte-identical per run); assets.test.ts skips cleanly
-# when they are absent.
+# Generated 3D model artefacts: baked by worldgen (treegen's conifers, modelgen's Quaternius kit)
+# into the client's public dir. Reproducible like data/world — a fresh checkout or worktree
+# regenerates both, byte-identically per run:
+#   node --disable-warning=ExperimentalWarning packages/worldgen/src/treegen.ts
+#   node --disable-warning=ExperimentalWarning packages/worldgen/src/modelgen.ts --source D:/MyGame/assets/quaternius/nature
+# The kit's source lives under the git-ignored assets/, so a worktree must point --source (or
+# GAME_NATURE_KIT) at the main checkout. assets.test.ts and kit.test.ts skip cleanly when absent.
 packages/client3d/public/models/
 
 logs/

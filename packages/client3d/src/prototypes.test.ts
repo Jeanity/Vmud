@@ -25,6 +25,10 @@ import {
   ARCHETYPE_GEOMETRY,
   BIOME_ARCHETYPES,
   GEOMETRY_KEYS,
+  KIT_GEOMETRY_KEYS,
+  KIT_MODELS,
+  KIT_PARTS,
+  KIT_TEXTURES,
   MATERIAL_KEYS,
   SHAPE_KEYS,
   TREE_GEOMETRY_KEYS,
@@ -33,60 +37,141 @@ import {
   TREE_VARIANTS,
   VARIANT_ARCHETYPES,
   archetypeColour,
+  kitMaterialKey,
+  kitRoleOf,
   linearRgb,
   materialFamily,
   materialKey,
+  treeFamily,
   treeMaterialKey,
+  treePartsOf,
+  treeRationOf,
+  variantsFrom,
 } from './prototypes.ts';
 import { ScenePool, WRAPPER_POOL_SIZE } from './pool.ts';
 
+/** `kitSolid` and `kitLeaf`. Spelled out rather than derived, for this file's own stated reason. */
+const KIT_ARCHETYPE_COUNT = 2;
+
 describe('the pool key set', () => {
-  it('has exactly five built shapes and forty-eight baked ones', () => {
-    assert.equal(SHAPE_KEYS.length, 5);
-    assert.deepEqual([...SHAPE_KEYS], ['box', 'cone', 'torus', 'capsule', 'grassCross']);
-    // 8 variants x 2 parts x 3 LODs. Closed, enumerated at module load, and asserted against the
-    // baked manifest in `assets.test.ts` — see that file for the other half of this contract.
-    assert.equal(TREE_VARIANTS.length, 8);
+  it('has exactly six built shapes, and the trees and the kit on top of them', () => {
+    assert.equal(SHAPE_KEYS.length, 6);
+    assert.deepEqual([...SHAPE_KEYS], ['box', 'cone', 'torus', 'capsule', 'grassCross', 'waterPlane']);
+    // 8 baked + 20 kit variants. Closed, enumerated at module load, and asserted against the two
+    // manifests in `assets.test.ts` and `kit.test.ts` — see those files for the other half of the
+    // contract. The geometry count is *not* `variants x parts x LODs`, because the kit's `DeadTree`
+    // is a trunk and nothing else: 8x2 + 15x2 + 5x1 = 51 parts, x3 LODs = 153.
+    assert.equal(TREE_VARIANTS.length, 28);
+    assert.equal(variantsFrom('baked').length, 8);
+    assert.equal(variantsFrom('kit').length, 20);
     assert.equal(TREE_PARTS.length, 2);
     assert.equal(TREE_LODS.length, 3);
-    assert.equal(TREE_GEOMETRY_KEYS.length, 48);
-    assert.equal(new Set(TREE_GEOMETRY_KEYS).size, 48);
-    assert.equal(GEOMETRY_KEYS.length, 53);
+    assert.equal(TREE_GEOMETRY_KEYS.length, 153);
+    assert.equal(new Set(TREE_GEOMETRY_KEYS).size, 153);
+    // Five `DeadTree`s with no canopy is the whole of the difference from `28 x 2 x 3 = 168`.
+    assert.equal(TREE_GEOMETRY_KEYS.length, 168 - 5 * TREE_LODS.length);
+    // The kit's props: 43 models, of which five carry two primitives — the flowering bush and the
+    // four flower clusters.
+    assert.equal(KIT_MODELS.length, 43);
+    assert.equal(KIT_PARTS.length, 48);
+    assert.equal(KIT_GEOMETRY_KEYS.length, 48);
+    assert.equal(new Set(KIT_GEOMETRY_KEYS).size, 48);
+    assert.equal(GEOMETRY_KEYS.length, 6 + 153 + 48);
   });
 
-  it('has exactly 145 materials, and the arithmetic is legible', () => {
+  it('gives every kit part a role, and the two roles a family each', () => {
+    // `modelgen.kitRole`'s mirror. `kit.test.ts` holds both to the generated manifest; this holds the
+    // *rule* — a texture whose name starts `leaves`/`leaf-`, or that is `grass` or `flowers`, sways.
+    for (const texture of KIT_TEXTURES) {
+      const role = kitRoleOf(texture);
+      assert.ok(role === 'solid' || role === 'leaf', `${texture} has no role`);
+    }
+    assert.equal(kitRoleOf('bark-normal-tree'), 'solid');
+    assert.equal(kitRoleOf('rocks-diffuse'), 'solid');
+    // A mushroom cap is a closed mesh with no alpha in it, so it is solid however organic it looks.
+    assert.equal(kitRoleOf('mushrooms'), 'solid');
+    assert.equal(kitRoleOf('leaves'), 'leaf');
+    assert.equal(kitRoleOf('leaf-pine-c'), 'leaf');
+    assert.equal(kitRoleOf('grass'), 'leaf');
+    assert.equal(kitRoleOf('flowers'), 'leaf');
+    // Which decides the family, which decides the program.
+    assert.equal(materialFamily('kitSolid'), 'kitSolid');
+    assert.equal(materialFamily('kitLeaf'), 'kitLeaf');
+    // …and a tree's family depends on where its mesh came from, and on nothing else.
+    assert.equal(materialFamily('trunk', 'pine-tall'), 'plain');
+    assert.equal(materialFamily('trunk', 'common-tree-1'), 'kitSolid');
+    assert.equal(materialFamily('canopy', 'pine-tall'), 'foliage');
+    assert.equal(materialFamily('canopy', 'common-tree-1'), 'kitLeaf');
+  });
+
+  it('rations the landmark trees and leaves the workhorses alone', () => {
+    // The brief: *"TwistedTree … landmark accents, <=1 per room, never bulk scatter"*. By **family**,
+    // because five variants each rationed to one is five twisted trees.
+    assert.equal(treeFamily('twisted-tree-3'), 'twisted-tree');
+    assert.equal(treeFamily('common-tree-1'), 'common-tree');
+    assert.equal(treeFamily('pine-tall'), 'pine-tall');
+    assert.equal(treeRationOf('twisted-tree-1'), 1);
+    assert.equal(treeRationOf('twisted-tree-5'), 1);
+    assert.equal(treeRationOf('dead-tree-2'), 4);
+    assert.equal(treeRationOf('common-tree-1'), Infinity);
+    assert.equal(treeRationOf('pine-tall'), Infinity);
+  });
+
+  it('gives DeadTree a trunk and no canopy, and every other tree both', () => {
+    for (const variant of TREE_VARIANTS) {
+      const parts = treePartsOf(variant);
+      assert.ok(parts.includes('trunk'), `${variant} has no trunk`);
+      assert.equal(parts.includes('canopy'), !variant.startsWith('dead-tree-'), variant);
+    }
+    // …and the material pool is sized off that, not off the cross product.
+    assert.ok(!MATERIAL_KEYS.includes(treeMaterialKey('canopy', 'dead-tree-1' as never)));
+    assert.ok(MATERIAL_KEYS.includes(treeMaterialKey('trunk', 'dead-tree-1' as never)));
+  });
+
+  it('has exactly 230 materials, and the arithmetic is legible', () => {
     // Terrain: 4 biome archetypes x 16 sectors = 64, of which `grass` never fades, so
     // 3 x 16 = 48 with twins (96) plus 16 without = 112.
-    // Trees: 2 variant archetypes x 8 variants = 16, none of which fade.
-    // Objects: the remaining 10 archetypes = 10, with twins for all but `self`/`other`/`marker` = 17.
-    // 112 + 16 + 17 = 145.
+    // Trees: 51 real parts across 28 variants, none of which fade.
+    // Objects: the remaining 12 archetypes = 12, with twins for all but `self`/`other`/`marker`/
+    //   `water`/`puddle` = 19.
+    // Kit props: 48 `(model, texture)` parts, none of which fade.
+    // 112 + 51 + 19 + 48 = 230.
     //
     // 110 at M3. M4 added `glow` and its twin — the stairwell marker — the *whole* of M4's growth,
     // because the emissive ring is a uniform on an existing material and the three-state fog of war is
     // a per-instance colour, so neither multiplied this table. Click-to-move added `marker`: 113.
-    // M5a adds 32: eight barks, eight canopies and sixteen undergrowths.
+    // M5a added 32: eight barks, eight canopies and sixteen undergrowths. M5b adds 85: 35 kit tree
+    // parts, 48 kit prop parts, and the water and puddle surfaces.
     const terrain = (BIOME_ARCHETYPES.length - 1) * SECTORS.length;
-    const trees = VARIANT_ARCHETYPES.length * TREE_VARIANTS.length;
-    const objects = ARCHETYPES.length - BIOME_ARCHETYPES.length - VARIANT_ARCHETYPES.length;
+    let trees = 0;
+    for (const variant of TREE_VARIANTS) trees += treePartsOf(variant).length;
+    const objects =
+      ARCHETYPES.length - BIOME_ARCHETYPES.length - VARIANT_ARCHETYPES.length - KIT_ARCHETYPE_COUNT;
     assert.equal(terrain, 48);
-    assert.equal(trees, 16);
-    assert.equal(objects, 10);
-    assert.equal(MATERIAL_KEYS.length, 145);
-    // The `- 3` is `self`, `other` and `marker` — the object archetypes with no faded twin. Literals
-    // rather than `NEVER_FADED.size` on purpose, the same reasoning the file header gives for the
-    // whole test: recomputing the exclusion from the table under test would let the table widen
-    // silently and this assertion would still agree with it.
-    assert.equal(MATERIAL_KEYS.length, terrain * 2 + SECTORS.length + trees + objects + (objects - 3));
+    assert.equal(trees, 51);
+    assert.equal(objects, 12);
+    assert.equal(MATERIAL_KEYS.length, 230);
+    // The `- 5` is `self`, `other`, `marker`, `water` and `puddle` — the object archetypes with no
+    // faded twin. Literals rather than `NEVER_FADED.size` on purpose, the same reasoning the file
+    // header gives for the whole test: recomputing the exclusion from the table under test would let
+    // the table widen silently and this assertion would still agree with it.
+    assert.equal(
+      MATERIAL_KEYS.length,
+      terrain * 2 + SECTORS.length + trees + objects + (objects - 5) + KIT_PARTS.length,
+    );
   });
 
   it('enumerates without duplicates', () => {
     assert.equal(new Set(MATERIAL_KEYS).size, MATERIAL_KEYS.length);
   });
 
-  it('is closed: every key either constructor can produce is already in the list', () => {
+  it('is closed: every key any of the three constructors can produce is already in the list', () => {
     const known = new Set(MATERIAL_KEYS);
     for (const archetype of ARCHETYPES) {
       if ((VARIANT_ARCHETYPES as readonly string[]).includes(archetype)) continue;
+      // The kit's two archetypes are never crossed with a sector: a kit material's identity is its
+      // `(model, texture)` pair, which is the third loop below.
+      if (archetype === 'kitSolid' || archetype === 'kitLeaf') continue;
       for (const faded of [false, true]) {
         for (const sector of SECTORS) {
           assert.ok(known.has(materialKey(archetype, sector, faded)), `${archetype}/${sector}/${faded}`);
@@ -96,8 +181,12 @@ describe('the pool key set', () => {
     }
     for (const archetype of VARIANT_ARCHETYPES) {
       for (const variant of TREE_VARIANTS) {
+        if (!treePartsOf(variant).includes(archetype)) continue;
         assert.ok(known.has(treeMaterialKey(archetype, variant)), `${archetype}/${variant}`);
       }
+    }
+    for (const part of KIT_PARTS) {
+      assert.ok(known.has(kitMaterialKey(part.model, part.texture)), `${part.model}/${part.texture}`);
     }
   });
 
@@ -139,20 +228,24 @@ describe('the pool key set', () => {
   it('builds the whole pool in the constructor and never grows it', () => {
     const pool = new ScenePool();
     const start = pool.snapshot();
-    // The five built shapes. The forty-eight baked ones arrive through `registerGeometry` at boot —
-    // see `trees.ts` for why that does not unbind the key set.
+    // The six built shapes. The 153 tree keys and the 48 kit keys arrive through `registerGeometry`
+    // at boot — see `trees.ts` and `kit.ts` for why that does not unbind the key set.
     assert.equal(start.geometries, SHAPE_KEYS.length);
     assert.equal(start.materials, MATERIAL_KEYS.length);
-    // 70 window chunks x 9 plain buckets + 35 ground-level cells x 7 scatter wrappers + 2 bodies + 1
-    // marker = 878, plus 70 ground wrappers on their own free list = 948. Derived, not chosen — see
-    // `pool.ts`. Nine buckets at M3 plus `glow` was ten; ground moving to its own list takes the plain
-    // term back to nine and adds the 70 separately.
-    assert.equal(WRAPPER_POOL_SIZE, 878);
-    assert.equal(start.prewarmed, 948);
-    assert.equal(start.blendWrappers, 70);
-    assert.equal(start.wrappersCreated, 948, 'both free lists are whole before anything asks');
-    assert.equal(start.wrappersFree, 948);
+    // 70 window chunks x 9 plain buckets + 35 ground-level cells x (15 scatter + 1 puddle) wrappers
+    // + 2 bodies + 1 marker = 1,193, plus 70 ground wrappers and 35 water wrappers on their own free
+    // lists = 1,298. Derived, not chosen — see `pool.ts`. M5a's scatter term was 7 (3 species x 2
+    // parts + 1 undergrowth); M5b adds 4 kit models x 2 parts to it, and the two surfaces separately.
+    assert.equal(WRAPPER_POOL_SIZE, 1193);
+    assert.equal(start.prewarmed, 1298);
+    assert.equal(start.blendWrappers, 105, 'ground and water both own their instanced attributes');
+    assert.equal(start.wrappersCreated, 1298, 'all three free lists are whole before anything asks');
+    assert.equal(start.wrappersFree, 1298);
     assert.equal(start.wrappersLive, 0);
+    // Nothing has been loaded, so nothing is on the texture ledger. It is the biggest number in the
+    // renderer once the kit lands, and it must be zero until it does.
+    assert.equal(start.textures, 0);
+    assert.equal(start.textureBytes, 0);
 
     // Ask for every key. Nothing may be constructed by the asking.
     for (const key of MATERIAL_KEYS) assert.ok(pool.material(key));
@@ -162,17 +255,46 @@ describe('the pool key set', () => {
     pool.dispose();
   });
 
-  it('costs three programs for 145 materials, plus one for the foliage shadow', () => {
+  it('costs seven programs for 230 materials, plus two for the foliage shadows', () => {
     const pool = new ScenePool();
     const keys = pool.programKeys();
-    assert.equal(keys.size, 3, `expected plain/blend/foliage, got ${[...keys].join(', ')}`);
-    // The foliage family must be the alpha-clipped, double-sided one, and it must be *one* — every
-    // canopy and every tuft shares it, and the eight species differ only in uniforms.
-    assert.equal([...keys].filter((key) => key.includes('foliage')).length, 1);
+    assert.equal(
+      keys.size,
+      7,
+      `expected plain/blend/foliage/kit-solid/kit-leaf/water/puddle, got ${[...keys].join(', ')}`,
+    );
+    // The two foliage programs are the *same patch* under two `#define` sets: `USE_MAP` is three's
+    // and cannot be a uniform, so a textured kit leaf and an untextured baked card are two compiled
+    // programs however identical the source is. Both are alpha-clipped and double-sided.
+    const foliage = [...keys].filter((key) => key.includes(':foliage'));
+    assert.equal(foliage.length, 2, foliage.join(', '));
+    assert.equal(foliage.filter((key) => key.includes(':map:')).length, 1, 'one of the two is textured');
+    for (const key of foliage) assert.ok(key.includes(':clip:'), `${key} does not clip`);
     assert.equal([...keys].filter((key) => key.includes('ground-blend')).length, 1);
-    assert.equal([...keys].filter((key) => key.includes('clip')).length, 1, 'only foliage clips');
-    // `foliage.ts`'s trap 1: exactly one depth material family, for the canopies and the tufts.
-    assert.equal(pool.depthPrograms().size, 1);
+    assert.equal([...keys].filter((key) => key.includes('kit-solid')).length, 1, '83 kit solids, one program');
+    assert.equal([...keys].filter((key) => key.includes(':water')).length, 1);
+    assert.equal([...keys].filter((key) => key.includes(':puddle')).length, 1);
+    // Only foliage clips: a kit solid is bark and rock, opaque however the glTF's `MASK` flag reads.
+    assert.equal([...keys].filter((key) => key.includes(':clip:')).length, 2);
+    // `foliage.ts`'s trap 1: one depth material per foliage program, and no more.
+    assert.equal(pool.depthPrograms().size, 2);
+    pool.dispose();
+  });
+
+  it('gives a kit material a texture slot from the first compile, not from the frame it loads', () => {
+    // `USE_MAP` is a `#define`. A kit material born without a map and given one when the PNG lands
+    // would compile a *second* program on that frame, and — worse for this project — the headless
+    // program proxy would report a different number than the browser. The white 1x1 placeholder is
+    // what makes those two agree; see `pool.whiteTexture`.
+    const pool = new ScenePool();
+    const key = kitMaterialKey('rock-medium-1', 'rocks-diffuse');
+    const material = pool.material(key);
+    assert.ok(material.map, 'a kit material has no texture slot');
+    assert.equal(material.vertexColors, true, 'the kit bakes its AO into COLOR_0');
+    const before = pool.programKeys().size;
+    // Swapping the placeholder for a real texture must not move the program count.
+    pool.dressKit(key, material.map);
+    assert.equal(pool.programKeys().size, before);
     pool.dispose();
   });
 
@@ -235,7 +357,36 @@ describe('the pool key set', () => {
     // …and writing blend data to a wall is a no-op rather than an error.
     pool.writeBlend(wall, 0, [1, 1, 1, 1], [1, 1, 1, 1]);
     pool.release(wall);
-    assert.equal(pool.snapshot().wrappersCreated, 948, 'the split lists must not mint');
+    assert.equal(pool.snapshot().wrappersCreated, 1298, 'the split lists must not mint');
+    pool.dispose();
+  });
+
+  it('keeps water on a third free list, over the plane rather than the box', () => {
+    // M5b. The same three.js fact as the ground's — `InstancedMesh` special-cases exactly two
+    // per-instance buffers and neither is `iBlend` — but a different *shape*, so a third list rather
+    // than a wider one. A water wrapper released back must never come off the ground's list, or a
+    // room's slab would be drawn as a single quad.
+    const pool = new ScenePool();
+    const water = pool.acquire('waterPlane', 'water');
+    assert.notEqual(water.geometry, pool.geometry('waterPlane'));
+    assert.ok(water.geometry.getAttribute('iBlend'), 'the water wrapper has no corner attribute');
+    assert.equal(water.geometry.getAttribute('position'), pool.geometry('waterPlane').getAttribute('position'));
+    // Foam at two corners, depth and phase in the tint. See `water.planWater`.
+    pool.writeBlend(water, 0, [1, 1, 0, 0], [1.4, 0.25, 0, 0]);
+    assert.equal(water.geometry.getAttribute('iBlend').getX(0), 1);
+    // A `Float32Array` round trip, so the depth comes back as 1.399999976 — asserted with a tolerance
+    // rather than exactly, because the alternative is an assertion about IEEE 754.
+    assert.ok(Math.abs(water.geometry.getAttribute('iTint').getX(0) - 1.4) < 1e-6);
+    pool.release(water);
+
+    const ground = pool.acquire('box', 'ground|forest');
+    assert.notEqual(ground, water, 'a released water wrapper came back as ground');
+    assert.equal(ground.geometry.getAttribute('position'), pool.geometry('box').getAttribute('position'));
+    pool.release(ground);
+    const again = pool.acquire('waterPlane', 'water');
+    assert.equal(again, water, 'LIFO: the water list gave its own wrapper back');
+    pool.release(again);
+    assert.equal(pool.snapshot().wrappersCreated, 1298, 'the three lists must not mint');
     pool.dispose();
   });
 

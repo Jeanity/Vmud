@@ -85,16 +85,21 @@ import { SECTORS, type Sector } from '@mygame/shared';
 /* -------------------------------------------------------------------------- */
 
 /**
- * The five unit shapes this package builds for itself. Everything drawn is one of these under a
- * scale, or a baked tree mesh (see {@link TREE_GEOMETRY_KEYS}).
+ * The six unit shapes this package builds for itself. Everything drawn is one of these under a
+ * scale, a baked tree mesh (see {@link TREE_GEOMETRY_KEYS}) or a kit mesh ({@link KIT_GEOMETRY_KEYS}).
  *
  * `box` covers ground, walls, doors, steps, ramps and props; `cone` is the landmark slot; `torus` is
  * both the portal ring — the plan's emissive ring, which M4 lit — and the flat marker a stairwell
  * lays on its floor; `capsule` is a body; `grassCross` is M5a's undergrowth tuft, two quads crossed at
- * right angles, which is the cheapest thing that has a silhouette from every yaw. A sixth shape is a
- * change to this list and to the test that counts it.
+ * right angles, which is the cheapest thing that has a silhouette from every yaw.
+ *
+ * `waterPlane` is M5b's, and it is a *plane* rather than a thin box for two reasons that are the same
+ * reason twice: a water surface is seen from one side, so five of a box's six faces are wasted draws
+ * and wasted overdraw in the transparent queue; and the shader reads `position.xz` as the surface's
+ * own `(u, v)` exactly as `blend.ts` does over the ground's top face, which only means anything if
+ * there *is* one face. It carries the puddle decals too — a puddle is a small water surface.
  */
-export const SHAPE_KEYS = ['box', 'cone', 'torus', 'capsule', 'grassCross'] as const;
+export const SHAPE_KEYS = ['box', 'cone', 'torus', 'capsule', 'grassCross', 'waterPlane'] as const;
 
 export type ShapeKey = (typeof SHAPE_KEYS)[number];
 
@@ -142,6 +147,29 @@ export const TREE_VARIANTS = [
   'pine-crooked',
   'aspen-thin',
   'snag-bare',
+  // M5b: the Quaternius Stylized Nature MegaKit's twenty trees, ids as `modelgen.ts` normalises
+  // them. Four families of five — the forest workhorse, the conifer, the blasted snag and the
+  // landmark — and the ids are the join key between the kit manifest, the pool and the palettes.
+  'common-tree-1',
+  'common-tree-2',
+  'common-tree-3',
+  'common-tree-4',
+  'common-tree-5',
+  'pine-1',
+  'pine-2',
+  'pine-3',
+  'pine-4',
+  'pine-5',
+  'dead-tree-1',
+  'dead-tree-2',
+  'dead-tree-3',
+  'dead-tree-4',
+  'dead-tree-5',
+  'twisted-tree-1',
+  'twisted-tree-2',
+  'twisted-tree-3',
+  'twisted-tree-4',
+  'twisted-tree-5',
 ] as const;
 
 export type TreeVariant = (typeof TREE_VARIANTS)[number];
@@ -167,6 +195,26 @@ export const TREE_SOURCE: Readonly<Record<TreeVariant, TreeSource>> = {
   'pine-crooked': 'baked',
   'aspen-thin': 'baked',
   'snag-bare': 'baked',
+  'common-tree-1': 'kit',
+  'common-tree-2': 'kit',
+  'common-tree-3': 'kit',
+  'common-tree-4': 'kit',
+  'common-tree-5': 'kit',
+  'pine-1': 'kit',
+  'pine-2': 'kit',
+  'pine-3': 'kit',
+  'pine-4': 'kit',
+  'pine-5': 'kit',
+  'dead-tree-1': 'kit',
+  'dead-tree-2': 'kit',
+  'dead-tree-3': 'kit',
+  'dead-tree-4': 'kit',
+  'dead-tree-5': 'kit',
+  'twisted-tree-1': 'kit',
+  'twisted-tree-2': 'kit',
+  'twisted-tree-3': 'kit',
+  'twisted-tree-4': 'kit',
+  'twisted-tree-5': 'kit',
 };
 
 /** The variants a given producer owes. `assets.test.ts` holds `baked` to the treegen manifest. */
@@ -175,45 +223,279 @@ export function variantsFrom(source: TreeSource): readonly TreeVariant[] {
 }
 
 /**
- * The two meshes every baked tree carries, and the reason it is two rather than one.
+ * The two meshes a tree can carry, and the reason it is two rather than one.
  *
  * A trunk is opaque bark under an ordinary Lambert; a canopy is alpha-clipped cards under the
  * foliage patch, two-sided, wind-displaced, with its own `customDepthMaterial`. Merging them would
  * force one of those onto the other — either the bark pays for an alpha test it does not need on
  * every fragment, or the needles lose their clip and the tree becomes a set of solid quads.
+ *
+ * The kit's two-primitive trees land on exactly this split — a bark primitive and a leaf primitive —
+ * which is why kit trees join {@link TREE_VARIANTS} rather than needing a second system. See
+ * {@link TREE_PARTS_OF} for the one kit family that has only half of it.
  */
 export const TREE_PARTS = ['trunk', 'canopy'] as const;
 
 export type TreePart = (typeof TREE_PARTS)[number];
 
+/**
+ * The parts a given variant actually has. **`DeadTree` is a trunk and nothing else.**
+ *
+ * Every baked variant carries both — `treegen.ts` emits two meshes always, and `snag-bare`'s canopy
+ * is a sparse one rather than an absent one. The kit's `DeadTree` family is genuinely one primitive:
+ * a blasted snag with no leaves on it, so there is no leaf material to give it and no canopy mesh to
+ * register.
+ *
+ * A table rather than a runtime question, for the same reason the rest of this file is a table: the
+ * material pool and the geometry key set are enumerated at module load, and a canopy key for a tree
+ * that has no canopy would size the pool for a mesh nothing will ever register — which is the
+ * *opposite* failure to the one the closed key set exists to prevent, but a failure of the same
+ * argument. `scatter.ts` reads it so it never plans a canopy that cannot be drawn.
+ */
+export const TREE_PARTS_OF: Readonly<Record<TreeVariant, readonly TreePart[]>> = (() => {
+  const out: Partial<Record<TreeVariant, readonly TreePart[]>> = {};
+  for (const variant of TREE_VARIANTS) {
+    out[variant] = variant.startsWith('dead-tree-') ? (['trunk'] as const) : TREE_PARTS;
+  }
+  return out as Record<TreeVariant, readonly TreePart[]>;
+})();
+
+export function treePartsOf(variant: TreeVariant): readonly TreePart[] {
+  return TREE_PARTS_OF[variant];
+}
+
+/**
+ * How many of one *family* of tree a single room may grow. The brief's rationing, as data.
+ *
+ * > *"TwistedTree … **landmark accents, ≤1 per room, never bulk scatter**"*
+ *
+ * A `TwistedTree` is 9.1–10.1k triangles on a 9.5–13.5 m crown: six of them along one side of a room
+ * is 60k triangles and a silhouette that reads as one enormous shrub. `DeadTree` is cheaper and less
+ * dominating but still 5.6–6.6k and 9.5–16.4 m, so it gets a looser ration rather than none.
+ * Everything absent from this table is unrationed, which is the right default for a workhorse.
+ *
+ * Keyed by family and not by variant deliberately: five twisted trees rationed to one *each* is five
+ * twisted trees, which is exactly what the brief forbids.
+ */
+export const TREE_RATION: Readonly<Record<string, number>> = {
+  'twisted-tree': 1,
+  'dead-tree': 4,
+};
+
+/** The family a variant belongs to — `common-tree-3` to `common-tree`. Baked ids are their own. */
+export function treeFamily(variant: TreeVariant): string {
+  return variant.replace(/-\d+$/, '');
+}
+
+/** How many of this variant's family one room may grow. `Infinity` when it is not rationed. */
+export function treeRationOf(variant: TreeVariant): number {
+  return TREE_RATION[treeFamily(variant)] ?? Infinity;
+}
+
 /** Three levels of detail, baked. The metres at which each takes over live in the manifest. */
 export const TREE_LODS = [0, 1, 2] as const;
 
-/** The pool key for one baked mesh. Legible in a dump, exactly as {@link materialKey} is. */
+/** The pool key for one tree mesh. Legible in a dump, exactly as {@link materialKey} is. */
 export function treeGeometryKey(variant: TreeVariant, part: TreePart, lod: number): GeometryKey {
   return `${part}:${variant}:${lod}`;
 }
 
-/** Every key {@link treeGeometryKey} can return: 8 x 2 x 3 = 48, enumerated once. */
+/**
+ * Every key {@link treeGeometryKey} can return, enumerated once.
+ *
+ * 8 baked x 2 parts x 3 LODs = 48, plus the kit's 35 parts x 3 = 105. **A kit tree has no ladder**
+ * and registers the same mesh under all three keys — `trees.ts`'s *"one that ships its own LODs skips
+ * the ladder"*, in the direction the kit actually took. The pool counts a geometry's bytes once per
+ * *object* rather than once per key (see `ScenePool.registerGeometry`), so the ledger stays honest
+ * about the three that are one.
+ */
 export const TREE_GEOMETRY_KEYS: readonly GeometryKey[] = (() => {
   const keys: GeometryKey[] = [];
   for (const variant of TREE_VARIANTS) {
-    for (const part of TREE_PARTS) {
+    for (const part of treePartsOf(variant)) {
       for (const lod of TREE_LODS) keys.push(treeGeometryKey(variant, part, lod));
     }
   }
   return keys;
 })();
 
+/* -------------------------------------------------------------------------- */
+/* The kit — M5b                                                               */
+/* -------------------------------------------------------------------------- */
+
 /**
- * Every geometry the pool can ever hold: the shapes it builds, and the trees it is handed.
+ * The Quaternius textures the kit's props wear, and the *only* thing that decides how a primitive is
+ * drawn.
  *
- * The tree entries are **absent from the pool until the manifest loads** and the scatter simply draws
- * nothing for a key it cannot resolve — which is the correct behaviour for the second and a half
- * between the first `zone` message and the last GLB, and the correct behaviour for ever if somebody
- * ships without running the baker.
+ * The brief's rule, restated where the pool reads it: *"match by material/texture name — `Leaves_*`,
+ * `Grass`, `Flowers` textures sway; bark and rock do not"*. So the texture is the part key: a model's
+ * primitives are told apart by which of these they wear, which is unique within a model and is a
+ * name a human recognises in a pool dump (`kit|bush-common-flowers|flowers`).
+ *
+ * Mirrors `worldgen/src/modelgen.ts`'s `kitRole`, and `kit.test.ts` asserts the two agree against the
+ * generated manifest — the same contract `assets.test.ts` holds between `treegen` and
+ * {@link TREE_VARIANTS}.
  */
-export const GEOMETRY_KEYS: readonly GeometryKey[] = [...SHAPE_KEYS, ...TREE_GEOMETRY_KEYS];
+export const KIT_TEXTURES = [
+  'bark-dead-tree',
+  'bark-normal-tree',
+  'bark-twisted-tree',
+  'flowers',
+  'grass',
+  'leaf-pine-c',
+  'leaves',
+  'leaves-normal-tree-c',
+  'leaves-twisted-tree-c',
+  'mushrooms',
+  'path-rocks-diffuse',
+  'rocks-diffuse',
+] as const;
+
+export type KitTextureId = (typeof KIT_TEXTURES)[number];
+
+export const KIT_ROLES = ['solid', 'leaf'] as const;
+
+export type KitRole = (typeof KIT_ROLES)[number];
+
+/** `modelgen.kitRole`, restated. A leaf sways, clips and draws two-sided; a solid does none of that. */
+export function kitRoleOf(texture: string): KitRole {
+  if (texture.startsWith('leaves') || texture.startsWith('leaf-')) return 'leaf';
+  if (texture === 'grass' || texture === 'flowers') return 'leaf';
+  return 'solid';
+}
+
+/**
+ * Whether a kit part is in the shadow render list.
+ *
+ * By texture rather than by role, because the role is about *how* a thing is shaded and this is about
+ * whether it is worth a draw call in the shadow pass. `path-rocks-diffuse` dresses a road with stones
+ * 10 cm tall whose shadow is thinner than the 2 cm shadow texel is soft; `grass`, `flowers` and
+ * `leaves` are the ground clutter M5a already excluded `grass` for. Bark, rock and the two tree-canopy
+ * leaf textures cast, because a treeline that does not break the light is a treeline that is not there.
+ */
+export const KIT_TEXTURE_CASTS: Readonly<Record<KitTextureId, boolean>> = {
+  'bark-dead-tree': true,
+  'bark-normal-tree': true,
+  'bark-twisted-tree': true,
+  flowers: false,
+  grass: false,
+  'leaf-pine-c': true,
+  leaves: false,
+  'leaves-normal-tree-c': true,
+  'leaves-twisted-tree-c': true,
+  mushrooms: false,
+  'path-rocks-diffuse': false,
+  'rocks-diffuse': true,
+};
+
+/**
+ * Every kit model that is **not** a tree, and which textures its primitives wear.
+ *
+ * Forty-three of the kit's forty-eight non-tree models. The five `Petal_*` are deliberately absent:
+ * the brief calls them *"falling-petal particles, optional garnish"* and a petal lying still on the
+ * ground is litter rather than garnish, so they are imported by `modelgen` (the manifest is the whole
+ * kit) and never given a pool key. That is a named gap, not an oversight — see the M5b report.
+ *
+ * The order is the manifest's, which is alphabetical by id, so a diff of this list against a
+ * re-import is a diff of the kit.
+ */
+export const KIT_PART_TEXTURES: Readonly<Record<string, readonly KitTextureId[]>> = {
+  'bush-common': ['leaves-twisted-tree-c'],
+  'bush-common-flowers': ['leaves-normal-tree-c', 'flowers'],
+  'clover-1': ['leaves'],
+  'clover-2': ['leaves'],
+  'fern-1': ['leaves'],
+  'flower-3-group': ['leaves', 'flowers'],
+  'flower-3-single': ['leaves', 'flowers'],
+  'flower-4-group': ['leaves', 'flowers'],
+  'flower-4-single': ['leaves', 'flowers'],
+  'grass-common-short': ['grass'],
+  'grass-common-tall': ['grass'],
+  'grass-wispy-short': ['grass'],
+  'grass-wispy-tall': ['grass'],
+  'mushroom-common': ['mushrooms'],
+  'mushroom-laetiporus': ['mushrooms'],
+  'pebble-round-1': ['path-rocks-diffuse'],
+  'pebble-round-2': ['path-rocks-diffuse'],
+  'pebble-round-3': ['path-rocks-diffuse'],
+  'pebble-round-4': ['path-rocks-diffuse'],
+  'pebble-round-5': ['path-rocks-diffuse'],
+  'pebble-square-1': ['path-rocks-diffuse'],
+  'pebble-square-2': ['path-rocks-diffuse'],
+  'pebble-square-3': ['path-rocks-diffuse'],
+  'pebble-square-4': ['path-rocks-diffuse'],
+  'pebble-square-5': ['path-rocks-diffuse'],
+  'pebble-square-6': ['path-rocks-diffuse'],
+  'plant-1': ['leaves'],
+  'plant-1-big': ['leaves'],
+  'plant-7': ['leaves'],
+  'plant-7-big': ['leaves'],
+  'rock-medium-1': ['rocks-diffuse'],
+  'rock-medium-2': ['rocks-diffuse'],
+  'rock-medium-3': ['rocks-diffuse'],
+  'rock-path-round-small-1': ['path-rocks-diffuse'],
+  'rock-path-round-small-2': ['path-rocks-diffuse'],
+  'rock-path-round-small-3': ['path-rocks-diffuse'],
+  'rock-path-round-thin': ['path-rocks-diffuse'],
+  'rock-path-round-wide': ['path-rocks-diffuse'],
+  'rock-path-square-small-1': ['path-rocks-diffuse'],
+  'rock-path-square-small-2': ['path-rocks-diffuse'],
+  'rock-path-square-small-3': ['path-rocks-diffuse'],
+  'rock-path-square-thin': ['path-rocks-diffuse'],
+  'rock-path-square-wide': ['path-rocks-diffuse'],
+};
+
+/** The closed list of kit prop ids. Forty-three; see {@link KIT_PART_TEXTURES}. */
+export const KIT_MODELS: readonly string[] = Object.keys(KIT_PART_TEXTURES);
+
+/**
+ * The kit props that stand in the player's way, and are therefore held to the treeline's placement
+ * rule rather than the understory's.
+ *
+ * `Rock_Medium` is ~3 m across and ~2 m tall — the brief's *"trees and `Rock_Medium` block"* — so it
+ * goes where a boundary tree goes, outside the room block, in the void the collision grid has no
+ * tiles for. Everything else in the kit is knee-high or flat and never implies a blockage the
+ * collision grid lacks, which is `scatter.ts`'s strict rule and the reason the owner is not going to
+ * get wedged behind a boulder.
+ */
+export const KIT_BLOCKS: ReadonlySet<string> = new Set(['rock-medium-1', 'rock-medium-2', 'rock-medium-3']);
+
+/** The pool key for one kit primitive. `kit:bush-common-flowers:flowers`. */
+export function kitGeometryKey(model: string, texture: string): GeometryKey {
+  return `kit:${model}:${texture}`;
+}
+
+/** Its material. Same discipline, same shape: `kit|rock-medium-1|rocks-diffuse`. */
+export function kitMaterialKey(model: string, texture: string): MaterialKey {
+  return `kit|${model}|${texture}`;
+}
+
+/** Every `(model, texture)` pair the kit props can produce: 48 across 43 models. */
+export const KIT_PARTS: readonly { readonly model: string; readonly texture: KitTextureId }[] = (() => {
+  const out: { model: string; texture: KitTextureId }[] = [];
+  for (const model of KIT_MODELS) {
+    for (const texture of KIT_PART_TEXTURES[model] ?? []) out.push({ model, texture });
+  }
+  return out;
+})();
+
+export const KIT_GEOMETRY_KEYS: readonly GeometryKey[] = KIT_PARTS.map((part) =>
+  kitGeometryKey(part.model, part.texture),
+);
+
+/**
+ * Every geometry the pool can ever hold: the shapes it builds, the trees it is handed, and the kit.
+ *
+ * The tree and kit entries are **absent from the pool until their manifests load** and the scatter
+ * simply draws nothing for a key it cannot resolve — which is the correct behaviour for the second
+ * and a half between the first `zone` message and the last model, and the correct behaviour for ever
+ * if somebody ships without running the importers.
+ */
+export const GEOMETRY_KEYS: readonly GeometryKey[] = [
+  ...SHAPE_KEYS,
+  ...TREE_GEOMETRY_KEYS,
+  ...KIT_GEOMETRY_KEYS,
+];
 
 /* -------------------------------------------------------------------------- */
 /* Archetypes                                                                  */
@@ -237,6 +519,12 @@ export const ARCHETYPES = [
   'trunk',
   'canopy',
   'grass',
+  // M5b. `kitSolid`/`kitLeaf` are the two ways a Quaternius primitive is drawn (see
+  // {@link kitRoleOf}); `water` is the per-chunk surface and `puddle` its wet-weather cousin.
+  'kitSolid',
+  'kitLeaf',
+  'water',
+  'puddle',
 ] as const;
 
 export type Archetype = (typeof ARCHETYPES)[number];
@@ -290,6 +578,14 @@ const NEVER_FADED: ReadonlySet<Archetype> = new Set<Archetype>([
   'trunk',
   'canopy',
   'grass',
+  // M5b's four join them for M5a's reason and one of their own. The kit is scatter and the level
+  // below grows nothing. Water and puddles are *surfaces*, and a transparent surface drawn at 30%
+  // over a transparent surface is two lies about depth in one pixel — a lake one level down reads as
+  // a lake because the ground under it is faded, not because the lake is.
+  'kitSolid',
+  'kitLeaf',
+  'water',
+  'puddle',
 ]);
 
 /**
@@ -319,6 +615,12 @@ export const ARCHETYPE_GEOMETRY: Readonly<Record<Archetype, GeometryKey>> = {
   trunk: treeGeometryKey(TREE_VARIANTS[0], 'trunk', 0),
   canopy: treeGeometryKey(TREE_VARIANTS[0], 'canopy', 0),
   grass: 'grassCross',
+  // The kit's two are the same exception as `trunk`/`canopy`: `scatter.ts` writes the real key onto
+  // the placement, and these are the LOD0 fallback a reader would expect to find.
+  kitSolid: KIT_GEOMETRY_KEYS[0] ?? 'box',
+  kitLeaf: KIT_GEOMETRY_KEYS[0] ?? 'box',
+  water: 'waterPlane',
+  puddle: 'waterPlane',
 };
 
 /**
@@ -365,6 +667,15 @@ export const ARCHETYPE_CASTS: Readonly<Record<Archetype, boolean>> = {
   trunk: true,
   canopy: true,
   grass: false,
+  // The kit's default. Overridden per texture by {@link KIT_TEXTURE_CASTS}, because "is this worth a
+  // draw in the shadow pass" is a question about a pebble and not about a role.
+  kitSolid: true,
+  kitLeaf: true,
+  // **Water does not cast.** A shadow map is a depth buffer and a transparent surface writing into
+  // one puts the lake's own shadow on the lake bed — a dark rectangle exactly the shape of the water.
+  // A puddle is the same argument at 40 cm.
+  water: false,
+  puddle: false,
 };
 
 /**
@@ -433,13 +744,23 @@ export function treeMaterialKey(archetype: (typeof VARIANT_ARCHETYPES)[number], 
   return `${archetype}|${variant}`;
 }
 
-/** Every key {@link materialKey} and {@link treeMaterialKey} can ever return, enumerated once. */
+/**
+ * Every key {@link materialKey}, {@link treeMaterialKey} and {@link kitMaterialKey} can ever return.
+ *
+ * The kit's own 48 are appended rather than crossed with an archetype, because a kit material's
+ * identity *is* its `(model, texture)` pair — the archetype is derived from the texture, not chosen
+ * beside it.
+ */
 export const MATERIAL_KEYS: readonly MaterialKey[] = (() => {
   const keys: MaterialKey[] = [];
   for (const archetype of ARCHETYPES) {
+    if (archetype === 'kitSolid' || archetype === 'kitLeaf') continue;
     if (VARIANT_KEYED.has(archetype)) {
       const variantArchetype = archetype as (typeof VARIANT_ARCHETYPES)[number];
-      for (const variant of TREE_VARIANTS) keys.push(treeMaterialKey(variantArchetype, variant));
+      for (const variant of TREE_VARIANTS) {
+        if (!treePartsOf(variant).includes(variantArchetype)) continue;
+        keys.push(treeMaterialKey(variantArchetype, variant));
+      }
       continue;
     }
     const sectors = BIOME_KEYED.has(archetype) ? SECTORS : ([undefined] as const);
@@ -448,25 +769,58 @@ export const MATERIAL_KEYS: readonly MaterialKey[] = (() => {
       if (!NEVER_FADED.has(archetype)) keys.push(materialKey(archetype, sector, true));
     }
   }
+  for (const part of KIT_PARTS) keys.push(kitMaterialKey(part.model, part.texture));
   return keys;
 })();
 
 /**
  * Which material family a key belongs to — the thing that decides how many *programs* the pool costs.
  *
- * Three, and the count is the point. `plain` is M3/M4's `MeshLambertMaterial` with a colour uniform;
- * `blend` is the same Lambert under `blend.ts`'s two-layer patch; `foliage` is the same Lambert under
- * `foliage.ts`'s wind, bent normals, translucency and alpha clip. Everything that differs *within* a
- * family is a uniform, so a family is one compiled program however many materials wear it — 48 ground
- * materials share one program, and eight canopies plus sixteen undergrowths share another.
+ * Seven at M5b, and the count is still the point. `plain` is M3/M4's `MeshLambertMaterial` with a
+ * colour uniform; `blend` is the same Lambert under `blend.ts`'s two-layer patch; `foliage` is the
+ * same Lambert under `foliage.ts`'s wind, bent normals, translucency and procedural alpha clip.
+ *
+ * M5b adds four, and **each is a genuinely different compiled program rather than a bookkeeping
+ * split** — which is worth being exact about, because the M5a discipline "every difference within a
+ * family is a uniform" is only worth keeping if the exceptions are real:
+ *
+ * - `kitSolid` — a Lambert with a **texture** and **vertex colours**. `USE_MAP` and
+ *   `USE_COLOR_ALPHA` are `#define`s, not uniforms, so a mapped material cannot share a program with
+ *   an unmapped one however much one wishes it could. The vertex colour is the kit's baked bark AO
+ *   (measured: `CommonTree_1`'s bark runs 0.10..1.00) and is most of why a kit trunk reads as bark
+ *   rather than as a brown tube.
+ * - `kitLeaf` — the same texture and the whole of `foliage.ts`'s wind, but with the procedural needle
+ *   mask switched off by a uniform: a kit leaf's silhouette is in its own alpha channel, and carving
+ *   a needle spray out of it would cut holes in a painted leaf.
+ * - `water` — depth fade, foam and a scrolling wave normal, transparent and depth-write-off.
+ * - `puddle` — the wet-ground decal. Shares water's *ideas* and not its shader: no depth to fade, no
+ *   land to foam against, and an opacity driven by how recently it rained.
+ *
+ * All 48 kit-prop materials plus 35 kit-tree parts still share two programs between them, and all 48
+ * ground materials still share one. That is the property that matters.
  */
-export const MATERIAL_FAMILIES = ['plain', 'blend', 'foliage'] as const;
+export const MATERIAL_FAMILIES = ['plain', 'blend', 'foliage', 'kitSolid', 'kitLeaf', 'water', 'puddle'] as const;
 
 export type MaterialFamily = (typeof MATERIAL_FAMILIES)[number];
 
-export function materialFamily(archetype: Archetype): MaterialFamily {
+/**
+ * The family a material belongs to.
+ *
+ * `variant` is only ever needed for `trunk`/`canopy`, and only because M5b's kit trees wear the same
+ * two archetypes as M5a's baked ones while being drawn by a different program — a kit trunk has a
+ * bark texture and an ez-tree trunk has a colour. Everything downstream of the pool still cannot tell
+ * a kit tree from a baked one; only the pool, which has to compile them, can.
+ */
+export function materialFamily(archetype: Archetype, variant?: string): MaterialFamily {
   if (archetype === 'ground') return 'blend';
-  if (archetype === 'canopy' || archetype === 'grass') return 'foliage';
+  if (archetype === 'kitSolid') return 'kitSolid';
+  if (archetype === 'kitLeaf') return 'kitLeaf';
+  if (archetype === 'water') return 'water';
+  if (archetype === 'puddle') return 'puddle';
+  const kit = variant !== undefined && TREE_SOURCE[variant as TreeVariant] === 'kit';
+  if (archetype === 'trunk') return kit ? 'kitSolid' : 'plain';
+  if (archetype === 'canopy') return kit ? 'kitLeaf' : 'foliage';
+  if (archetype === 'grass') return 'foliage';
   return 'plain';
 }
 
@@ -531,7 +885,24 @@ const OBJECT_COLOUR: Readonly<Record<Archetype, number>> = {
   trunk: 0x6b4f3a,
   canopy: 0x3f7f52,
   grass: 0x000000,
+  // **White on purpose.** A kit material's colour is its texture; `diffuse` multiplies the map, so
+  // anything but white would tint the whole Quaternius palette by a number nobody chose. The fog-of-war
+  // tint row is a *ratio* off this base (see `ScenePool.recolour`), and a ratio off white is the
+  // identity — which is exactly what an unexplored kit prop wants: the same silhouette, darker.
+  kitSolid: 0xffffff,
+  kitLeaf: 0xffffff,
+  // The shallow end. `water.ts` mixes toward {@link WATER_DEEP_COLOUR} by depth, per instance.
+  water: 0x4c7f8c,
+  // A puddle is a hole in the ground full of sky. Near-black diffuse, and all of its read is in the
+  // specular the wet patch adds — the same argument `portal` makes for its own near-black albedo.
+  puddle: 0x14181c,
 };
+
+/** What the deep end of a water surface mixes toward. See `water.ts`'s depth fade. */
+export const WATER_DEEP_COLOUR = 0x17323f;
+
+/** The foam line's colour where water meets land. Not pure white: foam under a moon is grey-green. */
+export const WATER_FOAM_COLOUR = 0xd8e6e2;
 
 /**
  * What the emissive archetypes actually shine, as distinct from what they reflect.
@@ -548,8 +919,16 @@ export const EMISSIVE_COLOUR: Readonly<Partial<Record<Archetype, number>>> = {
   marker: 0xffe9a8,
 };
 
-/** The colour a material key paints. A pure function of the key's three parts. */
-export function archetypeColour(archetype: Archetype, sector: Sector | undefined): number {
+/**
+ * The colour a material key paints. A pure function of the key's parts.
+ *
+ * `variant` is M5b's and only ever matters for `trunk`/`canopy`: a kit tree's colour is its texture,
+ * and a `diffuse` of anything but white would tint the Quaternius palette by a number nobody chose.
+ * The fog-of-war tint row is a *ratio* computed off this value (see `ScenePool.recolour`), so getting
+ * it wrong would also leave an unexplored kit trunk the wrong kind of dark.
+ */
+export function archetypeColour(archetype: Archetype, sector: Sector | undefined, variant?: string): number {
+  if (variant !== undefined && TREE_SOURCE[variant as TreeVariant] === 'kit') return 0xffffff;
   if (archetype === 'ground') return SECTOR_COLOUR[sector ?? 'field'].ground;
   if (archetype === 'edge') return SECTOR_COLOUR[sector ?? 'field'].dressing;
   // A barrier is the same material as an edge, darkened — thickness is what says "you cannot pass",
@@ -688,3 +1067,24 @@ export const TREES_PER_ROOM_MAX = 32;
 
 /** The same argument for undergrowth: one bucket, one wrapper, whatever the room. */
 export const GRASS_PER_ROOM_MAX = 32;
+
+/* ------------------------------------------------------------------ M5b: the kit */
+
+/**
+ * How many distinct kit **models** one room may dress itself with. A pool constant before it is an
+ * art one, exactly as {@link TREE_VARIANTS_PER_ROOM} is.
+ *
+ * Four, and it costs `4 x 2 = 8` buckets a chunk in the worst case (the five two-primitive models —
+ * the flowering bush and the four flower clusters — are the only ones that take two). Letting a room
+ * roll freely over all 43 would make a chunk's bucket count a property of a hash and `pool.ts`'s
+ * ceiling would stop being a bound. Four is enough for a forest floor to read as *"ferns, clover,
+ * mushrooms and a bush"* rather than as one plant repeated, which is risk 4 again at the scale of the
+ * understory.
+ */
+export const KIT_MODELS_PER_ROOM = 4;
+
+/** Primitives a kit model can have. Two: a leaf part and a flower part, or bark and leaves. */
+export const KIT_PARTS_MAX = 2;
+
+/** The hard cap on kit instances in one room. One bucket, one wrapper, whatever the hash rolls. */
+export const KIT_PER_ROOM_MAX = 32;

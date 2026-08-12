@@ -87,6 +87,7 @@ import {
   RGBADepthPacking,
   Uniform,
   Vector2,
+  type Texture,
 } from 'three';
 
 /* -------------------------------------------------------------------------- */
@@ -126,12 +127,78 @@ export const CANOPY_BEND = 0.78;
 export const CANOPY_TRANSLUCENCY = 0.55;
 export const CANOPY_TRANSLUCENCY_POWER = 3;
 
-/** Undergrowth fades out between these metres from the camera. Beyond the second, nothing is drawn. */
-export const GRASS_FADE: readonly [number, number] = [17, 27];
+/**
+ * Undergrowth fades out between these **view-space depths**, in metres. Beyond the second, nothing
+ * is drawn.
+ *
+ * ## The number M5a got wrong, and the arithmetic that settles it
+ *
+ * These are metres of `-mvPosition.z` — depth along the camera's own forward axis — because that is
+ * what {@link patchFoliageVertex} measures, and it is *not* the distance from the character. **The
+ * camera is 36 m away from its focus** (`rig.CAMERA_DISTANCE`), pitched 64 degrees, with a 30-degree
+ * vertical field. So the ground the frame contains is 21.5 m deep, and every square metre of it sits
+ * at a view depth between **31.3 m and 40.7 m**:
+ *
+ * ```
+ * half        = tan(15°) x 36            = 9.65 m   (half the view plane at the focus)
+ * groundDepth = 2 x half / sin(64°)      = 21.5 m
+ * swing       = groundDepth/2 x cos(64°) = 4.7 m
+ * depth range = 36 ± 4.7                 = 31.3 .. 40.7 m
+ * ```
+ *
+ * M5a set this to `[17, 27]`, which reads as *"a tuft is noise past twenty-seven metres"* and is a
+ * perfectly good sentence about distance from the **player**. As a view depth it puts the *entire*
+ * frame past the far end of the fade: `smoothstep(17, 27, 31.3)` is 1, `vFoliageFade` is 0, the mask
+ * returns 0, and `alphaTest` discards every fragment. **The undergrowth M5a grew — 188,884 tufts over
+ * the built world — has never drawn a pixel.** Nothing failed: the placements are all there, the
+ * ledger counts them, and the scatter tests pass, because none of that is a picture.
+ *
+ * 38 m to 45 m is the corrected band: the near two thirds of the visible ground keeps its tufts at
+ * full strength, the far strip softens into the fog rather than ending at a line, and anything the
+ * streamer has built outside the frame costs nothing. `foliage.test.ts` pins the band against the rig
+ * so it cannot silently drift back inside the frame.
+ */
+export const GRASS_FADE: readonly [number, number] = [38, 45];
 
-/** Needles or blades. A uniform rather than a define, which is what keeps this to one program. */
+/**
+ * The kit's understory fades later than M5a's tufts and for a reason of its own. M5b.
+ *
+ * A crossed-quad tuft is 55 cm and is worth taking out at the back of the frame. A kit fern is nine
+ * metres across and a kit bush is two metres tall: those are *objects*, and an object that dissolves
+ * where the frame is still sharp is a pop rather than an economy. Same band as {@link GRASS_FADE},
+ * pushed two metres further out, so the understory outlives the tufts by exactly the strip in which
+ * both are already half fog.
+ *
+ * **A kit tree's canopy does not use this at all** — see `pool.ts`'s `kitLeaf` branch. A canopy must
+ * never dissolve inside the frame, which is what `createFoliageUniforms`'s `1e6` default is for.
+ */
+export const KIT_LEAF_FADE: readonly [number, number] = [40, 47];
+
+/**
+ * The kit's own `alphaCutoff`, as every one of its glTF materials states it.
+ *
+ * 0.2 rather than {@link FOLIAGE_ALPHA_TEST}'s 0.4 because it is not our threshold to choose: the
+ * Quaternius leaf textures were painted against it, and clipping a painted leaf at twice its author's
+ * cutoff eats the soft edge of every frond. The shadow still clips at three's fixed 0.5 (see the
+ * header) — a wider disagreement than the card foliage's, and visible only as a leaf whose shadow is
+ * a needle narrower than the leaf.
+ */
+export const KIT_ALPHA_TEST = 0.2;
+
+/**
+ * Needles, blades, or *let the texture decide*. A uniform rather than a define, which is what keeps
+ * this to one program per family.
+ *
+ * {@link MASK_TEXTURE} is M5b's and it is the important one: a Quaternius leaf carries its silhouette
+ * in its own alpha channel, so the procedural mask must contribute **nothing but the distance fade**
+ * or a painted frond gets a needle spray carved out of it. Written as a third value of the existing
+ * uniform rather than as a branch around the call, so the kit leaves stay inside the material family
+ * that owns the wind — which is the whole of the brief's *"patched with the SAME foliage material
+ * family"*.
+ */
 export const MASK_NEEDLE = 0;
 export const MASK_BLADE = 1;
+export const MASK_TEXTURE = 2;
 
 /* -------------------------------------------------------------------------- */
 /* The shared wind clock                                                       */
@@ -296,6 +363,10 @@ float foliageBladeMask(vec2 uv, float jitter) {
 }
 
 float foliageMask(vec2 uv, float jitter) {
+  // A kit leaf's silhouette is in the texture that has already multiplied into diffuseColor.a by the
+  // time this runs (three's <map_fragment> precedes <alphatest_fragment>), so the mask contributes
+  // nothing but the distance fade. See MASK_TEXTURE.
+  if (uMaskKind > 1.5) return vFoliageFade;
   float m = uMaskKind < 0.5 ? foliageNeedleMask(uv, jitter) : foliageBladeMask(uv, jitter);
   return m * vFoliageFade;
 }
@@ -487,10 +558,16 @@ export function createFoliageMaterial(
   spec: FoliageSpec,
   colour: number,
   name: string,
+  map?: Texture,
 ): FoliagePair {
   const uniforms = createFoliageUniforms(spec);
   const material = new MeshLambertMaterial({ color: new Color(colour) });
   material.name = name;
+  // M5b: a kit leaf carries a texture and a baked card does not. Assigned *here*, before the first
+  // compile, rather than when the PNG lands — `USE_MAP` is a `#define`, so a material that gains a map
+  // on frame two compiles a second program on frame two. `pool.ts`'s white 1x1 placeholder exists for
+  // exactly this and `dressKit` swaps the real one in without changing the program's shape.
+  if (map) material.map = map;
   material.alphaTest = FOLIAGE_ALPHA_TEST;
   material.alphaToCoverage = true;
   // Clip, never blend. See the header.
@@ -513,10 +590,12 @@ export function createFoliageMaterial(
     );
   };
   // One key for the whole family: 48 grounds share a program at M4 for the same reason, and every
-  // difference between two foliage materials is a uniform.
+  // difference between two foliage materials is a uniform. (The kit's textured leaves are a second
+  // *program* despite sharing this key, because `USE_MAP` is a define three adds on its own — see
+  // `pool.programKeyOf`. They are still one family, one patch and one clock.)
   material.customProgramCacheKey = (): string => 'foliage';
 
-  return { material, depth: createFoliageDepth(clock, uniforms, `${name}:depth`), uniforms };
+  return { material, depth: createFoliageDepth(clock, uniforms, `${name}:depth`, map), uniforms };
 }
 
 /**
@@ -530,9 +609,15 @@ export function createFoliageDepth(
   clock: WindClock,
   uniforms: FoliageUniforms,
   name: string,
+  map?: Texture,
 ): MeshDepthMaterial {
   const depth = new MeshDepthMaterial({ depthPacking: RGBADepthPacking });
   depth.name = name;
+  // **The same texture as the visible material, or the shadow is a solid quad.** Trap 1's argument
+  // applied to the mask instead of to the wind: the shadow pass runs a different material, and a
+  // depth material that cannot see the leaf's alpha channel draws the rectangle the leaf is painted
+  // on. `pool.dressKit` writes both from one object for the same reason the clock is shared.
+  if (map) depth.map = map;
   // Overwritten to 0.5 by `getDepthMaterial` every frame because the source material has
   // `alphaToCoverage` — set here anyway so that `USE_ALPHATEST` is on from the first compile and the
   // program does not change shape on frame two. See the header.
