@@ -482,7 +482,7 @@ the live page — before its commit. Every commit message carries the agent's fi
 - Also: `34d2e3a` fixed the real login bug (typed credentials now survive reconnects — resume
   tokens die with every server restart) and `e2ab60a` (a separate session) made scatter stair-aware.
 
-**THE ONE OPEN DECISION — the plan's designed GO/NO-GO.** The owner stands in the Nightwood (zone
+**DECIDED: GO — owner's verdict, 2026-08-13.** The light matched. M5 (outdoor art) is in flight; M6 interiors then M7 characters/protocol v2 follow. The original framing, kept for the record: The owner stands in the Nightwood (zone
 390), Bryn Shander's doorways (123), and the Comarian Mines (133), beside their reference image,
 and judges whether the *light* matches. M5 (outdoor art), M6 (interiors), M7 (characters + protocol
 v2) all wait on that verdict. Do not start M5 without it.
