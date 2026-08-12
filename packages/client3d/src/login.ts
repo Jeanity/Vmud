@@ -57,6 +57,22 @@ export class LoginGate {
 
   private pending: Pending = 'none';
   private handsFree = false;
+  /**
+   * The credentials the user actually typed, held in page memory for the life of the tab.
+   *
+   * The gap this closes was found on the wire, not in review. `net.send` silently drops a handshake
+   * message when the socket is not OPEN — by design, with a comment promising "login.ts reacts to
+   * state changes". It did, but `onConnected` could only replay a URL credential or a resume token,
+   * and **a resume token dies with every server restart** (`authFailed: session expired`), which in
+   * dev is constantly. So the one path a human actually uses — type a password, click enter —
+   * had no replay at all: a submit landing in a reconnect window vanished without a word, and the
+   * owner's first attempt to log into the 3D world ended on a form that ate the click.
+   *
+   * Held in memory only, never persisted — closing the tab forgets it, which is what a password
+   * field promises. Cleared on an explicit `authFailed` for a typed attempt, so a wrong password
+   * cannot replay itself forever.
+   */
+  private typed: { account: string; password: string; create: boolean } | undefined;
   private last: Extract<ServerMessage, { t: 'account' }> | undefined;
 
   /** Raised while the overlay is up. `main.ts` folds it into the keyboard gate with the log's. */
@@ -83,6 +99,14 @@ export class LoginGate {
       if (!account || !password) return this.fail('account and password, both');
       write(ACCOUNT_KEY, account);
       this.handsFree = false;
+      // Captured before the send, because the send may not happen: a socket mid-reconnect drops
+      // handshakes silently, and `onConnected` replays this the moment the next one opens.
+      this.typed = { account, password, create: this.create.checked };
+      if (this.net.state !== 'open') {
+        // The truth beats a swallowed click: the attempt is queued in `typed` and fires itself.
+        this.fail('reconnecting — entering as soon as the server answers');
+        return;
+      }
       this.pending = 'auth';
       this.net.send({
         t: 'auth',
@@ -124,6 +148,9 @@ export class LoginGate {
     net.on('authFailed', (message) => {
       const was = this.pending;
       this.pending = 'none';
+      // A refused typed attempt must not replay itself on the next reconnect — a wrong password
+      // looping forever is worse than typing it again. Expiry of a *resume* leaves `typed` alone.
+      if (was === 'auth') this.typed = undefined;
       if (was === 'resume') {
         // An expired session is not the user's mistake; the form, quietly, is the answer.
         clear(RESUME_KEY);
@@ -159,6 +186,21 @@ export class LoginGate {
         account,
         password,
         ...(search.get('create') ? { create: true } : {}),
+      });
+      return;
+    }
+    // Typed credentials outrank the resume token: they are fresher intent, and the token dies with
+    // every server restart while the human's password does not. This is the replay the silent-drop
+    // rule in `net.send` was always promising — a submit or a bounce at any point now self-heals on
+    // the next reconnect, and `CHARACTER_KEY` walks the body back in through the `account` handler.
+    if (this.typed) {
+      this.pending = 'auth';
+      this.net.send({
+        t: 'auth',
+        protocol: PROTOCOL_VERSION,
+        account: this.typed.account,
+        password: this.typed.password,
+        ...(this.typed.create ? { create: true } : {}),
       });
       return;
     }
