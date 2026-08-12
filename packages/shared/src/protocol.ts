@@ -303,6 +303,11 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * are the same compatibility shape `sky` took, and the version number exists to say *"we can no
  * longer talk"* — which is not true here. It bumps the day `sprite` goes.
  *
+ * **Still 31 again — M7b: the wire says what is in the hands.** `EntityView` gains `hands`, a fourth
+ * optional field on the same argument: `appearance.ts` resolves what is wielded to one of the four
+ * *Fantasy Props MegaKit* meshes, the 2D client neither reads it nor needs to, and character creation
+ * still lives only there. One field, no bump, `sprite` and `facing` untouched.
+ *
  * Is 31: **the world gains furniture.** `Room` gains `scenery` — a list of props standing on the
  * floor, each a catalogue name and a tile offset inside the room's own block. It rides on the
  * `zone` message, which already carries whole rooms, so nothing new is sent and nothing is sent
@@ -632,6 +637,26 @@ export interface EntityView {
    * for a body whose {@link model} is a `creature:` id, since there is no rig to hang anything on.
    */
   readonly gear?: readonly { readonly slot: string; readonly part: string }[];
+  /**
+   * What this body is **holding** — M7b, still protocol 31, and the milestone's one wire addition.
+   *
+   * Two prefixed ids from `appearance.ts` (`prop:Sword_Bronze`), never paths, exactly as {@link model}
+   * and {@link gear} are. Either half may be absent and usually both are: the props kit has four
+   * meshes, the catalogue has 7,415 things a hand can hold, and an unmapped weapon deliberately leaves
+   * the hand empty rather than putting the wrong object in it — `WEAPON_ART`'s rule, and the numbers.
+   *
+   * **Not folded into {@link gear}**, because a garment replaces a region of the body and a weapon
+   * hangs off a hand bone; one list would make the renderer ask which kind each entry was.
+   *
+   * **Not a version bump**, for M7a's reason unchanged: one more optional field a client may ignore is
+   * the compatibility shape `sky` and `model` already took, and the 2D client — which still owns
+   * character creation — compiles against this file without a line changed. It bumps the day `sprite`
+   * goes.
+   *
+   * Absent for a mob, since mobs carry no equipment list; absent for every ground object, since a
+   * dropped sword is not holding anything.
+   */
+  readonly hands?: { readonly main?: string; readonly off?: string };
   /**
    * Which way this body is turned, as a **renderer yaw in radians** — M7a, §6-M7's second item.
    *

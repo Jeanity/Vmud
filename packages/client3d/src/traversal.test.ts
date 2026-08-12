@@ -91,9 +91,12 @@ import {
   type Zone,
 } from '@mygame/shared';
 
+import { CharacterSet } from './characters.ts';
 import { planChunk } from './chunkPlan.ts';
+import { EntityLayer } from './entities.ts';
 import { ROOM_METRES, cellOriginTiles, metresOfTile, placeFrame } from './frame.ts';
 import { occludingSides, planInterior, roleOfPlacement } from './interior.ts';
+import { BODY_POOL_SIZE, BODY_RIG_BYTES } from './pool.ts';
 import { VILLAGE_METRICS } from './prototypes.ts';
 import { MAX_WINDOW_CHUNKS } from './streamer.ts';
 import { World3D } from './world3d.ts';
@@ -121,6 +124,7 @@ const BASELINE_ROOM = 100;
  * | M6 camera | 8,137,908 | **the streaming ring, 70 cells to 108** — `+703` wrappers at 3,968 B |
  * | M6 interiors | 8,582,412 | the `ceiling` archetype (+108 wrappers) and 19 village stand-ins |
  * | zoom x2 | 23,438,604 | **the owner's "about 100% more"**: the dolly ceiling 48 -> 96 m, the ring 108 -> 300 cells with the shadow pad folded into the derivation — +3,744 wrappers at 3,968 B, zero geometry |
+ * | M7b | 23,517,236 | **+78,632 B, and it is the first per-*entity* term in this table.** `+3,968` is one more wrapper — the `creature:` capsules' own, which carry a per-instance colour the two people wrappers must not. `+73,920` is **seven body rigs at 10,560 B**, the high-water of the churn this walk now runs; unlike everything else here they cannot be pre-warmed (there are no bones to clone until a pack has loaded), so they climb from zero and then stop, and the stopping is what is asserted. `+744` is four stand-in character geometries. |
  *
  * The camera delta was `+2,789,504` B, all of it instance buffer and all of it a consequence of one
  * decision: the dolly's clamp reaches 48 m at 45°, `streamer.ts` derives the ring from that pose, and
@@ -138,7 +142,22 @@ const BASELINE_ROOM = 100;
  * a room is dressed by `interior.ts` only when it is roofed and `inside`, and none of the four
  * scatter tables has an `inside` row. Interiors fit inside the budget the understory already had.
  */
-const LEDGER_BYTES = 23_438_604;
+const LEDGER_BYTES = 23_517_236;
+
+/**
+ * The stand-in armature and cast the body churn runs on — M7b.
+ *
+ * Names rather than the real 65, because what the churn exercises is the *pool*, not the vendor's
+ * weights: `characters.test.ts` asserts the real files bind 65 joints under these names and
+ * `skin.test.ts` asserts the cull against the real vertices. Here a rig only has to be a rig.
+ */
+const CHURN_JOINTS = ['root', 'pelvis', 'spine_01', 'Head', 'hand_r', 'hand_l', 'thigh_r', 'foot_r'];
+const CHURN_STEMS = [
+  'Superhero_Male_FullBody',
+  'Superhero_Female_FullBody',
+  'Male_Peasant_Body',
+  'Sword_Bronze',
+];
 
 describe('M3: streaming a real world with a flat ledger', () => {
   if (!existsSync(ZONES_DIR)) {
@@ -196,6 +215,16 @@ describe('M3: streaming a real world with a flat ledger', () => {
     // has. A flat ledger measured with the interiors switched off would be a statement about M5c
     // wearing M6's version number, and 47.2% of the world is roofed or paved.
     world.village.standIn(world.pool);
+    // M7b: **and so must the bodies.** A flat ledger measured with nobody in the world would be a
+    // statement about a renderer that draws rooms, and the whole of this milestone is the first
+    // allocation family in `pool.ts` that is *per entity* rather than per chunk. Every room the walk
+    // enters is populated and emptied through the real `EntityLayer`, so `rigsCreated` is exercised by
+    // the same acquire/release seam `entityEnter`/`entityLeave` drive.
+    const characters = new CharacterSet();
+    characters.standIn(world.pool, CHURN_JOINTS, CHURN_STEMS);
+    const entities = new EntityLayer(world.scene, world.pool, characters);
+    let nextEntity = 1;
+    let bodyHigh = 0;
     let visited = 0;
     let places = 0;
     let chunkHigh = 0;
@@ -234,6 +263,29 @@ describe('M3: streaming a real world with a flat ledger', () => {
           world.chunksLoaded <= MAX_WINDOW_CHUNKS,
           `${world.chunksLoaded} chunks live, over the ${MAX_WINDOW_CHUNKS} bound, at room ${visited}`,
         );
+        // A room's population, entering and leaving. The count cycles 0..7 so the free list is both
+        // outgrown and left slack, and the sexes alternate so both lists churn — a body pool that
+        // recycled only one of them would still look flat if only one were ever asked for.
+        const population = visited % 8;
+        for (let i = 0; i < population; i++) {
+          const stem = (visited + i) % 2 === 0 ? 'Superhero_Male_FullBody' : 'Superhero_Female_FullBody';
+          entities.upsert({
+            id: nextEntity++,
+            kind: 'mob',
+            name: 'a walk-on',
+            sprite: 'human',
+            x: (origin.tx + ROOM_TILES / 2) * TILE_SIZE,
+            y: (origin.ty + ROOM_TILES / 2) * TILE_SIZE,
+            facing: 'north',
+            model: `base:${stem}`,
+            ...(i % 3 === 0 ? { gear: [{ slot: 'torso', part: 'outfit:Male_Peasant_Body' }] } : {}),
+            ...(i % 4 === 0 ? { hands: { main: 'prop:Sword_Bronze' } } : {}),
+            yaw: 0,
+          });
+        }
+        bodyHigh = Math.max(bodyHigh, entities.rigged);
+        entities.render(1 / 60, (px, py) => world.groundAt(px, py));
+        for (const id of entities.ids()) entities.remove(id);
         if (visited === BASELINE_ROOM) baseline = world.ledger();
         if (visited >= TRAVERSAL_ROOMS) break outer;
       }
@@ -256,6 +308,8 @@ describe('M3: streaming a real world with a flat ledger', () => {
         `  water         chunks high-water ${waterHigh}\n` +
         `  interiors     dressed chunks high-water ${interiorHigh}  ` +
         `village modules high-water ${villageHigh}\n` +
+        `  bodies        rigs created ${end.rigsCreated}  high-water ${end.rigHighWater} of ${BODY_POOL_SIZE}  ` +
+        `refused ${end.rigsRefused}  drawn high-water ${bodyHigh}  ${end.rigBytes} B\n` +
         `  bytes         at room ${BASELINE_ROOM}: ${baseline.bytes}   at room ${visited}: ${end.bytes}\n` +
         `                geometry ${end.geometryBytes} + instance ${end.instanceBytes}` +
         `  textures ${end.textureBytes}`,
@@ -276,6 +330,17 @@ describe('M3: streaming a real world with a flat ledger', () => {
     // minted after boot and `wrappersCreated` is a constant rather than a plateau.
     assert.equal(end.wrappersCreated, end.prewarmed, 'a bucket overflowed the ceiling the pool was sized for');
     assert.ok(end.wrapperHighWater < end.prewarmed, 'the ceiling has no headroom left');
+    // **M7b's half of the same property.** A rig cannot be pre-warmed — there are no bones to clone
+    // until a pack has loaded — so unlike the wrappers it climbs from zero and then must *stop*. Flat
+    // between room 100 and room 1,000 is the whole assertion; the high-water is what says the walk
+    // actually asked for bodies rather than sailing under the cap on an empty world.
+    assert.equal(end.rigsCreated, baseline.rigsCreated, 'rigs were still being minted after room 100');
+    assert.equal(end.rigsLive, 0, 'a body left the room and kept its skeleton');
+    assert.equal(end.rigsLive + end.rigsFree, end.rigsCreated, 'the body free list lost one');
+    assert.equal(end.rigsRefused, 0, `the cap was hit ${end.rigsRefused} times on a real walk`);
+    assert.ok(end.rigsCreated <= BODY_POOL_SIZE, `${end.rigsCreated} rigs, over the cap`);
+    assert.ok(bodyHigh >= 7, `only ${bodyHigh} bodies were ever drawn — the churn is not exercising the pool`);
+    assert.equal(end.rigBytes, end.rigsCreated * BODY_RIG_BYTES);
     // M5a: the walk actually grew things. Without this the flat ledger above would be a statement
     // about a renderer with the trees switched off. Three programs and one depth program, fixed at
     // boot and unmoved by a thousand rooms of streaming.
@@ -288,9 +353,12 @@ describe('M3: streaming a real world with a flat ledger', () => {
     // about a renderer with the second mode switched off, which is 47.2% of the world.
     assert.ok(villageHigh > 40, `only ${villageHigh} village modules at the peak`);
     assert.ok(interiorHigh > 3, `only ${interiorHigh} chunks were ever dressed as interiors`);
-    // Seven colour programs and two depth, fixed at boot and unmoved by a thousand rooms of
-    // streaming. See `pool.programKeys` for why `map` and `vertexColors` are in the proxy's key.
-    assert.equal(end.programs, 7, 'the material pool grew a program while streaming');
+    // Nine colour programs and two depth, fixed at boot and unmoved by a thousand rooms of
+    // streaming. See `pool.programKeys` for why `map`, `vertexColors` and — M7b — `skinned` are in the
+    // proxy's key. Seven until M7b, which added the character material (no wetness patch, so its own
+    // cache key) and the character *prop* (a rigid `Mesh` beside a `SkinnedMesh`, so its own
+    // `USE_SKINNING` define). Both are compiled at boot like everything else here.
+    assert.equal(end.programs, 9, 'the material pool grew a program while streaming');
     assert.equal(end.depthProgramCount, 2);
     assert.equal(end.programs, baseline.programs);
     // Nothing loaded a texture headlessly, so the texture ledger must still be zero — the number that

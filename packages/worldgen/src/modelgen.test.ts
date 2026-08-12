@@ -18,17 +18,28 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import {
+  CHARACTERS_PROFILE,
+  CHARACTER_CLIPS,
+  CHARACTER_MANIFEST_VERSION,
   KIT_MANIFEST_VERSION,
   NATURE_PROFILE,
   VILLAGE_MANIFEST_VERSION,
   VILLAGE_PROFILE,
+  buildAnimationLibrary,
   buildCatalogue,
+  characterFamily,
+  characterKind,
   gltfDirOf,
   kitFamily,
   kitId,
   kitRole,
   pngSize,
+  readGlb,
   readSources,
   sourceDir,
   villageFamily,
@@ -356,3 +367,289 @@ function sha1(built: ReturnType<typeof buildCatalogue>): string {
   for (const [id, file] of [...built.textureFiles].sort()) hash.update(`${id}\u0000${file}`);
   return hash.digest('hex');
 }
+
+/* -------------------------------------------------------------------------- */
+/* M7b - the people                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * **These run without a pack on disk, and that is deliberate.**
+ *
+ * The two prop-kit suites above skip when `assets/**` is absent, because what they assert is a
+ * property of *that kit* — how many models it has, what its textures are called. What M7b's importer
+ * has to get right is a property of the *importer*: that a skin survives the rewrite, that a clip cut
+ * is deterministic, and that the re-packed buffer is legal glTF. All three are answerable over
+ * hand-built input, so they are, and a checkout with no packs still runs them.
+ *
+ * The one thing that genuinely needs the shipped article — *"the library the client will actually
+ * fetch retargets onto the 65 joints the bodies bind"* — reads `client3d/public/models/characters`,
+ * which is a build artefact of this very file and is present wherever `modelgen --characters` has run.
+ */
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const SHIPPED_UAL1 = join(REPO, 'packages', 'client3d', 'public', 'models', 'characters', 'animations', 'ual1.glb');
+
+describe('the characters profile', () => {
+  it('classifies a stem by its own shape, and the three kinds are total over the packs', () => {
+    assert.equal(characterKind('Superhero_Male_FullBody'), 'body');
+    assert.equal(characterKind('Superhero_Female_FullBody'), 'body');
+    assert.equal(characterKind('Male_Ranger_Feet_Boots'), 'outfit');
+    assert.equal(characterKind('Female_Ranger_Acc_Pauldrons'), 'outfit');
+    assert.equal(characterKind('Male_Peasant_Body'), 'outfit');
+    assert.equal(characterKind('Sword_Bronze'), 'weapon');
+    assert.equal(characterKind('Shield_Wooden'), 'weapon');
+  });
+
+  it('undoes the base pack’s own texture asymmetry without collapsing the two skins', () => {
+    // `T_Superhero_Female_Dark_BaseColor.png` carries the channel suffix and
+    // `T_Superhero_Male_Dark.png` does not. A generated name would have produced one id, found one
+    // file and dressed both bodies in the same skin.
+    assert.equal(CHARACTERS_PROFILE.textureId('T_Superhero_Female_Dark_BaseColor.png'), 'superhero-female-dark');
+    assert.equal(CHARACTERS_PROFILE.textureId('T_Superhero_Male_Dark.png'), 'superhero-male-dark');
+    // ...and the `_png.png` typo the village kit already taught this importer about.
+    assert.equal(CHARACTERS_PROFILE.textureId('T_Hair_1_BaseColor_png.png'), 'hair-1');
+    assert.equal(CHARACTERS_PROFILE.textureId('T_Hair_1_BaseColor.png'), 'hair-1');
+  });
+
+  it('gives every part one role, blocks nothing, and declares a kind', () => {
+    // Nothing a character wears sways and nothing it holds is ever scattered, so both of the two prop
+    // kits' questions have one answer here.
+    assert.equal(CHARACTERS_PROFILE.role('ranger'), 'solid');
+    assert.equal(CHARACTERS_PROFILE.role('trim-metal'), 'solid');
+    assert.equal(CHARACTERS_PROFILE.blocking.size, 0);
+    assert.equal(CHARACTERS_PROFILE.version, CHARACTER_MANIFEST_VERSION);
+    // The presence of `kind` is what switches on the three optional manifest fields - see
+    // `KitProfile.kind`. Neither prop kit has one, which is what keeps their bytes unchanged.
+    assert.ok(CHARACTERS_PROFILE.kind);
+    assert.equal(NATURE_PROFILE.kind, undefined);
+    assert.equal(VILLAGE_PROFILE.kind, undefined);
+  });
+
+  it('files a model on a shelf a human can read', () => {
+    assert.equal(characterFamily('male-ranger-feet-boots'), 'male-ranger');
+    assert.equal(characterFamily('superhero-female-full-body'), 'superhero-female');
+    assert.equal(characterFamily('sword-bronze'), 'sword');
+    assert.equal(characterFamily('nothing-like-this'), 'unknown');
+  });
+});
+
+/** A two-primitive rigged glTF with a skin, in the shape the character packs actually take. */
+function riggedSource(file: string, joints: number): Parameters<typeof buildCatalogue>[0][number] {
+  return {
+    file,
+    gltfBytes: 100,
+    binBytes: 200,
+    gltf: {
+      asset: { generator: 'test', version: '2.0' },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ name: 'Armature' }, { name: 'Mesh', skin: 0 }],
+      skins: [{ name: 'Armature', inverseBindMatrices: 2, joints: Array.from({ length: joints }, (_, i) => i) }],
+      materials: [{ name: 'MI_Peasant', pbrMetallicRoughness: { baseColorTexture: { index: 0 } } }],
+      meshes: [{ primitives: [{ attributes: { POSITION: 0, JOINTS_0: 3, WEIGHTS_0: 4 }, indices: 1, material: 0 }] }],
+      textures: [{ source: 0 }, { source: 1 }],
+      images: [{ uri: 'T_Peasant_BaseColor.png' }, { uri: 'T_Peasant_Normal.png' }],
+      samplers: [{}],
+      accessors: [
+        { count: 3, type: 'VEC3', componentType: 5126, min: [-0.2, 0, -0.1], max: [0.2, 1.8, 0.1] },
+        { count: 3, type: 'SCALAR', componentType: 5123 },
+        { count: joints, type: 'MAT4', componentType: 5126 },
+        { count: 3, type: 'VEC4', componentType: 5121 },
+        { count: 3, type: 'VEC4', componentType: 5126 },
+      ],
+      bufferViews: [{}],
+      buffers: [{ byteLength: 200, uri: 'x.bin' }],
+    } as never,
+  };
+}
+
+describe('the character import', () => {
+  const sources = [riggedSource('Male_Peasant_Body.gltf', 65), riggedSource('Superhero_Male_FullBody.gltf', 65)];
+  const textures = new Map<string, Buffer>();
+
+  it('is a pure function of its input, twice over', () => {
+    assert.equal(
+      sha1(buildCatalogue(sources, textures, CHARACTERS_PROFILE)),
+      sha1(buildCatalogue(sources, textures, CHARACTERS_PROFILE)),
+    );
+  });
+
+  it('keeps the rig in the emitted glTF, which is the thing the rewrite used to drop', () => {
+    // The one change the characters profile forced on the shared rewrite. A node naming a `skins`
+    // array that is not in the document is a `GLTFLoader` throw, not an untextured mesh.
+    const built = buildCatalogue(sources, textures, CHARACTERS_PROFILE);
+    for (const model of built.manifest.models) {
+      const gltf = JSON.parse(built.gltfs.get(model.id)!) as { skins?: { joints: number[] }[] };
+      assert.equal(gltf.skins?.[0]?.joints.length, 65, `${model.stem} lost its rig`);
+      assert.equal(model.joints, 65);
+    }
+  });
+
+  it('records the vendor stem beside the kebab id, because the round trip is lossy', () => {
+    const built = buildCatalogue([riggedSource('Male_Ranger_Feet_Boots.gltf', 65)], textures, CHARACTERS_PROFILE);
+    const boots = built.manifest.models[0]!;
+    // His boots are `Feet_Boots` where hers are `Feet`: a renderer that re-derived the vendor's
+    // spelling from the kebab id would 404 on two of the twenty parts.
+    assert.equal(boots.stem, 'Male_Ranger_Feet_Boots');
+    assert.equal(boots.id, 'male-ranger-feet-boots');
+    assert.equal(boots.kind, 'outfit');
+  });
+
+  it('drops the normal map and keeps the base colour, exactly as the two prop kits do', () => {
+    const built = buildCatalogue(sources, textures, CHARACTERS_PROFILE);
+    assert.deepEqual([...built.textureFiles.keys()], ['peasant']);
+    const gltf = JSON.parse(built.gltfs.get('male-peasant-body')!) as { images: { uri: string }[] };
+    assert.deepEqual(gltf.images.map((image) => image.uri), ['../textures/peasant.png']);
+  });
+
+  it('emits none of the three new fields for a profile that does not classify', () => {
+    // The nature and village manifests must be what they were before `skins`, `kind`, `stem` and
+    // `joints` existed. All four are conditional, and this is the assertion that they stayed that way.
+    const built = buildCatalogue([riggedSource('CommonTree_1.gltf', 65)], textures, NATURE_PROFILE);
+    const model = built.manifest.models[0]!;
+    assert.equal(model.kind, undefined);
+    assert.equal(model.stem, undefined);
+    assert.equal(model.joints, undefined);
+    assert.equal(built.manifest.animations, undefined);
+    // ...and the skin passthrough is conditional on the *source* having one, not on the profile, so a
+    // hypothetical rigged tree would still keep its rig rather than emit a dangling reference.
+    assert.ok(built.gltfs.get('common-tree-1')!.includes('"skins"'));
+  });
+});
+
+/** A GLB with three clips, a mesh and a skin — everything {@link buildAnimationLibrary} must cut. */
+function fixtureGlb(): Buffer {
+  const bin = Buffer.alloc(64);
+  for (let i = 0; i < 16; i++) bin.writeFloatLE(i, i * 4);
+  const json = {
+    asset: { version: '2.0' },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [
+      { name: 'Armature', children: [1] },
+      { name: 'root', children: [2] },
+      { name: 'pelvis', mesh: 0, skin: 0 },
+    ],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 0, material: 0 }] }],
+    materials: [{ name: 'MI_Mannequin' }],
+    skins: [{ joints: [1, 2], inverseBindMatrices: 0 }],
+    animations: [0, 1, 2].map((i) => ({
+      name: `Clip_${i}`,
+      channels: [{ sampler: 0, target: { node: 1 + (i % 2), path: 'translation' } }],
+      samplers: [{ input: i * 2, output: i * 2 + 1, interpolation: 'LINEAR' }],
+    })),
+    accessors: [0, 1, 2, 3, 4, 5, 6].map((i) => ({
+      bufferView: i,
+      componentType: 5126,
+      count: 1,
+      type: i % 2 === 0 ? 'SCALAR' : 'VEC3',
+      ...(i % 2 === 0 ? { max: [0.5 + i] } : {}),
+    })),
+    bufferViews: [0, 1, 2, 3, 4, 5, 6].map((i) => ({ buffer: 0, byteOffset: i * 4, byteLength: 4 })),
+    buffers: [{ byteLength: bin.length }],
+  };
+  const text = Buffer.from(JSON.stringify(json), 'utf8');
+  const pad = (4 - (text.length % 4)) % 4;
+  const jsonChunk = Buffer.concat([text, Buffer.alloc(pad, 0x20)]);
+  const out = Buffer.alloc(12 + 8 + jsonChunk.length + 8 + bin.length);
+  out.writeUInt32LE(0x46546c67, 0);
+  out.writeUInt32LE(2, 4);
+  out.writeUInt32LE(out.length, 8);
+  out.writeUInt32LE(jsonChunk.length, 12);
+  out.writeUInt32LE(0x4e4f534a, 16);
+  jsonChunk.copy(out, 20);
+  const at = 20 + jsonChunk.length;
+  out.writeUInt32LE(bin.length, at);
+  out.writeUInt32LE(0x004e4942, at + 4);
+  bin.copy(out, at + 8);
+  return out;
+}
+
+describe('re-cutting an animation library', () => {
+  const source = fixtureGlb();
+
+  it('keeps exactly the clips it was asked for, in the order it was asked', () => {
+    const { glb, clips, sourceClips } = buildAnimationLibrary(source, ['Clip_2', 'Clip_0']);
+    assert.deepEqual(clips.map((clip) => clip.name), ['Clip_2', 'Clip_0']);
+    assert.equal(sourceClips, 3);
+    assert.deepEqual(readGlb(glb).json.animations.map((clip) => clip.name), ['Clip_2', 'Clip_0']);
+  });
+
+  it('throws on a clip the pack does not have, rather than shipping a body that freezes', () => {
+    assert.throws(() => buildAnimationLibrary(source, ['Backflip_Of_Doom']), /no clip named/);
+  });
+
+  it('drops the mannequin and every accessor no kept clip reads', () => {
+    const after = readGlb(buildAnimationLibrary(source, ['Clip_0']).glb);
+    // The mesh is the vendor's own preview body; nothing draws it, and its skin's inverse-bind
+    // matrices are the *mannequin's* rather than the character's — binding to them would be the one
+    // way to get the retarget wrong.
+    assert.equal(after.json.meshes, undefined);
+    assert.equal(after.json.skins, undefined);
+    assert.equal(after.json.materials, undefined);
+    for (const node of after.json.nodes ?? []) {
+      assert.equal(node.mesh, undefined);
+      assert.equal(node.skin, undefined);
+    }
+    // Nodes all stay: they carry the joint *names* the retarget binds on, and pruning them would mean
+    // reindexing every channel target for no measurable saving.
+    assert.equal((after.json.nodes ?? []).length, 3);
+    // One clip reads two accessors of the seven.
+    assert.equal(after.json.accessors.length, 2);
+    assert.equal(after.json.bufferViews.length, 2);
+  });
+
+  it('re-packs the buffer legally: every view four-byte aligned and inside the buffer', () => {
+    const { glb } = buildAnimationLibrary(source, ['Clip_0', 'Clip_1', 'Clip_2']);
+    const { json, bin } = readGlb(glb);
+    const declared = json.buffers[0]!.byteLength;
+    assert.ok(declared <= bin.length, 'the BIN chunk is shorter than the buffer says');
+    for (const view of json.bufferViews) {
+      assert.equal((view.byteOffset ?? 0) % 4, 0, 'a buffer view is not four-byte aligned');
+      assert.ok((view.byteOffset ?? 0) + view.byteLength <= declared, 'a buffer view runs off the end');
+    }
+    for (const clip of json.animations) {
+      for (const sampler of clip.samplers) {
+        assert.ok(json.accessors[sampler.input], `${clip.name}: dangling input`);
+        assert.ok(json.accessors[sampler.output], `${clip.name}: dangling output`);
+      }
+      for (const channel of clip.channels) assert.ok(json.nodes?.[channel.target.node], `${clip.name}: dangling target`);
+    }
+    // The bytes really did come across, at their new offsets.
+    assert.equal(bin.readFloatLE(0), 0);
+    assert.equal(bin.readFloatLE(4), 1);
+  });
+
+  it('is byte-identical twice, and the order it emits in is the order it was given', () => {
+    const first = buildAnimationLibrary(source, ['Clip_2', 'Clip_0']).glb;
+    assert.ok(first.equals(buildAnimationLibrary(source, ['Clip_2', 'Clip_0']).glb), 'the re-cut is not deterministic');
+    // ...and a different *request* is a different file, which is what makes the first assertion mean
+    // something.
+    assert.ok(!first.equals(buildAnimationLibrary(source, ['Clip_0', 'Clip_2']).glb));
+  });
+
+  it('reads a clip’s length off its own keyframe times', () => {
+    const { clips } = buildAnimationLibrary(source, ['Clip_1']);
+    assert.equal(clips[0]!.duration, 2.5, 'the input accessor’s max is the clip’s end');
+    assert.equal(clips[0]!.channels, 1);
+  });
+});
+
+describe('the shipped animation library', { skip: existsSync(SHIPPED_UAL1) ? false : 'run modelgen --characters first' }, () => {
+  it('retargets by name onto the 65 joints the bodies bind', () => {
+    // The armature risk 6-M7 flagged as *"if it's false, M7 roughly doubles into a retargeting
+    // project"*, checked on the file the browser will actually fetch.
+    const { json } = readGlb(readFileSync(SHIPPED_UAL1));
+    const targets = new Set<string>();
+    for (const clip of json.animations) {
+      for (const channel of clip.channels) targets.add(json.nodes![channel.target.node]!.name ?? '');
+    }
+    assert.equal(targets.size, 65);
+    for (const name of ['root', 'pelvis', 'Head', 'hand_r', 'hand_l', 'foot_r']) {
+      assert.ok(targets.has(name), `${name} is not animated`);
+    }
+    // Every clip drives all 65 joints on all three channels, and nothing draws.
+    for (const clip of json.animations) assert.equal(clip.channels.length, 195, clip.name);
+    assert.equal(json.meshes, undefined, 'the mannequin is still in the shipped file');
+    assert.deepEqual(json.animations.map((clip) => clip.name).sort(), [...CHARACTER_CLIPS['ual1']!].sort());
+  });
+});

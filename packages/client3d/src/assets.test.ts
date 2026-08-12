@@ -128,10 +128,17 @@ describe('what the build is allowed to carry', () => {
     assert.equal(manifest.dependencies['three'], '0.185.1');
     assert.equal(manifest.dependencies['postprocessing'], '6.39.4');
     assert.equal(manifest.devDependencies['@types/three'], '0.185.1');
-    // M7's and click-to-move's dependencies must not have wandered in early.
-    for (const early of ['troika-three-text', 'three-mesh-bvh']) {
-      assert.ok(!(early in manifest.dependencies), `${early} is not M5a's`);
-      assert.ok(!(early in manifest.devDependencies), `${early} is not M5a's`);
+    // **M7b arrived and still declined both.** The list was "not M5a's"; it is now a decision.
+    // `troika-three-text` is §6-M7's own suggestion and M7b's brief allowed it as the milestone's one
+    // new dependency *"if it earns it"*. It does not: troika builds SDF atlases at run time so that
+    // arbitrary, long, live-editing text stays crisp at any zoom, and what this renderer needs is a
+    // name that never changes while an entity exists and a two-digit number, read at 20-90 m through
+    // a 64 degree camera. A `<canvas>` and `fillText` do that for 0 bytes against troika's ~100 KB
+    // gzipped plus a worker plus a font. See `plates.ts`, which is the file to replace on the day a
+    // name has to be legible at arm's length. `three-mesh-bvh` is click-to-move's and was never needed.
+    for (const declined of ['troika-three-text', 'three-mesh-bvh']) {
+      assert.ok(!(declined in manifest.dependencies), `${declined} was declined - see plates.ts`);
+      assert.ok(!(declined in manifest.devDependencies), `${declined} was declined - see plates.ts`);
     }
   });
 

@@ -1,6 +1,7 @@
 /**
  * `modelgen` — the Quaternius kit import. M5b's first line and the offline half of *"build my game in
- * a world that looks like that"*; M6's second source dir, and the offline half of the interiors.
+ * a world that looks like that"*; M6's second source dir, and the offline half of the interiors;
+ * M7b's third, and the offline half of the *people*.
  *
  * ```
  * node --disable-warning=ExperimentalWarning packages/worldgen/src/modelgen.ts
@@ -10,13 +11,16 @@
  *
  * node --disable-warning=ExperimentalWarning packages/worldgen/src/modelgen.ts --village
  * GAME_VILLAGE_KIT=D:/MyGame/assets/quaternius/village node ... /modelgen.ts --village
+ *
+ * node --disable-warning=ExperimentalWarning packages/worldgen/src/modelgen.ts --characters
+ * GAME_CHARACTER_KIT=D:/MyGame/assets/quaternius/characters node ... /modelgen.ts --characters
  * ```
  *
  * **Invoked with `node` directly and deliberately given no `package.json` script**, exactly as
  * `treegen.ts` is and for the same reason: `CLAUDE.md` gotcha 6 — npm eats unknown flags, and
  * `--source …` through a nested `npm run --workspace` never reaches this file.
  *
- * ## Two kits, one importer — M6
+ * ## Three kits, one importer — M6, then M7b
  *
  * The *Medieval Village MegaKit* arrives the same way the nature kit did and is imported by the same
  * code, parameterised by a {@link KitProfile}: where the source is, where the output goes, how a
@@ -28,13 +32,49 @@
  * The nature profile's emitted bytes are unchanged by the parameterisation, which
  * `modelgen.test.ts` asserts by re-running the same catalogue build it always has.
  *
+ * **The characters profile is the third tenant and it stretched the importer in exactly two places**,
+ * both of which are no-ops for the first two:
+ *
+ * 1. **`skins` survives the rewrite.** A base body and every outfit part is a *skinned* mesh: its
+ *    nodes carry `skin: 0` and the skin names 65 joints and an inverse-bind-matrix accessor. The
+ *    rewrite used to drop the array outright — harmless while no kit had one, fatal the moment one
+ *    does, because a node pointing at a `skins` array that is not there is a `GLTFLoader` throw
+ *    rather than an untextured mesh. Emitted only when the source has one, so the nature and village
+ *    bytes are unchanged to the byte.
+ * 2. **Three optional manifest fields**, {@link KitModel.kind}, {@link KitModel.stem} and
+ *    {@link KitModel.joints}, written only when a profile declares a {@link KitProfile.kind}. The
+ *    *stem* is the load-bearing one: `shared/src/appearance.ts` emits ids like
+ *    `base:Superhero_Male_FullBody` and `outfit:Male_Ranger_Feet_Boots`, which are the **vendor's own
+ *    file identities**, asymmetries and all (his ranger boots are `Feet_Boots` where hers are `Feet`).
+ *    Recording the stem beside the kebab-case id means the renderer joins on what the server actually
+ *    said instead of re-deriving a name that is wrong for two of twenty.
+ *
+ * ## The animation libraries, and the 86% of them that is thrown away
+ *
+ * *Universal Animation Library* 1 and 2 ship as GLBs of 7.27 MB and 7.72 MB — 43 clips each, of which
+ * M7b's state machine names eleven and five. Measured: **15.0 MB in, 2.17 MB out, a 78% and a 92%
+ * cut.** {@link buildAnimationLibrary} keeps the named clips and rebuilds the file around them: the mannequin mesh, its skin, its materials and every accessor no kept clip
+ * references all go, the surviving buffer views are re-packed into a fresh `BIN` chunk in ascending
+ * source order, and the JSON chunk is rebuilt in a fixed key order. Same input, same bytes.
+ *
+ * That is the same *subtractive and reversible* rule the normal-map drop follows, applied to the one
+ * asset in this project where the unused fraction is the majority: a walk cycle nobody plays still
+ * costs the player the download. The clip list lives here because this is what does the cutting;
+ * `client3d/src/anim.ts` mirrors it and `characters.test.ts` asserts the two agree against the
+ * generated manifest, which is `kit.test.ts`'s contract for `treeTexture` in a second costume.
+ *
  * ## Where a kit is, and why that is a flag
  *
  * `assets/**` is git-ignored, so **a worktree has no `assets/` directory at all**. That is the same
  * hole `artgen.ts`/`creaturegen.ts` fell into with the LPC pack and it is answered the same way:
  * the source is `--source`, else the profile's environment variable (`$GAME_NATURE_KIT` /
- * `$GAME_VILLAGE_KIT`), else the repo's own `assets/quaternius/<kit>`. From a worktree, point it at
- * the main checkout — `--source D:/MyGame/assets/quaternius/nature`.
+ * `$GAME_VILLAGE_KIT` / `$GAME_CHARACTER_KIT`), else the repo's own `assets/quaternius/<kit>`. From a
+ * worktree, point it at the main checkout — `--source D:/MyGame/assets/quaternius/nature`.
+ *
+ * The characters source is **assembled rather than downloaded**: three itch packs are unpacked into
+ * one `characters/glTF` (the two base bodies, the twenty modular parts, four props) with the two
+ * animation GLBs in a sibling `characters/animations`. That is a hand step, it is recorded in
+ * `assets/quaternius/PROVENANCE.md`, and it is why this profile's `pack` line names four packs.
  *
  * The village pack ships its glTF one directory deeper than the nature pack does — the itch download
  * unpacks as `village/Medieval Village MegaKit[Standard]/glTF` — so {@link gltfDirOf} accepts either
@@ -110,6 +150,9 @@ export const KIT_MANIFEST_VERSION = 1;
 /** The same, for `client3d/src/village.ts`'s `VILLAGE_MANIFEST_VERSION`. Its own number, its own kit. */
 export const VILLAGE_MANIFEST_VERSION = 1;
 
+/** The same, for `client3d/src/characters.ts`'s `CHARACTER_MANIFEST_VERSION`. M7b. */
+export const CHARACTER_MANIFEST_VERSION = 1;
+
 /* -------------------------------------------------------------------------- */
 /* The shape of a glTF, narrowed to what this file reads                        */
 /* -------------------------------------------------------------------------- */
@@ -144,16 +187,25 @@ interface GltfPrimitive {
   material: number;
 }
 
+interface GltfSkin {
+  name?: string;
+  inverseBindMatrices?: number;
+  skeleton?: number;
+  joints: number[];
+}
+
 interface Gltf {
   asset: { generator?: string; version: string };
   scene?: number;
   scenes?: unknown[];
-  nodes?: unknown[];
+  nodes?: { name?: string; mesh?: number; skin?: number }[];
   materials: GltfMaterial[];
   meshes: { name?: string; primitives: GltfPrimitive[] }[];
   textures?: { sampler?: number; source: number }[];
   images?: { mimeType?: string; name?: string; uri: string }[];
   samplers?: unknown[];
+  /** M7b: present on every rigged character file and on neither of the two prop kits. */
+  skins?: GltfSkin[];
   accessors: GltfAccessor[];
   bufferViews: unknown[];
   buffers: { byteLength: number; uri?: string }[];
@@ -337,6 +389,14 @@ export interface KitProfile {
   readonly family: (id: string) => string;
   /** Families whose models stand in the player's way. Empty for a kit nothing scatters. */
   readonly blocking: ReadonlySet<string>;
+  /**
+   * What a file *is*, when that is a question this kit's renderer branches on — M7b, characters only.
+   *
+   * Its presence is also the switch for the three optional {@link KitModel} fields: a profile with no
+   * `kind` emits no `kind`, no `stem` and no `joints`, so the nature and village manifests are
+   * byte-for-byte what they were before this parameter existed.
+   */
+  readonly kind?: (stem: string) => string;
   /** Lines for the `ATTRIBUTION.md`'s "what was changed on the way in" section. */
   readonly changes: readonly string[];
   readonly pack: string;
@@ -388,7 +448,96 @@ export const VILLAGE_PROFILE: KitProfile = {
   ],
 };
 
-export const PROFILES: readonly KitProfile[] = [NATURE_PROFILE, VILLAGE_PROFILE];
+/* ---------------------------------------------------------------- the people */
+
+/**
+ * What a character file *is*, from its own stem — and the join key `client3d` routes on.
+ *
+ * Three answers and no fourth, because three packs are read into one directory: a **body** is one of
+ * the two rigs in *Universal Base Characters*, an **outfit** is one of the twenty modular parts in
+ * *Modular Character Outfits — Fantasy*, and a **weapon** is one of the four props `appearance.ts`'s
+ * `WEAPON_ART` can name. The test asserts the partition is total over what is actually on disk, so a
+ * fifth file dropped into the source directory fails here rather than arriving as an unclassified
+ * model the renderer silently never draws.
+ *
+ * Keyed on the stem's own shape rather than on a list, because the vendor's naming is regular in
+ * exactly the way that matters: a body is `Superhero_*`, an outfit part is `<Sex>_<Style>_*`.
+ */
+export function characterKind(stem: string): 'body' | 'outfit' | 'weapon' {
+  if (stem.startsWith('Superhero_')) return 'body';
+  if (/^(Female|Male)_(Peasant|Ranger)_/.test(stem)) return 'outfit';
+  return 'weapon';
+}
+
+/**
+ * The character packs' families, for the report and for the attribution contact sheet.
+ *
+ * Deliberately coarser than {@link characterKind} — this is the "what shelf does it live on" answer a
+ * human reads, where `kind` is the one the renderer branches on.
+ */
+export const CHARACTER_FAMILIES = [
+  'axe',
+  'female-peasant',
+  'female-ranger',
+  'male-peasant',
+  'male-ranger',
+  'shield',
+  'superhero-female',
+  'superhero-male',
+  'sword',
+  'torch',
+] as const;
+
+export function characterFamily(id: string): string {
+  return familyOf(id, CHARACTER_FAMILIES);
+}
+
+/**
+ * The character packs share the village kit's Unreal-style texture naming — with **one more vendor
+ * asymmetry**, which is why this is `villageTextureId` and not a fourth function.
+ *
+ * `T_Superhero_Female_Dark_BaseColor.png` carries the channel suffix and
+ * `T_Superhero_Male_Dark.png` does not. Both survive: stripping `_BaseColor` when it is there and
+ * leaving the stem alone when it is not gives `superhero-female-dark` and `superhero-male-dark`, two
+ * distinct ids naming two distinct files. A `${sex}` template would have produced one name, found one
+ * file and dressed both bodies in the same skin.
+ *
+ * The base pack also ships the `_png.png` typo the village kit's `T_VineLeaf_png.png` already taught
+ * this importer about (`T_Hair_1_BaseColor_png.png` beside `T_Hair_1_BaseColor.png`), and it is
+ * handled by the same `_png$` strip plus `readSources`' base-colour-wins rule.
+ */
+export const CHARACTERS_PROFILE: KitProfile = {
+  id: 'characters',
+  env: 'GAME_CHARACTER_KIT',
+  version: CHARACTER_MANIFEST_VERSION,
+  generator: 'modelgen.ts from the Quaternius character packs (CC0)',
+  textureId: villageTextureId,
+  // Nothing a character wears sways, and nothing it holds does either: `foliage.ts`'s leaf family is
+  // for intersecting alpha cards and a hood is a closed mesh. One role, stated rather than inferred.
+  role: () => 'solid',
+  family: characterFamily,
+  kind: characterKind,
+  // `blocks` is the *scatter's* question and nothing here is ever scattered — a body is placed by the
+  // simulation's own coordinates. The same empty set the village profile carries, for the same reason.
+  blocking: new Set(),
+  pack:
+    '**Quaternius — Universal Base Characters**, **Modular Character Outfits — Fantasy**, ' +
+    '**Fantasy Props MegaKit** (four props) and **Universal Animation Library 1 & 2**, ' +
+    'textured glTF / GLB lines, Standard tier.',
+  changes: [
+    '- Normal, roughness and ORM maps dropped: `client3d` is Lambert throughout and samples none of',
+    '  them. That is 71.4 MB of the packs’ 91.8 MB of PNG.',
+    '- `images`/`textures` rebuilt and reindexed; image URIs pointed at the shared `textures/` directory.',
+    '- `skins` and their inverse-bind-matrix accessors are **kept**, untouched: they are the rig.',
+    '- Geometry, accessors and buffer views are the upstream bytes, unmodified. Nothing is rescaled on',
+    '  disk — the base bodies measure 1.81 m and 1.767 m as authored, which is the height the world was',
+    '  already built for.',
+    '- The two animation libraries are re-cut to the clips the state machine names — 11 of 43 and 5 of',
+    '  43 — and re-packed; see `buildAnimationLibrary`. That is 15.0 MB of GLB down to 2.2 MB.',
+  ],
+};
+
+export const PROFILES: readonly KitProfile[] = [NATURE_PROFILE, VILLAGE_PROFILE, CHARACTERS_PROFILE];
 
 /* -------------------------------------------------------------------------- */
 /* The manifest, as this file writes it and `client3d/src/kit.ts` reads it      */
@@ -411,6 +560,31 @@ export interface KitPart {
 export interface KitModel {
   readonly id: string;
   readonly family: string;
+  /**
+   * What the renderer branches on — M7b, and present only for a profile with a
+   * {@link KitProfile.kind}. `body` / `outfit` / `weapon` for the character packs, absent for both
+   * prop kits.
+   */
+  readonly kind?: string;
+  /**
+   * The **vendor's own file stem**, `Male_Ranger_Feet_Boots` — the join key back to the ids
+   * `shared/src/appearance.ts` puts on the wire, and the reason it is recorded rather than derived.
+   *
+   * `id` is `kitId(stem)` and is what names the directory; the two are not interchangeable, because
+   * the round trip is lossy in the one direction that matters. Present only for a profile with a
+   * {@link KitProfile.kind}.
+   */
+  readonly stem?: string;
+  /**
+   * How many joints this file's skin binds — 65 for every rigged character file in all three packs,
+   * absent for anything with no skin at all.
+   *
+   * On the manifest because it is the fact the whole milestone rests on: one armature, bound by name,
+   * shared by the bodies, the outfit parts and both animation libraries. A part that arrived with 63
+   * would compose into a body with two joints of its geometry pinned at the origin, and a number in
+   * the manifest is where a test can see that before a frame is drawn.
+   */
+  readonly joints?: number;
   /** The runtime URL, relative to the served root. Never a disk path and never a bundler specifier. */
   readonly url: string;
   /** glTF + bin, on disk. */
@@ -443,6 +617,29 @@ export interface KitManifest {
   readonly generator: string;
   readonly models: readonly KitModel[];
   readonly textures: readonly KitTexture[];
+  /** M7b, characters only: the re-cut animation libraries. Absent for a kit that has none. */
+  readonly animations?: readonly AnimationLibrary[];
+}
+
+/** One re-cut *Universal Animation Library*, as {@link buildAnimationLibrary} left it. */
+export interface AnimationLibrary {
+  /** `ual1` / `ual2` — the client's own name for the file, and its filename stem. */
+  readonly id: string;
+  readonly url: string;
+  readonly bytes: number;
+  /** What was on the way in, so the report can say what the cut was worth. */
+  readonly sourceBytes: number;
+  readonly sourceClips: number;
+  readonly clips: readonly AnimationClipEntry[];
+}
+
+export interface AnimationClipEntry {
+  /** The clip's own name, which is what `AnimationMixer` binds on. */
+  readonly name: string;
+  /** Seconds, off the largest keyframe time in the clip's own samplers. */
+  readonly duration: number;
+  /** 195 for every clip in both libraries: 65 joints x translation/rotation/scale. */
+  readonly channels: number;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -545,9 +742,15 @@ export function buildCatalogue(
     // gained rewritten URIs, so it is a different length. `kit.test.ts` compares the manifest's
     // figure against what is on disk, which is the only version of this number worth recording.
     const text = rewriteGltf(gltf, keptImages, profile);
+    const stem = source.file.replace(/\.[^.]+$/, '');
     models.push({
       id,
       family,
+      // Three fields or none: a profile that does not classify emits the manifest it always did. See
+      // `KitProfile.kind`, and `KitModel.stem` for why the vendor's spelling is the join key.
+      ...(profile.kind
+        ? { kind: profile.kind(stem), stem, joints: gltf.skins?.[0]?.joints.length ?? 0 }
+        : {}),
       url: `models/${profile.id}/${id}/model.gltf`,
       bytes: Buffer.byteLength(text, 'utf8') + source.binBytes,
       triangles,
@@ -638,11 +841,251 @@ function rewriteGltf(gltf: Gltf, keptImages: readonly number[], profile: KitProf
     materials,
     meshes: gltf.meshes,
     ...(images.length > 0 ? { textures, images, samplers: gltf.samplers ?? [{}] } : {}),
+    // **M7b: the rig survives.** Every node in a character file carries `skin: 0`, and a node that
+    // names a `skins` array which is not in the document is a `GLTFLoader` throw rather than an
+    // untextured mesh. Conditional, so the two prop kits — which have no skin — emit exactly the
+    // bytes they emitted before this line existed. The inverse-bind matrices it points at are
+    // accessors, which have always come through untouched.
+    ...(gltf.skins ? { skins: gltf.skins } : {}),
     accessors: gltf.accessors,
     bufferViews: gltf.bufferViews,
     buffers: gltf.buffers.map((buffer) => ({ byteLength: buffer.byteLength, uri: 'model.bin' })),
   };
   return `${JSON.stringify(out, null, '\t')}\n`;
+}
+
+/* -------------------------------------------------------------------------- */
+/* The animation libraries — M7b                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Which clips M7b's state machine actually plays, by library — **the cut list**.
+ *
+ * The canonical copy, because this is what does the cutting; `client3d/src/anim.ts` mirrors it as
+ * `CLIPS` and `characters.test.ts` asserts every name the state machine reaches for is in the
+ * generated manifest. Two lists and one check, which is `kit.test.ts`'s standing arrangement for
+ * `treeTexture` and the reason a renamed clip is a failing test rather than a character frozen in a
+ * T-pose.
+ *
+ * Ten of UAL1's 43 and five of UAL2's 43. What is *not* here is as deliberate: `Punch_*`,
+ * `Pistol_*`, `Zombie_*`, the swimming, the farming and the twelve idle variants are motions this
+ * game has no state for, and a clip nobody plays is 130 KB of keyframes the player still downloads.
+ * Adding one is one line in each of the two lists and a re-run.
+ */
+export const CHARACTER_CLIPS: Readonly<Record<string, readonly string[]>> = {
+  ual1: [
+    // Locomotion, by speed. `Walk_Formal_Loop` is the same gait with the arms held and is not used.
+    'Idle_Loop',
+    'Walk_Loop',
+    'Jog_Fwd_Loop',
+    'Sprint_Loop',
+    // Combat, for a body with no sword in its hand and for a caster. `Spell_Simple_Idle_Loop` is the
+    // held wind-up protocol 22's `EntityView.casting` was added to make observable.
+    'Sword_Attack',
+    'Sword_Idle',
+    'Spell_Simple_Idle_Loop',
+    'Spell_Simple_Shoot',
+    // Being hit, and stopping.
+    'Hit_Chest',
+    'Hit_Head',
+    'Death01',
+  ],
+  ual2: [
+    // The three-swing melee ladder the 3 s round rotates through, plus the shield's own two.
+    'Sword_Regular_A',
+    'Sword_Regular_B',
+    'Sword_Regular_C',
+    'Sword_Block',
+    'Hit_Knockback',
+  ],
+};
+
+/** GLB container constants. `glTF` little-endian, then `JSON` and `BIN\0` chunk types. */
+const GLB_MAGIC = 0x46546c67;
+const GLB_CHUNK_JSON = 0x4e4f534a;
+const GLB_CHUNK_BIN = 0x004e4942;
+
+interface GltfAnimationSampler {
+  input: number;
+  output: number;
+  interpolation?: string;
+}
+
+interface GltfAnimation {
+  name: string;
+  samplers: GltfAnimationSampler[];
+  channels: { sampler: number; target: { node: number; path: string } }[];
+}
+
+interface AnimationGltf extends Gltf {
+  animations: GltfAnimation[];
+  bufferViews: { buffer: number; byteOffset?: number; byteLength: number; byteStride?: number }[];
+}
+
+/** Reads a GLB's two chunks. Throws rather than guesses: a malformed library is not a smaller one. */
+export function readGlb(bytes: Buffer): { json: AnimationGltf; bin: Buffer } {
+  if (bytes.length < 20 || bytes.readUInt32LE(0) !== GLB_MAGIC) throw new Error('not a GLB');
+  const jsonLength = bytes.readUInt32LE(12);
+  if (bytes.readUInt32LE(16) !== GLB_CHUNK_JSON) throw new Error('GLB: first chunk is not JSON');
+  const json = JSON.parse(bytes.toString('utf8', 20, 20 + jsonLength)) as AnimationGltf;
+  const binHeader = 20 + jsonLength;
+  if (bytes.readUInt32LE(binHeader + 4) !== GLB_CHUNK_BIN) throw new Error('GLB: second chunk is not BIN');
+  const binLength = bytes.readUInt32LE(binHeader);
+  return { json, bin: bytes.subarray(binHeader + 8, binHeader + 8 + binLength) };
+}
+
+/** The inverse. Both chunks are padded to four bytes, JSON with spaces and BIN with zeros — the spec's own. */
+function writeGlb(json: unknown, bin: Buffer): Buffer {
+  const text = Buffer.from(JSON.stringify(json), 'utf8');
+  const jsonPad = (4 - (text.length % 4)) % 4;
+  const binPad = (4 - (bin.length % 4)) % 4;
+  const jsonChunk = Buffer.concat([text, Buffer.alloc(jsonPad, 0x20)]);
+  const binChunk = Buffer.concat([bin, Buffer.alloc(binPad, 0)]);
+  const total = 12 + 8 + jsonChunk.length + 8 + binChunk.length;
+  const out = Buffer.alloc(total);
+  out.writeUInt32LE(GLB_MAGIC, 0);
+  out.writeUInt32LE(2, 4);
+  out.writeUInt32LE(total, 8);
+  out.writeUInt32LE(jsonChunk.length, 12);
+  out.writeUInt32LE(GLB_CHUNK_JSON, 16);
+  jsonChunk.copy(out, 20);
+  const binAt = 20 + jsonChunk.length;
+  out.writeUInt32LE(binChunk.length, binAt);
+  out.writeUInt32LE(GLB_CHUNK_BIN, binAt + 4);
+  binChunk.copy(out, binAt + 8);
+  return out;
+}
+
+/**
+ * Re-cut one animation library to the clips {@link CHARACTER_CLIPS} names — the whole of M7b's
+ * offline saving, and a pure function so `modelgen.test.ts` can run it twice and diff the bytes.
+ *
+ * **The mesh goes.** A UAL GLB carries a grey mannequin so that a human opening it in Blender sees
+ * something move; nothing in this renderer ever draws it, and its skin's inverse-bind matrices are
+ * the *mannequin's* rather than the character's — binding to them would be the one way to get the
+ * retarget wrong. So `meshes`, `skins`, `materials`, `textures`, `images` and `samplers` are all
+ * dropped and every node loses its `mesh`/`skin` reference. What remains is the joint hierarchy and
+ * the keyframes, which is exactly what `AnimationMixer` needs and all it needs.
+ *
+ * **Nodes all stay**, cheap and whole: they are JSON, they carry the joint *names* the retarget binds
+ * on, and pruning them would mean reindexing every channel target for no measurable saving.
+ *
+ * Determinism comes from three ordering rules and nothing else: clips are emitted in the order
+ * {@link CHARACTER_CLIPS} lists them; the accessors they reference are re-emitted in ascending
+ * *source* index; and the buffer views are packed in ascending source index at four-byte alignment.
+ * No timestamp, no machine path, no `Map` iteration whose order is an accident.
+ */
+export function buildAnimationLibrary(
+  source: Buffer,
+  wanted: readonly string[],
+): { readonly glb: Buffer; readonly clips: readonly AnimationClipEntry[]; readonly sourceClips: number } {
+  const { json, bin } = readGlb(source);
+  const byName = new Map(json.animations.map((clip) => [clip.name, clip]));
+
+  const kept: GltfAnimation[] = [];
+  for (const name of wanted) {
+    const clip = byName.get(name);
+    // Thrown rather than skipped: a clip the state machine names and the pack does not have is a
+    // character that freezes at the moment it matters, and the pack is on disk right now to check.
+    if (!clip) throw new Error(`animation library has no clip named ${name}`);
+    kept.push(clip);
+  }
+
+  // Every accessor any kept sampler reads, in ascending source order.
+  const accessorsUsed = new Set<number>();
+  for (const clip of kept) {
+    for (const sampler of clip.samplers) {
+      accessorsUsed.add(sampler.input);
+      accessorsUsed.add(sampler.output);
+    }
+  }
+  const accessorOrder = [...accessorsUsed].sort((a, b) => a - b);
+  const accessorAt = new Map<number, number>();
+  accessorOrder.forEach((old, index) => accessorAt.set(old, index));
+
+  // Every buffer view those accessors read, likewise — deduped, because two accessors may share one.
+  const viewsUsed = new Set<number>();
+  for (const old of accessorOrder) {
+    const view = (json.accessors[old] as { bufferView?: number } | undefined)?.bufferView;
+    if (view !== undefined) viewsUsed.add(view);
+  }
+  const viewOrder = [...viewsUsed].sort((a, b) => a - b);
+  const viewAt = new Map<number, number>();
+
+  const chunks: Buffer[] = [];
+  const bufferViews: { buffer: number; byteOffset: number; byteLength: number }[] = [];
+  let at = 0;
+  for (const old of viewOrder) {
+    const view = json.bufferViews[old]!;
+    // Four-byte alignment, because an accessor's `byteOffset` into the *buffer* must be a multiple of
+    // its component size and every component here is a float or a short. Padding rather than packing
+    // tight: 3 bytes at worst per view against a rebuild that is provably legal.
+    const pad = (4 - (at % 4)) % 4;
+    if (pad > 0) {
+      chunks.push(Buffer.alloc(pad));
+      at += pad;
+    }
+    viewAt.set(old, bufferViews.length);
+    const start = view.byteOffset ?? 0;
+    chunks.push(Buffer.from(bin.subarray(start, start + view.byteLength)));
+    bufferViews.push({ buffer: 0, byteOffset: at, byteLength: view.byteLength });
+    at += view.byteLength;
+  }
+  const rebuilt = Buffer.concat(chunks);
+
+  const accessors = accessorOrder.map((old) => {
+    const accessor = json.accessors[old]! as GltfAccessor & { bufferView?: number; byteOffset?: number; normalized?: boolean };
+    return {
+      ...(accessor.bufferView === undefined ? {} : { bufferView: viewAt.get(accessor.bufferView)! }),
+      ...(accessor.byteOffset ? { byteOffset: accessor.byteOffset } : {}),
+      componentType: accessor.componentType,
+      count: accessor.count,
+      ...(accessor.max ? { max: accessor.max } : {}),
+      ...(accessor.min ? { min: accessor.min } : {}),
+      ...(accessor.normalized ? { normalized: true } : {}),
+      type: accessor.type,
+    };
+  });
+
+  const animations = kept.map((clip) => ({
+    channels: clip.channels.map((channel) => ({
+      sampler: channel.sampler,
+      target: { node: channel.target.node, path: channel.target.path },
+    })),
+    name: clip.name,
+    samplers: clip.samplers.map((sampler) => ({
+      input: accessorAt.get(sampler.input)!,
+      ...(sampler.interpolation ? { interpolation: sampler.interpolation } : {}),
+      output: accessorAt.get(sampler.output)!,
+    })),
+  }));
+
+  const nodes = (json.nodes ?? []).map((node) => {
+    const { mesh: _mesh, skin: _skin, ...rest } = node;
+    return rest;
+  });
+
+  const out = {
+    accessors,
+    animations,
+    asset: { generator: json.asset.generator ?? 'unknown', version: json.asset.version },
+    bufferViews,
+    buffers: [{ byteLength: rebuilt.length }],
+    nodes,
+    scene: json.scene ?? 0,
+    scenes: json.scenes ?? [],
+  };
+
+  const clips: AnimationClipEntry[] = kept.map((clip) => {
+    let duration = 0;
+    for (const sampler of clip.samplers) {
+      const input = json.accessors[sampler.input];
+      duration = Math.max(duration, input?.max?.[0] ?? 0);
+    }
+    return { name: clip.name, duration: round(duration), channels: clip.channels.length };
+  });
+
+  return { glb: writeGlb(out, rebuilt), clips, sourceClips: json.animations.length };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -746,14 +1189,65 @@ function attribution(manifest: KitManifest, source: string, profile: KitProfile)
     ...manifest.models.map(
       (model) =>
         `- \`${model.id}\` — ${model.triangles} tris, ${model.width}x${model.depth} m, ${model.height} m tall` +
+        `${model.joints ? `, ${model.joints} joints` : ''}` +
         `${model.blocks ? `, blocks (r=${model.blockRadius} m)` : ''}`,
     ),
     '',
+    ...(manifest.animations && manifest.animations.length > 0
+      ? [
+          '## Animation',
+          '',
+          ...manifest.animations.flatMap((library) => [
+            `\`${library.id}\` — ${library.clips.length} of ${library.sourceClips} clips kept, ` +
+              `${(library.bytes / 1024 / 1024).toFixed(2)} MiB from ${(library.sourceBytes / 1024 / 1024).toFixed(2)} MiB:`,
+            ...library.clips.map((clip) => `- \`${clip.name}\` — ${clip.duration.toFixed(3)} s, ${clip.channels} channels`),
+            '',
+          ]),
+        ]
+      : []),
   ].join('\n');
 }
 
+/**
+ * The two libraries, read from the source's `animations/` sibling and re-cut.
+ *
+ * A sibling directory rather than a fourth profile, because a GLB of keyframes is not a model: it has
+ * no textures, no footprint, nothing `buildCatalogue` measures. Kept beside the `glTF/` the parts come
+ * out of so one `--source` still names the whole import.
+ */
+function importAnimations(
+  source: string,
+): { readonly libraries: AnimationLibrary[]; readonly files: Map<string, Buffer> } {
+  const dir = join(source, 'animations');
+  const libraries: AnimationLibrary[] = [];
+  const files = new Map<string, Buffer>();
+  if (!existsSync(dir)) return { libraries, files };
+  // Sorted, and the id is the key rather than the file name, so the manifest's order is a property of
+  // this list and not of `readdir` — the same rule the models follow.
+  for (const id of Object.keys(CHARACTER_CLIPS).sort()) {
+    const file = readdirSync(dir).find((name) => name.toLowerCase().startsWith(id) && name.endsWith('.glb'));
+    if (!file) continue;
+    const bytes = readFileSync(join(dir, file));
+    const { glb, clips, sourceClips } = buildAnimationLibrary(bytes, CHARACTER_CLIPS[id] ?? []);
+    files.set(id, glb);
+    libraries.push({
+      id,
+      url: `models/${CHARACTERS_PROFILE.id}/animations/${id}.glb`,
+      bytes: glb.length,
+      sourceBytes: bytes.length,
+      sourceClips,
+      clips,
+    });
+  }
+  return { libraries, files };
+}
+
 function main(): void {
-  const profile = process.argv.includes('--village') ? VILLAGE_PROFILE : NATURE_PROFILE;
+  const profile = process.argv.includes('--characters')
+    ? CHARACTERS_PROFILE
+    : process.argv.includes('--village')
+      ? VILLAGE_PROFILE
+      : NATURE_PROFILE;
   const outDir = join(MODELS_DIR, profile.id);
   const source = sourceDir(profile);
   const gltfDir = gltfDirOf(source);
@@ -765,14 +1259,19 @@ function main(): void {
         `The pack is git-ignored, so a worktree has none: point --source or ${profile.env} at the\n` +
         `main checkout's copy, e.g.\n` +
         `  node --disable-warning=ExperimentalWarning packages/worldgen/src/modelgen.ts ` +
-        `${profile.id === 'village' ? '--village ' : ''}--source D:/MyGame/assets/quaternius/${profile.id}`,
+        `${profile.id === 'nature' ? '' : `--${profile.id} `}--source D:/MyGame/assets/quaternius/${profile.id}`,
     );
     process.exitCode = 1;
     return;
   }
 
   const { sources, textures } = readSources(gltfDir, profile);
-  const { manifest, gltfs, textureFiles } = buildCatalogue(sources, textures, profile);
+  const built = buildCatalogue(sources, textures, profile);
+  const { gltfs, textureFiles } = built;
+  const { libraries, files: animationFiles } = profile.kind
+    ? importAnimations(source)
+    : { libraries: [] as AnimationLibrary[], files: new Map<string, Buffer>() };
+  const manifest: KitManifest = libraries.length > 0 ? { ...built.manifest, animations: libraries } : built.manifest;
 
   const modelBytes = manifest.models.reduce((n, m) => n + m.bytes, 0);
   const textureTotal = manifest.textures.reduce((n, t) => n + t.bytes, 0);
@@ -788,6 +1287,15 @@ function main(): void {
         `${(texture.bytes / 1024).toFixed(0).padStart(6)} KiB  x${texture.used}`,
     );
   }
+  for (const library of libraries) {
+    const seconds = library.clips.reduce((n, clip) => n + clip.duration, 0);
+    console.log(
+      `  ${library.id.padEnd(24)} ${String(library.clips.length).padStart(3)} of ` +
+        `${String(library.sourceClips).padEnd(3)} clips, ${seconds.toFixed(1).padStart(5)} s, ` +
+        `${(library.sourceBytes / 1024 / 1024).toFixed(2)} -> ${(library.bytes / 1024 / 1024).toFixed(2)} MiB ` +
+        `(${(100 - (library.bytes / library.sourceBytes) * 100).toFixed(0)}% cut)`,
+    );
+  }
   if (dry) {
     console.log('[modelgen] --dry: nothing written');
     return;
@@ -800,6 +1308,12 @@ function main(): void {
 
   for (const [id, file] of [...textureFiles].sort()) {
     copyFileSync(join(gltfDir, file), join(outDir, 'textures', `${id}.png`));
+  }
+  if (animationFiles.size > 0) {
+    mkdirSync(join(outDir, 'animations'), { recursive: true });
+    for (const [id, bytes] of [...animationFiles].sort()) {
+      writeFileSync(join(outDir, 'animations', `${id}.glb`), bytes);
+    }
   }
   for (const model of manifest.models) {
     const dir = join(outDir, model.id);

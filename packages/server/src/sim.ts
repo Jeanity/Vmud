@@ -69,6 +69,7 @@ import {
   // usual reason — the renderer draws the answer and the server is the only thing allowed to decide it.
   appearanceOf,
   yawOf,
+  type HeldView,
   experienceToNext,
   rollStarterKit,
   weaponFrom,
@@ -2222,10 +2223,16 @@ export class Simulation {
       isPlayer(actor) && Object.keys(actor.equipped).length > 0
         ? wornIds(actor.equipped, this.artClassOf)
         : undefined;
+    // M7b: what is in the hands. Read off the same `equipped` the line above walked, and read *here*
+    // rather than inside `appearanceOf` because that function is pure and knows no `Item` — what it
+    // takes is the three fields a mesh can be chosen from. `wearing.mainHand` is already on the wire
+    // and is not enough: for 98% of the catalogue's weapons it is `obj:1234`. See `WEAPON_ART`.
+    const holding = isPlayer(actor) ? handsOf(actor.equipped, wearing) : undefined;
     const look = appearanceOf({
       kind: actor.kind,
       sprite: actor.sprite,
       ...(wearing ? { wearing } : {}),
+      ...(holding ? { holding } : {}),
     });
     return {
       id: actor.id,
@@ -2264,6 +2271,9 @@ export class Simulation {
       // rather than a case anybody expects to hit.
       ...(look ? { model: look.model } : {}),
       ...(look?.gear ? { gear: look.gear } : {}),
+      // M7b, and it rides exactly the same resync path: `afterKitChange` -> `syncEntityState` ->
+      // `viewOf` -> `entityUpdate`, so a `wield` reaches the hand without a line anywhere else.
+      ...(look?.hands ? { hands: look.hands } : {}),
       // Derived rather than stored: the simulation holds four headings, so a yaw field of its own
       // would be a second copy of `facing` to keep in step. `space.ts` owns the axis argument.
       yaw: yawOf(actor.facing),
@@ -2495,6 +2505,38 @@ function reached(player: Player, point: TilePoint): boolean {
   );
 }
 
+
+/**
+ * What is in the two hands, in the three fields `appearanceOf` can choose a mesh from — M7b.
+ *
+ * The whole of the server's share of the weapons slice, and it is a projection rather than a
+ * decision: which of the four props kit meshes a `weaponClass` means is `shared/appearance.ts`'s
+ * (`WEAPON_ART`), and this function's only job is to hand it the facts an `Item` carries that the
+ * wire's `wearing` record has thrown away.
+ *
+ * `art` comes out of the `wearing` record that has already been built rather than by calling
+ * `artClassOf` a second time — two reads of the same equipment through the same resolver is exactly
+ * how `wearing` and `gear` would come to disagree, which is the note `viewOf` opens with.
+ */
+function handsOf(
+  equipped: Equipped,
+  wearing: Readonly<Record<string, string>> | undefined,
+): { main?: HeldView; off?: HeldView } | undefined {
+  const read = (slot: 'mainHand' | 'offHand'): HeldView | undefined => {
+    const item = equipped[slot];
+    if (!item) return undefined;
+    const art = wearing?.[slot];
+    return {
+      ...(art === undefined ? {} : { art }),
+      ...(item.weaponClass === undefined ? {} : { weaponClass: item.weaponClass }),
+      // The presence of a light, not its radius: a lantern and a torch are one mesh.
+      ...(item.light ? { light: true as const } : {}),
+    };
+  };
+  const main = read('mainHand');
+  const off = read('offHand');
+  return main || off ? { ...(main ? { main } : {}), ...(off ? { off } : {}) } : undefined;
+}
 
 /** Keeps the previous facing when an intent is diagonal-ambiguous, to avoid sprite flicker. */
 function facingOf(dx: number, dy: number, previous: Direction): Direction {

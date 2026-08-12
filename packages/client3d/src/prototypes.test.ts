@@ -38,6 +38,8 @@ import {
   VARIANT_ARCHETYPES,
   VILLAGE_GEOMETRY_KEYS,
   VILLAGE_MODELS,
+  CHARACTER_TEXTURES,
+  characterMaterialKey,
   VILLAGE_PARTS,
   archetypeColour,
   kitMaterialKey,
@@ -59,6 +61,9 @@ const KIT_ARCHETYPE_COUNT = 2;
 
 /** `villageSolid` — M6's one. Same reason it is a literal: deriving it would let the table widen. */
 const VILLAGE_ARCHETYPE_COUNT = 1;
+
+/** `character` — M7b's one, and it is keyed by texture alone. Same reason it is a literal. */
+const CHARACTER_ARCHETYPE_COUNT = 1;
 
 describe('the pool key set', () => {
   it('has exactly seven built shapes, and the trees and the kit on top of them', () => {
@@ -147,7 +152,7 @@ describe('the pool key set', () => {
     assert.ok(MATERIAL_KEYS.includes(treeMaterialKey('trunk', 'dead-tree-1' as never)));
   });
 
-  it('has exactly 300 materials, and the arithmetic is legible', () => {
+  it('has exactly 312 materials, and the arithmetic is legible', () => {
     // Terrain: 5 biome archetypes x 16 sectors = 80, of which `grass` never fades, so
     // 4 x 16 = 64 with twins (128) plus 16 without = 144.
     // Trees: 51 real parts across 28 variants, none of which fade.
@@ -156,7 +161,9 @@ describe('the pool key set', () => {
     // Kit props: 48 `(model, texture)` parts, none of which fade.
     // Village: 19 parts, each with an **open** twin — the near-wall fade, which is not the vertical
     //   policy's `dim` and has its own opacity — so 38.
-    // 144 + 51 + 19 + 48 + 38 = 300.
+    // Characters: 12 atlases, keyed by texture alone rather than by `(model, texture)` — a body
+    //   material carries no per-model uniform, so 26 models share twelve materials. None fade.
+    // 144 + 51 + 19 + 48 + 38 + 12 = 312.
     //
     // 110 at M3. M4 added `glow` and its twin — the stairwell marker — the *whole* of M4's growth,
     // because the emissive ring is a uniform on an existing material and the three-state fog of war is
@@ -164,7 +171,9 @@ describe('the pool key set', () => {
     // M5a added 32: eight barks, eight canopies and sixteen undergrowths. M5b added 85: 35 kit tree
     // parts, 48 kit prop parts, and the water and puddle surfaces. **M6 adds 70**: the `ceiling`
     // archetype crossed with the sixteen sectors and twinned (32), and the village's 19 parts
-    // twinned (38). Neither adds a *program* — see the traversal test, which still asserts seven.
+    // twinned (38). Neither adds a *program*. **M7b adds 12** and, unlike every prior milestone, it
+    // *does* add two programs — a body is a `SkinnedMesh` and the sword in its hand is not, and
+    // `USE_SKINNING` is a `#define`. See the traversal test, which now asserts nine and says why.
     const terrain = (BIOME_ARCHETYPES.length - 1) * SECTORS.length;
     let trees = 0;
     for (const variant of TREE_VARIANTS) trees += treePartsOf(variant).length;
@@ -173,11 +182,12 @@ describe('the pool key set', () => {
       BIOME_ARCHETYPES.length -
       VARIANT_ARCHETYPES.length -
       KIT_ARCHETYPE_COUNT -
-      VILLAGE_ARCHETYPE_COUNT;
+      VILLAGE_ARCHETYPE_COUNT -
+      CHARACTER_ARCHETYPE_COUNT;
     assert.equal(terrain, 64);
     assert.equal(trees, 51);
     assert.equal(objects, 12);
-    assert.equal(MATERIAL_KEYS.length, 300);
+    assert.equal(MATERIAL_KEYS.length, 312);
     // The `- 5` is `self`, `other`, `marker`, `water` and `puddle` — the object archetypes with no
     // faded twin. Literals rather than `NEVER_FADED.size` on purpose, the same reasoning the file
     // header gives for the whole test: recomputing the exclusion from the table under test would let
@@ -190,7 +200,8 @@ describe('the pool key set', () => {
         objects +
         (objects - 5) +
         KIT_PARTS.length +
-        VILLAGE_PARTS.length * 2,
+        VILLAGE_PARTS.length * 2 +
+        CHARACTER_TEXTURES.length,
     );
   });
 
@@ -208,6 +219,9 @@ describe('the pool key set', () => {
       // Nor is M6's, for the same reason: a village material's identity is its `(model, texture)`
       // pair plus whether it is the open twin, which is the fourth loop below.
       if (archetype === 'villageSolid') continue;
+      // Nor is M7b's: a character material's identity is its *texture* and nothing else — twelve
+      // atlases across 26 models — which is the fifth loop below.
+      if (archetype === 'character') continue;
       for (const faded of [false, true]) {
         for (const sector of SECTORS) {
           assert.ok(known.has(materialKey(archetype, sector, faded)), `${archetype}/${sector}/${faded}`);
@@ -223,6 +237,9 @@ describe('the pool key set', () => {
     }
     for (const part of KIT_PARTS) {
       assert.ok(known.has(kitMaterialKey(part.model, part.texture)), `${part.model}/${part.texture}`);
+    }
+    for (const texture of CHARACTER_TEXTURES) {
+      assert.ok(known.has(characterMaterialKey(texture)), `character/${texture}`);
     }
     for (const part of VILLAGE_PARTS) {
       for (const open of [false, true]) {
@@ -299,12 +316,21 @@ describe('the pool key set', () => {
     // the `ceil` slack covered the moon's pad by luck and at 96 m it stopped — and the pool followed:
     // 300 x 10 + 150 x 16 + 3 = 5,403, plus 300 ground and 150 water wrappers on their own lists.
     // Nothing here was chosen; the clamp was — twice now.
-    assert.equal(WRAPPER_POOL_SIZE, 5403);
-    assert.equal(start.prewarmed, 5853);
+    // **M7b moves it by exactly one**: a third entity wrapper for the `creature:` placeholders, which
+    // are the only bodies carrying a per-instance colour and so cannot share the two white ones. The
+    // `character` archetype itself adds none — a body is a `SkinnedMesh` off `BODY_POOL_SIZE`, not a
+    // wrapper — which is why it is carved out of `CHUNK_BUCKET_CEILING` beside `self`/`other`/`marker`.
+    assert.equal(WRAPPER_POOL_SIZE, 5404);
+    assert.equal(start.prewarmed, 5854);
     assert.equal(start.blendWrappers, 450, 'ground and water both own their instanced attributes');
-    assert.equal(start.wrappersCreated, 5853, 'all three free lists are whole before anything asks');
-    assert.equal(start.wrappersFree, 5853);
+    assert.equal(start.wrappersCreated, 5854, 'all three free lists are whole before anything asks');
+    assert.equal(start.wrappersFree, 5854);
     assert.equal(start.wrappersLive, 0);
+    // M7b: no rig exists until a base body has loaded, and none has. The body family is the one
+    // allocation in this pool that is *not* pre-warmed — see `BODY_POOL_SIZE`.
+    assert.equal(start.rigsCreated, 0);
+    assert.equal(start.rigsLive, 0);
+    assert.equal(start.rigsRefused, 0);
     // Nothing has been loaded, so nothing is on the texture ledger. It is the biggest number in the
     // renderer once the kit lands, and it must be zero until it does.
     assert.equal(start.textures, 0);
@@ -318,13 +344,13 @@ describe('the pool key set', () => {
     pool.dispose();
   });
 
-  it('costs seven programs for 230 materials, plus two for the foliage shadows', () => {
+  it('costs nine programs for 312 materials, plus two for the foliage shadows', () => {
     const pool = new ScenePool();
     const keys = pool.programKeys();
     assert.equal(
       keys.size,
-      7,
-      `expected plain/blend/foliage/kit-solid/kit-leaf/water/puddle, got ${[...keys].join(', ')}`,
+      9,
+      'expected plain/blend/foliage x2/kit-solid/water/puddle/character x2, got ' + [...keys].join(', '),
     );
     // The two foliage programs are the *same patch* under two `#define` sets: `USE_MAP` is three's
     // and cannot be a uniform, so a textured kit leaf and an untextured baked card are two compiled
@@ -337,6 +363,19 @@ describe('the pool key set', () => {
     assert.equal([...keys].filter((key) => key.includes('kit-solid')).length, 1, '83 kit solids, one program');
     assert.equal([...keys].filter((key) => key.includes(':water')).length, 1);
     assert.equal([...keys].filter((key) => key.includes(':puddle')).length, 1);
+    // **M7b's two, and the only milestone so far to cost more than one program.**
+    //
+    // A character material is `kitSolid`'s recipe minus the wetness patch — rain darkening a boulder
+    // is the effect working and rain darkening a face is a sheen nobody asked for — so it is its own
+    // `customProgramCacheKey`, which is one. The *second* is not a material difference at all:
+    // `USE_SKINNING` is an **object** define, a body is a `SkinnedMesh` and the sword in its hand is a
+    // plain `Mesh` parented to a bone, so those two compile separately however identical their
+    // materials are. The pool records which is which at build time (the body atlases and the prop
+    // atlases are disjoint sets) precisely so this proxy does not under-report the browser by one.
+    const character = [...keys].filter((key) => key.includes(':character:'));
+    assert.equal(character.length, 2, character.join(', '));
+    assert.equal(character.filter((key) => key.endsWith(':skin')).length, 1, 'nine skinned atlases');
+    assert.equal(character.filter((key) => key.endsWith(':rigid')).length, 1, 'three prop atlases');
     // Only foliage clips: a kit solid is bark and rock, opaque however the glTF's `MASK` flag reads.
     assert.equal([...keys].filter((key) => key.includes(':clip:')).length, 2);
     // `foliage.ts`'s trap 1: one depth material per foliage program, and no more.
@@ -468,7 +507,7 @@ describe('the pool key set', () => {
     pool.writeBlend(wall, 0, [1, 1, 1, 1], [1, 1, 1, 1]);
     pool.writeWarp(wall, 0, [1, 1, 1, 1]);
     pool.release(wall);
-    assert.equal(pool.snapshot().wrappersCreated, 5853, 'the split lists must not mint');
+    assert.equal(pool.snapshot().wrappersCreated, 5854, 'the split lists must not mint');
     pool.dispose();
   });
 
@@ -500,7 +539,7 @@ describe('the pool key set', () => {
     const again = pool.acquire('waterPlane', 'water');
     assert.equal(again, water, 'LIFO: the water list gave its own wrapper back');
     pool.release(again);
-    assert.equal(pool.snapshot().wrappersCreated, 5853, 'the three lists must not mint');
+    assert.equal(pool.snapshot().wrappersCreated, 5854, 'the three lists must not mint');
     pool.dispose();
   });
 

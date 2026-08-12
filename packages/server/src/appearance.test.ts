@@ -84,15 +84,19 @@ describe('the 3D fields on an entity view', () => {
     assert.equal(sim.viewOf(player).sprite, player.sprite);
   });
 
-  it('adds three keys and disturbs nothing else', () => {
+  it('adds four keys and disturbs nothing else', () => {
     // **The unknown-field safety test, the shape the `sky` message set.** A client that has never
-    // heard of `model`, `gear` or `yaw` must see the message it saw yesterday, and the honest way to
-    // check that is to delete the new keys and compare the whole rest of the payload — not to read
-    // the fields one at a time and trust the eye.
+    // heard of `model`, `gear`, `yaw` or — M7b — `hands` must see the message it saw yesterday, and
+    // the honest way to check that is to delete the new keys and compare the whole rest of the
+    // payload, not to read the fields one at a time and trust the eye.
     const { sim, player } = makeSim();
     const view = sim.viewOf(player);
-    const { model, gear, yaw, ...asThe2dClientSeesIt } = view;
+    const { model, gear, yaw, hands, ...asThe2dClientSeesIt } = view;
     assert.ok(model !== undefined && yaw !== undefined, 'the new fields must actually be present');
+    // A fresh character's starter kit always rolls a main-hand weapon, and three of the four roll a
+    // blade or an axe — so this is present far more often than not, and its absence would mean the
+    // hand read never happened rather than that the roll came up a club.
+    void hands;
     assert.deepEqual(Object.keys(asThe2dClientSeesIt).sort(), [
       'facing', 'healthFraction', 'id', 'kind', 'level', 'name', 'posture', 'sprite', 'status', 'wearing', 'x', 'y',
     ]);
@@ -101,6 +105,51 @@ describe('the 3D fields on an entity view', () => {
     assert.deepEqual(JSON.parse(JSON.stringify(asThe2dClientSeesIt)), asThe2dClientSeesIt);
     assert.equal(gear, view.gear);
   });
+
+  it('puts what is wielded in the hands, off the same equipment read', () => {
+    // M7b. `wearing.mainHand` has been on the wire since 15a and is not enough on its own: for 98% of
+    // the catalogue's weapons it is `obj:1234`. `handsOf` reads `Item.weaponClass` off the same
+    // `equipped` the `wearing` record was built from — one read, so the two cannot disagree.
+    const { sim, player } = makeSim();
+    player.equipped = {
+      mainHand: { ...item('broadsword', 'a notched broadsword'), slot: 'mainHand', weaponClass: 5 },
+      offHand: { ...item('shield', 'a battered kite shield'), slot: 'offHand' },
+    };
+    const view = sim.viewOf(player);
+    assert.deepEqual(view.hands, { main: 'prop:Sword_Bronze', off: 'prop:Shield_Wooden' });
+    // …and the 2D vocabulary for the same two slots is untouched.
+    assert.equal(view.wearing?.['mainHand'], 'broadsword');
+    assert.equal(view.wearing?.['offHand'], 'shield');
+  });
+
+  it('leaves a hand empty rather than filling it with the wrong thing', () => {
+    const { sim, player } = makeSim();
+    player.equipped = { mainHand: { ...item('iron_mace', 'a pitted iron mace'), slot: 'mainHand', weaponClass: 6 } };
+    const view = sim.viewOf(player);
+    assert.equal(view.hands, undefined, 'a mace has no mesh and must not become a sword');
+    assert.equal(view.wearing?.['mainHand'], 'iron_mace', 'and the 2D client still draws its own mace');
+  });
+
+  it('lights a hand that is holding a light', () => {
+    const { sim, player } = makeSim();
+    player.equipped = {
+      mainHand: { ...item('obj:7', 'a guttering torch'), slot: 'mainHand', light: { radius: 3 } },
+    };
+    assert.deepEqual(sim.viewOf(player).hands, { main: 'prop:Torch_Metal' });
+  });
+
+  it('empties the hands the moment the weapon comes off, through the same resync', () => {
+    // The eyes-on half of this is *"wield a sword, watch it appear"*, and the path is the one
+    // `afterKitChange` already drives: -> `syncEntityState` -> `viewOf` -> `entityUpdate`. What can be
+    // pinned headlessly is that the payload follows the equipment, both ways.
+    const { sim, player } = makeSim();
+    player.equipped = { mainHand: { ...item('dagger', 'a notched dagger'), slot: 'mainHand', weaponClass: 2 } };
+    assert.equal(sim.viewOf(player).hands?.main, 'prop:Sword_Bronze');
+    player.equipped = {};
+    assert.equal(sim.viewOf(player).hands, undefined);
+  });
+
+
 
   it('turns the yaw with the facing, all four ways', () => {
     const { sim, player } = makeSim();
@@ -142,6 +191,9 @@ describe('the 3D fields on an entity view', () => {
     assert.equal(view.wearing, undefined, 'mobs still carry no worn map');
     assert.deepEqual((view.gear ?? []).map((g) => g.slot), ['torso', 'arms', 'legs', 'feet']);
     assert.equal(view.sprite, 'muscular/human', 'and the 2D key is untouched');
+    // M7b: and empty hands, the same gap for the same reason. An armed guard is drawn unarmed until
+    // mobs have an equipment list, which is Phase 16's — stated as an assertion so the gap is visible.
+    assert.equal(view.hands, undefined, 'a mob has no equipment to read a weapon out of');
   });
 });
 

@@ -63,6 +63,16 @@ export const BASE_PREFIX = 'base:';
 export const OUTFIT_PREFIX = 'outfit:';
 
 /**
+ * Namespace for a mesh from the *Fantasy Props MegaKit* — M7b, and the only thing anybody holds.
+ *
+ * A fourth namespace rather than a fourth `outfit:` slot, because a weapon is not a garment: it hangs
+ * off a hand bone rather than replacing a region of the body, it comes out of a different pack, and it
+ * is the one thing on a body whose id is chosen from what the character is *wielding* rather than from
+ * what they are wearing.
+ */
+export const PROP_PREFIX = 'prop:';
+
+/**
  * Namespace for a body **no pack has a mesh for**, and the one id scheme here that names no file.
  *
  * *Ultimate Monsters* is not on itch (`PLAN-3d-migration.md`'s 2026-08-13 amendment: *"invalid game"*,
@@ -365,6 +375,112 @@ function styleFrom(artClass: string): OutfitStyle {
 }
 
 /* -------------------------------------------------------------------------- */
+/* What is in the hands — M7b                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The four props from the *Fantasy Props MegaKit*, by their own file stems.
+ *
+ * Four, and the number is the coordinator's: a sword, an axe, a shield and a torch cover what a
+ * hand in this world is usually doing, and every blunt instrument drawn as a sword would be a lie
+ * repeated 687 times. The pack has more — this is the set M7b staged, and adding a mace is a row in
+ * {@link WEAPON_ART}, a row in `modelgen`'s source directory and nothing else.
+ */
+export const WEAPON_MODELS = ['Axe_Bronze', 'Shield_Wooden', 'Sword_Bronze', 'Torch_Metal'] as const;
+
+export type WeaponModel = (typeof WEAPON_MODELS)[number];
+
+/**
+ * Duris' weapon class to a mesh — `objmisc.h:363-384`, and the **only shape fact 98% of the
+ * catalogue has**.
+ *
+ * This is the finding that decided the table's key. `GEAR_ART` keys on the art class `wornIds` puts
+ * on the wire, and that works for garments because `artassign` has authored art for them. It does not
+ * work for weapons: measured over `data/world/items.json`, **7,415 catalogue items sit in a hand slot
+ * and 119 of them have any art id at all** — 102 shields and 17 bows, both through `artClassOf`'s own
+ * fallbacks. Every other blade in the world arrives on the wire as `obj:1234`, a string with no shape
+ * in it. `Item.weaponClass` is on the *instance*, is copied from the template at `instantiate`, and
+ * covers 2,740 of those 7,415; and it is the same field the starter and class kits already fill (a
+ * `dagger` is 2, a `broadsword` is 5), so one table serves both populations instead of two.
+ *
+ * **What is deliberately absent is most of the ladder**, and each absence is a mesh the pack does not
+ * have rather than an oversight: bludgeon (`HAMMER` 4, `MACE` 6, `SPIKED_MACE` 7, `CLUB` 10,
+ * `SPIKED_CLUB` 11, `STAFF` 12, `NUMCHUCKS` 20 — 687 items), `FLAIL` 3 and `WHIP` 14, `POLEARM` 8,
+ * `SPEAR` 15, `LANCE` 16, `SICKLE` 17, `TRIDENT` 18 and `HORN` 19. A club drawn as a sword is a
+ * character holding the wrong thing, which reads as a bug; an empty hand reads as a fist, which the
+ * combat log will happily call a punch. **Empty beats wrong** — the same rule `GEAR_ART` states for
+ * gloves and jewellery.
+ */
+export const WEAPON_ART: Readonly<Record<number, WeaponModel>> = {
+  // WEAPON_AXE. The one haft-and-bit the pack has, and 135 catalogue items want it.
+  1: 'Axe_Bronze',
+  // WEAPON_DAGGER (659), WEAPON_LONGSWORD (516), WEAPON_SHORTSWORD (204), WEAPON_2HANDSWORD (219).
+  // One blade for four lengths: `Sword_Bronze` is 1.13 m from pommel to point, which is a longsword,
+  // and a dagger drawn at that size is the honest cost of a four-prop kit. Scaling per class is the
+  // renderer's to do if it ever matters and is not a second id.
+  2: 'Sword_Bronze',
+  5: 'Sword_Bronze',
+  9: 'Sword_Bronze',
+  13: 'Sword_Bronze',
+};
+
+/**
+ * What an **art class or kit id** in a hand means, when the weapon ladder has nothing to say.
+ *
+ * Two rows and both earn their place. `shield` is the string `artClassOf` hands out for every one of
+ * the catalogue's shields (`DURIS_ITEM.shield`) *and* the literal id `equipment.ts` gives the
+ * paladin's kite and the cleric's round — {@link STARTER_SHIELD_ID}, which that file exports for
+ * exactly this kind of reason. A shield carries no `weaponClass`, so without this row the one thing
+ * in the game that is unambiguously an off-hand object would draw nothing.
+ *
+ * `bow` is the launcher fallback `artClassOf` emits for the catalogue's 17 arrow-firers, and it is
+ * here to be **explicitly refused**: the props kit has no bow, and an archer holding a sword would be
+ * a worse lie than an archer holding nothing. Listed rather than omitted so the next reader knows it
+ * was considered.
+ */
+export const HELD_ART: Readonly<Record<string, WeaponModel | undefined>> = {
+  shield: 'Shield_Wooden',
+  bow: undefined,
+};
+
+/**
+ * One thing in one hand, as much of it as an appearance can use.
+ *
+ * Three fields and no item: `appearanceOf` is pure and knows no catalogue, so what reaches it is what
+ * `Simulation.viewOf` can read off `actor.equipped` without one — the art class it already computed
+ * for `wearing`, the weapon class the instance carries, and whether the thing burns.
+ */
+export interface HeldView {
+  /** The same string `wearing[slot]` carries: an art class, a kit id, or a raw `obj:` id. */
+  readonly art?: string;
+  /** `Item.weaponClass`, Duris' own ladder. Absent on everything that is not a weapon. */
+  readonly weaponClass?: number;
+  /** `Item.light` — a torch, a lantern, a lit brand. Absent on everything that does not burn. */
+  readonly light?: true;
+}
+
+/** What is in the two hands. Either half may be absent, and usually both are. */
+export interface Hands {
+  readonly main?: string;
+  readonly off?: string;
+}
+
+/**
+ * The mesh for one hand, or nothing — and **light wins**, because a lit thing is the most legible
+ * object a character can hold in a dark room and the world's 64 light sources are mostly torches.
+ *
+ * Order after that is authored-first: an art class or kit id this module recognises beats the weapon
+ * ladder, because the ladder is a *class* and the id is the *thing*. Then the ladder. Then nothing,
+ * which is the answer for 5,527 of the catalogue's 7,415 hand-slot items and is the right one.
+ */
+function heldArt(held: HeldView | undefined): WeaponModel | undefined {
+  if (!held) return undefined;
+  if (held.light) return 'Torch_Metal';
+  if (held.art !== undefined && held.art in HELD_ART) return HELD_ART[held.art];
+  return held.weaponClass === undefined ? undefined : WEAPON_ART[held.weaponClass];
+}
+
+/* -------------------------------------------------------------------------- */
 /* The answer                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -389,6 +505,14 @@ export interface Appearance {
   readonly model: string;
   /** Visible garments, at most one per {@link GearSlot}. Absent when nothing is drawn. */
   readonly gear?: readonly GearPart[];
+  /**
+   * What is held, as {@link PROP_PREFIX} ids — M7b. Absent when both hands are empty or unmapped.
+   *
+   * Beside `gear` rather than inside it for the same reason `GEAR_SLOTS` is not `EQUIP_SLOTS`: a
+   * garment replaces a region of the body and a weapon hangs off a bone, so the renderer does two
+   * different things with them and a single list would make it ask which kind each entry was.
+   */
+  readonly hands?: Hands;
 }
 
 /**
@@ -404,6 +528,17 @@ export interface AppearanceSubject {
   readonly sprite: string;
   /** Slot → art class, exactly `EntityView.wearing`. */
   readonly wearing?: Readonly<Record<string, string>>;
+  /**
+   * What is in each hand — M7b, and the one input `wearing` cannot stand in for.
+   *
+   * `wearing` already carries a `mainHand` entry, so this looks redundant until you read what is in
+   * it: `artClassOf(item) ?? item.id`, which for 98% of the catalogue's weapons is `obj:1234`. See
+   * {@link WEAPON_ART} for the measurement and for why `Item.weaponClass` is the join key instead.
+   *
+   * Absent for a mob, exactly as `wearing` is, and for the identical reason — mobs carry no
+   * equipment list yet, so an armed guard is drawn with empty hands and that is Phase 16's to fix.
+   */
+  readonly holding?: { readonly main?: HeldView; readonly off?: HeldView };
 }
 
 /**
@@ -445,7 +580,21 @@ export function appearanceOf(subject: AppearanceSubject): Appearance | undefined
       ? playerGear(sex, subject.wearing)
       : mobGear(sex, STYLE_FOR_BODY_WORD[body] ?? 'peasant');
 
-  return gear.length > 0 ? { model, gear } : { model };
+  // M7b. Built here rather than folded into `gear` — see `Appearance.hands`. `undefined` on both
+  // halves collapses to no field at all, so a bare-handed character's payload is byte-identical to
+  // the one M7a sent and a diff on the wire still means something changed.
+  const main = heldArt(subject.holding?.main);
+  const off = heldArt(subject.holding?.off);
+  const hands: Hands | undefined =
+    main || off
+      ? { ...(main ? { main: `${PROP_PREFIX}${main}` } : {}), ...(off ? { off: `${PROP_PREFIX}${off}` } : {}) }
+      : undefined;
+
+  return {
+    model,
+    ...(gear.length > 0 ? { gear } : {}),
+    ...(hands ? { hands } : {}),
+  };
 }
 
 /**
@@ -525,4 +674,9 @@ export function everyModelId(): readonly string[] {
 /** Every id it can emit for a *part*. Every one is a stem in {@link OUTFIT_PARTS}. */
 export function everyGearPartId(): readonly string[] {
   return OUTFIT_PARTS.map((stem) => `${OUTFIT_PREFIX}${stem}`);
+}
+
+/** Every id it can emit for a **hand** — M7b, and the staging list for the props kit. */
+export function everyWeaponId(): readonly string[] {
+  return WEAPON_MODELS.map((stem) => `${PROP_PREFIX}${stem}`);
 }

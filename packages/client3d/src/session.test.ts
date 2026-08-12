@@ -30,6 +30,7 @@ import {
 } from '@mygame/shared';
 import { bitsToBase64, createBitset, bitsetAdd } from '@mygame/shared/vision.ts';
 
+import { CharacterSet } from './characters.ts';
 import { EntityLayer, EASE_FOLLOW, EASE_PREDICTED, SNAP_DISTANCE, ease } from './entities.ts';
 import { cellOriginTiles, metresOfPixel } from './frame.ts';
 import { CAMERA_DISTANCE_MAX, CAMERA_PITCH_MIN, CameraRig } from './rig.ts';
@@ -170,7 +171,7 @@ describe('a session, end to end', () => {
     const zone = sampleZone();
     const world = new World3D();
     world.setPlace(zone, 0);
-    const layer = new EntityLayer(world.scene, world.pool);
+    const layer = new EntityLayer(world.scene, world.pool, new CharacterSet());
     const start = centreOf(world, 1, 1);
 
     const view: EntityView = {
@@ -226,7 +227,7 @@ describe('a session, end to end', () => {
     layer.step(0.016, world.grid, { x: 1, y: 0 }, true);
     assert.ok(Math.abs(other.x - (start.x + 20 * ease(EASE_FOLLOW, 0.016))) < 1e-9);
 
-    layer.render((px, py) => world.groundAt(px, py));
+    layer.render(0.016, (px: number, py: number) => world.groundAt(px, py));
     assert.equal(layer.count, 2);
     world.dispose();
   });
@@ -284,13 +285,13 @@ describe('a session, end to end', () => {
     const world = new World3D();
     world.setPlace(zone, 0);
     const grid = world.grid!;
-    const layer = new EntityLayer(world.scene, world.pool);
+    const layer = new EntityLayer(world.scene, world.pool, new CharacterSet());
     const start = centreOf(world, 1, 1);
     layer.selfId = 7;
     layer.upsert({ id: 7, kind: 'player', name: 'Greybox', sprite: 'player', x: start.x, y: start.y, facing: 'north' });
     world.update(start.x, start.y);
     world.setSeen(bitsToBase64(createBitset(grid.width * grid.height)));
-    layer.render((px, py) => world.groundAt(px, py));
+    layer.render(0.016, (px: number, py: number) => world.groundAt(px, py));
 
     assert.deepEqual(world.fogCensus(), { unseen: 4, remembered: 0, visible: 0 });
     // A character is not terrain. In an unexplored room the one thing that must stay legible is the

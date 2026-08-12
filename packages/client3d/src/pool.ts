@@ -105,6 +105,7 @@ import {
   ARCHETYPES,
   ARCHETYPE_CASTS,
   ARCHETYPE_EMISSIVE,
+  CHARACTER_PROP_TEXTURES,
   EMISSIVE_COLOUR,
   FADE_OPACITY,
   KIT_MODELS_PER_ROOM,
@@ -193,6 +194,11 @@ const CHUNK_BUCKET_CEILING = ARCHETYPES.filter(
     // carved out — it is a `planChunk` placement like the walls and the ground, it is biome-keyed
     // like them, and every one of the 108 chunks in the window can genuinely have one.
     a !== 'villageSolid' &&
+    // M7b's `character` is never a `planChunk` placement either — a body is placed by the simulation's
+    // own coordinates, not by a room plan — so counting it here would charge the ceiling for one more
+    // wrapper on all 300 chunks for a family that uses no wrappers at all. Bodies are `SkinnedMesh`es
+    // and come off {@link BODY_POOL_SIZE}; the `creature:` capsules ride `ENTITY_WRAPPERS`.
+    a !== 'character' &&
     // M5b's four are all counted elsewhere: the kit's two against the scatter term, the puddle
     // against {@link PUDDLE_WRAPPERS}, and water off its own free list. Counting them here as well
     // would charge the ceiling for four wrappers on all seventy chunks, including the thirty-five on
@@ -279,8 +285,54 @@ export const DRESSED_WRAPPER_CEILING = Math.max(
  */
 const SCATTER_CHUNKS = MAX_WINDOW_CHUNKS / WINDOW_LEVELS;
 
-/** `EntityLayer` takes two and never gives them back: one for you, one for everybody else. */
-const ENTITY_WRAPPERS = 2;
+/**
+ * `EntityLayer` takes three and never gives them back: one for you, one for everybody else, and —
+ * M7b — one for the `creature:` placeholders, which are the only bodies that carry a per-instance
+ * colour. See that file's note on why the two *people* wrappers stay white.
+ */
+const ENTITY_WRAPPERS = 3;
+
+/**
+ * How many **body rigs** may exist at once — M7b, and the pool's first per-entity allocation family.
+ *
+ * ## Why a body cannot be an instance, and therefore why this number exists at all
+ *
+ * Every other allocation in this file is an `InstancedMesh` wrapper shared by up to 32 copies of one
+ * shape. A `SkinnedMesh` cannot be one of those: skinning reads a *per-mesh* bone texture, and two
+ * instances of one skinned mesh would be two characters in the same pose. So a body costs its own
+ * skeleton, and the pool's job changes from "reuse a buffer" to "keep the count bounded".
+ *
+ * ## The number, and the world it was measured against
+ *
+ * Interest management gives a client its own room plus the revealed neighbours (`world3d.ts`), so the
+ * question is how many bodies those rooms can hold. Measured over `data/world/spawns`, all 49 zones:
+ * **1,231 rooms carry mob resets, the fullest carries 14, the 99th percentile is 6 and the median is
+ * 1** — only ten rooms in the whole world exceed six. Players add themselves and their group.
+ *
+ * ```
+ *   14  the fullest room in the world (a reset limit, so an upper bound on its own population)
+ * +  6  its busiest neighbour at p99
+ * +  4  a full group of players standing in it
+ * = 24
+ * ```
+ *
+ * **Over the cap a body draws as a capsule**, which is M3's world and already correct code — see
+ * `entities.ts`. That makes this a *performance* bound rather than a correctness one, which is the
+ * only kind of cap worth having: the failure mode is a distant stranger drawn as a grey pill, not a
+ * missing character.
+ *
+ * ## What one costs, and why the total is small
+ *
+ * 65 `Bone`s, one `Skeleton`, and the two buffers a skeleton owns: `boneMatrices` is
+ * `65 x 16` floats = 4,160 B, and three sizes the bone texture at `ceil(sqrt(65 x 4) / 4) x 4 = 20`,
+ * so 20 x 20 RGBA float = 6,400 B. **10,560 B a rig, 253 KB across the cap** — a hundredth of the
+ * 23.2 MB of instance buffers this pool already holds. Geometry and materials are shared and are on
+ * the ledger already; nothing here allocates either.
+ */
+export const BODY_POOL_SIZE = 24;
+
+/** `65 x 16` floats of `boneMatrices` plus a `20 x 20` RGBA-float bone texture. See {@link BODY_POOL_SIZE}. */
+export const BODY_RIG_BYTES = 65 * 16 * Float32Array.BYTES_PER_ELEMENT + 20 * 20 * 4 * Float32Array.BYTES_PER_ELEMENT;
 
 /**
  * `marker.ts` takes one and never gives it back — the destination ring click-to-move drops under the
@@ -381,6 +433,32 @@ export interface LedgerSnapshot {
   readonly textures: number;
   /** Estimated texture memory, mip chain included. See {@link ScenePool.registerTexture}. */
   readonly textureBytes: number;
+  /**
+   * M7b: body rigs minted, ever. **The second leak indicator**, and it is read exactly as
+   * {@link wrappersCreated} is: bounded by {@link BODY_POOL_SIZE} for the life of a healthy session,
+   * flat from the moment the pool has seen its busiest room.
+   *
+   * Unlike the wrappers this one is *not* pre-warmed, and the reason is that a rig cannot be built
+   * before the base bodies have loaded — there are no bones to clone until the GLB lands. So it climbs
+   * from zero over the first few rooms and then stops, and "then stops" is what `traversal.test.ts`
+   * asserts over a body-churn walk.
+   */
+  readonly rigsCreated: number;
+  /** Out on loan right now: one per entity currently drawn as a real body. */
+  readonly rigsLive: number;
+  /** Waiting on a free list. `live + free === created`, always, per base model. */
+  readonly rigsFree: number;
+  /** The largest `rigsLive` ever reached. Compare against {@link BODY_POOL_SIZE}. */
+  readonly rigHighWater: number;
+  /**
+   * Entities that wanted a rig and were handed a capsule instead, because the cap was full.
+   *
+   * Monotone, and **it is meant to stay at zero**: a non-zero value is not a bug, it is the world
+   * telling you the cap was measured against the wrong rooms. See {@link BODY_POOL_SIZE}.
+   */
+  readonly rigsRefused: number;
+  /** `rigsCreated x BODY_RIG_BYTES`, folded into {@link bytes}. */
+  readonly rigBytes: number;
 }
 
 interface LedgerState {
@@ -392,6 +470,24 @@ interface LedgerState {
   acquires: number;
   releases: number;
   geometryBytes: number;
+  rigsCreated: number;
+  rigsLive: number;
+  rigHighWater: number;
+  rigsRefused: number;
+}
+
+/**
+ * What the pool needs a body rig to be — M7b, and deliberately three members and no more.
+ *
+ * The pool owns the *ledger* and the *recycling*; `body.ts` owns what a rig actually is. That split is
+ * `registerGeometry`'s exactly — the pool counts bytes it did not build — and it is what keeps a file
+ * about `InstancedMesh` free lists from importing an `AnimationMixer`.
+ */
+export interface PooledRig {
+  /** Taken off the scene graph and stopped, but kept whole. Called by {@link ScenePool.releaseBody}. */
+  park(): void;
+  /** Teardown, once, at {@link ScenePool.dispose}. The only place a skeleton's texture is released. */
+  dispose(): void;
 }
 
 function geometryBytes(geometry: BufferGeometry): number {
@@ -521,6 +617,20 @@ function partsOf(key: MaterialKey): {
   open?: boolean;
 } {
   const bits = key.split('|');
+  // `character|ranger` — M7b, the third marker-led shape and the only one with no model in it. See
+  // `prototypes.CHARACTER_TEXTURES` for why a character material's identity is its texture alone.
+  if (bits[0] === 'character') {
+    return {
+      archetype: 'character',
+      sector: undefined,
+      faded: false,
+      // The texture id sits in `variant` as well as in `texture`, because a character material's
+      // *whole* identity is its atlas — there is no model half — and `buildMaterial` is handed the
+      // variant rather than the texture.
+      variant: bits[1],
+      texture: bits[1] as KitTextureId | undefined,
+    };
+  }
   // `village|wall-plaster-straight|plaster[|open]` — the second marker-led key shape, and it is a
   // marker for `kit|`'s reason: a village model id and a kit model id are both "a lowercase
   // hyphenated word" and nothing about the string itself would tell them apart.
@@ -615,6 +725,18 @@ export class ScenePool {
   /** The water surface's, over `waterPlane` rather than `box`. Same three.js fact, different shape. */
   private readonly waterFree: InstancedMesh[] = [];
   private readonly blendWrappers = new Set<InstancedMesh>();
+  /**
+   * The body rigs, by base model — M7b. One free list per `(model, outfit-set)` family's *model* half.
+   *
+   * Keyed on the base body alone rather than on the whole `(model, outfit-set)` the brief names,
+   * because the outfit half is not baked into a rig: a rig is 65 bones and a skeleton, and
+   * `BodyRig.dress` swaps the meshes hanging off it in place. So a male rig recycled from a peasant
+   * guard into a mailed player is the same 10,560 bytes and no allocation at all, where a free list
+   * per gear combination would have 128 buckets and reuse almost nothing. Two lists in practice.
+   */
+  private readonly rigFree = new Map<string, PooledRig[]>();
+  /** Every rig ever minted, live or free, so teardown reaches the ones on loan. */
+  private readonly rigsAll = new Set<PooledRig>();
   private readonly state: LedgerState = {
     geometries: 0,
     materials: 0,
@@ -624,6 +746,10 @@ export class ScenePool {
     acquires: 0,
     releases: 0,
     geometryBytes: 0,
+    rigsCreated: 0,
+    rigsLive: 0,
+    rigHighWater: 0,
+    rigsRefused: 0,
   };
 
   constructor() {
@@ -726,6 +852,34 @@ export class ScenePool {
 
     if (family === 'water') return createWaterMaterial(this.wind, this.water, colour, key, this.warp);
     if (family === 'puddle') return createPuddleMaterial(this.wind, this.wet, colour, key);
+
+    if (kind === 'character') {
+      // **A body, a garment or a held prop — M7b, and the one thing in this renderer that does not
+      // get wet.**
+      //
+      // Everything else about it is `kitSolid`: a Lambert with the pack's base-colour map, the pack's
+      // baked vertex colour, single-sided because every one of these is a closed mesh. What it does
+      // *not* take is `patchWetGround`, and that is the whole reason this is its own branch rather
+      // than a twelfth tenant of the one below. Rain darkening a boulder is the effect working; rain
+      // darkening a face is a sheen nobody asked for, applied to the one surface a player looks at.
+      //
+      // **The honest cost is an eighth compiled program**, and it is charged here rather than hidden:
+      // `customProgramCacheKey` must describe the shader source, so a material with no wet patch
+      // claiming `kit-solid` would take whichever program happened to compile first and the bug would
+      // be "sometimes people are shiny". Twelve materials share this one key, so it is one program for
+      // every body in the world.
+      const material = new MeshLambertMaterial({ color: colour });
+      material.map = this.placeholder;
+      material.vertexColors = true;
+      material.side = FrontSide;
+      material.customProgramCacheKey = (): string => 'character';
+      // Not a shader switch — a *record*, so `programKeyOf` can report the real number the browser
+      // compiles. `USE_SKINNING` is an object define, so a skinned body and a rigid sword are two
+      // programs from one material recipe; the two texture sets are disjoint, which is what lets the
+      // question be answered here. See `prototypes.CHARACTER_PROP_TEXTURES`.
+      material.userData['skinned'] = !CHARACTER_PROP_TEXTURES.has(variant ?? '');
+      return material;
+    }
 
     if (family === 'kitSolid') {
       // Bark, rock, path stone and mushroom cap — and, since M6, every village wall, floor, arch,
@@ -981,6 +1135,19 @@ export class ScenePool {
     if (depth) depth.map = texture;
   }
 
+  /**
+   * Whether a key resolves — the material half of {@link hasGeometry}, and M7b's reason for it.
+   *
+   * A character primitive's material key comes out of the *manifest's* texture id, and the pool's key
+   * set is closed at module load from `prototypes.CHARACTER_TEXTURES`. `characters.test.ts` asserts
+   * the two agree, so a divergence is a failing test — but a re-imported pack with a thirteenth atlas
+   * would otherwise reach {@link material}'s throw from inside a frame, and a renderer that stops
+   * drawing because one garment gained a texture is a worse failure than a garment that is not drawn.
+   */
+  hasMaterial(key: MaterialKey): boolean {
+    return this.materials.has(key);
+  }
+
   material(key: MaterialKey): MeshLambertMaterial {
     const found = this.materials.get(key);
     if (!found) throw new Error(`no pooled material for ${key}`);
@@ -1077,6 +1244,54 @@ export class ScenePool {
     reused.count = 0;
     reused.visible = true;
     return reused;
+  }
+
+  /* ------------------------------------------------------------------ M7b: bodies */
+
+  /**
+   * A body rig for one entity — from the free list where possible, minted while the cap allows,
+   * `undefined` once it does not.
+   *
+   * **The one allocating call in this file that can refuse**, and the refusal is the design: a wrapper
+   * that overflows still gets minted, because dropping geometry to protect a counter is the wrong
+   * trade for *terrain*, and `wrappersCreated` climbing past its ceiling is the report. A body is the
+   * opposite trade — the 25th character in a room is a grey capsule at the back of a crowd, which
+   * costs the player nothing and costs the frame a great deal less than a 25th skeleton. See
+   * {@link BODY_POOL_SIZE} for the arithmetic and for the world it was measured against.
+   *
+   * `mint` is supplied by the caller for `registerGeometry`'s reason: the pool counts what it hands
+   * out and does not need to know that a rig contains an `AnimationMixer`.
+   */
+  acquireBody(model: string, mint: () => PooledRig): PooledRig | undefined {
+    const free = this.rigFree.get(model);
+    const reused = free?.pop();
+    if (!reused && this.state.rigsLive >= BODY_POOL_SIZE) {
+      this.state.rigsRefused += 1;
+      return undefined;
+    }
+    const rig = reused ?? this.mintRig(mint);
+    this.state.rigsLive += 1;
+    if (this.state.rigsLive > this.state.rigHighWater) this.state.rigHighWater = this.state.rigsLive;
+    return rig;
+  }
+
+  private mintRig(mint: () => PooledRig): PooledRig {
+    const rig = mint();
+    this.rigsAll.add(rig);
+    this.state.rigsCreated += 1;
+    return rig;
+  }
+
+  /** Hand a rig back. Nothing is disposed — that is the free list's whole point, here as everywhere. */
+  releaseBody(model: string, rig: PooledRig): void {
+    rig.park();
+    this.state.rigsLive -= 1;
+    let free = this.rigFree.get(model);
+    if (!free) {
+      free = [];
+      this.rigFree.set(model, free);
+    }
+    free.push(rig);
   }
 
   /**
@@ -1212,7 +1427,16 @@ export class ScenePool {
 
   snapshot(): LedgerSnapshot {
     const instanceBytes = this.state.wrappersCreated * WRAPPER_BYTES;
+    const rigBytes = this.state.rigsCreated * BODY_RIG_BYTES;
+    let rigsFree = 0;
+    for (const free of this.rigFree.values()) rigsFree += free.length;
     return {
+      rigsCreated: this.state.rigsCreated,
+      rigsLive: this.state.rigsLive,
+      rigsFree,
+      rigHighWater: this.state.rigHighWater,
+      rigsRefused: this.state.rigsRefused,
+      rigBytes,
       geometries: this.state.geometries,
       materials: this.state.materials,
       prewarmed: WRAPPER_POOL_SIZE + BLEND_POOL_SIZE + WATER_POOL_SIZE,
@@ -1224,7 +1448,7 @@ export class ScenePool {
       releases: this.state.releases,
       geometryBytes: this.state.geometryBytes,
       instanceBytes,
-      bytes: this.state.geometryBytes + instanceBytes,
+      bytes: this.state.geometryBytes + instanceBytes + rigBytes,
       blendWrappers: this.blendWrappers.size,
       programs: this.programKeys().size,
       depthProgramCount: this.depthPrograms().size,
@@ -1241,6 +1465,12 @@ export class ScenePool {
    * constantly.
    */
   dispose(): void {
+    // M7b, first: a skeleton's bone texture is the second GPU resource in this renderer that nothing
+    // else releases (the kit's PNGs are the first), and it is per rig rather than per pool. Walked
+    // over `rigsAll` rather than over the free lists, because a hot reload catches rigs on loan.
+    for (const rig of this.rigsAll) rig.dispose();
+    this.rigsAll.clear();
+    this.rigFree.clear();
     for (const mesh of this.free) mesh.dispose();
     this.free.length = 0;
     // A blend wrapper owns its geometry, and `InstancedMesh.dispose` only releases `instanceMatrix`
@@ -1290,5 +1520,11 @@ function programKeyOf(material: MeshLambertMaterial | MeshDepthMaterial): string
   const map = material.map ? 'map' : 'nomap';
   const colours = 'vertexColors' in material && material.vertexColors ? 'vcol' : 'novcol';
   const clip = material.alphaTest > 0 ? 'clip' : 'opaque';
-  return `${material.type}:${material.side}:${clip}:${map}:${colours}:${custom}`;
+  // M7b: `USE_SKINNING` joined the key for `map`'s reason exactly, one level up. It is a `#define`
+  // driven by the *object* rather than by the material, which would normally put it out of a
+  // material-walking proxy's reach — except that the character textures split cleanly into the ones
+  // only a body wears and the ones only a prop wears, so the pool can record which at build time.
+  // Without this the proxy would say eight where the browser compiles nine.
+  const skin = 'skinned' in material.userData ? (material.userData['skinned'] ? 'skin' : 'rigid') : 'noskin';
+  return `${material.type}:${material.side}:${clip}:${map}:${colours}:${custom}:${skin}`;
 }

@@ -24,13 +24,18 @@ import {
   CREATURE_PREFIX,
   GEAR_ART,
   GEAR_SLOTS,
+  HELD_ART,
   HUMANOID_HEADS,
   OUTFIT_PARTS,
   OUTFIT_PREFIX,
   OUTFIT_STYLES,
+  PROP_PREFIX,
+  WEAPON_ART,
+  WEAPON_MODELS,
   appearanceOf,
   everyGearPartId,
   everyModelId,
+  everyWeaponId,
   type AppearanceSubject,
 } from './appearance.ts';
 import { BODY_SHAPES, HEAD_SHAPES } from './creature-art.ts';
@@ -335,5 +340,95 @@ describe('a player’s clothes come off the character sheet', () => {
       `${OUTFIT_PREFIX}Female_Ranger_Arms`,
       `${OUTFIT_PREFIX}Female_Ranger_Feet`,
     ]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* M7b — what is in the hands                                                  */
+/* -------------------------------------------------------------------------- */
+
+describe('what a body is holding', () => {
+  const hands = (holding: AppearanceSubject['holding']): { main?: string; off?: string } =>
+    appearanceOf({ kind: 'player', sprite: 'human', ...(holding ? { holding } : {}) })?.hands ?? {};
+
+  it('emits nothing at all for two empty hands, so an unarmed payload is M7a’s to the byte', () => {
+    const bare = appearanceOf({ kind: 'player', sprite: 'human' });
+    assert.equal(bare?.hands, undefined);
+    assert.equal(appearanceOf({ kind: 'player', sprite: 'human', holding: {} })?.hands, undefined);
+    // A hand holding something the pack has no mesh for is the same as an empty one.
+    assert.equal(hands({ main: { weaponClass: 6 } }).main, undefined, 'a mace has no mesh');
+  });
+
+  it('draws the four blade classes as the one sword the pack has', () => {
+    // WEAPON_DAGGER 2, WEAPON_LONGSWORD 5, WEAPON_SHORTSWORD 9, WEAPON_2HANDSWORD 13 — 1,598 of the
+    // catalogue's hand-slot items between them. One blade for four lengths is the honest cost of a
+    // four-prop kit, and is stated in `WEAPON_ART` rather than hidden.
+    for (const weaponClass of [2, 5, 9, 13]) {
+      assert.equal(hands({ main: { weaponClass } }).main, `${PROP_PREFIX}Sword_Bronze`, `class ${weaponClass}`);
+    }
+    assert.equal(hands({ main: { weaponClass: 1 } }).main, `${PROP_PREFIX}Axe_Bronze`);
+  });
+
+  it('leaves the hand empty for every class the pack has no mesh for', () => {
+    // Bludgeon (4, 6, 7, 10, 11, 12, 20), flail 3, whip 14, polearm 8, spear 15, lance 16, sickle 17,
+    // trident 18, horn 19. **Empty beats wrong**: a club drawn as a sword reads as a bug, an empty
+    // hand reads as a fist, and the combat log will happily call that a punch.
+    for (const weaponClass of [0, 3, 4, 6, 7, 8, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20]) {
+      assert.equal(hands({ main: { weaponClass } }).main, undefined, `class ${weaponClass} drew something`);
+    }
+  });
+
+  it('knows a shield by the one string the whole game calls one', () => {
+    // `artClassOf`'s catalogue fallback and `equipment.STARTER_SHIELD_ID` are both the literal
+    // `'shield'`, so one row covers the paladin's kite, the cleric's round and all 102 in the
+    // catalogue — none of which carries a `weaponClass` at all.
+    assert.equal(hands({ off: { art: 'shield' } }).off, `${PROP_PREFIX}Shield_Wooden`);
+    assert.equal(HELD_ART['shield'], 'Shield_Wooden');
+  });
+
+  it('refuses the bow explicitly rather than by omission', () => {
+    // The props kit has no bow, and an archer holding a sword is a worse lie than an archer holding
+    // nothing. Listed in `HELD_ART` as `undefined` so the next reader knows it was considered.
+    assert.ok('bow' in HELD_ART);
+    assert.equal(hands({ main: { art: 'bow', weaponClass: 5 } }).main, undefined, 'the row must beat the ladder');
+  });
+
+  it('puts a light in the hand ahead of anything else', () => {
+    // A lit thing is the most legible object a character can hold in a dark room, and the catalogue's
+    // 53 hand-slot lights are mostly torches.
+    assert.equal(hands({ main: { light: true } }).main, `${PROP_PREFIX}Torch_Metal`);
+    assert.equal(hands({ main: { light: true, weaponClass: 5 } }).main, `${PROP_PREFIX}Torch_Metal`, 'a burning sword burns');
+  });
+
+  it('fills both hands independently', () => {
+    const both = hands({ main: { weaponClass: 5 }, off: { art: 'shield' } });
+    assert.deepEqual(both, { main: `${PROP_PREFIX}Sword_Bronze`, off: `${PROP_PREFIX}Shield_Wooden` });
+    // One hand only emits one key, so a diff on the wire still means something changed.
+    assert.deepEqual(hands({ off: { art: 'shield' } }), { off: `${PROP_PREFIX}Shield_Wooden` });
+  });
+
+  it('gives a mob empty hands, exactly as it gives one no `wearing`', () => {
+    // Mobs carry no equipment list, so `viewOf` hands `appearanceOf` no `holding` for one. Stated as
+    // a test because it is a *gap* — Phase 16's, when mobs have gear worth taking off them.
+    const guard = appearanceOf({ kind: 'mob', sprite: 'muscular/human' });
+    assert.ok(guard?.gear, 'a mob is still dressed from its template');
+    assert.equal(guard?.hands, undefined);
+  });
+
+  it('emits only ids the props kit actually has', () => {
+    const staged = new Set(everyWeaponId());
+    assert.equal(staged.size, WEAPON_MODELS.length);
+    for (const model of Object.values(WEAPON_ART)) {
+      assert.ok(staged.has(`${PROP_PREFIX}${model}`), `${model} is not in WEAPON_MODELS`);
+    }
+    for (const model of Object.values(HELD_ART)) {
+      if (model) assert.ok(staged.has(`${PROP_PREFIX}${model}`), `${model} is not in WEAPON_MODELS`);
+    }
+    // Sword, axe, shield, torch — and the sword's four classes make the *ladder* bigger than the set.
+    assert.deepEqual([...WEAPON_MODELS].sort(), ['Axe_Bronze', 'Shield_Wooden', 'Sword_Bronze', 'Torch_Metal']);
+  });
+
+  it('says nothing about hands for a ground object', () => {
+    assert.equal(appearanceOf({ kind: 'item', sprite: 'human', holding: { main: { weaponClass: 5 } } }), undefined);
   });
 });

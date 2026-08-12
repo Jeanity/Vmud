@@ -60,8 +60,10 @@ import { TILE_SIZE, samePlace, type Direction, type Place, type SkyView } from '
 
 import { DAY_SKY, NIGHT_SKY, clockOf, hourOf, normaliseHour, skyAt } from './daylight.ts';
 import { approach, skyFor, type Enclosure } from './indoors.ts';
+import { CharacterSet } from './characters.ts';
 import { Dolly, rememberPose, rememberedPose, type CameraPose } from './dolly.ts';
 import { EntityLayer } from './entities.ts';
+import { PlateSet } from './plates.ts';
 import { metresOfPixel, pixelOfMetres } from './frame.ts';
 import { Input, intoFormControl } from './input.ts';
 import { LogPanel } from './log.ts';
@@ -69,6 +71,7 @@ import { LoginGate } from './login.ts';
 import { Marker } from './marker.ts';
 import { Net } from './net.ts';
 import { SHADOW_MAP_TYPE, type ShadowFit } from './night.ts';
+import { BODY_POOL_SIZE } from './pool.ts';
 import { Grade, TONE_MAPPINGS, type ToneMapping } from './post.ts';
 import { PointerControl, type PointerTarget } from './pointer.ts';
 import { Rain } from './rain.ts';
@@ -103,7 +106,10 @@ const login = new LoginGate(net);
 
 const world = new World3D();
 const rig = new CameraRig();
-const entities = new EntityLayer(world.scene, world.pool);
+/** M7b: the character packs, and the pooled text that floats over what they draw. */
+const characters = new CharacterSet();
+const plates = new PlateSet(world.scene);
+const entities = new EntityLayer(world.scene, world.pool, characters, plates);
 const input = new Input();
 const marker = new Marker(world.scene, world.pool);
 const pointer = new PointerControl();
@@ -199,6 +205,35 @@ void world.village.load(world.pool).then((problem) => {
       `village: ${world.village.loaded} models, ${world.village.triangles} tris, ` +
         `${world.village.textures} textures (${(world.village.textureBytes / 1024 / 1024).toFixed(1)} MB)`,
     );
+  }
+});
+
+/**
+ * M7b's boot step: the character packs — 26 models, twelve atlases and two re-cut animation libraries.
+ *
+ * **Not awaited**, and the argument is the other three's with the stakes raised: this is the payload
+ * that decides whether the owner's character has a body, and it is ~35 MB on a cold cache. Blocking
+ * the renderer on it would trade *"capsules for a second"* for a black screen, and the capsule path is
+ * still there and still correct — `entities.ts` draws one for any body with no rig, and takes a rig on
+ * the first resync after the pack lands. So a session starts as M3's and becomes M7's without a
+ * reload and without a frame of nothing.
+ *
+ * A missing `models/characters` — nobody ran `modelgen --characters` — is a world of capsules with the
+ * reason in the log, which is exactly what M6 does for a missing village kit.
+ */
+void characters.load(world.pool).then((problem) => {
+  if (problem) log.write('error', problem);
+  else {
+    const missing = characters.missingClips();
+    log.write(
+      'system',
+      `characters: ${characters.loaded} models, ${characters.clipCount} clips ` +
+        `(${(characters.animationBytes / 1024 / 1024).toFixed(1)} MB), ` +
+        `${characters.textures} atlases (${(characters.textureBytes / 1024 / 1024).toFixed(1)} MB)`,
+    );
+    // A clip the state machine names and the pack did not ship is a body that freezes at the moment it
+    // matters, so it is said out loud rather than swallowed by the mixer's own `undefined` action.
+    if (missing.length > 0) log.write('error', `characters: missing clips ${missing.join(', ')}`);
   }
 });
 
@@ -491,6 +526,33 @@ net.on('sky', (message) => {
   const hour = sky.hourAt(now);
   if (hour !== undefined) applySky(hour);
 });
+
+/**
+ * **The two messages the server has always sent and no client has ever read** — M7b, and the plan's
+ * own note: *"the current client has no `attackResolved` or `died` handler at all, the server emits
+ * them and the client discards them."*
+ *
+ * `attackResolved` moves both ends of the blow and puts a number in the air; `died` drops the body and
+ * holds it there. Everything about *which* motion is `anim.ts`'s; everything about *where* the number
+ * goes is `plates.ts`'s. What lives here is only the wiring, which is the shape every other handler in
+ * this file has.
+ *
+ * `groundAt` is handed in rather than reached for because `entities.ts` knows nothing about `World3D`
+ * — the same injection `render` already takes, and the reason a damage number lands on the ground the
+ * character is standing on rather than at y = 0.
+ */
+net.on('attackResolved', (message) => {
+  entities.attackResolved(
+    message.attacker,
+    message.target,
+    message.hit,
+    message.critical,
+    message.damage,
+    message.swing,
+    groundAt,
+  );
+});
+net.on('died', (message) => entities.died(message.id));
 
 net.on('log', (message) => log.write(message.channel, message.text));
 net.on('rejected', (message) => log.write('error', `Rejected: ${message.reason}`));
@@ -785,7 +847,9 @@ function frame(now: number): void {
   // per-material patch — is a real slice rather than a line. **Frost whitening is named here as a
   // future nicety and deliberately not built.**
   world.setWetness(wetness.update(now / 1000, rain.enabled || snow.enabled));
-  entities.render(groundAt, warpAt);
+  // M7b: the frame's own delta and the camera go in too — the delta drives every mixer and the
+  // measured gait, and the camera billboards the nameplates and measures their distance fade.
+  entities.render(seconds, groundAt, warpAt, rig.camera);
 
   world.pool.pulse(now / 1000);
   marker.pulse(now / 1000);
@@ -931,6 +995,50 @@ const debug = {
   },
   get entities(): number {
     return entities.count;
+  },
+  /**
+   * M7b — the bodies, and everything a human needs to answer *"why is that one a capsule"*.
+   *
+   * `drawn` under `held` means somebody is on the capsule path, and the three reasons are all
+   * readable here: the pack has not loaded (`models` is 0), the entity is a `creature:` (no monster
+   * pack exists), or the cap was reached (`refused` is climbing). See `pool.BODY_POOL_SIZE`.
+   */
+  get bodies(): Record<string, number | boolean> {
+    const ledger = world.ledger();
+    return {
+      held: entities.count,
+      drawn: entities.rigged,
+      rigsCreated: ledger.rigsCreated,
+      rigsLive: ledger.rigsLive,
+      rigsFree: ledger.rigsFree,
+      rigHighWater: ledger.rigHighWater,
+      refused: ledger.rigsRefused,
+      rigBytes: ledger.rigBytes,
+      cap: BODY_POOL_SIZE,
+      models: characters.loaded,
+      clips: characters.clipCount,
+      maskedBodies: characters.maskedGeometries,
+      available: characters.available,
+    };
+  },
+  /** What the local body is currently playing, and which way it is actually turned. */
+  get motion(): Record<string, unknown> | undefined {
+    const self = entities.self();
+    if (!self) return undefined;
+    const subject = {
+      ...(self.view.hands?.main ? { mainHand: self.view.hands.main } : {}),
+      ...(self.view.fighting !== undefined ? { fighting: true } : {}),
+      ...(self.view.casting ? { casting: true } : {}),
+    };
+    return {
+      ...(self.rig ? self.rig.motion.motion(subject) : { gait: 'capsule' }),
+      metresPerSecond: Number((self.rig?.motion.metresPerSecond ?? 0).toFixed(3)),
+      wireYaw: self.view.yaw,
+      drawnYaw: self.rig ? Number(self.rig.drawnYaw.toFixed(3)) : undefined,
+      model: self.view.model,
+      gear: (self.view.gear ?? []).map((entry) => `${entry.slot}=${entry.part}`),
+      hands: self.view.hands,
+    };
   },
   get cameraLevel(): number | undefined {
     return world.frame?.level;

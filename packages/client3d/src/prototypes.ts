@@ -702,6 +702,76 @@ export const VILLAGE_GEOMETRY_KEYS: readonly GeometryKey[] = VILLAGE_PARTS.map((
   villageGeometryKey(part.model, part.texture),
 );
 
+/* -------------------------------------------------------------------------- */
+/* The character packs — M7b                                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The twelve textures the base bodies, the outfit parts and the four props share between them.
+ *
+ * **Keyed by texture and not by `(model, texture)`**, which is the one place characters break the
+ * pattern the two prop kits set — and deliberately. A kit material's identity is its pair because two
+ * bushes wearing one leaf atlas still want different `uTreeHeight`s; a character material carries no
+ * per-model uniform at all, so `Male_Peasant_Body` and `Female_Peasant_Legs` are the *same*
+ * Lambert-with-the-peasant-atlas and giving them one each would be 26 copies of one material.
+ *
+ * Twelve materials, and — because a character primitive is a Lambert with a texture and a vertex
+ * colour drawn single-sided, which is `kitSolid`'s shape to the `#define` — **zero new programs**.
+ * That is the same free ride M6's village modules took and it is checked the same way, by
+ * `ScenePool.programKeys()` still answering seven.
+ *
+ * `ranger` dresses 17 of the 41 primitives on its own; `trim-props` dresses the sword, the axe and
+ * part of the shield. Ids are `modelgen.villageTextureId`'s, which the characters profile reuses.
+ */
+export const CHARACTER_TEXTURES = [
+  'eye-brown',
+  'hair-1',
+  'hair-2',
+  'peasant',
+  'ranger',
+  'regular-female-dark',
+  'regular-male-dark',
+  'superhero-female-dark',
+  'superhero-male-dark',
+  'trim-furniture',
+  'trim-metal',
+  'trim-props',
+] as const;
+
+export type CharacterTextureId = (typeof CHARACTER_TEXTURES)[number];
+
+/**
+ * The three atlases only a **held prop** wears — and the reason this list exists is a `#define`.
+ *
+ * A body is a `SkinnedMesh` and a sword in its hand is a plain `Mesh` parented to the hand bone (see
+ * `body.ts`: a prop's geometry has no `skinIndex`, so skinning it would draw it at the origin).
+ * `USE_SKINNING` is an **object**-level define in three, not a material one, so those two draw with
+ * two compiled programs however identical their materials are.
+ *
+ * `ScenePool.programKeys()` is the headless proxy for the real program count and its whole value is
+ * being *honest* — under-reporting by one is worse than not having it. So the split is declared here,
+ * where it can be checked: the two texture sets are **disjoint** (measured — nothing wearing
+ * `trim-*` is ever skinned and nothing wearing `peasant`/`ranger`/`superhero-*` is ever rigid), which
+ * is what makes "is this material's object skinned" answerable from the material alone.
+ */
+export const CHARACTER_PROP_TEXTURES: ReadonlySet<string> = new Set(['trim-furniture', 'trim-metal', 'trim-props']);
+
+/**
+ * A character primitive's pooled geometry — `character:Male_Ranger_Feet_Boots:ranger`.
+ *
+ * The **vendor's stem** rather than the kebab id, because that is what is on the wire: `appearance.ts`
+ * emits `outfit:Male_Ranger_Feet_Boots` and the renderer should not have to re-derive a name whose
+ * round trip is lossy in exactly the two places the vendor was inconsistent.
+ */
+export function characterGeometryKey(stem: string, texture: string): GeometryKey {
+  return `character:${stem}:${texture}`;
+}
+
+/** Its material — one per texture. See {@link CHARACTER_TEXTURES} for why the model is not in the key. */
+export function characterMaterialKey(texture: string): MaterialKey {
+  return `character|${texture}`;
+}
+
 /**
  * The wall modules a room may pick from, by role — the palettes `interior.ts` rolls against.
  *
@@ -798,6 +868,11 @@ export const ARCHETYPES = [
   // `interior.ts` puts it, not how the pool draws it.
   'ceiling',
   'villageSolid',
+  // M7b. Every primitive of every body, garment and held prop — one archetype for the same reason
+  // `villageSolid` is one: what varies between a hood and a sword is where the *rig* puts it, not how
+  // the pool draws it. Never a `planChunk` placement, so it is carved out of the per-chunk ceiling
+  // exactly as `self`/`other`/`marker` are.
+  'character',
 ] as const;
 
 export type Archetype = (typeof ARCHETYPES)[number];
@@ -918,6 +993,9 @@ export const ARCHETYPE_GEOMETRY: Readonly<Record<Archetype, GeometryKey>> = {
   // The same exception `kitSolid` is: `interior.ts` writes the real key onto the placement and this
   // is the fallback a reader would expect to find.
   villageSolid: VILLAGE_GEOMETRY_KEYS[0] ?? 'box',
+  // Never read: a character primitive's geometry is chosen by the rig from the wire's own model and
+  // gear ids, never from an archetype default. A box so the table stays total.
+  character: 'box',
 };
 
 /**
@@ -982,6 +1060,11 @@ export const ARCHETYPE_CASTS: Readonly<Record<Archetype, boolean>> = {
   // The village default. Overridden per model by {@link VILLAGE_ROLE_CASTS}, because "is this worth a
   // draw in the shadow pass" is a question about a floor slab and not about a kit.
   villageSolid: true,
+  // **A body with no shadow floats.** M5a's own note about the trees, and it is more true of a
+  // character: a shadow under the feet is the single cheapest cue that a figure is standing on the
+  // ground rather than hovering a hand's width above it, and at this camera pitch it is most of what
+  // sells the contact. No per-primitive exception — the eyes cast too, inside the head, for nothing.
+  character: true,
 };
 
 /**
@@ -1060,7 +1143,14 @@ export function treeMaterialKey(archetype: (typeof VARIANT_ARCHETYPES)[number], 
 export const MATERIAL_KEYS: readonly MaterialKey[] = (() => {
   const keys: MaterialKey[] = [];
   for (const archetype of ARCHETYPES) {
-    if (archetype === 'kitSolid' || archetype === 'kitLeaf' || archetype === 'villageSolid') continue;
+    if (
+      archetype === 'kitSolid' ||
+      archetype === 'kitLeaf' ||
+      archetype === 'villageSolid' ||
+      archetype === 'character'
+    ) {
+      continue;
+    }
     if (VARIANT_KEYED.has(archetype)) {
       const variantArchetype = archetype as (typeof VARIANT_ARCHETYPES)[number];
       for (const variant of TREE_VARIANTS) {
@@ -1084,6 +1174,8 @@ export const MATERIAL_KEYS: readonly MaterialKey[] = (() => {
     keys.push(villageMaterialKey(part.model, part.texture));
     keys.push(villageMaterialKey(part.model, part.texture, true));
   }
+  // M7b. Twelve, one per texture rather than one per primitive — see {@link CHARACTER_TEXTURES}.
+  for (const texture of CHARACTER_TEXTURES) keys.push(characterMaterialKey(texture));
   return keys;
 })();
 
@@ -1133,6 +1225,12 @@ export function materialFamily(archetype: Archetype, variant?: string): Material
   // would separate them by. So all 38 village materials join the 83 kit ones on one program. The
   // *near-wall fade* is `transparent` + `opacity`, both uniforms, so the open twin joins them too.
   if (archetype === 'villageSolid') return 'kitSolid';
+  // M7b, and the same free ride for the same reason: a body, a garment and a sword are each a Lambert
+  // with a base-colour map and a vertex colour, drawn single-sided. Twelve more materials, no eighth
+  // program. What they do *not* take from `kitSolid` is the wetness patch — rain darkening a boulder
+  // is right and rain darkening a person's face is a wet-look mask nobody asked for — so the pool
+  // branches on the archetype once, where the material is built. See `ScenePool.buildMaterial`.
+  if (archetype === 'character') return 'kitSolid';
   if (archetype === 'kitSolid') return 'kitSolid';
   if (archetype === 'kitLeaf') return 'kitLeaf';
   if (archetype === 'water') return 'water';
@@ -1222,6 +1320,9 @@ const OBJECT_COLOUR: Readonly<Record<Archetype, number>> = {
   // multiplies the map, so anything but white would tint the whole Quaternius palette by a number
   // nobody chose.
   villageSolid: 0xffffff,
+  // White, so the pack’s own texture is what you see — the same statement the village makes. A
+  // tint here would put a wash over every face in the world.
+  character: 0xffffff,
 };
 
 /** What the deep end of a water surface mixes toward. See `water.ts`'s depth fade. */
