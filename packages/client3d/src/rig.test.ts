@@ -117,7 +117,7 @@ describe('the dolly clamp', () => {
     assert.equal(clampPitch(Number.NaN), CAMERA_PITCH_DEGREES);
     // The range is the one the brief asked for, stated rather than inferred from the arithmetic.
     assert.equal(CAMERA_DISTANCE_MIN, 24);
-    assert.equal(CAMERA_DISTANCE_MAX, 48);
+    assert.equal(CAMERA_DISTANCE_MAX, 96);
     assert.equal(CAMERA_PITCH_MIN, 45);
     // And the far edge of the frame stays well clear of the horizon at the shallowest tilt: the ray
     // that draws it leaves at `pitch - fov/2`, and at zero it never meets the ground at all.

@@ -293,11 +293,17 @@ describe('the pool key set', () => {
     // `inside` row, so `pool.DRESSED_WRAPPER_CEILING` is a `max(16, 11)` over two terms no chunk in
     // the world can want at once. `interior.test.ts` asserts that exclusivity over all 46,544 rooms
     // rather than leaving it as an argument.
-    assert.equal(WRAPPER_POOL_SIZE, 1947);
-    assert.equal(start.prewarmed, 2109);
-    assert.equal(start.blendWrappers, 162, 'ground and water both own their instanced attributes');
-    assert.equal(start.wrappersCreated, 2109, 'all three free lists are whole before anything asks');
-    assert.equal(start.wrappersFree, 2109);
+    // **The owner's zoom doubling moves all of it again** (2026-08-13, the same evening): the dolly
+    // ceiling went 48 -> 96 on the ask "about 100% more", the ring re-derived to 15 x 10 x 2 = 300
+    // cells — with `SHADOW_PAD` now folded into the lateral and north cell counts, because at 48 m
+    // the `ceil` slack covered the moon's pad by luck and at 96 m it stopped — and the pool followed:
+    // 300 x 10 + 150 x 16 + 3 = 5,403, plus 300 ground and 150 water wrappers on their own lists.
+    // Nothing here was chosen; the clamp was — twice now.
+    assert.equal(WRAPPER_POOL_SIZE, 5403);
+    assert.equal(start.prewarmed, 5853);
+    assert.equal(start.blendWrappers, 450, 'ground and water both own their instanced attributes');
+    assert.equal(start.wrappersCreated, 5853, 'all three free lists are whole before anything asks');
+    assert.equal(start.wrappersFree, 5853);
     assert.equal(start.wrappersLive, 0);
     // Nothing has been loaded, so nothing is on the texture ledger. It is the biggest number in the
     // renderer once the kit lands, and it must be zero until it does.
@@ -462,7 +468,7 @@ describe('the pool key set', () => {
     pool.writeBlend(wall, 0, [1, 1, 1, 1], [1, 1, 1, 1]);
     pool.writeWarp(wall, 0, [1, 1, 1, 1]);
     pool.release(wall);
-    assert.equal(pool.snapshot().wrappersCreated, 2109, 'the split lists must not mint');
+    assert.equal(pool.snapshot().wrappersCreated, 5853, 'the split lists must not mint');
     pool.dispose();
   });
 
@@ -494,7 +500,7 @@ describe('the pool key set', () => {
     const again = pool.acquire('waterPlane', 'water');
     assert.equal(again, water, 'LIFO: the water list gave its own wrapper back');
     pool.release(again);
-    assert.equal(pool.snapshot().wrappersCreated, 2109, 'the three lists must not mint');
+    assert.equal(pool.snapshot().wrappersCreated, 5853, 'the three lists must not mint');
     pool.dispose();
   });
 

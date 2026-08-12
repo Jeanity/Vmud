@@ -66,26 +66,30 @@ class CountingSink implements ChunkSink {
 }
 
 describe('the streaming window', () => {
-  it('is 9 x 6 x 2 = 108 cells, derived from the far corner of the dolly clamp', () => {
+  it('is 15 x 10 x 2 = 300 cells, derived from the far corner of the doubled dolly clamp', () => {
     /*
-     * **M6 moved these numbers and it is worth being loud about it.** M3's 7 x 5 x 2 = 70 was sized
-     * from a fixed 64-degree, 36 m frame. The rig now runs to 48 m at 45 degrees, which shows 24.8 m
-     * of ground ahead instead of 12.3 and 32.3 m either side instead of 20.4, so the ring is
-     * re-derived from that pose against a *seamless* zone's tighter 10 m stride cell.
+     * **M6 moved these numbers, and the owner's zoom doubling moved them again the same evening.**
+     * M3's 7 x 5 x 2 = 70 was sized from a fixed 64-degree, 36 m frame; the camera slice took the
+     * rig to 48 m at 45 degrees (9 x 6 x 2 = 108); and the owner's *"about 100% more"* (2026-08-13)
+     * doubled the ceiling to 96 m, which shows 49.6 m of ground ahead and 64.6 m either side. The
+     * ring re-derives from that pose against a *seamless* zone's tighter 10 m stride cell — and the
+     * moon's `SHADOW_PAD` is now folded into the lateral and north derivations, because at 48 m the
+     * `ceil` slack covered the pad by luck and at 96 m it stopped (`streamer.ts` tells the story).
      *
      * Written as literals as well as derived, deliberately: a change to a clamp that silently costs
-     * 38 chunks and 2.8 MB of pre-warmed instance buffer should fail a test rather than land.
+     * 192 chunks and 14.9 MB of pre-warmed instance buffer should fail a test rather than land —
+     * this one did, and the pins below are that failure answered on purpose.
      */
-    assert.equal(WINDOW_HALF_X, 4);
-    assert.equal(WINDOW_CELLS_NORTH, 3, 'the lookahead: the frame sees furthest in front of the camera');
-    assert.equal(WINDOW_CELLS_SOUTH, 2);
-    assert.equal(WINDOW_CELLS_X, 9);
-    assert.equal(WINDOW_CELLS_Y, 6);
+    assert.equal(WINDOW_HALF_X, 7);
+    assert.equal(WINDOW_CELLS_NORTH, 6, 'the lookahead: the frame sees furthest in front of the camera');
+    assert.equal(WINDOW_CELLS_SOUTH, 3);
+    assert.equal(WINDOW_CELLS_X, 15);
+    assert.equal(WINDOW_CELLS_Y, 10);
     assert.equal(WINDOW_LEVELS, 2);
-    assert.equal(MAX_WINDOW_CHUNKS, 108);
+    assert.equal(MAX_WINDOW_CHUNKS, 300);
     assert.equal(windowAddresses(0, 0, 0).length, MAX_WINDOW_CHUNKS);
     // The guarantee the coverage argument rests on: cells beyond the centre one, times the stride.
-    assert.deepEqual({ ...RING_COVER }, { lateral: 40, north: 30, south: 20 });
+    assert.deepEqual({ ...RING_COVER }, { lateral: 70, north: 60, south: 30 });
   });
 
   it('reaches further ahead of the camera than behind it, and equally to each side', () => {
@@ -102,15 +106,20 @@ describe('the streaming window', () => {
   });
 
   it('pulls the dolly ceiling in on a canvas too wide for the ring, rather than showing void', () => {
-    // At the aspect it was sized for, and at anything narrower, the full 48 m is available.
+    // At the aspect it was sized for, and at anything narrower, the full 96 m is available.
     assert.equal(maxDistanceForAspect(RING_ASPECT), CAMERA_DISTANCE_MAX);
     assert.equal(maxDistanceForAspect(4 / 3), CAMERA_DISTANCE_MAX);
     assert.equal(maxDistanceForAspect(16 / 10), CAMERA_DISTANCE_MAX);
-    // 2:1 still fits; the ring covers up to 2.199:1 at full pull-back.
-    assert.equal(maxDistanceForAspect(2), CAMERA_DISTANCE_MAX);
-    // A 3440x1440 ultrawide does not, and loses four metres of zoom rather than four metres of world.
+    // The doubled ring carries proportionally less ceil slack than the 48 m one did (70 m of cover
+    // over 67.1 m of frame-plus-pad is 4.3% where 40-over-34.8 was 15%), so full pull-back now
+    // covers to ~1.86:1 rather than 2.2:1 — wider canvases trade zoom for never seeing void.
+    const twoToOne = maxDistanceForAspect(2);
+    assert.ok(twoToOne > 90 && twoToOne < 94, `${twoToOne} m at 2:1`);
+    assert.ok(twoToOne < CAMERA_DISTANCE_MAX);
+    // A 3440x1440 ultrawide gives up ~19 m of the new ceiling rather than one metre of world —
+    // still 29 m more zoom than the old clamp allowed it at all.
     const ultrawide = maxDistanceForAspect(3440 / 1440);
-    assert.ok(ultrawide > 43 && ultrawide < 45, `${ultrawide} m at 2.39:1`);
+    assert.ok(ultrawide > 75 && ultrawide < 80, `${ultrawide} m at 2.39:1`);
     assert.ok(ultrawide < CAMERA_DISTANCE_MAX);
     // Nonsense in, the nominal ceiling out — a zero-height canvas must not produce a NaN clamp.
     assert.equal(maxDistanceForAspect(0), CAMERA_DISTANCE_MAX);

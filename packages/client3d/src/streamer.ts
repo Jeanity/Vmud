@@ -76,6 +76,7 @@ import { ROOM_TILES, SEAM_GAP } from '@mygame/shared';
 
 import { METRES_PER_TILE } from './frame.ts';
 import { CAMERA_DISTANCE_MAX, CAMERA_DISTANCE_MIN, CAMERA_PITCH_MIN, groundFrame } from './rig.ts';
+import { SHADOW_PAD } from './night.ts';
 
 /**
  * The tighter of the two stride cells, in metres — a **seamless** zone's.
@@ -98,11 +99,20 @@ export const RING_ASPECT = 16 / 9;
 /** The frame at the far corner of the clamp — the pose the whole window is sized against. */
 const WORST = groundFrame(CAMERA_DISTANCE_MAX, CAMERA_PITCH_MIN, RING_ASPECT);
 
-/** Cells either side of the centre cell. Four: 32.3 m of frame against 10 m cells. */
-export const WINDOW_HALF_X = Math.ceil(Math.max(WORST.halfWidthNear, WORST.halfWidthFar) / STRIDE_METRES);
+/**
+ * Cells either side of the centre cell — sized for the frame *plus the moon's shadow pad*.
+ *
+ * The pad joined the derivation when the dolly ceiling doubled (48 → 96, owner's ask): at 48 m the
+ * `ceil` slack happened to swallow {@link SHADOW_PAD}'s 2.5 m and `rig.test`'s "shadow box fits
+ * inside the built ring" held by luck; at 96 m the slack shrank and it did not. The invariant now
+ * lives in the arithmetic instead of the rounding.
+ */
+export const WINDOW_HALF_X = Math.ceil(
+  (Math.max(WORST.halfWidthNear, WORST.halfWidthFar) + SHADOW_PAD) / STRIDE_METRES,
+);
 
-/** Cells **ahead** of the centre cell, north. Three: the far edge is 24.8 m out. The lookahead. */
-export const WINDOW_CELLS_NORTH = Math.ceil(WORST.north / STRIDE_METRES);
+/** Cells **ahead** of the centre cell, north — frame plus shadow pad, as above. The lookahead. */
+export const WINDOW_CELLS_NORTH = Math.ceil((WORST.north + SHADOW_PAD) / STRIDE_METRES);
 
 /** Cells behind it, south. Two: the near edge is 14.3 m back. */
 export const WINDOW_CELLS_SOUTH = Math.ceil(WORST.south / STRIDE_METRES);
@@ -126,7 +136,8 @@ export const RING_COVER = {
   south: WINDOW_CELLS_SOUTH * STRIDE_METRES,
 } as const;
 
-/** 9 x 6 x 2 = 108. The hard ceiling on live chunks, asserted by the traversal test. */
+/** The hard ceiling on live chunks, asserted by the traversal test — see `streamer.test` for the
+ * current cell arithmetic (it moved when the dolly ceiling doubled). */
 export const MAX_WINDOW_CHUNKS = WINDOW_CELLS_X * WINDOW_CELLS_Y * WINDOW_LEVELS;
 
 /**

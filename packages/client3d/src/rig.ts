@@ -89,16 +89,17 @@ export const CAMERA_DISTANCE_MIN = 24;
 /**
  * How far the dolly may pull back. **The number every derived system's worst case is computed at.**
  *
- * Exactly twice {@link CAMERA_DISTANCE_MIN} and a third more than the default, which at 45° gives
- * 39 m of ground depth against the default frame's 22 — the honest answer to *"can we zoom out"*.
- * Further than this is not free: the streaming ring, the shadow volume and the undergrowth's draw
- * distance are all sized against this pose (see {@link groundFrame}'s callers), and past 48 m the
- * ring's cell count — and with it the pre-warmed wrapper pool — starts to grow faster than the view
- * is worth. On a screen wider than about 2.2:1 even this is more than the ring can cover, and
- * `streamer.maxDistanceForAspect` pulls the ceiling in rather than letting the frame outrun the
- * built world; see {@link CameraRig.maxDistance}.
+ * 96 is the owner's own call — the slice shipped at 48 ("exactly twice the minimum") and the first
+ * session's verdict was *"can I get more zoom out? about 100% more"* (2026-08-13), so the ceiling
+ * doubled the same evening. The cost the 48 doc warned about was paid knowingly: the streaming
+ * ring, the pre-warmed wrapper pool and the ledger all derive from this pose (see
+ * {@link groundFrame}'s callers) and all roughly quadrupled — that is what the owner bought, and
+ * the derivation chain is why the purchase was one constant. If a lesser machine chokes at full
+ * pull-back, lower this before touching anything downstream of it; everything re-derives. On a
+ * screen wider than the ring covers, `streamer.maxDistanceForAspect` still pulls the ceiling in
+ * rather than letting the frame outrun the built world; see {@link CameraRig.maxDistance}.
  */
-export const CAMERA_DISTANCE_MAX = 48;
+export const CAMERA_DISTANCE_MAX = 96;
 
 /**
  * The shallowest the rig may be tilted — *"lower the angles so we can see more what is in front"*.

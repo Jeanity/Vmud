@@ -120,6 +120,7 @@ const BASELINE_ROOM = 100;
  * | M5c | 5,348,404 | `iWarp`'s four floats on every wrapper, and 3.6 KB of subdivided geometry |
  * | M6 camera | 8,137,908 | **the streaming ring, 70 cells to 108** — `+703` wrappers at 3,968 B |
  * | M6 interiors | 8,582,412 | the `ceiling` archetype (+108 wrappers) and 19 village stand-ins |
+ * | zoom x2 | 23,438,604 | **the owner's "about 100% more"**: the dolly ceiling 48 -> 96 m, the ring 108 -> 300 cells with the shadow pad folded into the derivation — +3,744 wrappers at 3,968 B, zero geometry |
  *
  * The camera delta was `+2,789,504` B, all of it instance buffer and all of it a consequence of one
  * decision: the dolly's clamp reaches 48 m at 45°, `streamer.ts` derives the ring from that pose, and
@@ -137,7 +138,7 @@ const BASELINE_ROOM = 100;
  * a room is dressed by `interior.ts` only when it is roofed and `inside`, and none of the four
  * scatter tables has an `inside` row. Interiors fit inside the budget the understory already had.
  */
-const LEDGER_BYTES = 8_582_412;
+const LEDGER_BYTES = 23_438_604;
 
 describe('M3: streaming a real world with a flat ledger', () => {
   if (!existsSync(ZONES_DIR)) {

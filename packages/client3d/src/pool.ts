@@ -303,9 +303,10 @@ const MARKER_WRAPPERS = 1;
  * So the whole pool is built at startup from a number that is a product of constants: the window can
  * hold {@link MAX_WINDOW_CHUNKS} chunks and a chunk can want {@link CHUNK_BUCKET_CEILING} buckets,
  * plus — M5a — {@link DRESSED_WRAPPER_CEILING} more on each of the {@link SCATTER_CHUNKS} cells that
- * can grow or be dressed with anything. `108 x 10 + 54 x 16 + 2 + 1 = **1,947 wrappers**`, plus the
- * ground's and the water's own free lists: **2,109 wrappers, 8.37 MB of per-instance buffer**, and not
- * one byte more for the rest of the session. (M4's `glow` archetype took the per-chunk ceiling from
+ * can grow or be dressed with anything. `300 x 10 + 150 x 16 + 2 + 1 = **5,403 wrappers**`, plus the
+ * ground's and the water's own free lists: **5,853 wrappers, 23.2 MB of per-instance buffer**, and not
+ * one byte more for the rest of the session. (The 300 is the owner's own doing: the dolly ceiling
+ * doubled to 96 m on the ask *"about 100% more"*, 2026-08-13, and the ring re-derived.) (M4's `glow` archetype took the per-chunk ceiling from
  * nine to ten and M5b's carve-outs took it back to nine; click-to-move's `marker` adds the trailing
  * `+ 1`, alongside the bodies rather than inside the per-chunk term — see {@link MARKER_WRAPPERS};
  * M5a adds the scatter term. **The dolly multiplied the chunk count by 1.54**, because its clamp made

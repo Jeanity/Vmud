@@ -83,9 +83,11 @@ describe('the two mappings', () => {
     // Scrolling *away* from the viewer pulls the camera back — "show me more".
     assert.ok(dollyTo(home, 1).distance > home.distance);
     assert.ok(dollyTo(home, -1).distance < home.distance);
-    // Twelve notches crosses the whole range, which is one comfortable flick of a wheel.
-    assert.equal(dollyTo({ distance: CAMERA_DISTANCE_MIN, pitch: 64 }, 12).distance, CAMERA_DISTANCE_MAX);
-    assert.ok(dollyTo({ distance: CAMERA_DISTANCE_MIN, pitch: 64 }, 11).distance < CAMERA_DISTANCE_MAX);
+    // Twenty-four notches crosses the whole range — two comfortable flicks. It was one flick of
+    // twelve when the ceiling was 48; the range doubled on the owner's ask and the RATIO is what a
+    // notch feels like, so the ratio stayed and the journey lengthened.
+    assert.equal(dollyTo({ distance: CAMERA_DISTANCE_MIN, pitch: 64 }, 24).distance, CAMERA_DISTANCE_MAX);
+    assert.ok(dollyTo({ distance: CAMERA_DISTANCE_MIN, pitch: 64 }, 23).distance < CAMERA_DISTANCE_MAX);
   });
 
   it('tilts by degrees, in the same direction the dolly pulls back', () => {
