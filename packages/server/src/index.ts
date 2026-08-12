@@ -31,7 +31,6 @@ import {
   PROTOCOL_VERSION,
   ROUND_MS,
   DEFAULT_WEAPON,
-  OPPOSITE,
   divideExperience,
   groupedShare,
   abilityChance,
@@ -376,7 +375,6 @@ import {
   wanderRoll,
   forgetQuarry,
   type Hunt,
-  type HuntEvent,
 } from './hunt.ts';
 import { Scheduler } from './scheduler.ts';
 import { advanceStations } from './station.ts';
@@ -3041,31 +3039,27 @@ function announceAssist(event: AssistEvent): void {
   }
 }
 
-/**
- * What a chase looks like from inside the game.
+/*
+ * **`announceHunt` lived here until 2026-08-13, and the renderer retired it.**
  *
- * Only `entered` says anything, and only to the room it walked into. Giving up is silent on purpose: the
- * mob has no way to tell you it has lost interest, and a line saying so would be the game narrating its own
- * state rather than the world behaving. Arriving in your room is silent too — that is the moment Phase 11
- * turns into a blow, and announcing it twice would read as a stutter.
+ * It said *"A kobold youth arrives from the east."* to everyone in the room a hunter walked into, and
+ * the owner's call on reading it beside a lit mesh was that it had stopped earning its line: *"now
+ * that the game is more visual we can probably do away with the announcements."*
+ *
+ * The argument for deleting rather than gating is in the code that was here: the sentence was
+ * **already** gated on `watching`, so it only ever reached a player who could see the arrival — which
+ * is exactly the case the renderer now covers. Its remaining audience was people watching a kobold
+ * walk in *and* being told a kobold walked in. Inverting the gate to speak only for unseen arrivals
+ * was considered and refused: telling you that something you cannot see just entered the room is a
+ * bigger change to the game than removing prose, and it is not what was asked for.
+ *
+ * The `entered` event itself is untouched and still load-bearing — the tick reads it to re-evaluate
+ * the room a hunter *left*, which nothing else would do (see `stirred`, further down).
+ *
+ * **The one thing worth watching**: this line doubled as a warning that a hunter had caught up with
+ * you while your eye was elsewhere on screen. If chases start feeling like ambushes, the honest
+ * replacement is a sound or an on-screen tell, not the sentence coming back.
  */
-function announceHunt(event: HuntEvent): void {
-  if (event.kind !== 'entered' || event.to === undefined) return;
-  const from = event.heading ? OPPOSITE[event.heading] : undefined;
-  for (const observer of sim.playersIn(event.to)) {
-    // Per observer and gated on sight, like every other line about an entity: somebody who cannot see the
-    // thing that just walked in is told nothing. §4.10's warning about pre-rendered strings is why this
-    // builds the sentence inside the loop rather than once outside it.
-    if (!watching.get(observer.id)?.has(event.mob.id)) continue;
-    send(observer.id, {
-      t: 'log',
-      channel: 'combat',
-      text: from
-        ? `${capitalise(event.mob.name)} arrives from the ${from}.`
-        : `${capitalise(event.mob.name)} arrives.`,
-    });
-  }
-}
 
 /**
  * One flee attempt, resolved and said out loud — Phase 14, and `DESIGN-engagement.md` §5's only
@@ -11183,11 +11177,11 @@ setInterval(() => {
   // And who is coming after whom. Downstream of noticing rather than beside it: `beginHunt` is called from
   // the notice event, so a chase can only start from a decision Phase 9 already made and delayed.
   //
-  // **Announced further down, after the entity sync, and that ordering is load-bearing.** `announceHunt`
-  // only tells an observer who can actually see the arrival, which it reads from `watching` — and
-  // `watching` does not contain the mob until `syncEntities` has run for this tick. Announcing here caught
-  // every observer one tick too early and printed nothing at all; the chase was visible on screen and
-  // silent in the log.
+  // **Silent since 2026-08-13.** A chase used to announce its arrivals further down, after the entity
+  // sync, and that ordering was load-bearing: the sentence read `watching`, which does not contain the
+  // mob until `syncEntities` has run for this tick, so announcing here caught every observer one tick
+  // too early and printed nothing at all. The line is gone — the renderer shows the arrival — and the
+  // hazard is recorded because it is the shape of the bug any future per-observer line will hit.
   // **Phase 8¾: the world drifts.** Every `PULSE_MOBILE` (the source's own ten seconds), each idle
   // non-sentinel rolls one of seven doors and strolls through the walker the hunts already use — so
   // the announce lines, the `no_mob` refusals and the tile-by-tile motion are all inherited rather
@@ -11532,8 +11526,8 @@ setInterval(() => {
   for (const player of sim.allPlayers()) if (watchRooms.has(player.roomId)) dirty.add(player);
   for (const observer of dirty) syncEntities(observer);
 
-  // Now that `watching` is current, say who walked in. See the note where the hunt is advanced.
-  for (const event of hunt.events) announceHunt(event);
+  // Nothing is said about who walked in any more — the renderer says it. See the note where
+  // `announceHunt` used to be defined for why the sentence went and the event stayed.
 
   // Positions, batched per observer rather than per room — the only high-frequency message we send.
   // Per observer because the two players in a room may not be able to see each other: broadcasting
