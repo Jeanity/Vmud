@@ -11,6 +11,12 @@
       "name": "admin",
       "url": "http://localhost:5274",
       "port": 5274
+    },
+    {
+      "name": "mygame3d",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:client3d"],
+      "port": 5280
     }
   ]
 }

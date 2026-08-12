@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    // `vite/client` provides import.meta.env; `node` is here for the headless tests, which read
+    // data/world through node:fs exactly as `worldgen`'s whole-world sweep does. The renderer
+    // itself imports nothing from Node — see the note in `traversal.test.ts`.
+    "types": ["vite/client", "node"]
+  },
+  "include": ["src/**/*.ts", "vite.config.ts"]
+}

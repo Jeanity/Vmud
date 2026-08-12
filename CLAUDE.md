@@ -104,6 +104,11 @@ A graphical, multiplayer, top-down / three-quarter-view RPG built on the world o
    `packages/*/node_modules/.vite` and restart the dev servers: Vite caches the old resolution and a
    reload will not clear it.
 
+8. **Node's type stripping rejects TypeScript parameter properties.** `constructor(private
+   readonly x: T)` throws `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX` at run time — same family as the
+   no-`enum`/`namespace` rule: it emits code. Any module a headless test can reach must declare
+   fields explicitly and assign them in the constructor body. Found building `client3d`.
+
 ## Commands
 
 ```bash

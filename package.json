@@ -12,6 +12,7 @@
     "dev:supervised": "concurrently -n supervisor,client,admin -c green,magenta,yellow \"npm:supervisor\" \"npm:dev:client\" \"npm:dev:admin\"",
     "dev:server": "npm run dev --workspace @mygame/server",
     "dev:client": "npm run dev --workspace @mygame/client",
+    "dev:client3d": "npm run dev --workspace @mygame/client3d",
     "dev:admin": "npm run dev --workspace @mygame/admin",
     "supervisor": "node --disable-warning=ExperimentalWarning packages/server/src/supervisor.ts",
     "build": "npm run build --workspaces --if-present",

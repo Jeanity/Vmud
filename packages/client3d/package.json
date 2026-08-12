@@ -1,0 +1,22 @@
+{
+  "name": "@mygame/client3d",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Three.js grey-box renderer driven entirely by the scene IR. Owns no game state.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --disable-warning=ExperimentalWarning --test \"src/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@mygame/shared": "*",
+    "three": "0.185.1"
+  },
+  "devDependencies": {
+    "@types/three": "0.185.1",
+    "vite": "^6.0.7"
+  }
+}

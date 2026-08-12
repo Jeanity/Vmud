@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MyGame — 3D grey-box (M3)</title>
+    <style>
+      /*
+       * Deliberately one stylesheet and no framework. The 2D client's `index.html` carries a HUD, a
+       * character sheet, an inventory drawer, a place map and a group roster; none of that is M3's,
+       * and copying it would be copying a hundred ids this client has no writer for. What is here is
+       * the shell the salvaged `log.ts` requires by id (#shell, #log, #log-bar, #log-caret,
+       * #log-lines, #log-status, #log-entry, #log-input), a canvas host, two HUD lines, and the
+       * login card.
+       */
+      :root {
+        color-scheme: dark;
+        --ink: #d8d4cc;
+        --dim: #8b867c;
+        --panel: #14171b;
+        --edge: #262b31;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0b0d10;
+        color: var(--ink);
+        font: 14px/1.45 ui-monospace, "Cascadia Mono", "Consolas", monospace;
+        overflow: hidden;
+      }
+      #shell {
+        display: grid;
+        grid-template-columns: 1fr 26rem;
+        height: 100%;
+      }
+      #shell.log-hidden {
+        grid-template-columns: 1fr 1.75rem;
+      }
+      #view {
+        position: relative;
+        min-width: 0;
+        overflow: hidden;
+      }
+      #view canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      #hud {
+        position: absolute;
+        top: 0.6rem;
+        left: 0.8rem;
+        pointer-events: none;
+        text-shadow: 0 1px 3px #000;
+      }
+      #hud-where {
+        font-size: 1.05rem;
+      }
+      #hud-name {
+        color: var(--dim);
+      }
+
+      /* ------------------------------------------------------------------ log */
+      #log {
+        display: flex;
+        min-height: 0;
+        background: var(--panel);
+        border-left: 1px solid var(--edge);
+      }
+      #log-bar {
+        width: 1.75rem;
+        flex: 0 0 1.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        color: var(--dim);
+        background: #101317;
+        user-select: none;
+      }
+      #log-body {
+        flex: 1 1 auto;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      #log.hidden #log-body {
+        display: none;
+      }
+      #log-lines {
+        flex: 1 1 auto;
+        overflow-y: auto;
+        padding: 0.5rem 0.6rem;
+        margin: 0;
+      }
+      #log-lines p {
+        margin: 0 0 0.15rem;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .ch-echo {
+        color: #7f9fbf;
+      }
+      .ch-error {
+        color: #e08a7a;
+      }
+      .ch-system {
+        color: var(--dim);
+      }
+      .ch-say,
+      .ch-tell,
+      .ch-gossip,
+      .ch-gsay {
+        color: #cfc08a;
+      }
+      .ch-announce {
+        color: #e0c060;
+      }
+      #log-status {
+        padding: 0.25rem 0.6rem;
+        color: var(--dim);
+        border-top: 1px solid var(--edge);
+      }
+      #log-entry {
+        display: flex;
+        border-top: 1px solid var(--edge);
+      }
+      #log-input {
+        flex: 1 1 auto;
+        background: #0d1013;
+        border: 0;
+        color: var(--ink);
+        font: inherit;
+        padding: 0.45rem 0.6rem;
+      }
+      #log-input:focus {
+        outline: 1px solid #3a4a5a;
+      }
+
+      /* ---------------------------------------------------------------- login */
+      #gate {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: #06080ad9;
+        z-index: 10;
+      }
+      #gate[hidden] {
+        display: none;
+      }
+      .card {
+        width: 22rem;
+        padding: 1.2rem;
+        background: var(--panel);
+        border: 1px solid var(--edge);
+      }
+      .card h1 {
+        margin: 0 0 0.2rem;
+        font-size: 1rem;
+      }
+      .card p.note {
+        margin: 0 0 0.9rem;
+        color: var(--dim);
+      }
+      .card label {
+        display: block;
+        margin: 0 0 0.6rem;
+      }
+      .card input[type="text"],
+      .card input[type="password"] {
+        width: 100%;
+        margin-top: 0.2rem;
+        background: #0d1013;
+        border: 1px solid var(--edge);
+        color: var(--ink);
+        font: inherit;
+        padding: 0.35rem 0.45rem;
+      }
+      .card button {
+        font: inherit;
+        color: var(--ink);
+        background: #1d2530;
+        border: 1px solid var(--edge);
+        padding: 0.35rem 0.7rem;
+        cursor: pointer;
+      }
+      .gate-character {
+        display: block;
+        width: 100%;
+        text-align: left;
+        margin-bottom: 0.3rem;
+      }
+      #gate-error {
+        margin-top: 0.7rem;
+        color: #e08a7a;
+      }
+      #gate-error[hidden] {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="shell">
+      <div id="view">
+        <div id="hud">
+          <div id="hud-where"></div>
+          <div id="hud-name"></div>
+        </div>
+      </div>
+      <aside id="log">
+        <div id="log-bar"><span id="log-caret">◂</span></div>
+        <div id="log-body">
+          <div id="log-lines"></div>
+          <div id="log-status">connecting</div>
+          <form id="log-entry" autocomplete="off">
+            <input id="log-input" type="text" placeholder="say hello" />
+          </form>
+        </div>
+      </aside>
+    </div>
+
+    <div id="gate">
+      <div class="card">
+        <h1>MyGame — 3D grey-box</h1>
+        <p class="note">M3. The same server, the same protocol, no art.</p>
+        <form id="gate-form" autocomplete="off">
+          <label>account <input id="gate-account" type="text" /></label>
+          <label>password <input id="gate-password" type="password" /></label>
+          <label><input id="gate-create" type="checkbox" /> create this account</label>
+          <button type="submit">enter</button>
+        </form>
+        <div id="gate-picker" hidden>
+          <h1 id="gate-picker-title"></h1>
+          <div id="gate-characters"></div>
+          <form id="gate-new" autocomplete="off">
+            <label>new character <input id="gate-new-name" type="text" /></label>
+            <button type="submit">create and enter</button>
+          </form>
+        </div>
+        <p id="gate-error" hidden></p>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
