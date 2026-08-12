@@ -2096,6 +2096,26 @@ export class Simulation {
     actor.x = tileCentre(arrival.tx);
     actor.y = tileCentre(arrival.ty);
 
+    // **You face the way you walked.** Owner's report, 2026-08-13: *"the mobs have a tendency to run
+    // backwards"* — and this is where most of that came from. Every other mover already turns itself:
+    // the continuous walk in `tick` (see its `facingOf` call), `hunt.ts` at both of its steps, and
+    // `station.ts`, which points a fighting body at what it is fighting. A **room-to-room step turned
+    // nobody**, though the direction travelled was right here in scope and already spending itself on
+    // `arrivalTile`. A wandering mob therefore carried its spawn facing — `'south'` — through every
+    // room it ever walked into, which cost nothing visible while the renderer drew four flat sprite
+    // rows and costs a great deal now that it drives a lit mesh running a forward gait.
+    //
+    // Guarded exactly as the walk is: `fighting` means the facing belongs to the opponent
+    // (`station.ts`'s rule, and a body backing through a door still watches what it is backing away
+    // from), and a headless relocate — a teleport, a respawn, a portal — has no direction to offer and
+    // must leave the facing alone rather than inventing north.
+    // `up` and `down` are refused for the reason `faceDirection` refuses them and `yawOf` answers 0
+    // for them: a stairway has no compass heading, and a body that took one should keep the last one
+    // it had rather than be turned to an invented north.
+    if (heading !== undefined && heading !== 'up' && heading !== 'down' && actor.fighting === undefined) {
+      actor.facing = heading;
+    }
+
     // Everything above is true of any body. Everything below is a *client's* view of one, and a mob has
     // none — so the narrowing is here, at the one place that needs it, rather than in a second copy of
     // this method for the other kind.

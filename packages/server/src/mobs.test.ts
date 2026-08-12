@@ -183,6 +183,43 @@ describe('spawning from a template', () => {
   });
 });
 
+describe('a body faces the way it walked', () => {
+  it('turns on a room-to-room step, which turned nobody until 2026-08-13', () => {
+    // The owner's report was *"the mobs have a tendency to run backwards"*, and this is where most of
+    // it came from. Every other mover already turned itself — the continuous walk, both of `hunt.ts`'s
+    // steps, and `station.ts` pointing a fighting body at its opponent — but `relocate` set position,
+    // room and Place and left `facing` alone, though the direction travelled was in scope. A wandering
+    // mob carried its spawn facing through every door it ever used: free while the renderer drew four
+    // flat sprite rows, and very loud once it drives a lit mesh running a forward gait.
+    const { sim } = makeSim();
+    const mob = place(sim);
+    assert.ok(mob);
+    assert.equal(mob.facing, 'south', 'the spawn default, and what it used to keep for ever');
+
+    sim.relocate(mob, 8001, 'east');
+    assert.equal(mob.facing, 'east', 'it walked east, so it faces east');
+    sim.relocate(mob, 8000, 'west');
+    assert.equal(mob.facing, 'west');
+  });
+
+  it('leaves the facing alone when nothing was walked, or when a fight owns it', () => {
+    const { sim, player } = makeSim();
+    const mob = place(sim);
+    assert.ok(mob);
+
+    // A teleport, a respawn, a portal: no heading, so no claim on which way the body looks. Inventing
+    // north here would spin every arrival that was not a walk.
+    sim.relocate(mob, 8001);
+    assert.equal(mob.facing, 'south');
+
+    // And in a fight the facing belongs to the opponent — `station.ts`'s rule — so a body backing out
+    // through a door keeps watching the thing it is backing away from. Same guard the walk uses.
+    mob.fighting = player.id;
+    sim.relocate(mob, 8000, 'west');
+    assert.equal(mob.facing, 'south', 'the fight kept it, not the door');
+  });
+});
+
 describe('one world, both kinds', () => {
   it('lists mobs and players through the same room lookup', () => {
     const { sim, player } = makeSim();
