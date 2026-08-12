@@ -92,8 +92,36 @@ const SHAPE_WORDS: Readonly<Record<string, readonly string[]>> = {
  * Far weaker than the head words and used only as a nudge, because a body is mostly a *size*
  * judgement and the name rarely states one. `giant` and `ogre` reaching for `muscular` is the
  * useful case; everything else falls to the default.
+ *
+ * ## `female` is first, and that ordering is the whole of a 2026-08-13 bug fix
+ *
+ * Until M7a measured it, **this table had no `female` row at all** — five rows, none of them a sex —
+ * so `bodyFromWords` could only ever answer `muscular`, `child`, `teen`, `skeleton`, `zombie` or the
+ * male default, and **every one of the world's 1,238 classified mobs was male**, *a frost giant
+ * matron* and *Essra the drow priestess* included. It was invisible for as long as the only renderer
+ * was LPC at 64 px; M7b puts these words on a lit 3D mesh, where it is not invisible at all.
+ *
+ * The row goes **first** because this table conflates two axes — *sex* and *build* — into one slot,
+ * and when a name states both (*"a frost giant matron"*: `giant` → `muscular`, `matron` → `female`)
+ * something has to win. An explicit gendered noun is the stronger evidence: it is a fact the author
+ * of the name chose to state, where `muscular` is this table's own inference from a size word. The
+ * cost is stated rather than hidden — a female giant draws on the ordinary female frame, because
+ * neither the LPC set nor the Quaternius pack has a muscular-female body to reach for, and the pack
+ * cannot be argued into having one by ordering this table differently.
+ *
+ * Only unambiguous nouns are listed. `girl` is deliberately **left in `teen`**: it names an age as
+ * loudly as a sex, the existing sweep already classified 44 rows that way, and re-cutting that
+ * judgement is the owner's call rather than a fix's. Pronouns (`her`, `she`) are excluded outright —
+ * *"her guard"* is a male guard.
  */
 const BODY_WORDS: Readonly<Record<string, readonly string[]>> = {
+  female: [
+    'woman', 'women', 'lady', 'matron', 'priestess', 'sorceress', 'enchantress', 'huntress',
+    'queen', 'princess', 'duchess', 'baroness', 'countess', 'empress', 'mistress', 'maiden',
+    'maid', 'barmaid', 'witch', 'hag', 'crone', 'nun', 'abbess', 'mother', 'wife', 'widow',
+    'daughter', 'sister', 'goddess', 'seamstress', 'waitress', 'banshee', 'dryad', 'nymph',
+    'harpy', 'medusa', 'valkyrie', 'amazon', 'female',
+  ],
   muscular: ['giant', 'ogre', 'troll', 'brute', 'huge', 'massive', 'hulking', 'warrior', 'guard', 'champion'],
   child: ['young', 'youth', 'child', 'cub', 'pup', 'kit', 'small', 'tiny', 'lesser', 'sprite', 'pixie', 'brownie'],
   teen: ['apprentice', 'novice', 'squire', 'lad', 'girl', 'boy'],

@@ -90,6 +90,35 @@ describe('what build it gets', () => {
   it('falls back to something real when the default is not offered', () => {
     assert.equal(bodyFromWords(mob('a merchant'), ['female']), 'female');
   });
+
+  it('reads the sex the name states, which this table could not do at all until 2026-08-13', () => {
+    // The bug in one line: there was no `female` row, so every one of the world's 1,238 classified
+    // mobs was male — invisible at 64 px, loud on M7b's lit mesh.
+    assert.equal(bodyFromWords(mob('an old woman'), BODIES), 'female');
+    assert.equal(bodyFromWords(mob('the elven queen'), BODIES), 'female');
+    assert.equal(bodyFromWords(mob('a priestess'), BODIES), 'female');
+    assert.equal(bodyFromWords(mob('the great witch Phyla'), BODIES), 'female');
+    assert.equal(bodyFromWords(mob('a hand maiden'), BODIES), 'female');
+    // And it reads the harvest's keywords, which is where the MUD's own authors put the fact:
+    // two Newhaven citizens share one name and differ only here.
+    assert.equal(bodyFromWords(mob('a citizen', { keywords: ['citizen', 'civilian', 'female', 'woman'] }), BODIES), 'female');
+    assert.equal(bodyFromWords(mob('a citizen', { keywords: ['citizen', 'civilian', 'male', 'man'] }), BODIES), DEFAULT_BODY);
+  });
+
+  it('lets an explicit sex outrank a build word, and says what that costs', () => {
+    // *"the fog giant matron"*: `giant` says muscular, `matron` says female, and one slot holds both
+    // axes. The stated fact wins over the inferred one — at the price that a female giant draws on
+    // the ordinary female frame, because no pack here has a muscular-female body to reach for.
+    assert.equal(bodyFromWords(mob('the fog giant matron'), BODIES), 'female');
+    assert.equal(bodyFromWords(mob('a female troll'), BODIES), 'female');
+    // A young woman is a woman: `woman` outranks `young`.
+    assert.equal(bodyFromWords(mob('a young woman'), BODIES), 'female');
+    // But `girl` is deliberately left in `teen` — it names an age as loudly as a sex, and re-cutting
+    // the 44 rows already classified that way is the owner's call, not a fix's.
+    assert.equal(bodyFromWords(mob('a peasant girl'), BODIES), 'teen');
+    // No pronouns: *"her guard"* is a male guard.
+    assert.equal(bodyFromWords(mob("the baron's guard", { keywords: ['guard', 'her'] }), BODIES), 'muscular');
+  });
 });
 
 describe('the prompt', () => {
