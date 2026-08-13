@@ -138,6 +138,8 @@ const BASELINE_ROOM = 100;
  *
  * | M9b scenery | 59,639,420 | **+10,463,616 B: `+2,637` wrappers at 3,968 B, zero geometry, zero materials, zero programs.** M9 gave one of the catalogue's ten scenery kinds a mesh and called the other nine a sourcing gap; five of them were not one. The owner's ruling decided which five and how: the four kinds `scenery.scatterFor` *derives* are the ones you actually walk into, and two of them were **foliage** — *"plants that can be walked through in some cases and not others will be confusing … Foliage should not be a blocker unless it is for boundaries"* — so `bush` and `toadstools` were taken out of `SCATTER_BY_SECTOR` rather than given a mesh, and `barrel` and `crate` joined the catalogue beside `cart` and `stump`. The scenery term stops being *one authored prop at three primitives* and becomes *one prop per `SCATTER_BLOCKS` quadrant at three*, `max(authored 2, 4 x 3) = 12`, so `pool.DRESSED_WRAPPER_CEILING` goes `max(15 + 1 + 3, 11 + 6) = 19` to `max(15 + 1 + 12, 17) = 28` and `586 x 10 + 293 x 28 + 4 = 14,068` pre-warmed plus 586 ground and 293 water = 14,947. **Nothing else moves at all** — every mesh named was registered by M5b or M9, so the geometry term is byte-identical and the program count is still 9 + 2. Against M9's `+3,487,872` for three carts in one hand-authored zone, this is `+10,463,616` for **14,787 props** in every forest, field, hillside and bog in the world. The **three** is the market stall's wood, iron and cloth: scattering `cart` into open field is `+4,650,496 B` of that total on its own, taken because the owner asked for wagons by name. The world's worst chunk actually reaches 23 of the 28, and the 28 is derived rather than measured for `SCATTER_WRAPPER_CEILING`'s own reason. |
  *
+ * | kobold | 59,639,606 | **+186 B: one geometry, zero wrappers, zero materials, zero programs, and one *fewer* byte per rig than the constant allows.** The first mob in the world with a mesh of its own — 2,060 triangles, 32 joints, authored in-house because *Ultimate Monsters* is Patreon-only. The 186 B is the **stand-in's**, and it is the whole delta because that is all this test can see: `position` 36 + `normal` 36 + `uv` 24 + `color` 12 + `skinIndex` 24 + `skinWeight` 48 + `index` 6. In a browser the term is the merged kobold's own vertex data, registered once at boot beside the other 32 models, and it is one geometry rather than seven because all seven of its authored materials wear one atlas. **No new wrapper**: a creature is placed by the simulation's coordinates through the same `EntityLayer` seam as a person. **No new rig cost**: `BODY_RIG_BYTES` is sized for 65 joints and a kobold binds 32, so the pool's per-entity ceiling is a ceiling with room in it. |
+ *
  * The camera delta was `+2,789,504` B, all of it instance buffer and all of it a consequence of one
  * decision: the dolly's clamp reaches 48 m at 45°, `streamer.ts` derives the ring from that pose, and
  * `pool.ts` derives its pre-warm from the ring. Nothing there was chosen; the clamp was.
@@ -162,7 +164,7 @@ const BASELINE_ROOM = 100;
  * are the dressed **scenery**, which lands on outdoor chunks and therefore has to be summed with the
  * understory rather than maxed against it.
  */
-const LEDGER_BYTES = 59_639_420;
+const LEDGER_BYTES = 59_639_606;
 
 /**
  * The stand-in armature and cast the body churn runs on — M7b.
@@ -177,6 +179,11 @@ const CHURN_STEMS = [
   'Superhero_Female_FullBody',
   'Male_Peasant_Body',
   'Sword_Bronze',
+  // A creature, because it is a *second* body stem and the free list is keyed by stem: a pool that
+  // pre-warmed one family and churned two is exactly the shape a ledger test exists to catch. It is
+  // also the cheaper rig of the two (32 joints against 65), so if it ever costs more than
+  // `BODY_RIG_BYTES` the constant has stopped being a ceiling.
+  'Kobold',
 ];
 
 describe('M3: streaming a real world with a flat ledger', () => {

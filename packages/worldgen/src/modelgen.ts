@@ -162,8 +162,15 @@ export const VILLAGE_MANIFEST_VERSION = 1;
  * hairstyles would quietly register as base bodies nothing ever asks for. That is exactly the silent
  * disagreement the version number exists to make loud: a stale `public/models/characters` now says
  * *"re-run modelgen --characters"* at boot instead of being subtly wrong for ever.
+ *
+ * **3 since the creatures landed**, and it is the same failure with a longer fall. A `creature` model
+ * is skinned, so a v2 reader would take the body branch on it too — and this time the disagreement is
+ * not about which shelf a mesh sits on but about *which armature it is*: the kobold's 32 joints would
+ * be registered as a base body, `body.ts` would hand it the shared clip table, and `AnimationMixer`
+ * would bind sixteen human clips onto joint names that do not exist. The result is a kobold in its
+ * bind pose for ever, which reads as a bug in the animation system rather than as a stale build.
  */
-export const CHARACTER_MANIFEST_VERSION = 2;
+export const CHARACTER_MANIFEST_VERSION = 3;
 
 /** The same, for `client3d/src/props.ts`'s `PROPS_MANIFEST_VERSION`. M9's furniture. */
 export const PROPS_MANIFEST_VERSION = 1;
@@ -711,6 +718,16 @@ export interface KitModel {
   readonly blocks: boolean;
   /** Metres. Half the larger footprint axis; 0 when {@link blocks} is false. */
   readonly blockRadius: number;
+  /**
+   * A `creature`'s **own** clips, which live inside its own file — see {@link buildCreature}.
+   *
+   * The Quaternius rigs share sixteen clips out of two libraries ({@link KitManifest.animations});
+   * a model with its own armature cannot play those and ships its own instead. Recorded here so a
+   * test can join the file's vocabulary against `anim.CLIPS` without a GPU, which is the only place
+   * "this kobold has no `Sprint_Loop`" can be *seen* rather than discovered as a creature standing
+   * still while it runs.
+   */
+  readonly clips?: readonly AnimationClipEntry[];
   readonly parts: readonly KitPart[];
 }
 
@@ -1354,6 +1371,206 @@ function importAnimations(
   return { libraries, files };
 }
 
+/* -------------------------------------------------------------------------- */
+/* The creatures — authored here, not bought                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `assets/creatures/` — the in-house models, imported as **a fifth tenant with no profile**.
+ *
+ * `importAnimations`' shape and its reason, one step further along: a profile is the parameterisation
+ * of *one importer over four Quaternius packs*, and every one of its knobs — `textureId`, `family`,
+ * `blocking`, the `glTF/` subdirectory, the sibling `.bin`, the normal maps to drop — describes a
+ * vendor convention that an in-house model does not have. A creature is one self-contained `.gltf`
+ * with its buffer and its atlas inlined as data URIs, and bending `readSources`/`buildCatalogue`
+ * around that would put five branches into the shared path to serve one file.
+ *
+ * So it is imported here and **emitted into the characters tree**, because from `client3d`'s side it
+ * is a character: it lands in the same manifest, its atlas lands in the same `textures/` directory,
+ * `CharacterSet.load` fetches it in the same pass and the pool holds it under the same
+ * `character:`/`character|` keys. The one thing it does not share is the armature — see
+ * {@link CHARACTER_MANIFEST_VERSION}'s note 3 and `characters.ts`.
+ *
+ * ## What is rewritten, and what is deliberately left alone
+ *
+ * **The atlas comes out; the buffer stays in.** The texture is lifted to `textures/<id>.png` because
+ * the pool is keyed by texture id and `CharacterSet.load` dresses a material from a *fetched*
+ * `Texture` — an atlas inlined in the glTF would arrive through `GLTFLoader` as a private texture
+ * belonging to one material, which is the one thing this renderer's material pool exists to prevent.
+ * The **buffer** stays a data URI: it is 127 KB, `GLTFLoader` reads it without a second request, and
+ * splitting it out would buy nothing but a file whose name has to be kept in step with its parent.
+ *
+ * Geometry, accessors, skins, inverse-bind matrices and animation samplers are the compiler's own
+ * bytes, untouched. Nothing here rescales anything: the model is authored in metres.
+ */
+export interface CreatureImport {
+  readonly models: readonly KitModel[];
+  readonly textures: readonly KitTexture[];
+  /** `id` to the rewritten glTF text. Self-contained — there is no `.bin` to copy beside it. */
+  readonly gltfs: ReadonlyMap<string, string>;
+  /** `id` to the PNG lifted out of the glTF's own `images[]` data URI. */
+  readonly images: ReadonlyMap<string, Buffer>;
+}
+
+/** `kobold` to `Kobold`, `fire-beetle` to `Fire_Beetle` — {@link KitModel.stem}'s spelling. */
+export function creatureStem(id: string): string {
+  return id
+    .split('-')
+    .map((word) => (word ? word[0]!.toUpperCase() + word.slice(1) : word))
+    .join('_');
+}
+
+/** `data:image/png;base64,…` to the bytes. Returns nothing for a URI that is a path. */
+export function decodeDataUri(uri: string): Buffer | undefined {
+  const match = /^data:([^;,]*)(;base64)?,/.exec(uri);
+  if (!match) return undefined;
+  const payload = uri.slice(match[0].length);
+  return match[2] ? Buffer.from(payload, 'base64') : Buffer.from(decodeURIComponent(payload), 'utf8');
+}
+
+/**
+ * One creature, as a pure function of its glTF text — `buildCatalogue`'s contract, one model wide.
+ *
+ * Answers nothing for a file with no mesh, no image or no skin, because all three are load-bearing:
+ * an unrigged creature would stand in the world and slide, and one with no atlas would be drawn by a
+ * material the pool never dressed, which is white.
+ */
+export function buildCreature(id: string, text: string): CreatureImport | undefined {
+  let gltf: Gltf & { animations?: { name?: string; samplers: { input: number }[] }[] };
+  try {
+    gltf = JSON.parse(text) as typeof gltf;
+  } catch {
+    return undefined;
+  }
+  const imageUri = gltf.images?.[0]?.uri;
+  const png = imageUri ? decodeDataUri(imageUri) : undefined;
+  if (!png || !gltf.meshes?.length || !gltf.skins?.length) return undefined;
+
+  const parts: KitPart[] = [];
+  let triangles = 0;
+  let minX = Infinity;
+  let minY = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let maxZ = -Infinity;
+
+  for (const mesh of gltf.meshes) {
+    for (const primitive of mesh.primitives) {
+      const material = gltf.materials[primitive.material];
+      if (!material) continue;
+      const indices = gltf.accessors[primitive.indices];
+      const position = gltf.accessors[primitive.attributes['POSITION'] ?? -1];
+      const tris = indices ? indices.count / 3 : 0;
+      triangles += tris;
+      if (position?.min && position.max) {
+        minX = Math.min(minX, position.min[0] ?? 0);
+        minY = Math.min(minY, position.min[1] ?? 0);
+        minZ = Math.min(minZ, position.min[2] ?? 0);
+        maxX = Math.max(maxX, position.max[0] ?? 0);
+        maxY = Math.max(maxY, position.max[1] ?? 0);
+        maxZ = Math.max(maxZ, position.max[2] ?? 0);
+      }
+      parts.push({
+        material: material.name,
+        // Nothing on a creature is an alpha card. The same constant the characters profile states.
+        role: 'solid',
+        // **One texture for the whole model, by construction.** `characters.register` buckets
+        // primitives by texture id and merges each bucket, so seven materials that differ only in a
+        // roughness `client3d` never samples become one geometry and one draw call.
+        texture: id,
+        triangles: tris,
+        vertices: position?.count ?? 0,
+        alphaTest: material.alphaMode === 'MASK' ? (material.alphaCutoff ?? 0.5) : 0,
+        vertexColours: primitive.attributes['COLOR_0'] !== undefined,
+      });
+    }
+  }
+
+  const clips: AnimationClipEntry[] = (gltf.animations ?? []).map((animation, index) => ({
+    name: animation.name ?? `clip${index}`,
+    duration: round(
+      animation.samplers.reduce((longest, sampler) => Math.max(longest, gltf.accessors[sampler.input]?.max?.[0] ?? 0), 0),
+    ),
+    channels: animation.samplers.length,
+  }));
+
+  const rewritten = {
+    ...gltf,
+    images: gltf.images?.map((image, index) =>
+      index === 0 ? { ...image, mimeType: 'image/png', uri: `../textures/${id}.png` } : image,
+    ),
+  };
+  const out = `${JSON.stringify(rewritten, null, 2)}\n`;
+  const { width: pixelsWide, height: pixelsHigh } = pngSize(png);
+  const width = round(maxX - minX);
+  const depth = round(maxZ - minZ);
+
+  return {
+    models: [
+      {
+        id,
+        family: id,
+        kind: 'creature',
+        stem: creatureStem(id),
+        joints: gltf.skins[0]?.joints.length ?? 0,
+        url: `models/${CHARACTERS_PROFILE.id}/${id}/model.gltf`,
+        // No `.bin`: the buffer is inlined, so the emitted text *is* the model on disk.
+        bytes: Buffer.byteLength(out, 'utf8'),
+        triangles,
+        width,
+        depth,
+        height: round(maxY - minY),
+        minY: round(minY),
+        // A body is placed by the simulation's own coordinates and is never scattered. The characters
+        // profile's empty `blocking` set, restated as the constant it collapses to.
+        blocks: false,
+        blockRadius: 0,
+        clips,
+        parts,
+      },
+    ],
+    textures: [
+      {
+        id,
+        url: `models/${CHARACTERS_PROFILE.id}/textures/${id}.png`,
+        bytes: png.length,
+        width: pixelsWide,
+        height: pixelsHigh,
+        used: parts.length,
+      },
+    ],
+    gltfs: new Map([[id, out]]),
+    images: new Map([[id, png]]),
+  };
+}
+
+/** Every `<name>/<name>.gltf` under the creatures directory, in name order. */
+export function importCreatures(dir: string): CreatureImport {
+  const models: KitModel[] = [];
+  const textures: KitTexture[] = [];
+  const gltfs = new Map<string, string>();
+  const images = new Map<string, Buffer>();
+  if (!existsSync(dir)) return { models, textures, gltfs, images };
+  for (const id of readdirSync(dir).sort()) {
+    const file = join(dir, id, `${id}.gltf`);
+    if (!existsSync(file)) continue;
+    const built = buildCreature(id, readFileSync(file, 'utf8'));
+    if (!built) continue;
+    models.push(...built.models);
+    textures.push(...built.textures);
+    for (const [key, value] of built.gltfs) gltfs.set(key, value);
+    for (const [key, value] of built.images) images.set(key, value);
+  }
+  return { models, textures, gltfs, images };
+}
+
+/** `--creatures`, else `$GAME_CREATURES_DIR`, else the repo's own. `sourceDir`'s rule, one directory over. */
+export function creatureDir(): string {
+  const explicit = flag('creatures') ?? process.env['GAME_CREATURES_DIR'];
+  return explicit ? resolve(explicit) : join(REPO_ROOT, 'assets', 'creatures');
+}
+
 function main(): void {
   const profile = process.argv.includes('--characters')
     ? CHARACTERS_PROFILE
@@ -1385,7 +1602,22 @@ function main(): void {
   const { libraries, files: animationFiles } = profile.kind
     ? importAnimations(source)
     : { libraries: [] as AnimationLibrary[], files: new Map<string, Buffer>() };
-  const manifest: KitManifest = libraries.length > 0 ? { ...built.manifest, animations: libraries } : built.manifest;
+  // The in-house models ride the characters manifest. See `CreatureImport` for why they are merged
+  // here rather than imported as a fifth profile, and sorted so the manifest's order is a property of
+  // the ids rather than of two `readdir`s in sequence.
+  const creatures = profile === CHARACTERS_PROFILE ? importCreatures(creatureDir()) : undefined;
+  const manifest: KitManifest = {
+    ...built.manifest,
+    ...(creatures && creatures.models.length > 0
+      ? {
+          models: [...built.manifest.models, ...creatures.models].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+          textures: [...built.manifest.textures, ...creatures.textures].sort((a, b) =>
+            a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
+          ),
+        }
+      : {}),
+    ...(libraries.length > 0 ? { animations: libraries } : {}),
+  };
 
   const modelBytes = manifest.models.reduce((n, m) => n + m.bytes, 0);
   const textureTotal = manifest.textures.reduce((n, t) => n + t.bytes, 0);
@@ -1423,6 +1655,11 @@ function main(): void {
   for (const [id, file] of [...textureFiles].sort()) {
     copyFileSync(join(gltfDir, file), join(outDir, 'textures', `${id}.png`));
   }
+  // Lifted out of the model's own `images[0]` rather than copied off disk — the authored folder's
+  // `<id>_tex.png` is a sibling for inspection and is not the bytes the glTF was compiled against.
+  for (const [id, png] of [...(creatures?.images ?? new Map())].sort()) {
+    writeFileSync(join(outDir, 'textures', `${id}.png`), png);
+  }
   if (animationFiles.size > 0) {
     mkdirSync(join(outDir, 'animations'), { recursive: true });
     for (const [id, bytes] of [...animationFiles].sort()) {
@@ -1432,6 +1669,13 @@ function main(): void {
   for (const model of manifest.models) {
     const dir = join(outDir, model.id);
     mkdirSync(dir, { recursive: true });
+    // A creature is self-contained — its buffer is a data URI, so there is no sibling `.bin` to copy
+    // and no `sources` row to find it by. See `CreatureImport`.
+    const creature = creatures?.gltfs.get(model.id);
+    if (creature !== undefined) {
+      writeFileSync(join(dir, 'model.gltf'), creature, 'utf8');
+      continue;
+    }
     writeFileSync(join(dir, 'model.gltf'), gltfs.get(model.id) ?? '', 'utf8');
     const original = sources.find((candidate) => kitId(candidate.file) === model.id);
     const binName = original?.gltf.buffers[0]?.uri ?? `${model.id}.bin`;

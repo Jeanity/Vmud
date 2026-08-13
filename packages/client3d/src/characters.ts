@@ -77,6 +77,8 @@ import {
   type SkinnedMesh,
 } from 'three';
 
+import { CREATURE_BODY_MODELS } from '@mygame/shared';
+
 import { maskedGeometry, vertexRegions } from './skin.ts';
 import type { ScenePool } from './pool.ts';
 import { CHARACTER_TEXTURES, characterGeometryKey, characterMaterialKey } from './prototypes.ts';
@@ -96,7 +98,7 @@ export interface CharacterPartEntry {
 
 export interface CharacterModelEntry {
   readonly id: string;
-  readonly kind: 'body' | 'outfit' | 'hair' | 'weapon';
+  readonly kind: 'body' | 'outfit' | 'hair' | 'weapon' | 'creature';
   /** The vendor's own stem — the join key to `appearance.ts`'s `base:` / `outfit:` / `prop:` ids. */
   readonly stem: string;
   readonly url: string;
@@ -105,6 +107,8 @@ export interface CharacterModelEntry {
   readonly height: number;
   readonly minY: number;
   readonly joints: number;
+  /** A `creature`'s own clips, which travel inside its own file. Absent for everything else. */
+  readonly clips?: readonly CharacterClipEntry[];
   readonly parts: readonly CharacterPartEntry[];
 }
 
@@ -147,8 +151,14 @@ export interface CharacterManifest {
  * a v1 *reader* meeting one would take the body branch below, because a hairstyle is skinned and
  * nothing would throw. Six hairstyles registering as base bodies nobody asks for is precisely the kind
  * of quiet wrongness this number exists to turn into a sentence.
+ *
+ * **3 since the creatures.** The same failure, further: a `creature` is skinned too, so a v2 reader
+ * would file the kobold's 32-joint rig as a base body, hand it {@link clips} — the *human* table — and
+ * `AnimationMixer` would bind `Walk_Loop`'s 65 tracks onto joint names that are not in it. Nothing
+ * throws; the kobold stands in its bind pose for ever, which reads as a broken animation system rather
+ * than as a stale `public/models/characters`.
  */
-export const CHARACTER_MANIFEST_VERSION = 2;
+export const CHARACTER_MANIFEST_VERSION = 3;
 
 /** The one path this package knows. Relative, so a base-pathed deployment still resolves it. */
 export const CHARACTER_MANIFEST_PATH = 'models/characters/manifest.json';
@@ -193,7 +203,7 @@ export interface PartTemplate {
  */
 export interface BodyTemplate {
   readonly stem: string;
-  /** The 65 source bones, in skeleton order. Cloned per rig; never added to a scene itself. */
+  /** The source bones, in skeleton order. Cloned per rig; never added to a scene itself. */
   readonly bones: readonly Bone[];
   readonly boneInverses: readonly Matrix4[];
   readonly jointNames: readonly string[];
@@ -204,6 +214,33 @@ export interface BodyTemplate {
   readonly height: number;
   /** This rig's own inverse-bind matrix for {@link HEAD_BONE}. See {@link HairTemplate.headInverse}. */
   readonly headInverse: Matrix4;
+  /**
+   * Whether garments, hair and held props may be hung on this rig — **true for the two base bodies,
+   * false for a creature**, and it is one boolean standing in for a whole armature's worth of facts.
+   *
+   * The composition path is not generic and was never meant to be: `skin.HIDDEN_BY_SLOT` culls the
+   * naked mesh by *region*, and a region is derived from Unreal joint names (`spine_03`, `thigh_r`);
+   * `HairTemplate.headInverse` refits a scalp through `Head`; `MAIN_HAND_BONE` is `hand_r`. The kobold
+   * has `chest`, `thigh.l`, `head` and `hand.r`, and none of those lookups would *fail* — they would
+   * quietly miss, which is worse. `vertexRegions` would label every one of its vertices with the
+   * fallback region, so the first kobold to be handed a breastplate by the equip resets would have a
+   * mask applied to a body that has no notion of a chest, and lose whichever triangles the fallback
+   * happened to name.
+   *
+   * There is also nothing to put on it. The sword and the sling are **in the mesh** — `steel` is one
+   * of its seven materials — so a prop in its hand would be a second sword, and the outfit pack is
+   * authored for a 1.81 m human on a rig 33 joints wider.
+   */
+  readonly composable: boolean;
+  /**
+   * The clips this body plays, when they are its **own** rather than the shared sixteen.
+   *
+   * Present only for a creature. `clipsByName` is one flat map because all 24 Quaternius rigs bind the
+   * same 65 joints under the same names, so a clip is genuinely shared data — but a creature's
+   * `Walk_Loop` names *its* joints, and putting it in that map would not sit beside the human one, it
+   * would **replace** it. Every person in the world would then try to walk on a kobold's spine.
+   */
+  readonly clips?: ReadonlyMap<string, AnimationClip>;
 }
 
 /**
@@ -418,7 +455,7 @@ export class CharacterSet {
       manifest.models.map(async (model) => {
         try {
           const loaded = await gltf.loadAsync(`${base}${model.url}`);
-          this.register(pool, model, loaded.scene);
+          this.register(pool, model, loaded.scene, loaded.animations);
           this.ready.add(model.stem);
         } catch {
           // One model that will not load is one model that is not drawn. A missing base body means
@@ -476,6 +513,24 @@ export class CharacterSet {
           // Identity, so a stand-in's refit matrix is the identity too and a headless test measures
           // the *plumbing* rather than the vendor's skulls.
           headInverse: new Matrix4(),
+          composable: true,
+        });
+      } else if (CREATURE_BODY_MODELS.includes(stem)) {
+        // A creature stand-in is a *body*, and filing it anywhere else would let the headless suite
+        // pass while the real path drew nothing — the same argument the branch order above makes about
+        // a sword filed under `parts`. Its own bones, its own clip map, `composable: false`: the three
+        // facts `traversal.test.ts` needs to churn one through the pool and see the ledger stay flat.
+        const bones = standInBones(jointNames);
+        this.bodies.set(stem, {
+          stem,
+          bones,
+          boneInverses: bones.map(() => new Matrix4()),
+          jointNames,
+          extras: [primitive],
+          height: 0.76,
+          headInverse: new Matrix4(),
+          composable: false,
+          clips: new Map(),
         });
       } else if (/^(Female|Male)_(Peasant|Ranger)_/.test(stem)) {
         this.parts.set(stem, { stem, primitives: [primitive] });
@@ -494,7 +549,12 @@ export class CharacterSet {
     return CLIPS.filter((name) => !this.clipsByName.has(name));
   }
 
-  private register(pool: ScenePool, model: CharacterModelEntry, scene: Object3D): void {
+  private register(
+    pool: ScenePool,
+    model: CharacterModelEntry,
+    scene: Object3D,
+    animations: readonly AnimationClip[] = [],
+  ): void {
     const meshes: { mesh: Mesh; skinned: boolean }[] = [];
     scene.updateMatrixWorld(true);
     scene.traverse((node) => {
@@ -553,6 +613,34 @@ export class CharacterSet {
       return;
     }
 
+    if (model.kind === 'creature') {
+      // A body with its own armature. It is a `BodyTemplate` because everything `BodyRig` does with
+      // one is already generic over the joint count — `cloneBones` walks the array it is given and
+      // `new Skeleton` takes as many inverses as there are bones — and the *only* two things that
+      // were not are the pair of fields below.
+      //
+      // **No `skin`, so no cull.** Every primitive goes into `extras`, which is drawn unconditionally.
+      // `maskedSkin` then answers nothing for this template whatever gear the wearer is carrying, and
+      // the region machinery never runs against joint names it has never seen. See `composable`.
+      const rig = meshes.find((entry) => entry.skinned)?.mesh as SkinnedMesh | undefined;
+      if (!rig?.skeleton) return;
+      this.bodies.set(model.stem, {
+        stem: model.stem,
+        bones: rig.skeleton.bones,
+        boneInverses: rig.skeleton.boneInverses,
+        jointNames: rig.skeleton.bones.map((bone) => bone.name),
+        extras: primitives,
+        height: model.height,
+        // Never read: `headInverse` is only consulted to refit a hairstyle, and a creature takes none.
+        // Identity rather than absent so the field stays required and nothing downstream learns to
+        // test it for undefined.
+        headInverse: new Matrix4(),
+        composable: false,
+        clips: new Map(animations.map((clip) => [clip.name, clip])),
+      });
+      return;
+    }
+
     // A base body. Find the skinned mesh that carries the *skin* — the biggest one, which is also the
     // only one whose material is not the eye or the eyebrow atlas — and label its vertices.
     const skinned = meshes.find((entry) => entry.skinned)?.mesh as SkinnedMesh | undefined;
@@ -592,6 +680,7 @@ export class CharacterSet {
       extras,
       height: model.height,
       headInverse: headInverseOf(skinned) ?? new Matrix4(),
+      composable: true,
     });
   }
 }

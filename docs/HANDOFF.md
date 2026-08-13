@@ -458,6 +458,30 @@ file stays the answer to *where things stand*.
 **Read this block, then stop.** The two below it are the same day's earlier state and are kept only
 for the reasoning; everything operational has moved.
 
+**The newest thing, and the one a next session is most likely to trip over: there is a fourth kind of
+body.** `assets/creatures/kobold/` is an **in-house** model — authored in WAM, not bought — and it
+carries **its own 32-joint armature and its own five clips**. Everything about the character pipeline
+that was written as *"one armature, 65 joints, shared by everything"* is still true and is now true
+**of the Quaternius files only**. Three consequences:
+
+- **`--characters` also imports the creatures.** `modelgen.importCreatures` runs inside the same
+  invocation and emits into the same `models/characters/` tree, so
+  `node …/modelgen.ts --characters --source … --creatures D:/MyGame/assets/creatures` is the whole
+  command. The manifest is **version 3**; a v2 build on disk now refuses at boot rather than
+  registering a kobold as a base body.
+- **`characters.BodyTemplate.composable` is the switch.** False for a creature: no garments, no hair,
+  no props in its hands (its sword is *in the mesh*), and **no region cull** — `skin.ts`'s regions are
+  derived from Unreal joint names, which a kobold does not have, so it has no `skin` primitive at all
+  and everything it draws is in `extras`.
+- **`appearance.wearsOutfits(model)` replaces "not a `creature:` id"** in every whole-world invariant.
+  Those tests were asking *"has this a mesh"* and meaning *"can this wear clothes"*, and the two
+  stopped being the same question the moment a creature had a mesh.
+
+The join is a **head shape**: `CREATURE_BODY_FOR` maps `kobold` → the `Kobold` stem, and the 42 kobold
+templates in `data/world/overrides/mobs.json` were moved from `*/lizard` to `*/kobold`. The other 22
+`lizard` templates — lizard men, troglodytes, a grippli, a dryder — are **deliberately still humans**;
+they are not kobolds and would be wrong at 0.76 m.
+
 **Rituals that changed — get these wrong and you will chase ghosts:**
 
 - The suite is **2,970 green, 0 skipped**, and needs **three** env vars now:

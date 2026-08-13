@@ -30,6 +30,7 @@ import {
   everyHairId,
   everyModelId,
   makeRng,
+  wearsOutfits,
   yawOf,
   type Item,
   type MobTemplate,
@@ -451,12 +452,31 @@ describe('every body in the shipped world', { skip: HAVE_SPAWNS ? false : 'data/
     assert.ok(share < 0.05, `${placeholder.length} of ${templates.length} templates have no mesh (${(share * 100).toFixed(1)}%)`);
   });
 
-  it('dresses every humanoid, so nobody in the world is naked', () => {
+  it('dresses every body the outfit pack fits, so nobody in the world is naked', () => {
+    // `wearsOutfits` rather than "not a `creature:` id", and the difference is the kobold: it has a
+    // real mesh and a real `base:` id, and it is still not something the Quaternius garments go on.
+    // See `appearance.wearsOutfits` — the exclusion this test used to spell for itself.
     for (const t of shippedTemplates()) {
       const look = appearanceOf({ kind: 'mob', sprite: t.sprite });
-      if (!look || look.model.startsWith(CREATURE_PREFIX)) continue;
+      if (!look || !wearsOutfits(look.model)) continue;
       assert.equal((look.gear ?? []).length, 4, `${t.vnum} ${t.name} is underdressed`);
     }
+  });
+
+  it('leaves a creature bare — no gear, no hands, no hair', () => {
+    // The other side of the exclusion above, so "skipped" cannot quietly become "unchecked". A
+    // kobold handed a peasant's tunic would be 20 garments bound to an armature that has none of
+    // their joints, which draws as a cloud of triangles around the origin.
+    for (const sprite of ['male/kobold', 'muscular/kobold', 'child/kobold']) {
+      const look = appearanceOf({ kind: 'mob', sprite, hairSeed: 'mob:1400' });
+      assert.equal(look?.model, `${BASE_PREFIX}Kobold`, sprite);
+      assert.equal(look?.gear, undefined, `${sprite} is wearing something`);
+      assert.equal(look?.hands, undefined, `${sprite} is holding something`);
+      assert.equal(look?.hair, undefined, `${sprite} grew hair`);
+    }
+    // The body word still scales it, exactly as it does a person: a kobold youth is a smaller kobold.
+    assert.ok((appearanceOf({ kind: 'mob', sprite: 'child/kobold' })?.scale ?? 1) < 1);
+    assert.equal(appearanceOf({ kind: 'mob', sprite: 'male/kobold' })?.scale, undefined);
   });
 
   it('gives every humanoid in it a head of hair, and an id the pack has', () => {
@@ -465,7 +485,7 @@ describe('every body in the shipped world', { skip: HAVE_SPAWNS ? false : 'data/
     const bald: string[] = [];
     for (const t of shippedTemplates()) {
       const look = appearanceOf({ kind: 'mob', sprite: t.sprite, hairSeed: `mob:${t.vnum}` });
-      if (!look || look.model.startsWith(CREATURE_PREFIX)) continue;
+      if (!look || !wearsOutfits(look.model)) continue;
       if (!look.hair) bald.push(`${t.vnum} ${t.name}`);
       else assert.ok(HAIR_MANIFEST.has(look.hair), `${t.vnum} ${t.name} -> ${look.hair}`);
     }
@@ -577,7 +597,10 @@ describe('the manifest against the packs on disk', { skip: HAVE_PACKS ? false : 
   it('names only meshes the base-character pack ships', () => {
     const have = stems(BASE_ZIP);
     for (const id of everyModelId()) {
-      if (!id.startsWith(BASE_PREFIX)) continue;
+      // A creature is authored in-house and is not in anybody's zip — that it was *staged* is
+      // `client3d/characters.test.ts`'s join against the built manifest, which is the only place it
+      // can be checked, because this one only knows what Quaternius sold us.
+      if (!id.startsWith(BASE_PREFIX) || !wearsOutfits(id)) continue;
       assert.ok(have.has(id.slice(BASE_PREFIX.length)), `${id} is not in the pack`);
     }
   });

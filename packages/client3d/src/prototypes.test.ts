@@ -183,7 +183,7 @@ describe('the pool key set', () => {
     assert.ok(MATERIAL_KEYS.includes(treeMaterialKey('trunk', 'dead-tree-1' as never)));
   });
 
-  it('has exactly 316 materials, and the arithmetic is legible', () => {
+  it('has exactly 317 materials, and the arithmetic is legible', () => {
     // Terrain: 5 biome archetypes x 16 sectors = 80, of which `grass` never fades, so
     // 4 x 16 = 64 with twins (128) plus 16 without = 144.
     // Trees: 51 real parts across 28 variants, none of which fade.
@@ -192,12 +192,12 @@ describe('the pool key set', () => {
     // Kit props: 48 `(model, texture)` parts, none of which fade.
     // Village: 19 parts, each with an **open** twin — the near-wall fade, which is not the vertical
     //   policy's `dim` and has its own opacity — so 38.
-    // Characters: 12 atlases, keyed by texture alone rather than by `(model, texture)` — a body
-    //   material carries no per-model uniform, so 26 models share twelve materials. None fade.
+    // Characters: 13 atlases, keyed by texture alone rather than by `(model, texture)` — a body
+    //   material carries no per-model uniform, so 27 models share thirteen materials. None fade.
     // Furniture: 4 atlases, keyed by texture alone for the characters' reason exactly — a barrel
     //   material carries no per-model uniform either, so 26 models share four materials. None fade,
     //   and none has an open twin: the near-wall fade is a *wall* thing.
-    // 144 + 51 + 19 + 48 + 38 + 12 + 4 = 316.
+    // 144 + 51 + 19 + 48 + 38 + 13 + 4 = 317.
     //
     // 110 at M3. M4 added `glow` and its twin — the stairwell marker — the *whole* of M4's growth,
     // because the emissive ring is a uniform on an existing material and the three-state fog of war is
@@ -210,7 +210,8 @@ describe('the pool key set', () => {
     // `USE_SKINNING` is a `#define`. See the traversal test, which now asserts nine and says why.
     // **M9 adds 4** — the Fantasy Props kit's four atlases — and no program at all: a barrel is
     // `kitSolid`'s recipe with a different picture in it, which is the same free ride M6 and the
-    // character *props* took.
+    // character *props* took. **The kobold adds 1** and no program: its atlas is worn by a
+    // `SkinnedMesh`, which is the program the two base bodies already compiled.
     const terrain = (BIOME_ARCHETYPES.length - 1) * SECTORS.length;
     let trees = 0;
     for (const variant of TREE_VARIANTS) trees += treePartsOf(variant).length;
@@ -225,7 +226,7 @@ describe('the pool key set', () => {
     assert.equal(terrain, 64);
     assert.equal(trees, 51);
     assert.equal(objects, 12);
-    assert.equal(MATERIAL_KEYS.length, 316);
+    assert.equal(MATERIAL_KEYS.length, 317);
     // The `- 5` is `self`, `other`, `marker`, `water` and `puddle` — the object archetypes with no
     // faded twin. Literals rather than `NEVER_FADED.size` on purpose, the same reasoning the file
     // header gives for the whole test: recomputing the exclusion from the table under test would let

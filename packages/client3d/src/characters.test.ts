@@ -27,6 +27,7 @@ import { Matrix4, Vector3 } from 'three';
 
 import {
   BASE_BODY_MODELS,
+  CREATURE_BODY_MODELS,
   HAIR_MODELS,
   OUTFIT_PARTS,
   WEAPON_MODELS,
@@ -143,7 +144,8 @@ function weightsOf(id: string): [number, number][] {
 describe('the character key set', () => {
   it('gives the pool one material per atlas and no more', () => {
     assert.equal(new Set(CHARACTER_TEXTURES).size, CHARACTER_TEXTURES.length);
-    assert.equal(CHARACTER_TEXTURES.length, 12);
+    // 13 since the kobold: twelve Quaternius atlases and one in-house.
+    assert.equal(CHARACTER_TEXTURES.length, 13);
     // The disjointness `pool.programKeyOf` relies on to answer "is this material's object skinned".
     for (const prop of CHARACTER_PROP_TEXTURES) {
       assert.ok((CHARACTER_TEXTURES as readonly string[]).includes(prop), `${prop} is not a character atlas`);
@@ -207,18 +209,27 @@ describe('the imported characters', () => {
       assert.ok(byStem.has(stemOf(id)), `nothing staged for ${id}`);
     }
     for (const stem of BASE_BODY_MODELS) assert.ok(byStem.has(stem), `no base body ${stem}`);
+    // The in-house creatures ride the same manifest and are staged by the same run — see
+    // `modelgen.CreatureImport`. A stem `appearanceOf` can emit and nothing staged is a mob that
+    // silently keeps drawing as a capsule, which is the same failure as a missing garment.
+    for (const stem of CREATURE_BODY_MODELS) assert.ok(byStem.has(stem), `no creature body ${stem}`);
     assert.equal(
       manifest.models.length,
-      BASE_BODY_MODELS.length + OUTFIT_PARTS.length + WEAPON_MODELS.length + HAIR_MODELS.length,
+      BASE_BODY_MODELS.length +
+        OUTFIT_PARTS.length +
+        WEAPON_MODELS.length +
+        HAIR_MODELS.length +
+        CREATURE_BODY_MODELS.length,
     );
-    assert.equal(manifest.models.length, 32);
+    assert.equal(manifest.models.length, 33);
   });
 
-  it('classifies every model, and the four kinds partition it', () => {
+  it('classifies every model, and the five kinds partition it', () => {
     const kinds = new Map<string, number>();
     for (const model of manifest.models) kinds.set(model.kind, (kinds.get(model.kind) ?? 0) + 1);
     assert.deepEqual([...kinds].sort(), [
       ['body', 2],
+      ['creature', 1],
       ['hair', 6],
       ['outfit', 20],
       ['weapon', 4],
@@ -262,12 +273,41 @@ describe('the imported characters', () => {
     }
   });
 
-  it('binds one armature: 65 joints on every rigged file and none on a prop', () => {
+  it('binds one armature: 65 joints on every Quaternius file and none on a prop', () => {
     // Join 2, and it is the risk §6-M7 flagged as *"if it's false, M7 roughly doubles into a
     // retargeting project"*. It is not false, and this is where it stays not false.
-    for (const model of manifest.models) {
+    //
+    // **A creature is excluded by kind, not by exception.** The invariant was never "everything
+    // skinned has 65 joints" — it is "every file that composes with every other one does", which is
+    // what lets 20 garments and 16 clips be written once. A model that opts out of composition
+    // (`BodyTemplate.composable`) is outside the claim, and saying so here is what keeps the claim
+    // true rather than quietly widened.
+    for (const model of manifest.models.filter((entry) => entry.kind !== 'creature')) {
       const wanted = model.kind === 'weapon' ? 0 : JOINT_COUNT;
       assert.equal(model.joints, wanted, `${model.stem} binds ${model.joints} joints`);
+    }
+  });
+
+  it('gives each creature its own rig and its own clips, and never the shared ones', () => {
+    // The other half of the sentence above. A creature that arrived with 65 joints would mean the
+    // author had bound it to the Quaternius armature after all — which would be *good news*, and
+    // would still be a change nobody had noticed, because `body.acquireRig` would go on handing it a
+    // clip table it no longer needed. Either direction is worth a failing test.
+    const creatures = manifest.models.filter((entry) => entry.kind === 'creature');
+    assert.equal(creatures.length, CREATURE_BODY_MODELS.length);
+    for (const model of creatures) {
+      assert.ok(model.joints > 0, `${model.stem} is unrigged and would slide`);
+      assert.notEqual(model.joints, JOINT_COUNT, `${model.stem} binds the shared armature after all`);
+      // Its clips travel inside its own file, so the manifest is the one place their absence shows
+      // without a GPU. `Idle_Loop` and `Walk_Loop` are the two the state machine cannot do without:
+      // a body with neither stands in its bind pose whatever it is doing.
+      const clips = new Set((model.clips ?? []).map((clip) => clip.name));
+      for (const needed of ['Idle_Loop', 'Walk_Loop']) {
+        assert.ok(clips.has(needed), `${model.stem} has no ${needed}`);
+      }
+      // Every clip it ships must be one the state machine actually asks for, or it is dead weight
+      // in the download and a name somebody will reach for and not find.
+      for (const clip of clips) assert.ok((CLIPS as readonly string[]).includes(clip), `${clip} is not a CLIPS name`);
     }
   });
 

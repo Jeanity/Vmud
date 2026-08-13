@@ -1153,6 +1153,11 @@ export const CHARACTER_TEXTURES = [
   'eye-brown',
   'hair-1',
   'hair-2',
+  // The in-house kobold's own atlas — one texture for the whole creature, which is what collapses its
+  // seven authored materials (`hide`, `belly`, `horn`, `rag`, `strap`, `steel`, `eye`, differing only
+  // in a roughness this renderer's Lambert never samples) into one merged geometry and one draw call.
+  // A **skinned** atlas, so it is deliberately not in `CHARACTER_PROP_TEXTURES` and costs no program.
+  'kobold',
   'peasant',
   'ranger',
   'regular-female-dark',

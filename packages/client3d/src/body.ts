@@ -280,6 +280,16 @@ export class BodyRig implements PooledRig {
     this.worn = key;
     this.clearMeshes();
 
+    // **A creature is drawn and nothing else.** Its armature is its own, so every step below this line
+    // is either meaningless on it or actively wrong — see `characters.BodyTemplate.composable`, which
+    // is where the four reasons are written down. The `dressKey` guard above still runs, so a kobold
+    // handed a breastplate by the equip resets rebuilds its meshes once and then costs nothing, which
+    // is the same contract every other body has.
+    if (!this.template.composable) {
+      for (const primitive of this.template.extras) this.addPrimitive(primitive);
+      return;
+    }
+
     // The base body, with the regions its gear replaces dropped. See `skin.ts` for the measurement
     // that makes this necessary: the garments sit *inside* the naked silhouette, so drawing both is a
     // body worn over its own clothes.
@@ -444,7 +454,11 @@ export class BodyRig implements PooledRig {
 export function acquireRig(set: CharacterSet, pool: ScenePool, model: string): BodyRig | undefined {
   const template = set.body(stemOf(model));
   if (!template) return undefined;
-  const rig = pool.acquireBody(template.stem, () => new BodyRig(set, pool, template, set.clips));
+  // **A template's own clips win.** The shared table is shared because 24 rigs bind the same 65 joints
+  // under the same names; a creature's armature is its own, so its `Walk_Loop` is a different object
+  // that happens to have the same name. See `characters.BodyTemplate.clips`.
+  const clips = template.clips ?? set.clips;
+  const rig = pool.acquireBody(template.stem, () => new BodyRig(set, pool, template, clips));
   return rig as BodyRig | undefined;
 }
 

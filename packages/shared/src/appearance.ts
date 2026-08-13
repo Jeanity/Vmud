@@ -111,6 +111,46 @@ export const BASE_BODY_MODELS = ['Superhero_Female_FullBody', 'Superhero_Male_Fu
 /** Which base mesh a body uses. The pack offers exactly these two and no third. */
 export type BodySex = 'female' | 'male';
 
+/**
+ * Head shapes that have a **mesh of their own** — `mobpick`'s word to an in-house model's stem.
+ *
+ * The first crack in *"every mob in the world is a Quaternius human"*, and the shape it takes is the
+ * one thing worth stating: a creature is chosen by the same head word the 2D sweep already assigned,
+ * so nothing new has to be classified. `kobold` is a head shape the ULPC pack does not have — see
+ * `HUMANOID_HEADS` — which is deliberate: it exists **only** as a 3D answer, and the 42 templates that
+ * carry it were `lizard` until a kobold mesh existed to be more specific than that.
+ *
+ * A row here overrides the person branch entirely. The body word still sets the scale — a
+ * `child/kobold` is a kobold *youth* at 0.72 of 0.756 m — but nothing else about a person applies:
+ * see `characters.BodyTemplate.composable` for why a creature wears nothing, holds nothing and grows
+ * no hair.
+ *
+ * **Empty is the honest state for everything else.** A wolf still gets `creature:wolf` and a capsule.
+ */
+export const CREATURE_BODY_FOR: Readonly<Record<string, string>> = {
+  kobold: 'Kobold',
+};
+
+/** The stems above, sorted — the staging list, and what `characters.test.ts` joins on. */
+export const CREATURE_BODY_MODELS: readonly string[] = Object.values(CREATURE_BODY_FOR).sort();
+
+/**
+ * Whether a model id names a body the **outfit pack can dress** — one predicate, because there are
+ * now three kinds of body and only one of them wears clothes.
+ *
+ * Written because the alternative was already in the codebase in triplicate and was already subtly
+ * wrong: several whole-world invariants ("nobody in the world is naked", "nobody is bald") excluded
+ * the placeholders by testing {@link CREATURE_PREFIX}, which was a correct spelling of *"has no
+ * mesh"* right up until a creature had one. A kobold has a mesh, emits a `base:` id and is still
+ * un-dressable — so the question those tests are really asking is this one, and asking it in one
+ * place is what stops the next creature quietly failing them.
+ *
+ * The renderer's own name for the same fact is `characters.BodyTemplate.composable`.
+ */
+export function wearsOutfits(model: string): boolean {
+  return model.startsWith(BASE_PREFIX) && !CREATURE_BODY_MODELS.includes(model.slice(BASE_PREFIX.length));
+}
+
 /* -------------------------------------------------------------------------- */
 /* Hair — the one thing on a body the simulation chooses                        */
 /* -------------------------------------------------------------------------- */
@@ -793,6 +833,15 @@ export function appearanceOf(subject: AppearanceSubject): Appearance | undefined
   // hand-editable rows, and without this test a mistyped `male/wolff` would not draw a wolf — it
   // would emit `creature:wolff`, an id nothing has ever staged, and turn one guard into a 404. So an
   // unrecognised word falls through to the person below, exactly as an unrecognised body does.
+  // A head shape we have a **mesh** for. Read before both branches below, because it is more specific
+  // than either: a kobold is not an animal (it would draw as a tinted capsule) and not a person (it
+  // would draw as a 1.81 m human in peasant cloth), and the whole point of the row is to say so.
+  //
+  // Bare, exactly like the animal branch above and for a stronger reason: that one has nothing to hang
+  // gear on, this one has a rig the gear does not fit. See `CREATURE_BODY_FOR`.
+  const creature = CREATURE_BODY_FOR[head];
+  if (creature) return { model: `${BASE_PREFIX}${creature}`, ...scaled };
+
   if (ANIMAL_HEADS.has(head)) {
     // No rig, so no gear, no hands and — the reason this is stated rather than assumed — no hair: a
     // wolf's placeholder is a tinted capsule and a hairstyle would have nothing to hang off.
@@ -938,8 +987,11 @@ function playerGear(sex: BodySex, wearing: Readonly<Record<string, string>> | un
  */
 export function everyModelId(): readonly string[] {
   const bases = BASE_BODY_MODELS.map((stem) => `${BASE_PREFIX}${stem}`);
+  // A creature with a mesh emits a `base:` id like any other body — the prefix says which pack a stem
+  // belongs to, and the kobold's is the one `CharacterSet` loads. See `CREATURE_BODY_FOR`.
+  const meshed = CREATURE_BODY_MODELS.map((stem) => `${BASE_PREFIX}${stem}`);
   const creatures = [...ANIMAL_HEADS].map((shape) => `${CREATURE_PREFIX}${shape}`);
-  return [...bases, ...creatures].sort();
+  return [...bases, ...meshed, ...creatures].sort();
 }
 
 /** Every id it can emit for a *part*. Every one is a stem in {@link OUTFIT_PARTS}. */
