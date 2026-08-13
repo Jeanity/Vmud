@@ -528,6 +528,13 @@ which primitive got there last.
 
 **Known, measured, and not fixed** — the honest list:
 
+- **IF THE TREE IS DIRTY WHEN YOU ARRIVE, IT IS THE COLLISION SLICE.** A subagent was working on
+  task #49 when the 13th ended, editing `packages/server/src/sim.ts`,
+  `packages/shared/src/bodies.test.ts` and `packages/shared/src/protocol.ts`. It was told not to
+  commit. **Read the diff, run the suite (baseline 3,057), and either finish it or `git checkout` the
+  three files** — do not build on top of it without reading it first, and do not assume it is
+  complete. Everything else was pushed; `git log` and `git status` together tell you exactly where it
+  stopped.
 - **A body's collision radius is still one constant.** `BODY_RADIUS` is 0.313 m for everything, so
   since the race scale a troll (0.68 m half-width) and a giant (1.24 m) stand inside each other and
   inside walls. `bodies.ts`'s own docblock predicted this and names the three proofs a fix must
