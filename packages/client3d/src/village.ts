@@ -328,4 +328,15 @@ function dressAll(pool: ScenePool): void {
     pool.dressKit(villageMaterialKey(part.model, part.texture), texture);
     pool.dressKit(villageMaterialKey(part.model, part.texture, true), texture);
   }
+  // **And the ground** — 2026-08-13. All three floor textures `prototypes.GROUND_TEXTURES` names are
+  // this pack's (`uneven-brick` is the cobblestone, `brick` the laid floor, `plaster` the dirt), and
+  // every one of them is already fetched here because a wall or a floor module wears it too. So the
+  // owner's *"why isn't the entire room cobblestones"* costs no new asset, no new fetch and no new
+  // byte on the wire — only this line, and the four uniforms behind it.
+  //
+  // A pool sweep rather than a list, because which sectors take a floor is `prototypes.ts`'s to say.
+  // It reaches materials this file has no other business with, which is why it is spelled out here
+  // rather than folded into the loop above: the village pack is the *source* of the pictures, not the
+  // owner of the surfaces they land on.
+  pool.dressGround((id) => pool.texture(id));
 }

@@ -44,6 +44,7 @@ import { ROOM_METRES, cellOriginTiles, metresOfTile, placeFrame } from './frame.
 import {
   GRASS_PER_ROOM_MAX,
   KIT_BLOCKS,
+  KIT_BLOCK_RADIUS,
   KIT_MODELS,
   KIT_MODELS_PER_ROOM,
   KIT_PARTS_MAX,
@@ -52,7 +53,7 @@ import {
   TREE_VARIANTS,
   TREE_VARIANTS_PER_ROOM,
 } from './prototypes.ts';
-import { freeTiles, kitPaletteFor, kitScaleOf, paletteFor, planScatter } from './scatter.ts';
+import { builtUp, freeTiles, kitPaletteFor, kitScaleOf, paletteFor, planScatter } from './scatter.ts';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const ZONES_DIR = join(REPO_ROOT, 'data', 'world', 'zones');
@@ -233,6 +234,49 @@ describe('the three-layer scatter', () => {
     assert.ok(compared > 1000, `only ${compared} rooms grew anything to compare`);
   });
 
+  it('grows a treeline at the world\'s edge, and never one inside a town', () => {
+    // The owner's *"the boundaries of the outside should be controlled by trees or cliff faces"*, as
+    // the two properties it actually decomposes into.
+    //
+    // The trap is `road`: one sector covers the Trade Way and every lane in Bryn Shander, so a
+    // straight palette lookup grew 774 trees inside that town's walls, in the dead ends where a house
+    // belongs. `scatter.builtUp` refuses those and the refusal is what this test is mostly about — a
+    // count that only went *up* would have looked like a success.
+    let country = 0;
+    let town = 0;
+    let treesInTown = 0;
+    const problems: string[] = [];
+    for (const { room, scene, placements } of grown()) {
+      const sector = scene.biome.sector;
+      const trunks = placements.filter((p) => p.archetype === 'trunk').length;
+      if (sector !== 'road' && sector !== 'field') continue;
+      if (builtUp(scene)) {
+        town += 1;
+        treesInTown += trunks;
+        if (trunks > 0 && problems.length < 8) {
+          problems.push(`room ${room.id} (${sector}) is built up and grew ${trunks} trees`);
+        }
+      } else if (trunks > 0) {
+        country += 1;
+      }
+      // Whatever the gate says, a tree still only ever stands on a side with no neighbour cell.
+      if (trunks > 0) {
+        const edges = CARDINALS.filter((dir) => scene.edges[dir].kind === 'edge').length;
+        if (edges === 0 && problems.length < 8) {
+          problems.push(`room ${room.id} grew ${trunks} trees with no world edge to grow them on`);
+        }
+      }
+    }
+    console.log(
+      `[M9 treeline] road/field: ${country} open-country rooms grew a boundary wood, ` +
+        `${town} built-up rooms refused one (${treesInTown} trees inside a settlement)`,
+    );
+    assert.deepEqual(problems, [], problems.join('\n'));
+    assert.equal(treesInTown, 0, 'a lane in a town grew a wood');
+    assert.ok(country > 1500, `only ${country} country rooms grew a treeline — the new palettes are not firing`);
+    assert.ok(town > 500, `only ${town} built-up rooms — the refusal is not being exercised`);
+  });
+
   it('never exceeds the caps pool.ts sizes its free list from', () => {
     let worstTrees = 0;
     let worstTufts = 0;
@@ -291,6 +335,7 @@ describe('the three-layer scatter', () => {
     const required = walkableRequired();
     let kitInstances = 0;
     let boulders = 0;
+    let biggest = 0;
     let worstTwisted = 0;
     const problems: string[] = [];
 
@@ -315,13 +360,23 @@ describe('the three-layer scatter', () => {
         const inside = tx >= 0 && tx < ROOM_TILES && ty >= 0 && ty < ROOM_TILES;
         if (KIT_BLOCKS.has(model)) {
           boulders += 1;
+          biggest = Math.max(biggest, placement.sx);
           // A blocking model is held to the treeline's rule: outside the room block entirely, in the
           // void the collision grid has no tiles for. Never merely "on a free tile".
-          const outside =
-            Math.abs(placement.x - (x0 + HALF_ROOM)) > HALF_ROOM
-            || Math.abs(placement.z - (z0 + HALF_ROOM)) > HALF_ROOM;
-          if (!outside && problems.length < 8) {
-            problems.push(`room ${room.id}: ${model} blocks and stands inside the block at ${tx},${ty}`);
+          //
+          // **Its whole extent, not its origin** — 2026-08-13. The origin test passed for a milestone
+          // while `KIT_BLOCK_RADIUS` of rock leaned back over walkable floor, because the clearance
+          // was a flat 1.1 m and the measured reach is 1.75; and it would have passed just as
+          // happily with the mountain's 2.4x crags overlapping the room by four metres. What a
+          // player walks into is the rock, so the rock is what is checked.
+          const reach = KIT_BLOCK_RADIUS * placement.sx;
+          const clear =
+            Math.abs(placement.x - (x0 + HALF_ROOM)) - reach > HALF_ROOM
+            || Math.abs(placement.z - (z0 + HALF_ROOM)) - reach > HALF_ROOM;
+          if (!clear && problems.length < 8) {
+            problems.push(
+              `room ${room.id}: ${model} at ${placement.sx.toFixed(2)}x reaches back over the block at ${tx},${ty}`,
+            );
           }
           continue;
         }
@@ -338,11 +393,14 @@ describe('the three-layer scatter', () => {
 
     console.log(
       `[M5b kit] ${kitInstances} kit instances world-wide, of which ${boulders} blocking; ` +
-        `worst room ${worstTwisted} twisted tree`,
+        `worst room ${worstTwisted} twisted tree; biggest boundary rock ${biggest.toFixed(2)}x life size`,
     );
     assert.deepEqual(problems, [], problems.join('\n'));
     assert.ok(kitInstances > 100000, `only ${kitInstances} kit instances — the world is undressed`);
     assert.ok(boulders > 1000, `only ${boulders} boulders — the hills grew nothing`);
+    // The mountain's rock apron actually ran — `scatter.BOUNDARY_BULK`. Without this the extent check
+    // above would be a statement about life-size boulders, which is the case that already passed.
+    assert.ok(biggest > 2, `the biggest boundary rock is ${biggest.toFixed(2)}x — the rock apron is not growing`);
   });
 
   it('grows nothing at all under a roof', () => {

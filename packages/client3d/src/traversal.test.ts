@@ -88,6 +88,7 @@ import {
   TILE_SIZE,
   buildZoneTilemap,
   cellIndex,
+  cellKey,
   describeRoom,
   indexRooms,
   neighboursOf,
@@ -98,12 +99,13 @@ import {
 } from '@mygame/shared';
 
 import { CharacterSet } from './characters.ts';
-import { planChunk } from './chunkPlan.ts';
+import { planChunk, type Placement } from './chunkPlan.ts';
 import { EntityLayer } from './entities.ts';
 import { ROOM_METRES, cellOriginTiles, metresOfTile, placeFrame } from './frame.ts';
 import { occludingSides, planInterior, roleOfPlacement } from './interior.ts';
 import { BODY_POOL_SIZE, BODY_RIG_BYTES } from './pool.ts';
-import { VILLAGE_METRICS } from './prototypes.ts';
+import { VILLAGE_METRICS, groundTextureOf } from './prototypes.ts';
+import { treelineFor } from './scatter.ts';
 import { MAX_WINDOW_CHUNKS } from './streamer.ts';
 import { World3D } from './world3d.ts';
 
@@ -541,6 +543,148 @@ describe('M3: streaming a real world with a flat ledger', () => {
       assert.ok(solid > 50000, `only ${solid} solid edges — the sweep is not reaching the world`);
       if (dressed) assert.ok(chords > 40000, `only ${chords} village chords — the dressing is not running`);
     }
+  });
+
+  it('floors every square metre of the gap between two rooms, and dresses the world where it stops', () => {
+    /*
+     * **The void sweep** — the owner's *"can we close the gaps between rooms? … we don't have those
+     * bluish looking voids"*, as a measurement over all 46,544 rooms rather than a screenshot.
+     *
+     * What is counted is each room's *own share* of the ring of gap around its block: four sides of
+     * `ROOM_METRES x half` and four corners of `half x half`, which at `ROOM_GAP` is 40 m² a room.
+     * Before the fix, 32.3% of that was drawn world-wide and 17.4% in a city room; the three holes
+     * are catalogued in `chunkPlan.ts`'s header. The assertion is 100%, exactly, because the fix is
+     * not "more coverage" but a single slab whose reach is `HALF_ROOM + half` by construction — a
+     * number below 100 would mean the slab had stopped being that.
+     *
+     * It also counts the two things that make the coverage safe rather than merely present: no two
+     * neighbouring slabs may **overlap** (two coplanar surfaces at one elevation is a z-fight, not a
+     * floor), and every side that is solid must carry a wall at least half the gap deep so the player
+     * never sees floor they cannot reach.
+     */
+    let swept = 0;
+    let share = 0;
+    let drawn = 0;
+    let textured = 0;
+    let solidSides = 0;
+    let gapDeep = 0;
+    let worldEdge = 0;
+    let dressedEdge = 0;
+    const bySector = new Map<string, { rooms: number; textured: number }>();
+    const problems: string[] = [];
+
+    for (const zone of zones) {
+      const context = sceneZone(zone);
+      const cells = cellIndex(zone);
+      const frames = new Map<number, ReturnType<typeof placeFrame>>();
+      for (const room of zone.rooms) {
+        let frame = frames.get(room.pos.z);
+        if (!frame) {
+          frame = placeFrame(zone, room.pos.z);
+          frames.set(room.pos.z, frame);
+        }
+        const scene = describeRoom(context, room, neighboursOf(cells, room, rooms), sceneSeed(context, room));
+        const origin = cellOriginTiles(frame, room.pos.x, room.pos.y);
+        const plan = planChunk({ scene, origin, elevation: 0, gap: frame.gap, faded: false, doorClosed: {} });
+        swept += 1;
+        const half = frame.gap / 2;
+        share += 4 * ROOM_METRES * half + 4 * half * half;
+
+        const grounds = plan.filter((p) => p.archetype === 'ground');
+        if (grounds.length !== 1 && problems.length < 8) {
+          problems.push(`room ${room.id}: ${grounds.length} ground placements, expected one slab`);
+        }
+        const slab = grounds[0];
+        if (slab) {
+          // Everything the slab covers outside the block is gap fill. One slab, so no double count.
+          drawn += slab.sx * slab.sz - ROOM_METRES * ROOM_METRES;
+          const reach = slab.sx / 2 - ROOM_METRES / 2;
+          if (Math.abs(reach - half) > 1e-9 && problems.length < 8) {
+            problems.push(`room ${room.id}: the slab reaches ${reach.toFixed(3)} m of the ${half} m it owes`);
+          }
+        }
+
+        const sector = scene.biome.sector;
+        const row = bySector.get(sector) ?? { rooms: 0, textured: 0 };
+        row.rooms += 1;
+        if (groundTextureOf(sector)) {
+          row.textured += 1;
+          textured += 1;
+        }
+        bySector.set(sector, row);
+
+        for (const dir of CARDINALS) {
+          const edge = scene.edges[dir];
+          if (edge.kind === 'edge') {
+            worldEdge += 1;
+            // Case 3: what stands where the built world stops. A treeline for the sectors that grow
+            // one, a rock apron on a mountain, and a city's own wall — see `scatter.ts`'s layer (a).
+            if (!scene.enclosure.roofed && treelineFor(scene).length > 0) dressedEdge += 1;
+          }
+          if (!edge.solid) continue;
+          solidSides += 1;
+          const lateral = dir === 'north' || dir === 'south';
+          const wall = plan.find(
+            (p) => (p.archetype === 'edge' || p.archetype === 'barrier') && (lateral ? p.sz : p.sx) >= half - 1e-9,
+          );
+          if (wall) gapDeep += 1;
+          else if (problems.length < 8) problems.push(`room ${room.id} ${dir}: no wall reaches the gap's midline`);
+        }
+      }
+    }
+
+    const coverage = (100 * drawn) / share;
+    console.log(
+      `[M9 voids] ${swept} rooms: ${coverage.toFixed(1)}% of the gap ring floored (was 32.3%), ` +
+        `${drawn.toFixed(0)} m² of ${share.toFixed(0)}\n` +
+        `  walls        ${gapDeep} of ${solidSides} solid sides reach the gap's midline\n` +
+        `  world's edge ${worldEdge} sides with no neighbour, ${dressedEdge} of them growing a treeline or apron\n` +
+        `  floors       ${textured} rooms draw a textured floor (` +
+        [...bySector]
+          .filter(([, r]) => r.textured > 0)
+          .sort((a, b) => b[1].textured - a[1].textured)
+          .map(([s, r]) => `${s} ${r.textured}`)
+          .join(', ') +
+        `)`,
+    );
+    assert.deepEqual(problems, [], problems.join('\n'));
+    // Exactly, not approximately: the slab's reach is `half` by construction on all four sides.
+    assert.ok(Math.abs(coverage - 100) < 1e-6, `only ${coverage.toFixed(2)}% of the gap is floored`);
+    assert.equal(gapDeep, solidSides, 'a solid boundary left a slot the camera can see through');
+    assert.ok(textured > 20000, `only ${textured} rooms wear a floor texture`);
+    assert.ok(worldEdge > 50000, `only ${worldEdge} world-edge sides — the sweep is not reaching them`);
+  });
+
+  it('never lets two neighbouring ground slabs overlap', () => {
+    // The other half of the fix, and the one that would show as a flickering seam rather than as a
+    // hole: each room reaches exactly half the gap, so two adjacent slabs *touch*. A slab that
+    // reached the full gap would put two coplanar surfaces at one elevation in the depth buffer.
+    let pairs = 0;
+    for (const zone of zones) {
+      const context = sceneZone(zone);
+      const cells = cellIndex(zone);
+      for (const room of zone.rooms) {
+        const frame = placeFrame(zone, room.pos.z);
+        const east = cells.get(cellKey(room.pos.x + 1, room.pos.y, room.pos.z));
+        if (!east) continue;
+        const of = (r: Room): Placement =>
+          planChunk({
+            scene: describeRoom(context, r, neighboursOf(cells, r, rooms), sceneSeed(context, r)),
+            origin: cellOriginTiles(frame, r.pos.x, r.pos.y),
+            elevation: 0,
+            gap: frame.gap,
+            faded: false,
+            doorClosed: {},
+          }).find((p) => p.archetype === 'ground')!;
+        const here = of(room);
+        const there = of(east);
+        const overlap = here.x + here.sx / 2 - (there.x - there.sx / 2);
+        assert.ok(Math.abs(overlap) < 1e-9, `rooms ${room.id}/${east.id} overlap by ${overlap.toFixed(4)} m`);
+        pairs += 1;
+      }
+    }
+    console.log(`[M9 voids] ${pairs} east-west neighbour pairs meet on the midline, none overlapping`);
+    assert.ok(pairs > 20000, `only ${pairs} adjacent pairs checked`);
   });
 
   /** Whether a set of intervals covers `[from, from + length]` with no gap. Order-independent. */

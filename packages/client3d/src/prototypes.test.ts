@@ -18,6 +18,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { DataTexture, RepeatWrapping } from 'three';
+
 import { SECTORS } from '@mygame/shared';
 
 import {
@@ -25,6 +27,7 @@ import {
   ARCHETYPE_GEOMETRY,
   BIOME_ARCHETYPES,
   GEOMETRY_KEYS,
+  GROUND_TEXTURES,
   KIT_GEOMETRY_KEYS,
   KIT_MODELS,
   KIT_PARTS,
@@ -407,6 +410,43 @@ describe('the pool key set', () => {
     // Swapping the placeholder for a real texture must not move the program count.
     pool.dressKit(key, material.map);
     assert.equal(pool.programKeys().size, before);
+    pool.dispose();
+  });
+
+  it('gives the ground a floor texture without giving it a `#define` — the whole cobblestone trick', () => {
+    // 2026-08-13, and the trap this test exists for: the obvious way to texture the ground is
+    // `material.map`, which sets `USE_MAP`, which is a define — so a cobbled city floor and a bare
+    // field floor would be **two** compiled programs and the ground family would split for the first
+    // time since M5a. The map is a `sampler2D` the `blend.ts` patch declares instead, which is a
+    // uniform, so all 48 ground materials still emit identical GLSL.
+    const pool = new ScenePool();
+    const before = pool.programKeys().size;
+    assert.equal(pool.groundTextured(), 0, 'nothing is dressed before a pack has loaded');
+    for (const sector of SECTORS) {
+      for (const faded of [false, true]) {
+        assert.equal(pool.material(materialKey('ground', sector, faded)).map, null, `ground|${sector} has a map`);
+      }
+    }
+    // Every ground material is dressed by one sweep over the pool's own table, so the loader does not
+    // have to know which sectors take a floor.
+    const stand = new DataTexture(new Uint8Array([200, 190, 180, 255]), 1, 1);
+    const dressed = pool.dressGround(() => stand);
+    // Three sectors, and both the present and the faded twin of each: the level below has a floor too.
+    assert.equal(dressed, Object.keys(GROUND_TEXTURES).length * 2);
+    assert.equal(pool.groundTextured(), dressed);
+    assert.equal(pool.programKeys().size, before, 'texturing the ground compiled a program');
+    // Still no `material.map` anywhere, which is the property, not an implementation detail.
+    for (const sector of SECTORS) {
+      assert.equal(pool.material(materialKey('ground', sector, false)).map, null, `ground|${sector} grew a map`);
+    }
+    // World-space sampling walks straight off the edge of the unit square on the first metre.
+    assert.equal(stand.wrapS, RepeatWrapping);
+    assert.equal(stand.wrapT, RepeatWrapping);
+    assert.ok(stand.anisotropy > 1, 'a floor at 64 degrees needs anisotropy or it is a grey wash');
+    // Idempotent: `kit.ts` and `village.ts` both finish their loads by sweeping and either may win.
+    assert.equal(pool.dressGround(() => stand), dressed);
+    assert.equal(pool.programKeys().size, before);
+    stand.dispose();
     pool.dispose();
   });
 

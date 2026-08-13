@@ -11,9 +11,15 @@
  * `shallow_water`, `deep_water` and `underwater` are real sectors in `SECTORS`, carried per room by
  * M1's repaired inference. So the water is not a mesh somebody authors and not a heightfield the
  * renderer discovers: it is **one quad over every water room**, sized to the room block plus half the
- * gap on each side, exactly as `chunkPlan.ts`'s ground slab and mouth strips are. Two adjacent water
- * rooms therefore tile with no overlap to z-fight and no seam to see, and a lake is however many
- * rooms the MUD said were wet.
+ * gap on each side. Two adjacent water rooms therefore tile with no overlap to z-fight and no seam to
+ * see, and a lake is however many rooms the MUD said were wet.
+ *
+ * That sentence used to end *"exactly as `chunkPlan.ts`'s ground slab and mouth strips are"*, and it
+ * was **wrong about the ground for three milestones**: the slab was `ROOM_METRES` and the strips only
+ * floored a carved mouth, so two thirds of the gap under this water was void. The owner found it from
+ * a screenshot of a city street on 2026-08-13. The ground is now genuinely one slab of
+ * `ROOM_METRES + gap` — this surface's own shape, which it should have been all along — so the claim
+ * is true, and a lake sits over its own floor rather than over a hole with a floor in the middle.
  *
  * A whole-world mesh was the alternative and is wrong for the same reason a whole-world `InstancedMesh`
  * is wrong in `world3d.ts`: it can never be frustum-culled, it cannot be streamed, and it would have

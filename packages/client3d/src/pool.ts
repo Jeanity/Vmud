@@ -81,12 +81,19 @@ import {
   MeshDepthMaterial,
   MeshLambertMaterial,
   PlaneGeometry,
+  RepeatWrapping,
   SRGBColorSpace,
   TorusGeometry,
   type Texture,
 } from 'three';
 
-import { createBlendControls, patchGroundBlend, type BlendControls } from './blend.ts';
+import {
+  createBlendControls,
+  createGroundMapControls,
+  patchGroundBlend,
+  type BlendControls,
+  type GroundMapControls,
+} from './blend.ts';
 import {
   GRASS_FADE,
   KIT_ALPHA_TEST,
@@ -122,6 +129,7 @@ import {
   VILLAGE_WALL_MODELS_PER_ROOM,
   WALL_OPEN_OPACITY,
   archetypeColour,
+  groundTextureOf,
   kitRoleOf,
   materialFamily,
   materialKey,
@@ -214,11 +222,21 @@ const CHUNK_BUCKET_CEILING = ARCHETYPES.filter(
 /**
  * The ground's own pre-warm: one wrapper per chunk the window can hold.
  *
- * Exactly one, and provably: every ground placement a chunk produces — the room's slab and up to four
- * half-gap mouth strips — carries the same archetype, the same sector and the same fade, so they are
- * one bucket of at most five instances in a wrapper that holds thirty-two.
+ * Exactly one, and now trivially so: since 2026-08-13 a chunk produces **exactly one** ground
+ * placement — a single slab spanning the room block plus half the gap on every side (see
+ * `chunkPlan.ts`'s header on the voids that replaced). It used to be the slab plus up to four
+ * half-gap mouth strips, which was also one wrapper, at five instances of the thirty-two it holds.
  */
 const BLEND_POOL_SIZE = MAX_WINDOW_CHUNKS;
+
+/**
+ * Anisotropic samples on a floor texture. Eight, and clamped by three to the driver's maximum.
+ *
+ * The ground is seen at 64 degrees from vertical and stretches to the fog, so it is the one surface
+ * in this renderer where trilinear filtering alone turns paving into a grey wash within ten metres.
+ * Eight is the usual point of diminishing returns and is supported everywhere WebGL2 is.
+ */
+const GROUND_ANISOTROPY = 8;
 
 /**
  * Wrappers one chunk's *scatter* can want — M5a, and derived rather than measured.
@@ -685,6 +703,16 @@ export class ScenePool {
   /** Per-foliage-material uniforms, so `trees.ts` can write a species' cone onto its canopy. */
   private readonly foliages = new Map<MaterialKey, FoliageUniforms>();
   /**
+   * Per-ground-material floor-texture uniforms — 2026-08-13, and one entry for **every** ground
+   * material whether or not its sector has a texture.
+   *
+   * Uniformly, for `MATERIAL_KEYS`'s own reason about the village's `open` twin: a table with an
+   * exception in it is a table that will be wrong in one row, and a `GroundMapControls` whose gain is
+   * zero is four uniforms and no branch anywhere. It is also what lets {@link dressGround} be a sweep
+   * rather than a lookup with a guard.
+   */
+  private readonly groundMaps = new Map<MaterialKey, GroundMapControls>();
+  /**
    * The foliage materials whose `uFade` follows the live frame, and which of the two bands each takes.
    *
    * A list rather than a walk over {@link foliages} at write time, because a **canopy** must never be
@@ -974,9 +1002,14 @@ export class ScenePool {
 
     const material = new MeshLambertMaterial({ color: colour });
     if (family === 'blend') {
+      // The floor texture's four uniforms, this material's own — see `blend.GroundMapControls` for
+      // why they are per material where the blend knobs beside them are shared, and
+      // `prototypes.GROUND_TEXTURES` for which three of the sixteen sectors actually carry one.
+      const map = createGroundMapControls(groundTextureOf(sector), this.placeholder);
+      this.groundMaps.set(key, map);
       material.onBeforeCompile = (shader): void => {
         const patch = shader as unknown as ShaderPatch;
-        patchGroundBlend(patch, this.blend);
+        patchGroundBlend(patch, this.blend, map);
         // M5b: the ground is the surface the rain actually lands on, so the wet response goes on the
         // same 48 materials and in the same patch. Still one program — see `patchWetGround`.
         patchWetGround(patch, this.wet);
@@ -1133,6 +1166,59 @@ export class ScenePool {
     material.map = texture;
     const depth = this.depths.get(key);
     if (depth) depth.map = texture;
+  }
+
+  /**
+   * Put the floor textures on the ground materials, now that the pack they came from has arrived —
+   * 2026-08-13, and the sibling of {@link dressKit} with two differences that both matter.
+   *
+   * It writes a **uniform** rather than `material.map`, because `USE_MAP` is a `#define` and a city
+   * floor that compiled its own program would split the one family this renderer has spent five
+   * milestones keeping whole (`prototypes.GROUND_TEXTURES` rule 1). And it is a **sweep over the
+   * pool's own table** rather than a call per key, because the sectors that take a texture are data
+   * in `prototypes.ts` and the loader should not have to know them.
+   *
+   * The gain is raised here and only here. A material born with a gain and a placeholder would
+   * divide a white 1x1 by the texture's mean and draw the floor two-and-a-half times too bright for
+   * however long the fetch takes; born at zero, an undressed room is exactly M3's painted box and the
+   * texture simply appears.
+   *
+   * Idempotent, and it has to be: `kit.ts` and `village.ts` both finish their loads by sweeping, and
+   * which lands first is a race between two fetches.
+   */
+  dressGround(lookup: (id: string) => Texture | undefined): number {
+    let dressed = 0;
+    for (const [key, map] of this.groundMaps) {
+      const spec = groundTextureOf(partsOf(key).sector);
+      if (!spec) continue;
+      const texture = lookup(spec.texture);
+      if (!texture) continue;
+      // The floor samples this in **world space** and steps outside `[0, 1]` on the first metre, so
+      // three's default `ClampToEdgeWrapping` would smear one row of texels across a whole street.
+      // Shared with the village modules that also wear it, whose own uvs are inside the unit square —
+      // so this is a no-op for them, and `needsUpdate` because the parameters are applied at upload.
+      if (texture.wrapS !== RepeatWrapping || texture.wrapT !== RepeatWrapping) {
+        texture.wrapS = RepeatWrapping;
+        texture.wrapT = RepeatWrapping;
+        texture.needsUpdate = true;
+      }
+      // A floor at a 64-degree camera is the most grazing surface in the frame, which is exactly the
+      // case trilinear filtering blurs to mush. Clamped by three to whatever the driver supports.
+      if (texture.anisotropy < GROUND_ANISOTROPY) texture.anisotropy = GROUND_ANISOTROPY;
+      map.uGroundMap.value = texture;
+      map.uGroundGain.value = spec.gain;
+      dressed += 1;
+    }
+    return dressed;
+  }
+
+  /** Which ground materials are wearing a real floor texture. `__debug3d`, and the tests. */
+  groundTextured(): number {
+    let count = 0;
+    for (const map of this.groundMaps.values()) {
+      if (map.uGroundGain.value > 0) count += 1;
+    }
+    return count;
   }
 
   /**
@@ -1408,6 +1494,14 @@ export class ScenePool {
    * share a program with a `MeshLambertMaterial` that has none. Leaving them out would have made this
    * proxy report five where the browser compiles seven, which is worse than not having a proxy.
    *
+   * **The ground's floor texture is deliberately *not* in this key, and that is honest rather than a
+   * loophole.** It is a `sampler2D` the `blend.ts` patch declares, not `material.map`, so it sets no
+   * `#define` and every one of the 48 ground materials emits byte-identical GLSL whether it is bound
+   * to a cobble tile or to the white 1x1. Three compiles one program for them and this reports one.
+   * The distinction worth keeping hold of is that a *uniform* — a colour, an opacity, a sampler, a
+   * repeat — never splits a program and a *define* always does; `material.map` is a define wearing a
+   * uniform's name, which is exactly why the floor texture is not one.
+   *
    * Expect **seven** entries — plain Lambert, blended ground, card foliage, kit solid, kit leaf,
    * water, puddle — plus {@link depthPrograms} for the shadow pass. All 48 ground materials still
    * share one, and all 83 kit materials share two. That is the property.
@@ -1503,6 +1597,9 @@ export class ScenePool {
     this.tints.clear();
     this.casts.clear();
     this.families.clear();
+    // The textures these point at are the village pack's and were released in the sweep above; what
+    // is dropped here is only the uniform objects that held them.
+    this.groundMaps.clear();
     this.pulsing.length = 0;
   }
 }

@@ -468,6 +468,23 @@ export const KIT_MODELS: readonly string[] = Object.keys(KIT_PART_TEXTURES);
  */
 export const KIT_BLOCKS: ReadonlySet<string> = new Set(['rock-medium-1', 'rock-medium-2', 'rock-medium-3']);
 
+/**
+ * How far a blocking kit model reaches from its own origin at life size, in metres — **measured, and
+ * the number a boulder has to be pushed past a wall by.**
+ *
+ * From the generated nature manifest's `blockRadius`, which `modelgen` takes off the mesh's own
+ * bounding box: `rock-medium-1` 1.613, `rock-medium-2` 1.525, `rock-medium-3` 1.738. The largest,
+ * rounded up, because the placement rule has to hold for whichever one a hash rolls.
+ *
+ * `scatter.ts` used a flat 1.1 m clearance until 2026-08-13, which is **less than this** — so a
+ * boulder's origin was outside the room block, as the rule requires and the test checked, while half
+ * a metre of the boulder itself leaned back over walkable floor. Invisible at life size behind a
+ * three-metre wall, and not invisible at all once the mountain edge started drawing them at two and a
+ * half times that for the owner's rock face. The clearance is now this radius times the instance's
+ * own bulk, and `scatter.test.ts` checks the rock's **extent** rather than its origin.
+ */
+export const KIT_BLOCK_RADIUS = 1.75;
+
 /** The pool key for one kit primitive. `kit:bush-common-flowers:flowers`. */
 export function kitGeometryKey(model: string, texture: string): GeometryKey {
   return `kit:${model}:${texture}`;
@@ -1375,6 +1392,116 @@ export function archetypeColour(archetype: Archetype, sector: Sector | undefined
 /** The ground colour of a sector, for the far side of a {@link blend} boundary. */
 export function sectorGround(sector: Sector): number {
   return SECTOR_COLOUR[sector].ground;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Ground textures — 2026-08-13                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What a sector's floor is *made of*, where "a flat colour" was no longer enough.
+ *
+ * > *"I wonder why the entire room isn't cobblestones"* — the owner, in a walled city room.
+ *
+ * The honest answer to that question was that the floor had never been anything but a painted box:
+ * `SECTOR_COLOUR.city.ground` is `0x7a7570` and the cobbles in the screenshot were a handful of
+ * `RockPath_*` **meshes** that `scatter.ts`'s `edging` layer drops along the kerb. M5b textured the
+ * props and M6 textured the village panels; the ground is the last grey box in the renderer.
+ *
+ * ## Four rules this table has to obey, and how each is kept
+ *
+ * 1. **It must not cost a program.** `USE_MAP` is a `#define`, so a ground material with
+ *    `material.map` set and one without are two compiled programs and the `blend` family would split
+ *    in half. So the map is **not** `material.map` at all: it is a sampler the `blend.ts` patch
+ *    declares, which makes the GLSL of all 48 ground materials byte-identical whatever each one is
+ *    pointed at. A sampler is a uniform; a define is not. See `pool.programKeys`.
+ * 2. **It must not disturb the palette, because the fog of war is derived from it.**
+ *    `ScenePool.recolour` builds each material's unexplored/remembered tint row as a *ratio* off
+ *    `archetypeColour`, so a floor that came out of the texture at the texture's own brightness would
+ *    desaturate to the wrong grey. The shader therefore divides the sample by {@link
+ *    GroundTexture.mean} — the texture's own average, in the **linear** space three mixes in — so an
+ *    average texel multiplies the sector colour by exactly one and the palette is untouched. What the
+ *    texture contributes is its *variation*: mortar lines darker, stone faces lighter and a little
+ *    warmer, on top of the colour M3 chose.
+ * 3. **It must be tileable, and it is sampled in world space.** `blend.ts` already carries the warped
+ *    world position to the fragment shader (`vBlendWorld`), so the map is sampled there rather than
+ *    off the geometry's own `uv`. Three consequences, all wanted: the stones run continuously across
+ *    the room, across the gap and into the next room with no seam anywhere; the pattern bends with
+ *    M5c's warp instead of sliding over it; and one shared pooled `groundBox` can serve a slab and a
+ *    lid without its `uv` meaning two different scales. Nothing calls `fract`, so the derivatives stay
+ *    continuous and the mip chain works.
+ * 4. **The stones have to be stone-sized.** {@link GroundTexture.metres} is how far one repeat of the
+ *    texture reaches, which is the only honest way to state it — "a repeat every 3 m" says what a
+ *    player will measure, where "0.333 repeats per metre" says what the shader multiplies by.
+ *
+ * ## What was measured, and what was rejected
+ *
+ * Every candidate on disk was decoded headlessly and checked for tiling (mean absolute difference
+ * between opposite borders against the difference between adjacent interior rows — a tileable image
+ * scores about the same on both):
+ *
+ * | texture | 2048² unless noted | seam vs interior | verdict |
+ * | --- | --- | --- | --- |
+ * | `uneven-brick` | village | 1.3 / 2.3 vs 1.5 | **tiles.** Irregular flagstones in mortar — literally cobblestone |
+ * | `brick` | village | 5.6 / 5.4 vs 0.8 | tiles well enough. A regular course; a laid floor |
+ * | `plaster` | village | 0.5 / 0.8 vs 0.5 | **tiles.** Soft neutral mottle; dirt, once the hue is normalised out |
+ * | `path-rocks-diffuse` | nature, 1024² | 13.7 / 18.2 vs 0.2 | **rejected** — a UV *atlas*: stone islands on green. Tiling it would put grass between the cobbles |
+ * | `wood-trim` | village | 100.1 / 5.1 vs 0.8 | **rejected** — an atlas of three unrelated bands |
+ * | `rock-trim` | village | 0.1 / 10.5 vs 0.3 | rejected — tiles horizontally only |
+ * | `rocks-diffuse` | nature | 28.2 / 28.5 vs 0.4 | rejected — an atlas, same failure as the path rocks |
+ *
+ * The brief nominated `path-rocks-diffuse` and it is the one that cannot work, which is worth
+ * recording: it is the texture the *cobbles in the screenshot* wear, but they wear it through their
+ * own UVs and the green around them is what the island borders are made of.
+ *
+ * ## What is deliberately **not** here
+ *
+ * Every natural sector. `field`, `forest`, `hills`, `swamp`, `mountain`, `desert`, `arctic` and the
+ * three water sectors keep M3's colour under M5a's blend, because the owner asked about cobblestone
+ * and because a grass texture is the one thing a two-layer biome blend most wants to be free of — a
+ * detail map with a fixed repeat over a boundary the blend is deliberately breaking up would put a
+ * visible grid across the one transition this renderer has spent a milestone hiding. `cave` is left
+ * alone too: it is roofed rock and none of the three tileable candidates is rock.
+ */
+export interface GroundTexture {
+  /** A manifest texture id — `pool.texture(id)`. All three are the village pack's, already fetched. */
+  readonly texture: VillageTextureId;
+  /** Metres one repeat of the texture spans. See rule 4. */
+  readonly metres: number;
+  /** 0 leaves the floor exactly as M3 painted it; 1 is the full normalised multiply. */
+  readonly gain: number;
+  /**
+   * The texture's mean colour in **linear** space, measured over every texel.
+   *
+   * Decoded from the PNG on 2026-08-13 with the sRGB curve `srgbToLinear` states, averaged per
+   * channel. It is what makes rule 2 true, and it is a property of the file rather than a taste
+   * setting: a re-import that changed the image would want this re-measured, which is why the
+   * measurement is written down beside the number.
+   */
+  readonly mean: readonly [number, number, number];
+}
+
+export const GROUND_TEXTURES: Readonly<Partial<Record<Sector, GroundTexture>>> = {
+  // The owner's cobblestone. ~6.5 stones across a 2048² tile, so a 3 m repeat puts a stone at ~0.46 m
+  // — the size of the kit's own `RockPath_*` meshes, which is the yardstick a street already has
+  // lying on it. 3 m is also `VILLAGE_CHORD`, so a paved street and a village brick floor beat
+  // together; it does *not* align with the 11 m room pitch, so no room grid appears in the paving.
+  city: { texture: 'uneven-brick', metres: 3, gain: 0.85, mean: [0.2471, 0.1951, 0.1395] },
+  // A dirt road is not one colour and never was. `plaster` is a soft neutral mottle at this scale and
+  // nothing else — its own hue is divided out — so what it adds is patchiness, at a 7 m period that
+  // reads as ground rather than as a material. Low gain on purpose: a road with a *pattern* is paved.
+  road: { texture: 'plaster', metres: 7, gain: 0.4, mean: [0.4269, 0.3423, 0.2125] },
+  // A laid floor. ~7 courses a tile, so a 2.5 m repeat puts a brick at ~0.36 m. Mostly seen where the
+  // village kit has *not* dressed a room — an interior whose modules have not loaded, and the metre
+  // of floor that now runs out under the walls into the gap — because a dressed room lays its own
+  // `Floor_*` modules on top. That is the right place for it to be: the undressed case was the one
+  // still showing a flat brown box.
+  inside: { texture: 'brick', metres: 2.5, gain: 0.8, mean: [0.2931, 0.2390, 0.1811] },
+};
+
+/** The floor texture a sector's ground wears, or nothing — see {@link GROUND_TEXTURES}. */
+export function groundTextureOf(sector: Sector | undefined): GroundTexture | undefined {
+  return sector === undefined ? undefined : GROUND_TEXTURES[sector];
 }
 
 function darken(colour: number, factor: number): number {

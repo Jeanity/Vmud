@@ -17,6 +17,13 @@
  * walkable region, jittered ±1.5 m by the room seed"*, without anything anywhere computing an
  * outline.
  *
+ * **This is the layer the owner meant by *"the boundaries of the outside should be controlled by
+ * trees or cliff faces"*** (2026-08-13), and it already existed for exactly the space they were
+ * describing — the unreachable void one metre past the wall. What that ask changed is coverage
+ * rather than mechanism: `field` and `road` grow a treeline where they used to grow nothing, and
+ * `mountain` grows the kit's boulders at crag scale. See {@link TREES_BY_SECTOR} and
+ * {@link BOUNDARY_BULK}, and see them for the sectors that are still deliberately bare and why.
+ *
  * Two rows per side, {@link BOUNDARY_FRONT} against the wall and {@link BOUNDARY_BACK} behind it. The
  * second row is what makes it read as a wood rather than as a hedge: at a 64-degree camera you see
  * over the first row, and one row of trees against fog is a fence.
@@ -92,6 +99,7 @@ import {
   DIMENSIONS,
   GRASS_PER_ROOM_MAX,
   KIT_BLOCKS,
+  KIT_BLOCK_RADIUS,
   KIT_MODELS_PER_ROOM,
   KIT_PART_TEXTURES,
   KIT_PER_ROOM_MAX,
@@ -121,13 +129,34 @@ import {
  * keeps a treeline from being one vendor's silhouette repeated — which is exactly the mix §5 asked
  * for and the opposite of the asset-flip failure it warns about.
  *
- * `field` still gets undergrowth and no trees — an open field walled by trees is a forest clearing,
- * and calling every open sector a clearing would put the reference image's one composition on 18,818
- * rooms. **The brief's *"field: … lone CommonTree"* is the one palette line not implemented, and it is
- * a deliberate refusal**: the only layer that places a full-size tree is the boundary one, which
- * places *beyond* the room block, and a lone tree standing inside a field would be a nine-metre object
- * on ground the collision grid says is walkable — the precise lie this file's header forbids. It wants
- * a fourth placement rule (a tree in the *gap* between two field rooms) and that is a slice of its own.
+ * ## `field` and `road` joined the list on 2026-08-13, and the old refusal is worth reading first
+ *
+ * > *"the boundaries of the outside should be controlled by trees or cliff faces or something to show
+ * > there is an edge but it looks realistic"* — the owner, on what should stand where the built world
+ * > stops.
+ *
+ * `field` used to be refused here with *"an open field walled by trees is a forest clearing, and
+ * calling every open sector a clearing would put the reference image's one composition on 18,818
+ * rooms"*. That worry was about a palette; this layer is about an `edge`, and the two are not the same
+ * set. **A tree only ever grows on a side with no neighbour cell at all** — the outer boundary of the
+ * merged walkable region — so a field in the middle of a merged field region still grows nothing and
+ * still is not a clearing. Measured over the built world: 801 of 1,078 field rooms have at least one
+ * `edge` side and 6,219 of 8,236 road rooms do, which is the rim of the world and not its interior.
+ *
+ * What the refusal *was* right about is still refused: **the brief's *"field: … lone CommonTree"* is
+ * not implemented**, because the only layer that places a full-size tree places beyond the block, and
+ * a lone tree standing inside a field would be a nine-metre object on ground the collision grid says
+ * is walkable — the precise lie this file's header forbids.
+ *
+ * `road` leads with broadleaf and carries one pine, because a road is a thing that runs *through*
+ * country rather than a biome of its own: what should close it off is whatever the country is made
+ * of, and a mixed hedgerow reads as either. `city` is deliberately absent from this table and always
+ * will be — a city's own edge is its wall, which `chunkPlan.ts` draws a full gap deep, and a treeline
+ * outside a town wall would say the wrong thing about what is beyond it.
+ *
+ * **And `road` is exactly why {@link builtUp} exists.** One sector covers the Trade Way and the lanes
+ * of Bryn Shander, which are 192 of that town's 540 rooms; measured, a straight reading of this table
+ * grew 774 trees inside the walls, in the dead ends where a house should be. See that predicate.
  *
  * `desert` and `arctic` are thin on purpose and the brief says so: *"rocks + DeadTree only — **thin,
  * and named as a gap**; do not pad with off-palette models."* Two dead trees each, and the gap is
@@ -142,6 +171,11 @@ import {
  */
 const TREES_BY_SECTOR: Readonly<Partial<Record<Sector, readonly TreeVariant[]>>> = {
   forest: ['common-tree-5', 'common-tree-3', 'common-tree-4', 'common-tree-2', 'common-tree-1', 'fir-dense', 'pine-tall'],
+  // The world's edge, for the two open sectors that had none. Broadleaf-led and shorter lists than
+  // the forest's on purpose: three variants out of four is more repetition than three out of seven,
+  // which is what makes a field's boundary read as one wood rather than as an arboretum.
+  field: ['common-tree-5', 'common-tree-2', 'aspen-thin', 'common-tree-4'],
+  road: ['common-tree-3', 'common-tree-5', 'pine-2', 'common-tree-1', 'aspen-thin'],
   hills: ['pine-5', 'pine-2', 'pine-1', 'pine-broad', 'pine-young', 'snag-bare'],
   // Pine belts and mountain aprons, the brief's own phrase. Sparse rather than a wall: `mountain` had
   // no treeline at M5a and a solid one would hide the rock faces M6 is going to grow there.
@@ -227,12 +261,46 @@ const KIT_COUNT_BY_SECTOR: Readonly<Partial<Record<Sector, number>>> = {
   forest: 14,
   field: 12,
   hills: 9,
-  mountain: 6,
+  // Nine rather than six — 2026-08-13. A mountain room averages 2.05 `edge` sides, the most of any
+  // sector in the world, and at six instances split between boundary rocks and pebbles a side got one
+  // boulder. See {@link BOUNDARY_BULK}: the rock apron only reads as a face if there is more than one
+  // rock in it.
+  mountain: 9,
   swamp: 11,
   road: 10,
   city: 7,
   desert: 4,
   arctic: 3,
+};
+
+/**
+ * How much bigger than life a **boundary** kit model stands, by sector — the owner's *"cliff faces"*,
+ * and the honest name for what it actually is.
+ *
+ * > *"the boundaries of the outside should be controlled by trees or cliff faces or something to show
+ * > there is an edge but it looks realistic (as realistic as it can be in a game like this anyway)"*
+ *
+ * A treeline was already here for the sectors that grow trees and is now here for two more. A **rock
+ * face** is the other half of that sentence and the kits do not contain one: the Nature MegaKit's
+ * largest rock is `Rock_Medium` at 3.2 x 3.0 x 2.3 m, and the Medieval Village pack's stone is walls
+ * and floors. So this is not a modelled cliff and is not described as one — it is the kit's own
+ * boulder drawn at mountain scale, which is a **rock apron**: a run of 7–8 m crags standing 5 m tall
+ * behind a 3 m wall, which from this camera is what closes a mountain room off. Same kit, same
+ * palette, same faceted silhouette, so it stays inside the one-coherent-style rule; the honest cost is
+ * texel density, since the model's UV atlas stretches with it, and a Quaternius rock texture is flat
+ * enough to take it.
+ *
+ * **Only `mountain` takes a big one.** `hills` gets a token bump so a hillside's boulders read as
+ * bigger than a field's without becoming crags, and every other sector is left at life size — where
+ * the multiplier is 1 the arithmetic below is byte-identical to what it was, which is what keeps this
+ * a change to two biomes rather than to the world.
+ *
+ * A real cliff mesh is the named gap. Nothing in either pack is one, and inventing one in another
+ * style would break the rule that matters more than this feature does.
+ */
+const BOUNDARY_BULK: Readonly<Partial<Record<Sector, number>>> = {
+  mountain: 2.4,
+  hills: 1.3,
 };
 
 /**
@@ -321,7 +389,10 @@ export function kitScaleOf(model: string): readonly [number, number] {
  * - **`boundary`** — it blocks. `prototypes.KIT_BLOCKS` is `Rock_Medium` and nothing else, and the
  *   brief's *"trees and `Rock_Medium` block"* puts it under the treeline's rule: outside the room
  *   block, in the void the collision grid has no tiles for and where the player already cannot walk.
- *   A room with no `edge` side grows none, because there is nowhere honest to put one.
+ *   A room with no `edge` side grows none, because there is nowhere honest to put one. Since
+ *   2026-08-13 it is also where the owner's *rock face* lives: {@link BOUNDARY_BULK} draws a
+ *   mountain's boulders at two and a half times life size, and the clearance is the instance's own
+ *   reach rather than a flat metre so a crag stands clear of the floor instead of leaning over it.
  * - **`edging`** — it is flat and belongs at the margin. Path stones and pebbles, on the ring of tiles
  *   just inside the block's wall, which is where a track's edge is. That is the whole of *"the road
  *   **reads** as a road before M5c ever bends it"*: a strip of laid stone down each side.
@@ -345,6 +416,15 @@ export const BOUNDARY_BACK = 2;
 
 /** Metres beyond the room block's own boundary that each row stands. */
 const ROW_OFFSET = [0.6, 2.0] as const;
+
+/**
+ * How far past its own clearance a boundary kit model may be jittered, in metres at life size.
+ *
+ * Scaled by the instance's bulk with the clearance it follows, so a mountain crag is spread over a
+ * proportionally wider apron rather than being pushed out and then bunched. 1.4 is the number this
+ * layer has used since M5b; only the term in front of it changed.
+ */
+const BOUNDARY_KIT_SPREAD = 1.4;
 
 /** Metres of jitter, along the side and outward from it. The plan's *"jittered ±1.5 m by the room seed"*. */
 const JITTER_ALONG = 1.5;
@@ -432,6 +512,45 @@ export function paletteFor(sector: Sector, seed: number): readonly TreeVariant[]
 }
 
 /**
+ * The two sectors whose treeline is conditional: they describe a *thing that crosses country*, not
+ * the country. Everything else in {@link TREES_BY_SECTOR} is a biome and means it wherever it is.
+ */
+const OPEN_COUNTRY_ONLY: ReadonlySet<Sector> = new Set<Sector>(['road', 'field']);
+
+/**
+ * Whether this room is inside a settlement — **the one thing the `road` sector cannot tell you.**
+ *
+ * `road` is the Trade Way and it is also every lane in Bryn Shander: 192 of that town's 540 rooms,
+ * and 158 of the Trade Way's 281. Measured with the treeline switched on unconditionally, Bryn
+ * Shander grew **774 trees across 102 rooms** — in the dead ends behind its houses, where the thing
+ * that should close a street off is a building or the town wall and emphatically not a wood.
+ *
+ * The IR already knows, and it knows per neighbour rather than per room: {@link SceneEdge.sector} is
+ * the far room's ground, carried on every edge that has a room behind it. A lane has a house or a
+ * street on at least one side; a highway through the woods does not. So the question is asked of the
+ * neighbours and never of the room, which is what makes it work at the *rim* of a town — the lane
+ * that runs along the inside of the wall still has houses beside it and stays bare, and the road that
+ * leaves by the gate has open country on both sides one cell out and grows its hedgerow there.
+ *
+ * Only the two conditional sectors consult it. A forest room beside a town is still a forest and
+ * still grows its own treeline; refusing that would be this predicate over-reaching from "which
+ * sector is ambiguous" into "where may a tree stand", which is a different and much worse rule.
+ */
+export function builtUp(scene: RoomScene): boolean {
+  for (const dir of CARDINALS) {
+    const sector = scene.edges[dir].sector;
+    if (sector === 'city' || sector === 'inside') return true;
+  }
+  return false;
+}
+
+/** The species a room's *boundary* may grow — {@link paletteFor} under {@link builtUp}'s refusal. */
+export function treelineFor(scene: RoomScene): readonly TreeVariant[] {
+  if (OPEN_COUNTRY_ONLY.has(scene.biome.sector) && builtUp(scene)) return [];
+  return paletteFor(scene.biome.sector, scene.seed);
+}
+
+/**
  * The kit models one room may dress itself with — at most {@link KIT_MODELS_PER_ROOM}, by the same
  * hashed rotation {@link paletteFor} uses and for the same reason.
  *
@@ -471,7 +590,8 @@ export function planScatter(input: ScatterInput, order: readonly Cardinal[] = CA
   if (scene.enclosure.roofed) return [];
 
   const out: Placement[] = [];
-  const palette = paletteFor(scene.biome.sector, scene.seed);
+  // Not `paletteFor` — see {@link treelineFor}. A lane in a town is `road` and must not grow a wood.
+  const palette = treelineFor(scene);
   if (palette.length > 0) {
     // **The species are chosen before a single side is walked, and that is M5b's doing.** The
     // rationing the brief asks for is a *running count* — "at most one twisted tree in this room" —
@@ -726,7 +846,10 @@ function kit(input: ScatterInput, out: Placement[]): void {
     const model = palette[Math.floor(roll(scene.seed, SALT_KIT_MODEL, i) * palette.length)]!;
     const layer = kitLayerOf(model);
     const range = kitScaleOf(model);
-    const scale = range[0] + roll(scene.seed, SALT_KIT_SCALE, i) * (range[1] - range[0]);
+    // The bulk is the *sector's* and the jitter is the instance's; a crag is the product, and the
+    // product is what both the drawn size and the clearance below are computed from.
+    const bulk = layer === 'boundary' ? BOUNDARY_BULK[sector] ?? 1 : 1;
+    const scale = (range[0] + roll(scene.seed, SALT_KIT_SCALE, i) * (range[1] - range[0])) * bulk;
     const yaw = roll(scene.seed, SALT_KIT_YAW, i) * Math.PI * 2;
     // A degree or two off vertical, as the brief asks — and none at all for the flat pieces, because
     // a tilted paving stone is a paving stone sticking out of the road.
@@ -740,7 +863,13 @@ function kit(input: ScatterInput, out: Placement[]): void {
       const lateral = dir === 'north' || dir === 'south';
       const outward = dir === 'north' || dir === 'west' ? -1 : 1;
       const along = (roll(scene.seed, SALT_KIT_JITTER, i * 2) - 0.5) * (ROOM_METRES - 1);
-      const depth = 1.1 + roll(scene.seed, SALT_KIT_JITTER, i * 2 + 1) * 1.4;
+      // **Clearance first, jitter second, and the clearance is the instance's own reach.** A blocking
+      // model has to stand clear of the room block by however far it actually extends, or a slice of
+      // it leans back over walkable floor — which the flat 1.1 m this used to use already did at life
+      // size (`prototypes.KIT_BLOCK_RADIUS` is 1.75) and would have done by four metres at the
+      // mountain's crags. `scatter.test.ts` checks the rock's extent rather than its origin, which is
+      // the assertion that would have caught the old number and now cannot miss the new one.
+      const depth = KIT_BLOCK_RADIUS * scale + roll(scene.seed, SALT_KIT_JITTER, i * 2 + 1) * BOUNDARY_KIT_SPREAD;
       x = lateral ? cx + along : cx + outward * (HALF_ROOM + depth);
       z = lateral ? cz + outward * (HALF_ROOM + depth) : cz + along;
     } else {
@@ -763,6 +892,8 @@ function kit(input: ScatterInput, out: Placement[]): void {
         z,
         // A multiplier, not an extent — the kit is already at world scale. See `pushPart`'s docblock
         // for the same note about baked trees, and `KIT_SCALE` for the one model that needs shrinking.
+        // The sector's `BOUNDARY_BULK` is already folded in, and it is 1 everywhere but a mountain or
+        // a hillside boundary.
         sx: scale,
         sy: scale,
         sz: scale,

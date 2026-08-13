@@ -16,7 +16,9 @@ import { describe, it } from 'node:test';
 
 import {
   LEVEL_SEPARATION,
+  ROOM_GAP,
   ROOM_TILES,
+  SEAM_GAP,
   buildZoneTilemap,
   cellIndex,
   describeRoom,
@@ -29,7 +31,7 @@ import {
   type Zone,
 } from '@mygame/shared';
 
-import { planChunk, roomElevation, type Placement } from './chunkPlan.ts';
+import { planChunk, roomElevation, wallDepth, type Placement } from './chunkPlan.ts';
 import { ROOM_METRES, cellOriginTiles, placeFrame } from './frame.ts';
 import { DIMENSIONS } from './prototypes.ts';
 import { sampleZone, zoneOf } from './fixture.ts';
@@ -100,13 +102,63 @@ describe('the frame agrees with the collision grid', () => {
 describe('planChunk', () => {
   const zone = sampleZone();
 
-  it('gives every room exactly one full-size ground slab', () => {
+  it('gives every room one ground slab, and it reaches half the gap on every side', () => {
+    // **The void fix, as the property it is** — 2026-08-13. This used to assert one slab of exactly
+    // `ROOM_METRES` and it was the shape of the bug: the block was floored, the gap around it was
+    // floored only under a mouth, and the corners were floored by nobody. One slab of
+    // `ROOM_METRES + gap`, centred on the room, is the whole of the fix and it is *fewer* placements
+    // than the five it replaces. See `chunkPlan.ts`'s header for the 32.3% it measured against.
+    const frame = placeFrame(zone, 0);
+    const span = ROOM_METRES + frame.gap;
     for (const room of zone.rooms) {
       const plan = planOf(zone, room.id);
-      const slabs = plan.filter((p) => p.archetype === 'ground' && p.sx === ROOM_METRES && p.sz === ROOM_METRES);
-      assert.equal(slabs.length, 1, `room ${room.id}`);
-      assert.equal(slabs[0]!.sy, DIMENSIONS.groundThickness);
+      const grounds = plan.filter((p) => p.archetype === 'ground');
+      assert.equal(grounds.length, 1, `room ${room.id} draws ${grounds.length} ground placements`);
+      const slab = grounds[0]!;
+      assert.equal(slab.sx, span, `room ${room.id}`);
+      assert.equal(slab.sz, span, `room ${room.id}`);
+      assert.equal(slab.sy, DIMENSIONS.groundThickness);
+      // Centred on the block, so the reach is symmetric and two neighbours meet on the midline
+      // rather than one of them overshooting into the other's half and z-fighting.
+      const origin = cellOriginTiles(frame, room.pos.x, room.pos.y);
+      assert.equal(slab.x, origin.tx + ROOM_METRES / 2, `room ${room.id} slab is off-centre in x`);
+      assert.equal(slab.z, origin.ty + ROOM_METRES / 2, `room ${room.id} slab is off-centre in z`);
     }
+  });
+
+  it('tiles the gap between two rooms exactly, with no overlap and no hole', () => {
+    // Rooms 2 (0,1) and 3 (1,1) are adjacent. Their slabs must meet on the midline between the two
+    // blocks: touching is the fix, overlapping would z-fight two coplanar surfaces at the same
+    // elevation, and falling short is the bug the owner reported.
+    const frame = placeFrame(zone, 0);
+    const west = planOf(zone, 2).find((p) => p.archetype === 'ground')!;
+    const east = planOf(zone, 3).find((p) => p.archetype === 'ground')!;
+    const westReach = west.x + west.sx / 2;
+    const eastReach = east.x - east.sx / 2;
+    assert.ok(Math.abs(westReach - eastReach) < 1e-9, `a ${(eastReach - westReach).toFixed(3)} m gap remains`);
+    // And that meeting point is the middle of the gap, not the edge of either block.
+    const origin = cellOriginTiles(frame, 0, 1);
+    assert.equal(westReach, origin.tx + ROOM_METRES + frame.gap / 2);
+  });
+
+  it('draws a wall at least half the gap deep, so a wall *is* the gap', () => {
+    // The owner's second ask: *"the gap should be the width of a wall if there is a wall, so that
+    // what you see is a wall and not a gap at all."* Two rooms facing each other across a wall each
+    // draw half of it; at `edgeThickness` alone they left a 0.8 m slot of sky down the middle.
+    for (const gap of [SEAM_GAP, ROOM_GAP]) {
+      assert.ok(wallDepth(DIMENSIONS.edgeThickness, gap) * 2 >= gap, `an edge leaves a slot at gap ${gap}`);
+      assert.ok(wallDepth(DIMENSIONS.barrierThickness, gap) * 2 >= gap, `a barrier leaves a slot at gap ${gap}`);
+      // §4's correctness requirement survives the change at every gap width the world uses: a
+      // barrier is still strictly the thicker of the two, it is simply no longer thicker by 2.3x.
+      assert.ok(
+        wallDepth(DIMENSIONS.barrierThickness, gap) > wallDepth(DIMENSIONS.edgeThickness, gap),
+        `a barrier is not thicker than an edge at gap ${gap}`,
+      );
+    }
+    // A wall never *shrinks* below the archetype's own thickness — the gap is a floor, not the answer.
+    assert.equal(wallDepth(DIMENSIONS.barrierThickness, ROOM_GAP), DIMENSIONS.barrierThickness);
+    assert.equal(wallDepth(DIMENSIONS.edgeThickness, ROOM_GAP), ROOM_GAP / 2);
+    assert.equal(wallDepth(DIMENSIONS.edgeThickness, SEAM_GAP), DIMENSIONS.edgeThickness);
   });
 
   it('makes a barrier thicker and taller than an edge — the plan calls this correctness', () => {
@@ -152,11 +204,12 @@ describe('planChunk', () => {
     const centre = { x: origin.tx + ROOM_METRES / 2, z: origin.ty + ROOM_METRES / 2 };
     const plan = planOf(zone, 2);
     assert.deepEqual(onSide(plan, ['edge', 'barrier'], 'east', centre), []);
-    // And the gap is floored, half from each side, so the two grounds meet.
-    const strips = onSide(plan, ['ground'], 'east', centre);
-    assert.equal(strips.length, 1);
-    assert.equal(strips[0]!.sz, ROOM_METRES, 'the strip is as wide as the mouth');
-    assert.equal(strips[0]!.sx, frame.gap / 2, 'each room floors half the gap');
+    // And the gap is floored, half from each side, so the two grounds meet — by the one slab now
+    // rather than by a strip, which is why `onSide` finds nothing *past* the block: the slab's centre
+    // is the room's centre. What matters is its reach.
+    assert.deepEqual(onSide(plan, ['ground'], 'east', centre), [], 'the gap is no longer a separate strip');
+    const slab = plan.find((p) => p.archetype === 'ground')!;
+    assert.equal(slab.x + slab.sx / 2, centre.x + ROOM_METRES / 2 + frame.gap / 2, 'each room floors half the gap');
   });
 
   it('hangs a leaf in a door mouth and flanks it with wall', () => {
@@ -215,7 +268,12 @@ describe('planChunk', () => {
     const plan = planOf(seamZone, 10);
     assert.deepEqual(plan.filter((p) => p.archetype === 'portal'), [], 'a seam must never grow a ring');
     // It does keep its ground: the road runs off the edge of the Place rather than stopping short.
-    assert.ok(plan.filter((p) => p.archetype === 'ground').length >= 2);
+    // Since 2026-08-13 that is the one slab reaching half the gap out on every side, where it used to
+    // be the block plus a strip in the seam's own mouth — so the count is 1 and the *reach* is what
+    // carries the claim.
+    const grounds = plan.filter((p) => p.archetype === 'ground');
+    assert.equal(grounds.length, 1);
+    assert.ok(grounds[0]!.sx > ROOM_METRES, 'the ground stops at the block and the road ends in a cliff');
   });
 
   it('is deterministic', () => {

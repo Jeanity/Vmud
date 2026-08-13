@@ -26,16 +26,63 @@
  *
  * 1. **A seam draws open ground and no marker.** M2's ruling is that a seam is an ordinary step in
  *    the fiction, so it must not get the emissive ring — and the ring is the only thing `portal`
- *    contributes. What a seam *does* get is its mouth strip, so the ground reads as running off the
- *    edge of the Place rather than stopping at a cliff. The strip is not walkable (`mouth.carved` is
- *    false and the collision grid has void there; the server carries the walker across when they
- *    press against it), and at grey-box that half-metre of visual licence buys the correct reading of
- *    a road leaving town. Revisit it the moment a player notices they are standing on nothing.
- * 2. **Each room draws half the gap.** Two adjacent rooms tile a two-metre gap exactly, with no
- *    overlap to z-fight and no hole at the window's edge where the far room is not loaded.
+ *    contributes. What a seam *does* get is its share of the gap, so the ground reads as running off
+ *    the edge of the Place rather than stopping at a cliff. That ground is not walkable
+ *    (`mouth.carved` is false and the collision grid has void there; the server carries the walker
+ *    across when they press against it), and at grey-box that metre of visual licence buys the
+ *    correct reading of a road leaving town. Revisit it the moment a player notices they are
+ *    standing on nothing.
+ * 2. **Each room draws half the gap — the whole of it, on every side.** See below; this used to be a
+ *    claim rather than a fact and the owner found the difference.
  * 3. **A barrier is thicker than an edge and is otherwise the same material.** The plan calls the
  *    thickness a correctness requirement — you must not be able to see into a room you cannot reach —
  *    so the difference is in the geometry, where it cannot be lost to a palette change.
+ *
+ * ## The gap, and the three answers it wants — 2026-08-13
+ *
+ * The owner, in a walled city room: *"can we close the gaps between rooms? the rooms should bump
+ * right up against the next room so we don't have those bluish looking voids between rooms"*, and
+ * then *"the gap should be the width of a wall if there is a wall, so that what you see is a wall and
+ * not a gap at all."*
+ *
+ * Reading 2 above **said** the gap was tiled and it was not. Measured over all 46,544 rooms before
+ * the fix: of each room's own share of the surrounding gap ring — four `9 x 1 m` sides and four
+ * `1 x 1 m` corners, 40 m² a room — only **32.3%** was drawn, and in a city room only **17.4%**.
+ * Three separate holes, each with its own cause:
+ *
+ * 1. **A side with no mouth drew no ground at all.** The strip was emitted under `if (span > 0)`, and
+ *    77,341 of the world's 186,176 cardinal edges have no mouth (`edge`, `barrier`, `portal`).
+ * 2. **A mouth only floored its own width.** `city` is not an {@link tilemap.OUTDOOR_SECTORS} sector,
+ *    so every city-to-city link carves a three-tile connector and six of the nine metres of that
+ *    boundary stayed void *even where you can walk through it*.
+ * 3. **Nobody ever drew the corners.** Four rooms meet at a `2 x 2 m` square and each owns a quarter
+ *    of it; no code path emitted any of the four, so every junction in the world had a hole in it.
+ *
+ * And the wall did not close it either: `edgeThickness` is 0.6 m against a `ROOM_GAP` of 2, so two
+ * rooms facing each other across a wall left a **0.8 m slot of nothing** running down the middle of
+ * it — which at this camera is a strip of sky, and is the bluish colour the owner was looking at.
+ *
+ * The three answers, and they are three because the three cases genuinely differ:
+ *
+ * - **Ground: one slab, `ROOM_METRES + gap` square.** Not the block plus four strips plus four
+ *   corners — one box, centred on the room, reaching exactly half the gap in every direction. Two
+ *   adjacent rooms then tile the gap exactly with no overlap to z-fight, the corners close because
+ *   they were never a special case, and the count of ground placements a chunk makes goes from *up to
+ *   five* to *exactly one*. `water.ts` has drawn its surface at `ROOM_METRES + gap` since M5b for
+ *   precisely this reason (and its docblock already claimed the ground did too); the lid every roofed
+ *   room gets is the same box in the other direction. The ground was the odd one out.
+ * - **Wall: at least half the gap deep.** {@link wallDepth}. A wall's inner face stays on the
+ *   boundary line and its outer face lands on the gap's midline, so two facing rooms' walls meet
+ *   there — *what you see is a wall and not a gap at all*. A barrier keeps its own greater thickness.
+ * - **The world's edge is dressed rather than filled.** A side with no neighbour cell has nothing to
+ *   meet, so the ground runs half a gap out and stops, and what stands on it is `scatter.ts`'s
+ *   boundary layer — a treeline, a rock face, or in a city the wall itself.
+ *
+ * The visual licence in the first of those is worth stating plainly, because it is the price: ground
+ * is now drawn under every wall and one metre past the outermost one, and the collision grid has void
+ * in most of it. That is reading 1's licence applied to the whole ring instead of to the mouths, and
+ * it is bought back by the second answer — wherever the boundary is solid, a wall stands on that
+ * ground and you cannot see the floor you cannot reach.
  *
  * ## The rings: portals only — the stairwell glow was retired by the owner
  *
@@ -135,9 +182,16 @@ export interface ChunkPlanInput {
    * True when `interior.ts` is dressing this room's walls with village modules.
    *
    * The grey `edge`/`barrier` boxes are then **not drawn**, and that is a suppression rather than an
-   * overlay because the two do not nest: the box occupies 0 to 0.6 m outward of the boundary line and
-   * the panel occupies 0.14 m in to 0.47 m out, so each protrudes past the other and a street would
-   * see a grey slab standing behind its own plaster.
+   * overlay because the two do not nest: the box occupies 0 to {@link wallDepth} outward of the
+   * boundary line — 1 m at `ROOM_GAP` since the gap fix, 0.6 m before it — and the panel occupies
+   * 0.14 m in to 0.47 m out, so each protrudes past the other and a street would see a grey slab
+   * standing behind its own plaster.
+   *
+   * The cost of the suppression grew with that number and is worth naming: a dressed room's panel is
+   * 0.61 m where the grey box would be 1 m, so 0.39 m of the room's own floor now shows between two
+   * buildings instead of being covered. That is a footing at the base of a wall rather than the hole
+   * it replaced — the ground runs the whole way across the gap either way — and the alternative,
+   * deepening the module, would stretch its texture through the wall's thickness for it.
    *
    * The safety argument is that this is only ever true when the caller has the geometry: `world3d.ts`
    * sets it from `VillageSet.available`, which is false until every wall module of the room's own
@@ -174,18 +228,24 @@ const HASH_RANGE = 0x1_0000_0000;
  * `max` is what makes a blend that arrives along the north edge wrap round the corner instead of
  * stopping dead at it. **Roofed rooms get four zeros** — the plan's *"Flat indoors"*, implemented as
  * the absence of a term rather than as a branch.
+ *
+ * **The corners are the *slab's*, and the slab is now `ROOM_METRES + gap` square**, so the ramp
+ * finishes on the midline between two rooms rather than at the room's own boundary line. That is a
+ * consequence of closing the gap and it is an improvement rather than a cost: the weight field is now
+ * continuous over the whole plane instead of stopping at each block and resuming as a strip of
+ * constant weight in the doorways. The strip's own reading — *"a strip that faded back toward the
+ * room's own biome would put a second, backwards boundary inside a doorway"* — retires with the
+ * strip, because there is no second surface left to disagree with the first.
  */
 export function groundBlendOf(scene: RoomScene): {
   readonly corners: readonly [number, number, number, number];
   readonly tint: readonly [number, number, number, number];
-  readonly edges: Readonly<Partial<Record<Cardinal, number>>>;
 } {
   const phase = hashCell(scene.seed, 0, 0, SALT_BLEND_PHASE) / HASH_RANGE;
   const own = linearRgb(sectorGround(scene.biome.sector));
   const flat = {
     corners: [0, 0, 0, 0] as const,
     tint: [own[0], own[1], own[2], phase] as const,
-    edges: {},
   };
   if (scene.enclosure.roofed || scene.biome.blend.length === 0) return flat;
 
@@ -208,7 +268,6 @@ export function groundBlendOf(scene: RoomScene): {
     // north-west corner and the winding runs NW, NE, SE, SW.
     corners: [Math.max(n, w), Math.max(n, e), Math.max(s, e), Math.max(s, w)],
     tint: [layerB[0], layerB[1], layerB[2], phase],
-    edges,
   };
 }
 
@@ -265,6 +324,27 @@ function alongX(dir: Cardinal): boolean {
  */
 const HALF_ROOM = ROOM_METRES / 2;
 
+/**
+ * How deep a wall stands out from its own boundary line, in metres — **the owner's *"the gap should
+ * be the width of a wall if there is a wall"*, as one function.**
+ *
+ * At least half the gap, so the wall's outer face lands on the midline and the room facing it across
+ * the boundary meets it there exactly. `DIMENSIONS.edgeThickness` becomes a **floor** rather than the
+ * answer, which is what keeps a seamless zone honest: `SEAM_GAP` is 1, half of it is 0.5 m, and a
+ * 0.5 m city wall is a partition. The two walls then overlap by 0.1 m in that case, which is two
+ * opaque boxes interpenetrating and not a z-fight — their faces are 0.1 m apart, not coplanar.
+ *
+ * **A barrier keeps its own greater thickness**, so §4's *"visually solid and thicker than an
+ * `edge`"* survives the change: at `ROOM_GAP` the pair is 1.0 m against 1.4 m rather than 0.6 against
+ * 1.4. That is a smaller ratio and it is the honest cost of closing the gap — but the *requirement*
+ * behind it ("you must not be able to see into a room you cannot reach") is now met by construction
+ * on both kinds, because neither leaves a slot to see through. `chunkPlan.test.ts` asserts the
+ * inequality at every gap width the world uses rather than at the constants alone.
+ */
+export function wallDepth(thickness: number, gapMetres: number): number {
+  return Math.max(thickness, gapMetres / 2);
+}
+
 export function planChunk(input: ChunkPlanInput): readonly Placement[] {
   const { scene, origin, elevation, gap, faded } = input;
   const sector = scene.biome.sector;
@@ -283,10 +363,11 @@ export function planChunk(input: ChunkPlanInput): readonly Placement[] {
   const cz = z0 + HALF_ROOM;
   const out: Placement[] = [];
 
-  // M5a: which biome this ground turns into, and where. Computed once — the slab and the four mouth
-  // strips are one bucket and must agree, or the seam between a room and its own doorway would be a
-  // second, unintended boundary.
+  // M5a: which biome this ground turns into, and where. One slab carries it now — see the header on
+  // why the four mouth strips that used to have to agree with it are gone.
   const blend = groundBlendOf(scene);
+  const gapMetres = gap * METRES_PER_TILE;
+  const half = gapMetres / 2;
 
   const put = (
     archetype: Archetype,
@@ -320,14 +401,19 @@ export function planChunk(input: ChunkPlanInput): readonly Placement[] {
 
   /* ------------------------------------------------------------------ ground */
 
+  // **One slab, the block plus half the gap on every side** — the whole of the void fix, and see the
+  // header for the three holes it closes and the 32.3% it replaces. `water.ts` has sized its surface
+  // this way since M5b and the lid has since M6; the ground was the last surface still drawn to the
+  // block alone.
+  const groundSpan = ROOM_METRES + gapMetres;
   put(
     'ground',
     cx,
     elevation - DIMENSIONS.groundThickness / 2,
     cz,
-    ROOM_METRES,
+    groundSpan,
     DIMENSIONS.groundThickness,
-    ROOM_METRES,
+    groundSpan,
     0,
     0,
     0,
@@ -335,9 +421,6 @@ export function planChunk(input: ChunkPlanInput): readonly Placement[] {
   );
 
   /* ------------------------------------------------------------------- sides */
-
-  const gapMetres = gap * METRES_PER_TILE;
-  const half = gapMetres / 2;
 
   for (const dir of CARDINALS) {
     const edge = scene.edges[dir];
@@ -349,55 +432,36 @@ export function planChunk(input: ChunkPlanInput): readonly Placement[] {
     const bx = cx + ox * HALF_ROOM;
     const bz = cz + oz * HALF_ROOM;
 
-    // Half the gap, filled with ground, wherever a mouth crosses. The other half is the far room's.
-    if (span > 0) {
-      const stripCentre = mouthCentre(x0, z0, dir, offset, span);
-      // The strip is *past* the boundary line, so it carries this side's weight uniformly rather than
-      // a corner field: the room's own ramp has already run out by the time it starts, and a strip
-      // that faded back toward the room's own biome would put a second, backwards boundary inside a
-      // doorway.
-      const at = blend.edges[dir] ?? 0;
-      put(
-        'ground',
-        lateral ? stripCentre : bx + ox * (half / 2),
-        elevation - DIMENSIONS.groundThickness / 2,
-        lateral ? bz + oz * (half / 2) : stripCentre,
-        lateral ? span : half,
-        DIMENSIONS.groundThickness,
-        lateral ? half : span,
-        0,
-        0,
-        0,
-        [at, at, at, at],
-      );
-    }
-
-    // The wall, or the two segments of it either side of the mouth.
+    // The wall, or the two segments of it either side of the mouth. `thickness` is the archetype's
+    // own; `depth` is what is drawn, and it is at least half the gap so the wall *is* the gap — see
+    // {@link wallDepth}.
     const wall: Archetype = edge.solid ? (edge.kind === 'barrier' ? 'barrier' : 'edge') : 'edge';
     const thickness = wall === 'barrier' ? DIMENSIONS.barrierThickness : DIMENSIONS.edgeThickness;
+    const depth = wallDepth(thickness, gapMetres);
     const height = headroom ?? (wall === 'barrier' ? DIMENSIONS.barrierHeight : DIMENSIONS.edgeHeight);
     const wallY = elevation + height / 2;
-    const wallOut = thickness / 2;
+    const wallOut = depth / 2;
     if (dressed) {
       // Suppressed, not overlaid — see `ChunkPlanInput.dressed`. Everything else on this side (the
       // mouth strip above, the door leaf and the ring below) is unaffected: the village kit dresses
       // walls and floors, and a door is a door in a plastered room exactly as it is in a grey one.
     } else if (span <= 0) {
-      // The whole side. Overlong by a thickness at each end so the four corners close.
-      const length = ROOM_METRES + 2 * thickness;
+      // The whole side. Overlong by a depth at each end so the four corners close — and now that a
+      // depth is half the gap, that overhang is exactly this room's quarter of the corner square.
+      const length = ROOM_METRES + 2 * depth;
       put(
         wall,
         lateral ? cx : bx + ox * wallOut,
         wallY,
         lateral ? bz + oz * wallOut : cz,
-        lateral ? length : thickness,
+        lateral ? length : depth,
         height,
-        lateral ? thickness : length,
+        lateral ? depth : length,
       );
     } else if (span < ROOM_METRES) {
       // `offset` is `(ROOM_TILES - span) / 2` by construction, so both segments are the same length.
-      const segment = offset + thickness;
-      const low = (lateral ? x0 : z0) - thickness + segment / 2;
+      const segment = offset + depth;
+      const low = (lateral ? x0 : z0) - depth + segment / 2;
       const high = (lateral ? x0 : z0) + offset + span + segment / 2;
       for (const along of [low, high]) {
         put(
@@ -405,9 +469,9 @@ export function planChunk(input: ChunkPlanInput): readonly Placement[] {
           lateral ? along : bx + ox * wallOut,
           wallY,
           lateral ? bz + oz * wallOut : along,
-          lateral ? segment : thickness,
+          lateral ? segment : depth,
           height,
-          lateral ? thickness : segment,
+          lateral ? depth : segment,
         );
       }
     }

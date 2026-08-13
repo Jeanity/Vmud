@@ -47,7 +47,7 @@ import {
   type Zone,
 } from '@mygame/shared';
 
-import { createBlendControls, patchGroundBlend } from './blend.ts';
+import { createBlendControls, createGroundMapControls, patchGroundBlend } from './blend.ts';
 import { planChunk } from './chunkPlan.ts';
 import { METRES_PER_TILE, ROOM_METRES, cellOriginTiles, placeFrame } from './frame.ts';
 import type { ShaderPatch } from './foliage.ts';
@@ -223,7 +223,7 @@ describe('the warp in the shader', () => {
       fragmentShader: ShaderLib.lambert.fragmentShader,
       uniforms: {},
     };
-    patchGroundBlend(shader, createBlendControls());
+    patchGroundBlend(shader, createBlendControls(), createGroundMapControls(undefined, null));
     patchWarpVertex(shader, createWarpControls());
     const warp = shader.vertexShader.indexOf('warpDelta');
     const blend = shader.vertexShader.indexOf('vec2 blendUv = position.xz + 0.5;');
@@ -527,7 +527,10 @@ describe('the warp over the built world', () => {
         }
       }
     }
-    assert.ok(surfaces > 100000, `only ${surfaces} shader-warped surfaces swept`);
+    // One ground slab a room plus a surface over every wet one. This was `> 100000` while a room drew
+    // its slab **and up to four half-gap mouth strips**; closing the voids (2026-08-13) replaced all
+    // five with a single slab spanning the block plus half the gap, so the honest floor is one a room.
+    assert.ok(surfaces > 46000, `only ${surfaces} shader-warped surfaces swept`);
   });
 });
 

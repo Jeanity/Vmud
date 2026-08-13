@@ -57,17 +57,35 @@
  * where the ground is committed to one biome or the other. That is what makes it a *boundary*
  * breakup rather than a texture over the whole slab.
  *
+ * ## The floor texture rides in the same patch — 2026-08-13
+ *
+ * *"I wonder why the entire room isn't cobblestones."* The ground was a flat colour and had been
+ * since M3, so the answer was "because nothing ever put a texture on it". The map lives here rather
+ * than on the material because of the one property this file exists to protect — see the next
+ * section — and because the thing it most needs is already computed here: `vBlendWorld`, the warped
+ * world position, which is what lets one repeat of a cobble tile run across a room, across the gap
+ * and into the next room with no seam and no per-room uv. {@link BLEND_FRAGMENT_GLSL} is where it
+ * lands and why it lands *after* the two-layer mix; `prototypes.GROUND_TEXTURES` is which sectors
+ * take one and what was measured to choose them.
+ *
  * ## One program
  *
  * Every one of the 48 ground materials (16 sectors x present/faded, minus the faded fold) carries the
  * same `onBeforeCompile` and the same `customProgramCacheKey`, so the pool's ground family is **one**
  * compiled program — the same discipline `prototypes.ts` has kept since M3, and the reason a hundred
  * sector pairs cost nothing.
+ *
+ * **The floor texture did not change that number and could very easily have.** `material.map` sets
+ * `USE_MAP`, which is a `#define`: a cobbled city floor and an untextured field floor would have been
+ * two programs, and the ground family would have split for the first time since M5a. A sampler
+ * *declared by this patch* is a uniform instead, so all 48 compile byte-identical GLSL and differ
+ * only in what is bound. `pool.programKeys` still answers nine.
  */
 
-import { Uniform } from 'three';
+import { Uniform, Vector3, type Texture } from 'three';
 
 import type { ShaderPatch } from './foliage.ts';
+import type { GroundTexture } from './prototypes.ts';
 
 /* -------------------------------------------------------------------------- */
 /* Knobs                                                                       */
@@ -101,6 +119,49 @@ export function createBlendControls(): BlendControls {
   return {
     uBlendNoise: new Uniform(BLEND_NOISE),
     uBlendFrequency: new Uniform(BLEND_FREQUENCY),
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* The floor texture — 2026-08-13                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One ground material's floor texture, as uniforms — **per material, where {@link BlendControls} is
+ * shared, and the difference is the whole point.**
+ *
+ * `BlendControls` is one object handed to all 48 materials by reference, because a knob that is
+ * tuned once must move all of them at once. This is the opposite: a city floor is cobbled and a
+ * forest floor is not, and *which texture* is exactly the thing that varies between two materials in
+ * one family. Both are uniforms, so both cost nothing in programs; see `prototypes.GROUND_TEXTURES`
+ * rule 1 for why the map must not be `material.map`.
+ *
+ * `uGroundGain` at zero is the untextured case and it is a real one: 13 of the 16 sectors take it,
+ * and at zero the `mix` below returns white and the fragment is M3's painted box to the bit.
+ */
+export interface GroundMapControls {
+  readonly uGroundMap: Uniform<Texture | null>;
+  /** Repeats per metre — `1 / GroundTexture.metres`, converted here so the shader multiplies. */
+  readonly uGroundScale: Uniform<number>;
+  readonly uGroundGain: Uniform<number>;
+  /** The texture's own linear mean, so an average texel multiplies to one. See rule 2. */
+  readonly uGroundMean: Uniform<Vector3>;
+}
+
+export function createGroundMapControls(
+  spec: GroundTexture | undefined,
+  placeholder: Texture | null,
+): GroundMapControls {
+  return {
+    // Never null in practice: a sampler with nothing bound reads texture unit 0, which is whatever
+    // the last draw happened to leave there. The white 1x1 `pool.ts` already mints for the kit is the
+    // same trick in the same shape — see `pool.whiteTexture`.
+    uGroundMap: new Uniform<Texture | null>(placeholder),
+    uGroundScale: new Uniform(spec ? 1 / spec.metres : 0),
+    // Zero until the real texture lands. A gain that was live against the placeholder would multiply
+    // the floor by `white / mean`, which is a room that flashes bright and then settles.
+    uGroundGain: new Uniform(0),
+    uGroundMean: new Uniform(new Vector3(...(spec?.mean ?? [1, 1, 1]))),
   };
 }
 
@@ -140,6 +201,10 @@ export const BLEND_VERTEX_GLSL = /* glsl */ `
 export const BLEND_FRAGMENT_DECL = /* glsl */ `
 uniform float uBlendNoise;
 uniform float uBlendFrequency;
+uniform sampler2D uGroundMap;
+uniform float uGroundScale;
+uniform float uGroundGain;
+uniform vec3 uGroundMean;
 varying float vBlendWeight;
 varying vec3 vBlendColour;
 varying vec2 vBlendWorld;
@@ -161,6 +226,18 @@ float blendBreakup(vec2 p) {
  * `instanceColor` is this renderer's fog of war (`fogOfWar.ts`). Blending after it would leave the
  * neighbour's soil at full brightness inside an unexplored room — a bright green tongue reaching into
  * a black silhouette. Blending first means the fog dims the answer rather than half of it.
+ *
+ * **The floor texture goes in the same block, after the mix, and that ordering is load-bearing three
+ * times over.** After the mix, because a cobble pattern multiplied over layer A and *then* mixed
+ * toward a flat layer B would leave the neighbouring biome untextured on one side of a soft boundary
+ * and stone on the other — the seam would reappear as a texture edge exactly where a milestone was
+ * spent hiding it. Still before `<color_fragment>`, for the same reason the mix is: the fog of war
+ * must dim a cobbled street, not sit under it. And **faded out by the same `w`**, so the stones
+ * dissolve as the ground turns into whatever is next door rather than running into it — which is what
+ * makes a paved square end at the field it meets instead of paving the field.
+ *
+ * Three's `map_fragment` is not involved at all and there is no `USE_MAP` in this shader. See
+ * `prototypes.GROUND_TEXTURES` rule 1.
  */
 export const BLEND_FRAGMENT_GLSL = /* glsl */ `
   {
@@ -169,14 +246,30 @@ export const BLEND_FRAGMENT_GLSL = /* glsl */ `
     float gate = 4.0 * base * (1.0 - base);
     float wobble = blendBreakup(vBlendWorld * uBlendFrequency + vBlendPhase * 17.0);
     float w = clamp(base + wobble * uBlendNoise * gate, 0.0, 1.0);
-    diffuseColor.rgb = mix(diffuseColor.rgb, vBlendColour, smoothstep(0.03, 0.97, w));
+    float layerB = smoothstep(0.03, 0.97, w);
+    diffuseColor.rgb = mix(diffuseColor.rgb, vBlendColour, layerB);
+    // World-space, so the paving runs through the room, through the gap and into the next room with
+    // no seam and no per-room uv. uGroundGain is 0 for the thirteen sectors with no floor texture
+    // and until the PNG lands, and at 0 this whole term is a multiply by one.
+    vec3 stone = texture2D(uGroundMap, vBlendWorld * uGroundScale).rgb / uGroundMean;
+    diffuseColor.rgb *= mix(vec3(1.0), stone, uGroundGain * (1.0 - layerB));
   }
 `;
 
-/** Apply the whole patch to one shader. Exported so `blend.test.ts` can run it without a renderer. */
-export function patchGroundBlend(shader: ShaderPatch, controls: BlendControls): void {
+/**
+ * Apply the whole patch to one shader. Exported so `blend.test.ts` can run it without a renderer.
+ *
+ * `controls` is the pool's one shared knob object; `map` is **this material's own** floor texture —
+ * see {@link GroundMapControls} for why the two have different lifetimes and why neither costs a
+ * program.
+ */
+export function patchGroundBlend(shader: ShaderPatch, controls: BlendControls, map: GroundMapControls): void {
   shader.uniforms['uBlendNoise'] = controls.uBlendNoise as unknown as { value: unknown };
   shader.uniforms['uBlendFrequency'] = controls.uBlendFrequency as unknown as { value: unknown };
+  shader.uniforms['uGroundMap'] = map.uGroundMap as unknown as { value: unknown };
+  shader.uniforms['uGroundScale'] = map.uGroundScale as unknown as { value: unknown };
+  shader.uniforms['uGroundGain'] = map.uGroundGain as unknown as { value: unknown };
+  shader.uniforms['uGroundMean'] = map.uGroundMean as unknown as { value: unknown };
 
   shader.vertexShader = shader.vertexShader.replace(
     '#include <common>',

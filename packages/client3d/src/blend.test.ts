@@ -30,9 +30,17 @@ import {
   type Zone,
 } from '@mygame/shared';
 
-import { blendWeightAt, createBlendControls, patchGroundBlend } from './blend.ts';
+import { blendWeightAt, createBlendControls, createGroundMapControls, patchGroundBlend } from './blend.ts';
 import { groundBlendOf } from './chunkPlan.ts';
-import { linearRgb, sectorGround } from './prototypes.ts';
+import {
+  GROUND_TEXTURES,
+  VILLAGE_TEXTURES,
+  groundTextureOf,
+  linearRgb,
+  materialKey,
+  sectorGround,
+} from './prototypes.ts';
+import { ScenePool } from './pool.ts';
 import type { ShaderPatch } from './foliage.ts';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -46,7 +54,7 @@ describe('the ground blend shader', () => {
       fragmentShader: ShaderLib.lambert.fragmentShader,
       uniforms: {},
     };
-    patchGroundBlend(shader, controls);
+    patchGroundBlend(shader, controls, createGroundMapControls(undefined, null));
 
     assert.ok(shader.vertexShader.includes('attribute vec4 iBlend;'));
     assert.ok(shader.vertexShader.includes('attribute vec4 iTint;'));
@@ -54,13 +62,111 @@ describe('the ground blend shader', () => {
     // **Before** `<color_fragment>`, not after: that chunk is where three multiplies `instanceColor`
     // in, and `instanceColor` is this renderer's fog of war. Blending after it would leave the
     // neighbour's soil at full brightness inside an unexplored room.
-    const mix = shader.fragmentShader.indexOf('vBlendColour, smoothstep');
+    const mix = shader.fragmentShader.indexOf('vBlendColour, layerB');
     const colour = shader.fragmentShader.indexOf('#include <color_fragment>');
     assert.ok(mix > 0 && colour > 0);
     assert.ok(mix < colour, 'the blend runs after the fog of war and will not be dimmed by it');
     // Shared knobs, by reference, so one write retunes every ground material in the pool.
     assert.equal(shader.uniforms['uBlendNoise'], controls.uBlendNoise);
     assert.equal(shader.uniforms['uBlendFrequency'], controls.uBlendFrequency);
+  });
+
+  it('samples the floor texture in world space, after the mix, and never as a define', () => {
+    const shader: ShaderPatch = {
+      vertexShader: ShaderLib.lambert.vertexShader,
+      fragmentShader: ShaderLib.lambert.fragmentShader,
+      uniforms: {},
+    };
+    const map = createGroundMapControls(GROUND_TEXTURES.city, null);
+    patchGroundBlend(shader, createBlendControls(), map);
+
+    // A sampler the patch declares, not `material.map` — which is `USE_MAP`, which is a `#define`,
+    // which would have split the one ground program in two. See `prototypes.GROUND_TEXTURES` rule 1.
+    assert.ok(shader.fragmentShader.includes('uniform sampler2D uGroundMap;'));
+    assert.ok(!shader.fragmentShader.includes('#define USE_MAP'));
+    // `vBlendWorld` and not `vMapUv`: the paving has to run through the room, through the gap and
+    // into the next room, and it has to ride M5c's warp rather than slide over it.
+    assert.ok(shader.fragmentShader.includes('texture2D(uGroundMap, vBlendWorld * uGroundScale)'));
+    // Nothing wraps the coordinate by hand. A `fract` here would break the derivative once per tile
+    // and hang a blurred mip seam off every repeat.
+    assert.ok(!shader.fragmentShader.includes('fract(vBlendWorld'));
+    // After the two-layer mix — a pattern applied before it would be mixed toward a *flat* layer B
+    // and the boundary would come back as a texture edge — and still before the fog of war.
+    const stone = shader.fragmentShader.indexOf('vec3 stone = texture2D(uGroundMap');
+    const mix = shader.fragmentShader.indexOf('vBlendColour, layerB');
+    const colour = shader.fragmentShader.indexOf('#include <color_fragment>');
+    assert.ok(mix > 0 && stone > mix, 'the texture must be applied after layer B is mixed in');
+    assert.ok(stone < colour, 'a cobbled street must still be dimmed by the fog of war');
+
+    // Per material, by reference — the opposite lifetime to the shared knobs above, and the reason
+    // one program can serve a cobbled city and a bare field.
+    assert.equal(shader.uniforms['uGroundMap'], map.uGroundMap);
+    assert.equal(shader.uniforms['uGroundGain'], map.uGroundGain);
+    // Born dark: a gain live against the white placeholder would divide white by the texture's mean
+    // and flash the floor bright for as long as the fetch takes.
+    assert.equal(map.uGroundGain.value, 0);
+    assert.equal(map.uGroundScale.value, 1 / GROUND_TEXTURES.city!.metres);
+  });
+
+  it('survives the whole patch chain on a real pooled ground material', () => {
+    // The three isolated patches above are each right on their own; what a room actually draws is
+    // all of them applied to one shader in `pool.buildMaterial`, in an order that is load-bearing and
+    // invisible at every call site. The warp goes on **last** so it runs **first** (a vertex patch
+    // inserts after `<begin_vertex>`); the wetness goes in at `<opaque_fragment>`, downstream of
+    // everything here. This is the composition, checked on the material the city floor is drawn with.
+    const pool = new ScenePool();
+    const patch: ShaderPatch = {
+      vertexShader: ShaderLib.lambert.vertexShader,
+      fragmentShader: ShaderLib.lambert.fragmentShader,
+      uniforms: {},
+    };
+    pool.material(materialKey('ground', 'city', false)).onBeforeCompile(patch as never, undefined as never);
+
+    const warp = patch.vertexShader.indexOf('warpDelta');
+    const world = patch.vertexShader.indexOf('vBlendWorld = (modelMatrix');
+    assert.ok(warp > 0 && world > warp, 'the paving must be sampled at the *warped* world position');
+
+    const stone = patch.fragmentShader.indexOf('texture2D(uGroundMap');
+    const colour = patch.fragmentShader.indexOf('#include <color_fragment>');
+    const wet = patch.fragmentShader.indexOf('#include <opaque_fragment>');
+    assert.ok(stone > 0 && stone < colour, 'the fog of war must dim the paving');
+    assert.ok(colour < wet, 'rain must land on the textured floor, not under it');
+    // All four floor uniforms and both shared knobs reached one shader without either patch
+    // overwriting the other's entries.
+    for (const name of ['uBlendNoise', 'uBlendFrequency', 'uGroundMap', 'uGroundScale', 'uGroundGain', 'uGroundMean', 'uWarp', 'uWet']) {
+      assert.ok(patch.uniforms[name], `${name} did not survive the chain`);
+    }
+    // A field floor takes the same shader with the gain at zero — one program, two looks.
+    const bare: ShaderPatch = {
+      vertexShader: ShaderLib.lambert.vertexShader,
+      fragmentShader: ShaderLib.lambert.fragmentShader,
+      uniforms: {},
+    };
+    pool.material(materialKey('ground', 'field', false)).onBeforeCompile(bare as never, undefined as never);
+    assert.equal(bare.fragmentShader, patch.fragmentShader, 'a textured floor compiled different GLSL');
+    assert.equal(bare.vertexShader, patch.vertexShader);
+    pool.dispose();
+  });
+
+  it('names a real village texture, a stone-sized repeat and a measured mean for every floor', () => {
+    const sectors = Object.keys(GROUND_TEXTURES);
+    assert.ok(sectors.length > 0);
+    for (const [sector, spec] of Object.entries(GROUND_TEXTURES)) {
+      assert.ok(VILLAGE_TEXTURES.includes(spec.texture), `${sector}: ${spec.texture} is not in the pack`);
+      // One repeat between two and eight metres. Below two, a 2048² tile is over 1,000 texels a metre
+      // and the pattern beats faster than a stride; above eight, a stone is a metre across.
+      assert.ok(spec.metres >= 2 && spec.metres <= 8, `${sector}: ${spec.metres} m repeat`);
+      assert.ok(spec.gain > 0 && spec.gain <= 1, `${sector}: gain ${spec.gain}`);
+      // The mean is what makes the palette survive the multiply (rule 2). A zero channel would divide
+      // by zero and a mean above one is not a measurement of anything.
+      for (const channel of spec.mean) assert.ok(channel > 0 && channel <= 1, `${sector}: mean ${channel}`);
+      // A repeat that divided the 11 m room pitch would print the room grid onto the paving.
+      assert.ok(Math.abs((11 / spec.metres) % 1) > 0.01, `${sector}: the repeat aligns with the room pitch`);
+    }
+    // The natural sectors are deliberately untextured — see `GROUND_TEXTURES`' closing note.
+    for (const sector of ['field', 'forest', 'hills', 'swamp', 'mountain', 'cave', 'deep_water'] as const) {
+      assert.equal(groundTextureOf(sector), undefined, `${sector} must keep the colour-and-blend floor`);
+    }
   });
 
   it('interpolates the four corners bilinearly', () => {

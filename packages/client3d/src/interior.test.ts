@@ -99,8 +99,13 @@ describe('the module grid', () => {
       DIMENSIONS.ceilingHeight + DIMENSIONS.ceilingThickness < 4,
       'a lid that reached the storey above would be the floor of the room over it',
     );
-    // The scaled panel's thickness lands on the grey wall's, which is why the suppression in
-    // `chunkPlan` is a swap rather than a change of footprint.
+    // The scaled panel's thickness lands on the grey wall's *archetype* thickness, which is why the
+    // suppression in `chunkPlan` is a swap rather than a change of footprint. It no longer lands on
+    // what `chunkPlan` **draws**: since 2026-08-13 a grey wall is drawn at least half the gap deep so
+    // that a wall closes the gap it stands in (`chunkPlan.wallDepth`), and a 0.61 m panel leaves
+    // 0.39 m of the room's own floor showing between two buildings. That is a footing rather than a
+    // hole — the floor now runs the whole way — and deepening the module instead would stretch its
+    // texture through the wall. Named in the M9 report as the one place the seam is visible.
     assert.ok(Math.abs(VILLAGE_METRICS.wallDepth * VILLAGE_SCALE - DIMENSIONS.edgeThickness) < 0.02);
     // And the panel's outward lap stays inside the half-gap it shares with its neighbour, so two
     // interiors facing each other across a two-tile gap do not interpenetrate.
