@@ -28,6 +28,7 @@ import {
   DOLLY_RATIO,
   Dolly,
   PITCH_DEGREES_PER_NOTCH,
+  POSE_ERA,
   dollyTo,
   rememberPose,
   rememberedPose,
@@ -223,14 +224,16 @@ describe('the remembered pose', () => {
 
   it('clamps and rejects whatever it finds there, because a console can write anything', () => {
     const { local: store } = installStorages();
-    store.set(CAMERA_STORAGE_KEY, '900,89,0,0');
+    // Note the era marker on every value here: without it the `follow` field is deliberately ignored
+    // (see the migration test below), and these cases are about the *other* three fields.
+    store.set(CAMERA_STORAGE_KEY, `900,89,0,0,${POSE_ERA}`);
     assert.deepEqual(rememberedPose(), {
       distance: CAMERA_DISTANCE_MAX,
       pitch: CAMERA_PITCH_MAX,
       yaw: 0,
       follow: false,
     });
-    store.set(CAMERA_STORAGE_KEY, '1,1,0,0');
+    store.set(CAMERA_STORAGE_KEY, `1,1,0,0,${POSE_ERA}`);
     assert.deepEqual(rememberedPose(), {
       distance: CAMERA_DISTANCE_MIN,
       pitch: CAMERA_PITCH_MIN,
@@ -239,14 +242,33 @@ describe('the remembered pose', () => {
     });
     // The yaw wraps rather than clamping, and garbage in the third field is north rather than a
     // camera pointing at NaN — which would put the rig somewhere `lookAt` cannot recover from.
-    store.set(CAMERA_STORAGE_KEY, '40,50,540,1');
+    store.set(CAMERA_STORAGE_KEY, `40,50,540,1,${POSE_ERA}`);
     assert.deepEqual(rememberedPose(), { distance: 40, pitch: 50, yaw: 180, follow: true });
-    store.set(CAMERA_STORAGE_KEY, '40,50,due-west,1');
+    store.set(CAMERA_STORAGE_KEY, `40,50,due-west,1,${POSE_ERA}`);
     assert.deepEqual(rememberedPose(), { distance: 40, pitch: 50, yaw: 0, follow: true });
     store.set(CAMERA_STORAGE_KEY, 'north-by-northwest');
     assert.equal(rememberedPose(), undefined);
     store.set(CAMERA_STORAGE_KEY, '42');
     assert.equal(rememberedPose(), undefined, 'half a pose is not a pose');
+  });
+
+  it('does not let a follow saved before the flip outrank the new default', () => {
+    // The bug the owner hit, exactly: they had a four-field pose written during the hours when follow
+    // shipped *off*, so the flip to on never reached them and they reported the camera-behind feature
+    // as missing. A stored `0` from that era is not a decision — the era marker is what tells the two
+    // apart, and the tuned distance/pitch/yaw survive either way because those were always chosen.
+    const { local: store } = installStorages();
+    store.set(CAMERA_STORAGE_KEY, '52,50,90,0');
+    const migrated = rememberedPose();
+    assert.equal(migrated?.follow, DEFAULT_POSE.follow, 'a pre-era follow must re-read the default');
+    assert.equal(migrated?.distance, 52, 'and the frame the owner tuned by hand is untouched');
+    assert.equal(migrated?.pitch, 50);
+    assert.equal(migrated?.yaw, 90);
+
+    // Once it carries the marker, an explicit off is a real choice and is honoured for ever.
+    rememberPose({ distance: 52, pitch: 50, yaw: 90, follow: false });
+    assert.ok(store.get(CAMERA_STORAGE_KEY)?.endsWith(`,${POSE_ERA}`), 'a write stamps the era');
+    assert.equal(rememberedPose()?.follow, false, 'a deliberate off survives the round trip');
   });
 
   it('reads the angle lock’s two-field pose as north, with the mode at today’s default', () => {

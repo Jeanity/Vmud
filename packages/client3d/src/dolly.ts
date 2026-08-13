@@ -85,6 +85,17 @@ export const PITCH_DEGREES_PER_NOTCH = 1.5;
  */
 export const CAMERA_STORAGE_KEY = 'mygame:camera3d';
 
+/**
+ * A marker on the end of a stored pose saying *"the `follow` in this value was chosen under the
+ * current default"*.
+ *
+ * Deliberately a suffix rather than a new key: a new key would throw away the distance, the pitch and
+ * the yaw with it, and those are the numbers the owner tuned by hand. **Bump this string whenever a
+ * remembered field's default changes** — that is the whole mechanism, and it turns "the new default
+ * silently loses to a stale save" from a bug somebody has to notice into a one-character edit.
+ */
+export const POSE_ERA = 'f1';
+
 /** A pose, as it is remembered and as `__debug3d.camera` reads it. */
 export interface CameraPose {
   readonly distance: number;
@@ -250,17 +261,28 @@ function erase(key: string): void {
 export function rememberedPose(): CameraPose | undefined {
   const stored = read(CAMERA_STORAGE_KEY);
   if (!stored) return undefined;
-  const [rawDistance, rawPitch, rawYaw, rawFollow] = stored.split(',');
+  const [rawDistance, rawPitch, rawYaw, rawFollow, rawEra] = stored.split(',');
   const distance = Number(rawDistance);
   const pitch = Number(rawPitch);
   if (!Number.isFinite(distance) || !Number.isFinite(pitch)) return undefined;
   const yaw = rawYaw === undefined || rawYaw === '' ? 0 : Number(rawYaw);
+  // **A `follow` written before the default flipped is not a choice, and must not act like one.**
+  // The owner reported the camera-behind feature as not landing, and it had: their browser was
+  // holding a four-field pose saved during the hours when follow shipped *off*, and a stored `0`
+  // outranks a changed default for ever. `rememberPose`'s own docblock predicted exactly this — *"a
+  // tab that stored `36,45,0,0` and a tab that stored nothing must behave identically, or the day the
+  // default moves the owner's browser will quietly keep showing them the old frame"* — and it was
+  // right; the guard it described only covered the whole-pose-equals-default case, which a tuned
+  // angle never hits. {@link POSE_ERA} is the narrow repair: a value from before the flip keeps its
+  // distance, pitch and yaw (the owner tuned those by hand) and **re-reads the default for follow**,
+  // exactly once. Anything saved since carries the marker and is honoured, including a deliberate off.
+  const chosenEra = rawEra === POSE_ERA;
   return {
     distance: clampDistance(distance),
     pitch: clampPitch(pitch),
     // `wrapYaw` answers 0 for a NaN, so a corrupt third field is north rather than a broken camera.
     yaw: wrapYaw(yaw),
-    follow: rawFollow === undefined || rawFollow === '' ? DEFAULT_POSE.follow : rawFollow === '1',
+    follow: !chosenEra || rawFollow === undefined || rawFollow === '' ? DEFAULT_POSE.follow : rawFollow === '1',
   };
 }
 
@@ -286,9 +308,11 @@ export function rememberPose(pose: CameraPose): void {
     erase(CAMERA_STORAGE_KEY);
     return;
   }
+  // The era marker rides along so the next read knows this `follow` was chosen under the current
+  // default rather than inherited from an older one. See {@link POSE_ERA}.
   write(
     CAMERA_STORAGE_KEY,
-    `${round(pose.distance)},${round(pose.pitch)},${round(pose.yaw)},${pose.follow ? 1 : 0}`,
+    `${round(pose.distance)},${round(pose.pitch)},${round(pose.yaw)},${pose.follow ? 1 : 0},${POSE_ERA}`,
   );
 }
 
