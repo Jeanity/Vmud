@@ -354,4 +354,111 @@ describe('assembling a zone’s population', () => {
     assert.equal(equip?.wearPosition, 16, 'PRIMARY_WEAPON, carried through');
     assert.equal(equip?.room, undefined, 'and no room invented for it');
   });
+
+  it('reads an E line’s four columns the way db.c does', () => {
+    // **The column semantics, pinned against the source rather than against a guess.** `db.c`'s `case
+    // 'E'` reads `arg1` through `real_object` (the object vnum), assigns `obj_index[arg1].limit =
+    // arg2` (a world-wide instance cap), gates on `(arg3 > 0) && (arg3 <= CUR_MAX_WEAR)` before
+    // `equip_char(mob, obj, arg3, 1)` (the wear position), and passes `arg4` to `ITEM_LOAD_CHECK` (a
+    // load chance). Reading any one of them a column along produces output that looks entirely
+    // plausible — `CLAUDE.md` gotcha 1's hazard, one file over — so each is asserted separately.
+    const zone = ourZone();
+    const zonPath = write(
+      'cols.zon',
+      `#970\nname~\nfile~\n1 2 0 10 20 1\nM 0 97018 3 97002 100\nE 1 34500 7 16 85\nS\n`,
+    );
+    const built = buildZoneSpawns(zone, 'test.wld', write('cols.mob', SENTRY), zonPath, [duris(97_002, 'A Corner In the Ice Garden')], newSpawnStats());
+    const equip = built?.resets.find((r) => r.kind === 'equip');
+    assert.ok(equip);
+    assert.equal(equip.ifPrevious, true, 'if-flag 1 chains to the mob above');
+    assert.equal(equip.what, 34_500, 'arg1 is the OBJECT vnum, not a room');
+    assert.equal(equip.limit, 7, 'arg2 is the world-wide instance cap');
+    assert.equal(equip.wearPosition, 16, 'arg3 is the wear position');
+    assert.equal(equip.percent, 85, 'arg4 is the load chance');
+    assert.equal(equip.room, undefined, 'an E command names no room at all');
+  });
+
+  it('gives a G line no wear position, because it goes into the hands', () => {
+    // `G` is `E` without a place to put it: same object, same limit, no `arg3`. The distinction is the
+    // whole difference between loot a mob is *wearing* and loot it is merely carrying.
+    const zone = ourZone();
+    const zonPath = write('give.zon', `#970\nname~\nfile~\n1 2 0 10 20 1\nM 0 97018 3 97002 100\nG 1 34501 4 0 100\nS\n`);
+    const built = buildZoneSpawns(zone, 'test.wld', write('give.mob', SENTRY), zonPath, [duris(97_002, 'A Corner In the Ice Garden')], newSpawnStats());
+    const give = built?.resets.find((r) => r.kind === 'give');
+    assert.ok(give);
+    assert.equal(give.what, 34_501);
+    assert.equal(give.limit, 4);
+    assert.equal(give.wearPosition, undefined, 'only E carries one');
+    assert.equal(give.room, undefined);
+  });
+
+  it('drops the kit of a mob it could not place, instead of handing it to a stranger', () => {
+    // **The bug this gate exists for, in four lines.** Two mobs: the first places, the second does not
+    // (its room is unmappable). The second's sword carries no room of its own, so nothing above ever
+    // dropped it — and the executor's `lastMob` cursor then found the *first* mob and armed it with
+    // the dead one's weapon. Measured over the world before the gate: 2,646 of 3,996 kit commands
+    // (66.2%) were landing on a mob the builder never gave them to.
+    const zone = ourZone();
+    const zonPath = write(
+      'orphan.zon',
+      `#970\nname~\nfile~\n1 2 0 10 20 1\n` +
+        `M 0 97018 3 97002 100\n` +          // places
+        `M 0 97018 3 55555 100\n` +          // does not — room 55555 maps to nothing
+        `E 1 34500 1 16 100\n` +             // belonged to the mob above
+        `S\n`,
+    );
+    const stats = newSpawnStats();
+    const built = buildZoneSpawns(zone, 'test.wld', write('orphan.mob', SENTRY), zonPath, [duris(97_002, 'A Corner In the Ice Garden')], stats);
+    assert.ok(built);
+    assert.deepEqual(built.resets.map((r) => r.kind), ['mob'], 'the survivor is not given the dead mob’s sword');
+    assert.equal(stats.kitOrphaned, 1);
+    assert.equal(stats.commandsDropped, 2, 'the unplaceable mob and its orphaned kit');
+  });
+
+  it('keeps the kit of the mob that did place, in the same table', () => {
+    // The other half, and it has to be in its own test: a gate that drops everything would pass the
+    // one above. Here the *first* mob fails and the second succeeds, so the surviving kit is the
+    // second's — proof the cursor tracks which mob rather than merely whether any failed.
+    const zone = ourZone();
+    const zonPath = write(
+      'keep.zon',
+      `#970\nname~\nfile~\n1 2 0 10 20 1\nM 0 97018 3 55555 100\nE 1 34500 1 16 100\nM 0 97018 3 97002 100\nE 1 34501 1 5 100\nS\n`,
+    );
+    const stats = newSpawnStats();
+    const built = buildZoneSpawns(zone, 'test.wld', write('keep.mob', SENTRY), zonPath, [duris(97_002, 'A Corner In the Ice Garden')], stats);
+    assert.ok(built);
+    assert.deepEqual(built.resets.map((r) => r.kind), ['mob', 'equip']);
+    assert.equal(built.resets[1]!.what, 34_501, 'the survivor keeps its OWN kit, not the dropped mob’s');
+    assert.equal(stats.kitOrphaned, 1);
+  });
+
+  it('leaves P alone, because it chains to an object and not to a mob', () => {
+    // `P` puts a thing inside another *object*, so a dropped `M` says nothing about it. Gating it with
+    // the kit would have deleted chest contents for a reason that does not apply to them.
+    const zone = ourZone();
+    const zonPath = write(
+      'put.zon',
+      `#970\nname~\nfile~\n1 2 0 10 20 1\nM 0 97018 3 55555 100\nO 0 34500 1 97002 100\nP 1 34501 1 34500 100\nS\n`,
+    );
+    const built = buildZoneSpawns(zone, 'test.wld', write('put.mob', SENTRY), zonPath, [duris(97_002, 'A Corner In the Ice Garden')], newSpawnStats());
+    assert.ok(built);
+    assert.deepEqual(built.resets.map((r) => r.kind), ['object', 'put'], 'the chest and its contents survive the dropped mob');
+  });
+
+  it('is a pure function of its inputs, so a rebuild is byte-identical', () => {
+    // `data/world/spawns` is git-ignored and reproducible, which is only true if this is deterministic.
+    // Two builds over the same files must agree exactly — including the kit gate, whose cursor is the
+    // one piece of cross-command state in the walk and therefore the one that could carry over.
+    const zone = ourZone();
+    const mobPath = write('det.mob', SENTRY);
+    const zonPath = write(
+      'det.zon',
+      `#970\nname~\nfile~\n1 2 0 10 20 1\nM 0 97018 3 97002 100\nE 1 34500 1 16 100\nM 0 97018 3 55555 100\nE 1 34501 1 5 100\nG 1 34502 1 0 100\nS\n`,
+    );
+    const rooms = [duris(97_002, 'A Corner In the Ice Garden')];
+    const first = buildZoneSpawns(zone, 'test.wld', mobPath, zonPath, rooms, newSpawnStats());
+    const second = buildZoneSpawns(zone, 'test.wld', mobPath, zonPath, rooms, newSpawnStats());
+    assert.deepEqual(second, first);
+    assert.equal(JSON.stringify(second), JSON.stringify(first), 'byte-identical, not merely deep-equal');
+  });
 });

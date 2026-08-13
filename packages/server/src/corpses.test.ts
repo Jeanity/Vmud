@@ -37,6 +37,7 @@ import {
   lootCorpse,
   lootRefusal,
   makeCorpse,
+  spoilsOf,
   withinReach,
   type Corpse,
   type Graveyard,
@@ -116,6 +117,49 @@ describe('what a death leaves', () => {
     const view = corpseViewOf(makeCorpse(f.yard, f.mob, false));
     assert.equal(view.kind, 'item');
     assert.equal(view.healthFraction, 0);
+  });
+});
+
+describe('loot honesty: a corpse yields what the body was seen wearing', () => {
+  it('takes the worn kit as well as the carried, for a mob', () => {
+    // **The promise Phase 16 made when it put a mob's gear on the wire.** `viewOf` now tells the whole
+    // room that this sentry is holding a sword; if the corpse did not contain it, the game would be
+    // lying about the reward for a fight already won. The two halves have to be read from the same
+    // `equipped`, which is why the rule is one function rather than an expression in the death path.
+    const f = fixture();
+    assert.ok(f.mob);
+    f.mob.carrying.push(thing('purse', 1));
+    f.mob.equipped.mainHand = { id: 'sword', name: 'a long sword', ac: 0, size: 2, weaponClass: 5 };
+    f.mob.equipped.chest = { id: 'hauberk', name: 'a mail hauberk', ac: 3, size: 4 };
+
+    const corpse = makeCorpse(f.yard, f.mob, false, spoilsOf(f.mob));
+    assert.deepEqual(
+      corpse.contents.map((i) => i.id).sort(),
+      ['hauberk', 'purse', 'sword'],
+      'carried and worn, both',
+    );
+    assert.equal(corpse.looted, false, 'and it is not drawn picked-clean');
+
+    // Every piece comes out: nothing worn is `hidden`, which is `AuthoredLoot.hidden`'s carried-only
+    // rule seen from the other end — a thing visible on the body cannot also be a thing `search` finds.
+    const result = lootCorpse(corpse, emptyInventory());
+    assert.deepEqual(result.taken.map((i) => i.id).sort(), ['hauberk', 'purse', 'sword']);
+    assert.deepEqual(result.left, []);
+  });
+
+  it('leaves a player’s worn gear on the body and takes only the bag', () => {
+    // The deliberate asymmetry, pinned so a later refactor cannot quietly make it symmetric: losing
+    // worn kit to one mistake is the thing the owner named as the worst feeling in a game.
+    const f = fixture();
+    assert.deepEqual(spoilsOf(f.player), [], 'a player’s spoils are the death path’s own business');
+  });
+
+  it('gives an unarmed mob an empty corpse, which is drawn picked-clean at once', () => {
+    const f = fixture();
+    assert.ok(f.mob);
+    const corpse = makeCorpse(f.yard, f.mob, false, spoilsOf(f.mob));
+    assert.deepEqual(corpse.contents, []);
+    assert.equal(corpse.looted, true, 'saves the player the walk over to find out');
   });
 });
 

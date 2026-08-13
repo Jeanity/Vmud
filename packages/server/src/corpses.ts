@@ -113,6 +113,36 @@ export function resetCorpseIds(): void {
 }
 
 /**
+ * What a fallen body hands over — **worn gear as well as carried, for a mob**.
+ *
+ * ## The loot-honesty rule, in one function
+ *
+ * Phase 16 put a mob's kit on the wire: a guard the zone table armed now visibly holds its sword, and
+ * `EntityView.wearing` says so to everybody in the room. That makes this the *other* half of a promise
+ * — what you can see on a mob has to be what its corpse yields, or the game is lying in the most
+ * expensive way a game can, about the reward for a fight already won.
+ *
+ * Lifted out of `index.ts`'s death path so the rule lives in one place and can be tested without
+ * standing up a socket. The expression is unchanged; only its address is.
+ *
+ * **The asymmetry with a player is deliberate and is not an oversight.** A player's corpse gets the bag
+ * and *not* the gear: losing worn kit to one mistake is the thing the owner named as the worst feeling
+ * in a game. A mob's worn kit **is** the loot — killing a guard for the sword it was holding is the
+ * oldest reward loop there is, and a guard that kept its sword would make the fight pointless.
+ *
+ * Worn gear is therefore never {@link Item.hidden}: `AuthoredLoot.hidden` is a carried-only flag
+ * (`mob-overrides.ts` enforces it) precisely because a `search`-only item that is also visible on the
+ * body would be hidden and in plain sight at once.
+ */
+export function spoilsOf(actor: Actor): Item[] {
+  // `kind` rather than `isMob`, to keep this file's dependency on `sim.ts` a type-only import — a value
+  // import would close a cycle, since `sim.ts` reaches corpses through the death path.
+  if (actor.kind !== 'mob') return [];
+  const carrying = (actor as Actor & { carrying?: readonly Item[] }).carrying ?? [];
+  return [...carrying, ...Object.values(actor.equipped).filter((item): item is Item => item !== undefined)];
+}
+
+/**
  * Turns a fallen actor into a corpse.
  *
  * Takes the position off the body rather than the room's centre, so a corpse lies where it fell. That is

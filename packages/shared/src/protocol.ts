@@ -551,7 +551,9 @@ export interface EntityView {
    * worn; the client owns how that looks. Sending sheet keys would put the art direction on the wire
    * and make a re-skin a protocol change.
    *
-   * Absent for anything with no body to dress, which today is every ground item and every mob.
+   * Absent for anything with no body to dress (every ground item) and for anybody wearing nothing.
+   * **Mobs fill it too, since Phase 16** — a guard the zone table armed reports its sword here, and
+   * that is the same sword its corpse will hand over.
    */
   readonly wearing?: Readonly<Record<string, ArtClass>>;
   /**
@@ -653,8 +655,9 @@ export interface EntityView {
    * character creation — compiles against this file without a line changed. It bumps the day `sprite`
    * goes.
    *
-   * Absent for a mob, since mobs carry no equipment list; absent for every ground object, since a
-   * dropped sword is not holding anything.
+   * **Filled for mobs since Phase 16**, which is the point of the field: measured over the world's
+   * reset tables, 482 spawned bodies hold something and **316 of them draw a prop**, mostly
+   * `Sword_Bronze`. Absent for every ground object, since a dropped sword is not holding anything.
    */
   readonly hands?: { readonly main?: string; readonly off?: string };
   /**

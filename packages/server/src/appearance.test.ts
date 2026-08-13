@@ -31,6 +31,7 @@ import {
   makeRng,
   yawOf,
   type Item,
+  type MobTemplate,
   type Room,
   type RoomId,
   type Zone,
@@ -61,6 +62,22 @@ function makeSim() {
 }
 
 const item = (id: string, name: string): Item => ({ id, name, ac: 0, size: 1 });
+
+/** One mob template, shared by the three tests that need a body to dress. */
+const sentry = (): MobTemplate => ({
+  vnum: 97018,
+  keywords: ['sentry'],
+  name: 'a sentry',
+  room: 'A sentry stands watch here.',
+  level: 3,
+  hp: '1d1+9',
+  sprite: 'muscular/human',
+  aggro: { disposition: 'passive', clauses: [], reactionMs: 2000, remembers: true, sentinel: false, assists: false },
+  pursuit: { tier: 'sentinel', trackRooms: 0, giveUpMs: 0, respectsSafeRooms: true, staysInZone: true, opensDoors: true },
+  wimpyAt: 0,
+  experience: 10,
+  combat: { armourClass: 10, damage: { count: 1, sides: 4, bonus: 0 }, attackBonus: 1, roundMs: 3000 },
+});
 
 /* -------------------------------------------------------------------------- */
 /* The view                                                                     */
@@ -163,37 +180,47 @@ describe('the 3D fields on an entity view', () => {
     assert.equal(seen.size, 4, 'four facings must be four yaws or a turn is invisible');
   });
 
-  it('gives a mob its template’s outfit and no `wearing`', () => {
-    // Mobs carry no equipment list — `viewOf` has put `wearing` on players only since 15a — so their
-    // clothes come from the sprite key. That asymmetry is the thing to pin: the 3D side must dress
-    // them anyway, or every mob in the world is naked.
+  it('gives an unarmed mob its template’s outfit and no `wearing`', () => {
+    // A mob the zone table gave nothing to is still dressed, and that is the load-bearing half now
+    // that mobs *can* be armed: `mobGear` draws the template's cut, so the 1,372 of 2,016 bodies with
+    // no chest piece keep their clothes. Routing mobs through `playerGear` instead would strip every
+    // one of them — see `appearanceOf`'s note on why the cut beats the kit until harvested armour has
+    // art of its own.
     const { sim } = makeSim();
-    const view = sim.viewOf(
-      sim.spawnMob(
-        {
-          vnum: 97018,
-          keywords: ['sentry'],
-          name: 'a sentry',
-          room: 'A sentry stands watch here.',
-          level: 3,
-          hp: '1d1+9',
-          sprite: 'muscular/human',
-          aggro: { disposition: 'passive', clauses: [], reactionMs: 2000, remembers: true, sentinel: false, assists: false },
-          pursuit: { tier: 'sentinel', trackRooms: 0, giveUpMs: 0, respectsSafeRooms: true, staysInZone: true, opensDoors: true },
-          wimpyAt: 0,
-          experience: 10,
-          combat: { armourClass: 10, damage: { count: 1, sides: 4, bonus: 0 }, attackBonus: 1, roundMs: 3000 },
-        },
-        90001 as RoomId,
-        makeRng(7),
-      )!,
-    );
-    assert.equal(view.wearing, undefined, 'mobs still carry no worn map');
+    const view = sim.viewOf(sim.spawnMob(sentry(), 90001 as RoomId, makeRng(7))!);
+    assert.equal(view.wearing, undefined, 'nothing worn, so no worn map');
     assert.deepEqual((view.gear ?? []).map((g) => g.slot), ['torso', 'arms', 'legs', 'feet']);
     assert.equal(view.sprite, 'muscular/human', 'and the 2D key is untouched');
-    // M7b: and empty hands, the same gap for the same reason. An armed guard is drawn unarmed until
-    // mobs have an equipment list, which is Phase 16's — stated as an assertion so the gap is visible.
-    assert.equal(view.hands, undefined, 'a mob has no equipment to read a weapon out of');
+    assert.equal(view.hands, undefined, 'empty hands, because the hands really are empty');
+  });
+
+  it('puts an armed mob’s sword on the wire, in both vocabularies', () => {
+    // **Phase 16's whole payoff, and the gate that used to stop it.** `viewOf` read `wearing` and
+    // `hands` off `actor.equipped` only `isPlayer(actor)` — written when a mob's kit was always empty,
+    // and untrue since 15c gave `reset.ts` the zone tables' `E` commands. The gear was on the body,
+    // folded into its armour class and handed to its corpse, and described to nobody.
+    const { sim } = makeSim();
+    const mob = sim.spawnMob(sentry(), 90001 as RoomId, makeRng(7))!;
+    // `weaponClass` 5 is WEAPON_LONGSWORD, one of the four the props kit has a mesh for.
+    mob.equipped.mainHand = { id: 'obj:34500', name: 'a long sword', ac: 0, size: 2, weaponClass: 5 };
+    mob.equipped.chest = { id: 'obj:34501', name: 'a chain mail hauberk', ac: 3, size: 4 };
+    const view = sim.viewOf(mob);
+    assert.deepEqual(view.wearing, { chest: 'obj:34501', mainHand: 'obj:34500' }, 'the MUD vocabulary');
+    assert.deepEqual(view.hands, { main: 'prop:Sword_Bronze' }, 'and the renderer’s');
+    assert.equal(view.model, `${BASE_PREFIX}Superhero_Male_FullBody`);
+  });
+
+  it('draws nothing in a hand the props kit has no mesh for, rather than the wrong thing', () => {
+    // `WEAPON_ART`'s rule applied to mobs: `weaponClass` 6 is WEAPON_MACE, one of the 687 blunt
+    // instruments the four-prop kit cannot draw. **Empty beats wrong** — an empty hand reads as a
+    // fist, which the combat log will happily call a punch; a mace drawn as a sword reads as a bug.
+    // `wearing` still carries it, so `look` and the corpse both still know it is there.
+    const { sim } = makeSim();
+    const mob = sim.spawnMob(sentry(), 90001 as RoomId, makeRng(7))!;
+    mob.equipped.mainHand = { id: 'obj:34502', name: 'an iron mace', ac: 0, size: 2, weaponClass: 6 };
+    const view = sim.viewOf(mob);
+    assert.equal(view.hands, undefined, 'no mesh, so no prop');
+    assert.deepEqual(view.wearing, { mainHand: 'obj:34502' }, 'but the mace is not a secret');
   });
 });
 

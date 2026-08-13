@@ -4,6 +4,8 @@ import { describe, it } from 'node:test';
 import {
   MAX_ITEM_ARMOUR_BONUS,
   MAX_ITEM_SIZE,
+  MAX_WEAR_POSITION,
+  UNMODELLED_WEAR_POSITIONS,
   CRAFTSMANSHIP_NAMES,
   CRAFT_AVERAGE,
   armourBonusFrom,
@@ -131,6 +133,39 @@ describe('wear positions', () => {
     assert.equal(slotForWearPosition(35), undefined, 'WEAR_HORSE_BODY');
     assert.equal(slotForWearPosition(37), undefined, 'WEAR_TAIL');
     assert.equal(slotForWearPosition(99), undefined);
+  });
+
+  it('maps the nose and the ioun stone, which had slots and no rows', () => {
+    // **The hole this test exists to have closed.** `nose` and `ioun` were in `EQUIP_SLOTS` and in
+    // `WEAR_BITS` — an item could declare itself nose-wearable — but `WEAR_POSITIONS` had no row for
+    // either, so a zone file that *placed* one landed it in the mob's hands instead of on its face.
+    // One `E` command in the whole world does it, which is exactly why nobody noticed.
+    assert.equal(slotForWearPosition(39), 'nose', 'WEAR_NOSE');
+    assert.equal(slotForWearPosition(41), 'ioun', 'WEAR_IOUN');
+  });
+
+  it('accounts for every position the source defines, mapped or recorded', () => {
+    // **The completeness check, and the reason the two tables are worth having as data.** `defines.h`
+    // names positions 0–42; a table you cannot count is a table with a hole in it, which is how the
+    // nose sat missing. Every position must be in exactly one of the two — mapped to a slot, or
+    // written down as unmodelled *with a reason*. Adding a slot to `EQUIP_SLOTS` without deciding
+    // about its position now fails here rather than silently dropping gear into a mob's hands.
+    for (let position = 0; position <= MAX_WEAR_POSITION; position++) {
+      const slot = slotForWearPosition(position);
+      const excuse = UNMODELLED_WEAR_POSITIONS[position];
+      assert.notEqual(
+        slot === undefined,
+        excuse === undefined,
+        `position ${position} must be either mapped or recorded as unmodelled, never both and never neither`,
+      );
+      if (excuse !== undefined) assert.ok(excuse.length > 10, `position ${position} needs a real reason, not a shrug`);
+    }
+  });
+
+  it('leaves nothing above the source’s own ceiling', () => {
+    // `WEAR_SPIDER_BODY` is 42 and `MAX_WEAR` is the array size past it. A position beyond the ceiling
+    // is not a slot we have not built — it is a misread column, and it must not resolve to anything.
+    assert.equal(slotForWearPosition(MAX_WEAR_POSITION + 1), undefined);
   });
 });
 

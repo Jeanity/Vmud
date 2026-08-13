@@ -535,8 +535,9 @@ export interface AppearanceSubject {
    * it: `artClassOf(item) ?? item.id`, which for 98% of the catalogue's weapons is `obj:1234`. See
    * {@link WEAPON_ART} for the measurement and for why `Item.weaponClass` is the join key instead.
    *
-   * Absent for a mob, exactly as `wearing` is, and for the identical reason — mobs carry no
-   * equipment list yet, so an armed guard is drawn with empty hands and that is Phase 16's to fix.
+   * **Filled for mobs as well as players since Phase 16.** It used to be players only, on the claim
+   * that mobs carried no equipment list — which stopped being true the moment `reset.ts` began
+   * executing the zone tables' `E` commands. An armed guard now holds what the builder gave it.
    */
   readonly holding?: { readonly main?: HeldView; readonly off?: HeldView };
 }
@@ -572,9 +573,19 @@ export function appearanceOf(subject: AppearanceSubject): Appearance | undefined
   const sex = SEX_FOR_BODY_WORD[body] ?? 'male';
   const model = `${BASE_PREFIX}${BASE_BODY_FOR[sex]}`;
 
-  // A player wears what the character sheet says. A mob wears its template's cut, because mobs carry
-  // no equipment list — the same division `viewOf` already draws when it puts `wearing` on players
-  // only, and for the same reason: dressing mobs from an inventory waits until they have one.
+  // A player wears what the character sheet says. **A mob wears its template's cut even now that it
+  // has a real equipment list**, and the reason changed in Phase 16 from "it has none" to a measured
+  // one: harvested gear does not carry art.
+  //
+  // `playerGear` resolves a garment through its art class, and 98% of the catalogue arrives on the
+  // wire as a bare `obj:1234` — a string `styleFrom` scans for words like "mail" and "plate" and,
+  // finding none, calls **peasant**. So routing mobs through it would dress every guard in the world
+  // in the same cloth *and* strip the 1,372 of 2,016 bodies that wear no chest piece down to bare
+  // skin, because `playerGear` draws only what is actually worn. The template cut is chosen per
+  // template by the mob sweep and is the better signal of the two until harvested armour has art.
+  //
+  // The hands are the opposite case and that is why they are not gated: `Item.weaponClass` is a real
+  // shape fact on the instance, so a sword can be drawn as a sword without any art at all.
   const gear =
     subject.kind === 'player'
       ? playerGear(sex, subject.wearing)

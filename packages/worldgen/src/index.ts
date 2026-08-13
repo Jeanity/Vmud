@@ -465,6 +465,11 @@ function reportSpawns(spawns: readonly ZoneSpawns[], stats: SpawnBuildStats): vo
   // kept or because its mob template is not one we kept. Calling it "no room" was misleading even
   // before 15c, and actively wrong now that `give`/`equip`/`put` legitimately have no room at all.
   line('dropped (unresolved)', stats.commandsDropped, stats.commands);
+  // A subset of the line above, broken out because it is the only loss here that is not about rooms:
+  // kit whose mob failed to place. Before Phase 16 gated it, this gear stayed in the table and dressed
+  // whichever earlier mob was still standing — 66.2% of all kit, on the wrong bodies. See
+  // `buildZoneSpawns`. A sudden jump in this number means mob placement regressed, not equipment.
+  line('  of which orphaned kit', stats.kitOrphaned, stats.commandsDropped);
   // Phase 14: how much of the world will actually break and run. Printed because `ACT_WIMPY` is set
   // sparingly upstream, and a morale mechanic that nothing in the shipped world carries the flag for
   // would look built and be invisible — the same reason the `safe` room count is reported.

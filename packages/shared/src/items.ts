@@ -178,6 +178,12 @@ const WEAR_BITS: readonly (readonly [bit: number, slot: EquipSlot])[] = [
  * position 2, and there is no bit that distinguishes left from right.
  *
  * The four weapon positions collapse onto two, because Duris has races with four arms and we do not.
+ *
+ * **Every position in `defines.h:519-566` is accounted for here, either by a row or by a line in
+ * {@link UNMODELLED_WEAR_POSITIONS}.** That completeness is enforced by a test rather than asserted:
+ * `nose` and `ioun` were in {@link EQUIP_SLOTS} and in {@link WEAR_BITS} but had **no row here**, so a
+ * zone file that put a ring on a nose landed it in the mob's hands instead of on its face. One occurrence
+ * in the world, which is exactly why it survived — a table you cannot count is a table with a hole in it.
  */
 const WEAR_POSITIONS: Readonly<Record<number, EquipSlot>> = {
   1: 'ring1', // WEAR_FINGER_R
@@ -206,7 +212,42 @@ const WEAR_POSITIONS: Readonly<Record<number, EquipSlot>> = {
   25: 'mainHand', // THIRD_WEAPON, on a four-armed race
   26: 'offHand', // FOURTH_WEAPON
   27: 'back', // WEAR_BACK
+  39: 'nose', // WEAR_NOSE
+  41: 'ioun', // WEAR_IOUN — orbits the head; a slot of its own in the source
 };
+
+/**
+ * Every `WEAR_*` position the source defines that we deliberately do **not** model, with the reason.
+ *
+ * Recorded rather than left implicit, because "unmapped" and "forgotten" look identical from outside a
+ * lookup table — which is how `nose` and `ioun` stayed missing while having slots of their own. A test
+ * walks `defines.h`'s whole range and asserts every position is in exactly one of the two tables, so
+ * adding a slot to {@link EQUIP_SLOTS} without deciding about its position fails loudly.
+ *
+ * These are not thrown away at run time: `reset.ts` puts an item with an unmodelled position into the
+ * mob's **hands** rather than destroying it, so it is still lootable. Duris itself logs and discards
+ * (`db.c:3618`), so this is deliberately kinder than the source.
+ */
+export const UNMODELLED_WEAR_POSITIONS: Readonly<Record<number, string>> = {
+  0: 'WEAR_LIGHT — the source marks it "should not be used any longer"',
+  24: 'no define at all; a gap between WEAR_QUIVER and THIRD_WEAPON',
+  28: 'WEAR_ATTACH_BELT_1 — no ITEM_WEAR bit exists, so only an E command can place one; the world does it twice',
+  29: 'WEAR_ATTACH_BELT_2 — as above',
+  30: 'WEAR_ATTACH_BELT_3 — as above',
+  31: 'WEAR_ARMS_2 — needs a four-armed body; Phase 21',
+  32: 'WEAR_HANDS_2 — needs a four-armed body; Phase 21',
+  33: 'WEAR_WRIST_LR — needs a four-armed body; Phase 21',
+  34: 'WEAR_WRIST_LL — needs a four-armed body; Phase 21',
+  35: 'WEAR_HORSE_BODY — barding; wants mounts',
+  36: 'WEAR_LEGS_REAR — barding; wants mounts',
+  37: 'WEAR_TAIL — needs a body that has one; Phase 21',
+  38: 'WEAR_FEET_REAR — barding; wants mounts',
+  40: 'WEAR_HORN — needs a body that has one; Phase 21',
+  42: 'WEAR_SPIDER_BODY — needs a body that has one; Phase 21',
+};
+
+/** The highest `WEAR_*` position `defines.h` names — `WEAR_SPIDER_BODY`, 42. */
+export const MAX_WEAR_POSITION = 42;
 
 /**
  * Which slot an item's **wear flags** allow, or nothing if it goes nowhere on a body.

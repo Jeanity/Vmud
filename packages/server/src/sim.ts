@@ -297,6 +297,25 @@ export interface Actor {
    */
   fighting: EntityId | undefined;
   /**
+   * What this body is wearing and wielding — **on `Actor` since Phase 16, and that is the change**.
+   *
+   * It used to be declared separately on `Player` and on `Mob`, which read as tidy and was the reason
+   * `viewOf` had to gate on `isPlayer` to touch it at all: with no member on the base, describing "any
+   * body's gear" needed a narrowing, and the narrowing quietly became a policy. Mobs had gear from 15c
+   * onward and nobody could see it.
+   *
+   * Hoisting it says the true thing instead: **every body in this world has an equipment map, and most
+   * of them are empty.** The two halves keep their own rules and neither moved — a player's is rolled at
+   * creation and stored (`rollStarterKit`), a mob's is filled by the reset table *after* it spawns,
+   * because `E` attaches to the last mobile loaded and the body must exist first. What is shared is only
+   * that both can be read without asking which kind of thing this is.
+   *
+   * `combat.armourClass` is folded from it for both, at creation for a player and by `refitMobArmour`
+   * for a mob. `combat.damage` is folded for a player only: a mob's damage is its harvested profile and
+   * has never come from its weapon.
+   */
+  equipped: Equipped;
+  /**
    * The last opponent this actor disengaged from.
    *
    * §2: *"Keep `wasFighting`."* One field, written by `disengage`, and it is what makes assist,
@@ -546,18 +565,9 @@ export interface Player extends Actor {
    * separate-store argument only applies to facts *between* characters.
    */
   skills: Map<SkillId, number>;
-  /**
-   * What this character is wearing and wielding. Phase 14b.
-   *
-   * Rolled at creation and stored, never re-derived — the same discipline as `maxHp`, and for the
-   * same reason: a character's gear is a fact about them, not a function that changes when the
-   * function does. `combat.armourClass` and `combat.damage` are folded from it at creation and at
-   * login, so nothing in the fight loop has to know equipment exists.
-   *
-   * Acquiring, dropping and swapping any of it arrived in Phase 15b; the roll is still where a
-   * character's first kit comes from.
-   */
-  equipped: Equipped;
+  // `equipped` is on `Actor` since Phase 16 — see the note there. A player's is rolled at creation and
+  // stored, never re-derived: the same discipline as `maxHp`, and for the same reason. Acquiring,
+  // dropping and swapping any of it arrived in Phase 15b; the roll is still where the first kit comes from.
   /**
    * What this character is carrying but not wearing. Phase 15b — `inventory.ts` is the maths.
    *
@@ -623,14 +633,9 @@ export interface Mob extends Actor {
    * `reset.ts`.
    */
   readonly vnum: number;
-  /**
-   * What it is wearing and wielding, from the zone file's `E` commands. Phase 15c.
-   *
-   * **Mutable, unlike everything above it**, because the reset table fills it *after* the mob is
-   * spawned: `E` attaches to the last mobile loaded, so the body has to exist before its kit can be
-   * put on it. `combat` is refolded once the whole kit is on rather than per piece.
-   */
-  equipped: Equipped;
+  // `equipped` is on `Actor` since Phase 16 — see the note there. A mob's is filled from the zone file's
+  // `E` commands *after* it spawns, because `E` attaches to the last mobile loaded; `refitMobArmour`
+  // folds the whole kit into `combat` once, rather than per piece.
   /**
    * What it is carrying but not wearing — the zone file's `G` commands.
    *
@@ -2359,15 +2364,19 @@ export class Simulation {
   viewOf(actor: Actor): EntityView {
     // Built once and spread, because `wearing` and `gear` are the same fact in two vocabularies and
     // computing them from two different reads of `actor.equipped` is how they would come to disagree.
+    // **Mobs read the same field players do, since Phase 16.** The `isPlayer` gate that used to stand
+    // here was written when a mob's `equipped` was always empty; it has not been since 15c, when
+    // `reset.ts` began executing the zone tables' `E` commands. So the gear was on the body, counted
+    // in its armour class and handed to its corpse — and simply never described to anybody. Measured
+    // over the world's own reset tables: **644 of 2,016 spawned bodies wear at least one piece**, and
+    // dropping the gate is the whole of what puts them on the wire.
     const wearing =
-      isPlayer(actor) && Object.keys(actor.equipped).length > 0
-        ? wornIds(actor.equipped, this.artClassOf)
-        : undefined;
+      Object.keys(actor.equipped).length > 0 ? wornIds(actor.equipped, this.artClassOf) : undefined;
     // M7b: what is in the hands. Read off the same `equipped` the line above walked, and read *here*
     // rather than inside `appearanceOf` because that function is pure and knows no `Item` — what it
     // takes is the three fields a mesh can be chosen from. `wearing.mainHand` is already on the wire
     // and is not enough: for 98% of the catalogue's weapons it is `obj:1234`. See `WEAPON_ART`.
-    const holding = isPlayer(actor) ? handsOf(actor.equipped, wearing) : undefined;
+    const holding = handsOf(actor.equipped, wearing);
     const look = appearanceOf({
       kind: actor.kind,
       sprite: actor.sprite,
@@ -2401,9 +2410,9 @@ export class Simulation {
       // Protocol 22: the wind-up is visible on the body, not just in the caster's own affect list —
       // the observer's half of "begins casting...". The client holds the spellcast pose while set.
       ...(actor.casting === undefined ? {} : { casting: true as const }),
-      // What they are wearing, so the body on screen is the one the character sheet describes.
-      // Players only — a mob's appearance is its template's `sprite`, and dressing mobs from an
-      // equipment list is Phase 16's, when they have gear worth taking off them.
+      // What they are wearing, so the body on screen is the one the character sheet describes — and,
+      // for a mob, the one its corpse is about to hand over. `index.ts` puts worn *and* carried gear
+      // into the corpse, so this field is the promise the loot keeps.
       ...(wearing ? { wearing } : {}),
       // M7a. `sprite` above is untouched and still says `human`; these say the same thing in the
       // renderer's vocabulary. `appearanceOf` answers `undefined` only for ground objects, which

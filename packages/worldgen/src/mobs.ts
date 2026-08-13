@@ -591,6 +591,14 @@ export interface SpawnBuildStats {
   /** Commands kept, by kind, so the report can say what has an executor and what is waiting. */
   byKind: Record<string, number>;
   roomsMapped: number;
+  /**
+   * `E`/`G` commands dropped because the mob they were written for was — counted separately from
+   * {@link commandsDropped}, which they are also part of.
+   *
+   * Worth its own number: it is the one loss in this harvest that is *not* about rooms, and a zone whose
+   * kit count collapses is a zone whose mobs mostly failed to place. See {@link buildZoneSpawns}.
+   */
+  kitOrphaned: number;
 }
 
 /**
@@ -602,6 +610,25 @@ export interface SpawnBuildStats {
  *
  * A command naming a template we did not keep is dropped too, which is how the five IceCrag mobs with no
  * LPC body stay out of the world rather than turning up as men.
+ *
+ * ## Dropping a mob drops the kit that was written for it
+ *
+ * **`E` and `G` carry no room, so nothing above ever dropped them — and that was a silent bug.** They
+ * attach to `last_mob_load`, Duris' implicit cursor, which means an `E` belongs to *the mob immediately
+ * above it* and to no other. When that mob's room fails to resolve, the `M` disappears and its `E`s stay:
+ * the executor's cursor then finds whichever earlier mob is still standing and dresses **that** one.
+ *
+ * Measured across the 49 matched zones before this gate existed: of 3,996 kit commands, **2,646 (66.2%)
+ * belonged to a dropped mob** and re-attached to a stranger — in zone 326, 667 of 670. The symptom is a
+ * mob wearing another mob's gear, which is unfalsifiable from the outside and is exactly the class of
+ * plausible-looking nonsense `CLAUDE.md` gotcha 1 warns about.
+ *
+ * So the rule this module already applies to rooms is applied to the cursor: **content the source never
+ * authored is dropped, not guessed at.** The cost is real and is the honest price — kit placements fall
+ * from 2,882 to 1,350 — and what survives is on the mob the builder wrote it for.
+ *
+ * `P` is deliberately **not** gated: it chains to the last *object* loaded, not the last mob, so a
+ * dropped `M` has nothing to say about it.
  */
 export function buildZoneSpawns(
   zone: Zone,
@@ -623,6 +650,9 @@ export function buildZoneSpawns(
   stats.roomsMapped += rooms.size;
 
   const resets: ResetCommand[] = [];
+  // The harvest-time twin of the executor's `lastMob` cursor. `undefined` before the zone's first `M`;
+  // `false` once one has been dropped, which is what suppresses the kit written for it.
+  let lastMobKept: boolean | undefined;
   for (const command of parsedZone.commands) {
     stats.commands++;
     // **Only the letters that have a room are asked for one.** `give`, `equip` and `put` attach to the
@@ -632,14 +662,26 @@ export function buildZoneSpawns(
       room = rooms.get(command.durisRoom);
       if (room === undefined) {
         stats.commandsDropped++;
+        if (command.kind === 'mob') lastMobKept = false;
         continue;
       }
     }
     // A mob command for a template we did not keep would be a spawn with nothing to spawn.
     if ((command.kind === 'mob' || command.kind === 'follower' || command.kind === 'mount') && !known.has(command.what)) {
       stats.commandsDropped++;
+      if (command.kind === 'mob') lastMobKept = false;
       continue;
     }
+    // Kit belongs to the mob directly above it. If that mob is not in the world, neither is its kit —
+    // see the docblock for the 66.2% this drops and why keeping it was worse.
+    if (command.kind === 'equip' || command.kind === 'give') {
+      if (lastMobKept !== true) {
+        stats.commandsDropped++;
+        stats.kitOrphaned++;
+        continue;
+      }
+    }
+    if (command.kind === 'mob') lastMobKept = true;
     stats.byKind[command.kind] = (stats.byKind[command.kind] ?? 0) + 1;
     resets.push({
       kind: command.kind,
@@ -673,6 +715,7 @@ export function newSpawnStats(): SpawnBuildStats {
     commandsDropped: 0,
     byKind: {},
     roomsMapped: 0,
+    kitOrphaned: 0,
   };
 }
 

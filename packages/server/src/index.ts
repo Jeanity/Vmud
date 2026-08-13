@@ -328,6 +328,7 @@ import {
   corpseAnswersTo,
   corpseName,
   shoreFor,
+  spoilsOf,
   makeCorpse,
   withinReach,
   type Corpse,
@@ -2969,12 +2970,10 @@ function resolveDeath(death: Death): void {
     send(earner.id, { t: 'self', view: sim.selfViewOf(earner) });
   }
 
-  // **A mob's corpse holds everything it had — carried *and* worn.** Phase 15c, and note the deliberate
-  // asymmetry with `reapPlayer`, which puts only the bag in and leaves the gear on the body: a player's
-  // worn kit is theirs and losing it to one mistake is the thing the owner named as the worst feeling in
-  // a game, while a mob's worn kit **is** the loot. Killing a guard for the sword it was holding is the
-  // oldest reward loop there is, and a guard that kept its sword would make the fight pointless.
-  const spoils = isMob(actor) ? [...actor.carrying, ...Object.values(actor.equipped).filter((i) => i !== undefined)] : [];
+  // **A mob's corpse holds everything it had — carried *and* worn.** Phase 15c, and the rule now lives
+  // in `corpses.ts` beside the corpse it fills, because Phase 16 made it a promise rather than a policy:
+  // the mob's gear is on the wire, so what a player can *see* it holding is what this has to hand over.
+  const spoils = spoilsOf(actor);
   const corpse = makeCorpse(graveyard, actor, isPlayer(actor), spoils);
   // A mob killed over deep water gives its loot to the nearest shore — it has no entry shore to owe
   // anybody, and a reward nobody can reach is the failure the wash exists to prevent.
