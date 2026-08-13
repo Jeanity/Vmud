@@ -466,6 +466,7 @@ landed, and four of them are about size.
 | camera | the pitch floor is a **function of distance** — 20° at 3 m, portrait framing | `226528f` |
 | race scale | **168 giants, 104 trolls, 85 gnomes** stop being 1.81 m | `a59cacf` |
 | corpses | two bone piles, drawn as meshes, **scaled to what died** | `87176af`, `b3e44bb`, `e968dbf` |
+| troll | 104 templates draw as a real troll, **joined on race** | `127d9f1`, `b7869a5` |
 
 **The one number a next session must know: `data/world` is regenerated, and the models with it.**
 Re-run both importers or the client boots against a stale manifest and refuses:
@@ -486,6 +487,23 @@ node --disable-warning=ExperimentalWarning packages/worldgen/src/modelgen.ts --p
    `RACE_KOBOLD` is `SIZE_SMALL`; multiplying would draw it at 0.45 m. `appearanceOf` returns from the
    creature branch *before* the race is read, and there is an assertion over the real population that
    fails if those branches are ever swapped.
+
+**Two creatures now, and they join on different signals — read this before adding a third.**
+`CREATURE_BODY_FOR` is keyed by **head shape**, `CREATURE_BODY_FOR_RACE` by **race code**, and each
+creature uses whichever actually identifies it. Measured, and it is not a tidiness problem:
+
+- Every kobold in the world is race `H`, shared with 382 other templates — no race to join on, so
+  `kobold` was added to the head vocabulary as a word that exists only as a 3D answer.
+- 214 templates carry head shape `troll` and only **101** are race `PT`. The rest are 57 giants
+  (earth elementals, fomorians, *the sultan of Nizari*), 26 humans, 11 ogres. The 2D sweep had
+  thirteen humanoid heads to describe a world with and used `troll` to mean *"big brutish humanoid"*.
+  Joining on it would put a forest troll's body on an earth elemental.
+
+**Race is read first**, because it is a harvested column and the head word is a guess about
+appearance. The troll needed no `mobs.json` edit at all.
+
+**The ladder got independent confirmation.** `SIZE_SCALE` puts `SIZE_LARGE` at 2.715 m, fitted from
+D&D's *"a troll is nine feet"*; the owner authored theirs from a reference image at **2.7093 m**.
 
 **The in-house asset pipeline now has two halves, and they are siblings:**
 
@@ -520,11 +538,22 @@ which primitive got there last.
   of the same 3.1227 m wall module** — and the module is placed by a single `push` at `y: elevation`
   with `sy: 1`, so stacking is a loop, not a redesign. `roomScene-overrides.ts` looks like the right
   home and is **not**: its own header says nothing reads it yet.
-- **Dropped loot is still a capsule.** Corpses have meshes; a dropped sword does not. That needs an
-  owner decision about art for 16,421 catalogue rows, not a slice.
+- **Dropped loot is still a capsule, and the asset for it is already on disk.** The owner's design
+  (ruled 2026-08-13) retires the 16,421-catalogue-rows problem entirely: **one uniform sparkle**, a
+  `look loot` command to name what is glinting, and a fade as it rots. Uniform was ruled explicitly —
+  nothing about an item is legible before it is picked up. Decay is **already built**
+  (`ground.ts`, 10 min with a 60 s warning), so the sparkle has something real to fade against.
+  `assets/props/loot_sparkle/` is authored and measured. **Task #50 carries the whole design.**
+- **There is now a third asset category and it does not exist yet: an *animated object*.**
+  `modelgen.buildObject` **drops the skin**, which is right for the bone piles (21 joints, zero clips,
+  a tool artefact) and catastrophic for the sparkle, whose five glint bones each tumble on their own
+  25-key path. A guard now **refuses any object file carrying animations** rather than shipping a
+  static shape with no error — the same silent-degradation shape as the two manifest bugs above. That
+  guard is what the animated category replaces. Faking the motion per-instance was measured and
+  rejected: the bones move independently, so a uniform spin does not reproduce it.
 
 **The mob model wishlist**, ranked by how much of the world each covers — the owner is authoring
-these. Troll first (164 spawns, 7 zones, Ghore is a whole city of them), then insects (80 spawns but
+these; **the troll is done**. Next: insects (80 spawns but
 **12 zones**, the widest spread of anything), then giants (147, but 108 in Jotunheim alone and median
 level 45), then goblins (39, all in one zone). Humans, elves, drow, dwarves, gnomes and halflings —
 about 1,000 spawns — need nothing: the human mesh plus the race scale covers them.

@@ -1694,6 +1694,19 @@ export function buildObject(id: string, text: string): ObjectImport | undefined 
   const primitives = gltf.meshes?.[0]?.primitives;
   if (!bytes || !primitives?.length) return undefined;
 
+  // **A file with clips is refused, and this guard is the whole reason it exists.**
+  //
+  // Dropping the skin is right for the bone piles: 21 joints, zero clips, an artefact of the tool
+  // that authored them rather than a fact about the object. It is *catastrophic* for anything whose
+  // rig is load-bearing — `loot_sparkle` animates five glint bones on five independent 25-key paths,
+  // and this function would have shipped a static gold shape with no error anywhere. That is the same
+  // silent-degradation shape as the two bugs found between the manifest and the floor, and it is
+  // cheaper to refuse the import than to discover it on screen.
+  //
+  // An animated object needs a third category — it keeps its rig like a creature, but it is not a
+  // body and must not cost a 65-joint skeleton. When that lands, this guard is what it replaces.
+  if ((gltf as { animations?: unknown[] }).animations?.length) return undefined;
+
   const positionAccessor = primitives[0]!.attributes['POSITION'];
   if (positionAccessor === undefined) return undefined;
   // Every primitive over one vertex buffer is what makes a single colour attribute meaningful. A model
