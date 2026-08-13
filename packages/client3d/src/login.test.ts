@@ -235,6 +235,22 @@ function accountMessage(
   return { t: 'account', account: 'dev', characters, max: 16, resume: 'tok' };
 }
 
+/**
+ * Type a name, submit it, and answer the `checkName` that follows — protocol 32's extra beat.
+ *
+ * The submit no longer opens the cards on its own: the gate asks whether the name is free and waits.
+ * Every creation test goes through here so that beat is exercised rather than stepped over, and so a
+ * regression that stopped asking shows up as `checkName` missing from the wire rather than as
+ * something subtler later.
+ */
+function named(net: FakeNet, doc: ReturnType<typeof newPage>, name: string): void {
+  el(doc, 'gate-new-name').value = name;
+  el(doc, 'gate-new').fire('submit');
+  const asked = net.sent.filter((m) => m.t === 'checkName').at(-1);
+  assert.equal(asked?.name, name, `the gate did not ask whether ${name} was free`);
+  net.deliver({ t: 'nameChecked', name });
+}
+
 /** Form, submit, `account` — the two steps every creation test starts from. */
 function signedIn(
   net: FakeNet,
@@ -277,8 +293,7 @@ describe('the 3D gate, end to end', () => {
     // The picker, and the one thing protocol 24 changed about it: a new name opens the cards and
     // claims nothing. Nothing may go out until a calling has been chosen too.
     assert.equal(el(doc, 'gate-picker').hidden, false);
-    el(doc, 'gate-new-name').value = 'Threeby';
-    el(doc, 'gate-new').fire('submit');
+    named(net, doc, 'Threeby');
     assert.equal(el(doc, 'gate-cards').hidden, false);
     assert.equal(el(doc, 'gate-picker').hidden, true);
     assert.equal(el(doc, 'gate-cards-title').textContent, 'Threeby — choose a race');
@@ -379,8 +394,7 @@ describe('the 3D gate, end to end', () => {
     const doc = newPage();
     const net = new FakeNet();
     signedIn(net, doc);
-    el(doc, 'gate-new-name').value = 'Spender';
-    el(doc, 'gate-new').fire('submit');
+    named(net, doc, 'Spender');
     pick(doc, 'Human').fire('click');
     pick(doc, 'Warrior').fire('click');
     // Human carries no racial bonus anywhere, so its buy cap is a flat 18 — which puts STR 17 one
@@ -426,8 +440,7 @@ describe('the 3D gate, end to end', () => {
     const doc = newPage();
     const net = new FakeNet();
     const gate = signedIn(net, doc);
-    el(doc, 'gate-new-name').value = 'Dropout';
-    el(doc, 'gate-new').fire('submit');
+    named(net, doc, 'Dropout');
     pick(doc, 'Drow').fire('click');
 
     // (a) Still only choosing: nothing has been sent, so there is nothing to rebuild. The re-auth is
@@ -492,8 +505,7 @@ describe('the 3D gate, end to end', () => {
     const doc = newPage();
     const net = new FakeNet();
     const gate = signedIn(net, doc);
-    el(doc, 'gate-new-name').value = 'Inflight';
-    el(doc, 'gate-new').fire('submit');
+    named(net, doc, 'Inflight');
     pick(doc, 'Human').fire('click');
     pick(doc, 'Warrior').fire('click');
     net.deliver(rolled('human', 'warrior', MODEST));
@@ -517,8 +529,7 @@ describe('the 3D gate, end to end', () => {
     const doc2 = newPage();
     const net2 = new FakeNet();
     const gate2 = signedIn(net2, doc2);
-    el(doc2, 'gate-new-name').value = 'Landed';
-    el(doc2, 'gate-new').fire('submit');
+    named(net2, doc2, 'Landed');
     pick(doc2, 'Human').fire('click');
     pick(doc2, 'Warrior').fire('click');
     net2.deliver(rolled('human', 'warrior', MODEST));
@@ -532,8 +543,7 @@ describe('the 3D gate, end to end', () => {
     const doc = newPage();
     const net = new FakeNet();
     signedIn(net, doc);
-    el(doc, 'gate-new-name').value = 'Patient';
-    el(doc, 'gate-new').fire('submit');
+    named(net, doc, 'Patient');
     pick(doc, 'Human').fire('click');
 
     // A calling chosen against a dead socket: the send would be dropped in silence by `Net`, which
@@ -559,8 +569,7 @@ describe('the 3D gate, end to end', () => {
     const doc = newPage();
     const net = new FakeNet();
     const gate = signedIn(net, doc);
-    el(doc, 'gate-new-name').value = 'Backer';
-    el(doc, 'gate-new').fire('submit');
+    named(net, doc, 'Backer');
     pick(doc, 'Halfling').fire('click');
     pick(doc, 'Rogue').fire('click');
     net.deliver(rolled('halfling', 'rogue', MODEST));
@@ -599,8 +608,7 @@ describe('the 3D gate, end to end', () => {
     const doc = newPage();
     const net = new FakeNet();
     signedIn(net, doc);
-    el(doc, 'gate-new-name').value = 'Reader';
-    el(doc, 'gate-new').fire('submit');
+    named(net, doc, 'Reader');
 
     // Derived from `factors` by `racialBonuses` — the same function the server rolls with — so a card
     // and a roll cannot disagree about what a race is worth. Barbarian is the loudest row in the data.
@@ -620,5 +628,61 @@ describe('the 3D gate, end to end', () => {
       paladin.children[2]!.textContent,
       'needs STR 11 · DEX 5 · CON 10 · WIS 13 · CHA 10 · cure light, bless',
     );
+  });
+  it('judges the name at the step that asked for it, not three clicks later', () => {
+    // **Protocol 32, and the reason it exists.** The name used to ride on `charCreate`, which is not
+    // sent until a race and a calling are chosen — so `that name is taken` arrived two decisions
+    // later, on a panel that was not asking about names. The owner met it on their first real roll:
+    // *"it didn't tell me the name was taken until I went to select a class."*
+    const doc = newPage();
+    const net = new FakeNet();
+    signedIn(net, doc);
+
+    // The law is checked with NO round trip at all — `characterNameProblem` is in `@mygame/shared`
+    // so both sides can run it, and a client that asked the server about `Drizzt` would be spending
+    // a trip on a question it can already answer.
+    el(doc, 'gate-new-name').value = 'Drizzt';
+    el(doc, 'gate-new').fire('submit');
+    assert.equal(net.sent.filter((m) => m.t === 'checkName').length, 0, 'the law needed no server');
+    assert.match(el(doc, 'gate-error').textContent, /taken — by the books/);
+    assert.equal(el(doc, 'gate-cards').hidden, true, 'a refused name must not open the cards');
+
+    // A name that survives the law is the only one worth asking about, because whether it is spoken
+    // for on somebody else's account is the one thing this side cannot know.
+    el(doc, 'gate-new-name').value = 'Phalce';
+    el(doc, 'gate-new').fire('submit');
+    assert.equal(net.sent.at(-1)?.t, 'checkName');
+    assert.equal(el(doc, 'gate-cards').hidden, true, 'the cards wait for the answer');
+    net.deliver({ t: 'nameChecked', name: 'Phalce', problem: 'that name is taken' });
+    assert.match(el(doc, 'gate-error').textContent, /taken/);
+    assert.equal(el(doc, 'gate-cards').hidden, true, 'a taken name must not open the cards');
+
+    // And a free one does open them.
+    named(net, doc, 'Freename');
+    assert.equal(el(doc, 'gate-cards').hidden, false);
+  });
+
+  it('ignores an answer to a name it has moved on from', () => {
+    // Two submits, two answers in flight, no promise about their order. Opening the cards on the
+    // stale one would carry the wrong name into the mint — so the gate compares the echoed name
+    // against the question it is actually waiting on.
+    const doc = newPage();
+    const net = new FakeNet();
+    signedIn(net, doc);
+
+    el(doc, 'gate-new-name').value = 'Firstgo';
+    el(doc, 'gate-new').fire('submit');
+    el(doc, 'gate-new-name').value = 'Secondgo';
+    el(doc, 'gate-new').fire('submit');
+
+    // The older answer lands last and must be dropped on the floor.
+    net.deliver({ t: 'nameChecked', name: 'Firstgo' });
+    assert.equal(el(doc, 'gate-cards').hidden, true, 'a stale answer opened the cards');
+    net.deliver({ t: 'nameChecked', name: 'Secondgo' });
+    assert.equal(el(doc, 'gate-cards').hidden, false);
+    // …and the name that travels is the one the player last typed.
+    pick(doc, 'Human').fire('click');
+    pick(doc, 'Warrior').fire('click');
+    assert.equal(net.sent.filter((m) => m.t === 'charCreate').at(-1)?.name, 'Secondgo');
   });
 });

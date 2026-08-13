@@ -9988,7 +9988,10 @@ function handle(player: Player, message: ClientMessage): void {
     case 'enter':
     case 'charCreate':
     case 'charConfirm':
+    case 'checkName':
       // The handshake already happened; a repeat while embodied is ignored rather than trusted.
+      // `checkName` joins them for the same reason: it is a question asked at the door, and a body
+      // already in the world has no name left to choose.
       break;
 
     // The typed `flee` and the protocol's own intent reach the same place, exactly as `command` and the
@@ -10789,6 +10792,26 @@ wss.on('connection', (socket, request) => {
         }
         account = result.account;
         socket.send(encode(accountMessage(account)));
+        return;
+      }
+      // Protocol 32: "is this name free?", asked while it is being typed. **Advisory only** — it
+      // reserves nothing, so the refusal inside `charCreate` below stays exactly where it was and
+      // remains the one that decides. See `ClientMessage.checkName` for why this exists at all.
+      //
+      // The two refusals are deliberately asked in the same order and with the same words the mint
+      // uses, because a name rejected here and accepted there — or refused with different prose —
+      // would be worse than no check.
+      if (message.t === 'checkName') {
+        if (!account) return;
+        const requested = typeof message.name === 'string' ? message.name : '';
+        const problem =
+          characterNameProblem(requested) ??
+          (accounts.ownerOf(slugify(requested.trim().slice(0, 24))) !== undefined ||
+          store.hasStored(slugify(requested.trim().slice(0, 24)))
+            ? 'that name is taken'
+            : undefined);
+        // The name is echoed so a client can discard an answer to a question it has moved on from.
+        socket.send(encode({ t: 'nameChecked', name: requested, ...(problem ? { problem } : {}) }));
         return;
       }
       // Protocol 24: name-then-race-then-class-then-roll. `charCreate` opens or rerolls; the

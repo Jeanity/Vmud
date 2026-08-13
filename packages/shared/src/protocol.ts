@@ -364,8 +364,14 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * pre-coloured — `&+m` gossip, `&+c` tell, `&+G` gsay, the whole line wrapped server-side — so it
  * is `paint`'s existing colour-code renderer that tells them apart on screen, not a `.ch-*` rule
  * like the six before them carry.
+ *
+ * Was 31: **`checkName` / `nameChecked`** — asking whether a name is free at the moment it is typed
+ * rather than after two more decisions. A bump rather than a quiet addition, by this file's own
+ * rule: an old client would neither send nor understand it and would simply keep the late refusal,
+ * which is *"a capability that silently is not there"* — the exact case the note above says the bump
+ * exists to make explicit. Both clients import this constant, so they move together.
  */
-export const PROTOCOL_VERSION = 31;
+export const PROTOCOL_VERSION = 32;
 
 /**
  * One member of your group, as the roster draws them — protocol 19.
@@ -896,6 +902,28 @@ export type ClientMessage =
       readonly race: RaceId;
       readonly class: ClassId;
     }
+  /**
+   * *"Is this name free?"* — asked at the name step, answered with {@link ServerMessage} `nameChecked`.
+   *
+   * **This exists because the refusal was arriving three clicks too late.** The name travels on
+   * `charCreate`, which is not sent until a race *and* a calling have been picked, so a taken name
+   * was reported after the player had made two more decisions and was looking at a different panel.
+   * The owner hit it on their first real roll: *"i tried creating phalce and it didn't tell me the
+   * name was taken until I went to select a class."*
+   *
+   * **Half of the answer never needed the server and still does not.** `names.characterNameProblem`
+   * is in this package precisely so both sides can run it — length, letters-only, reserved words,
+   * rude roots, the Realms' famous names — and a client that asks the server about `Drizzt` before
+   * checking the law it already holds is spending a round trip on a question it can answer itself.
+   * This message is for the one fact only the server has: whether a *free-looking* name is already
+   * spoken for, on any account.
+   *
+   * Advisory, not a reservation. Nothing is held between this and `charCreate`, so a name can still
+   * be taken in the gap — which is why the refusal at `charCreate` stays exactly where it was. This
+   * makes the common case pleasant; it does not make the race condition go away, and it must not be
+   * mistaken for having done so.
+   */
+  | { readonly t: 'checkName'; readonly name: string }
   /** Take the roll, spending bonus points if any — the mint. Refused with `authFailed` if the spend overreaches. */
   | { readonly t: 'charConfirm'; readonly spend?: Readonly<Partial<Record<Ability, number>>> }
   /** Walk one room in a direction. The server decides whether it is legal. */
@@ -1172,6 +1200,15 @@ export type ServerMessage =
    * is the next legal message.
    */
   | { readonly t: 'charAdopt'; readonly name: string }
+  /**
+   * The answer to `checkName`: `problem` absent means free *at the moment it was asked*.
+   *
+   * **The name is echoed back and the client must check it**, because this is asked while somebody
+   * is typing: two answers can be in flight, and they can land out of order. A gate that trusted the
+   * latest arrival rather than the latest *question* would happily open the cards on a stale "free"
+   * for a name the player has since edited.
+   */
+  | { readonly t: 'nameChecked'; readonly name: string; readonly problem?: string }
   /**
    * The map the player is now standing on. Sent on join **and again on every arrival at a new
    * {@link Place}** — a different zone, or a different level of the same zone.

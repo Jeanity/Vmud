@@ -105,6 +105,7 @@ import {
   SPELLS,
   chargenAdoptReplyAction,
   chargenResumeAction,
+  characterNameProblem,
   racialBonuses,
   scoreWord,
   spendBonus,
@@ -186,6 +187,15 @@ export class LoginGate {
   private readonly scoreRows: HTMLElement;
   private readonly bonusLine: HTMLElement;
   private readonly diceLine: HTMLElement;
+
+  /**
+   * The name a `checkName` is outstanding for, or nothing.
+   *
+   * Holds the *question* rather than a boolean, because the answer echoes the name back and the
+   * two have to be compared — see the `nameChecked` handler. Cleared on the answer, and on any
+   * path that leaves the name step, so a late reply cannot reopen a panel the player has left.
+   */
+  private checking: string | undefined;
 
   private pending: Pending = 'none';
   private handsFree = false;
@@ -278,10 +288,42 @@ export class LoginGate {
     this.newForm.addEventListener('submit', (event) => {
       event.preventDefault();
       const name = this.newName.value.trim();
-      // Protocol 24: a new name opens the cards rather than entering. Nothing is sent yet — the
-      // name is not claimed until `charCreate` carries it, and the server owns every refusal, so
-      // the cards are pages rather than permissions.
-      if (name) this.startCards({ name });
+      if (!name) return;
+      // **Protocol 32: the name is judged here, at the step that asked for it.**
+      //
+      // It used to open the cards immediately, on the reasoning that "the server owns every
+      // refusal". That is still true and was still the wrong place to stop: the name only travels on
+      // `charCreate`, which is not sent until a race *and* a calling are chosen, so `that name is
+      // taken` arrived two decisions later on a different panel. The owner met it on their first
+      // real roll — *"it didn't tell me the name was taken until I went to select a class"*.
+      //
+      // Two questions, and only one of them is the server's. The law — length, letters, reserved
+      // words, rude roots, the Realms' own famous names — lives in `@mygame/shared` so that both
+      // sides can run it, so it is run **here, with no round trip at all**. Only a name that passes
+      // it is worth asking about, and the one thing the client cannot know is whether a free-looking
+      // name is already spoken for on somebody else's account.
+      const problem = characterNameProblem(name);
+      if (problem) {
+        this.say(problem);
+        return;
+      }
+      this.checking = name;
+      this.say('checking that name…');
+      this.net.send({ t: 'checkName', name });
+    });
+
+    net.on('nameChecked', (message) => {
+      // **Answering a question we have moved on from is the failure this guard exists for.** A
+      // player who submits, edits and submits again has two answers in flight and no promise about
+      // their order; opening the cards on the older one would carry the wrong name into the mint.
+      if (this.checking === undefined || message.name !== this.checking) return;
+      this.checking = undefined;
+      if (message.problem) {
+        this.say(message.problem);
+        return;
+      }
+      this.hideError();
+      this.startCards({ name: message.name.trim() });
     });
 
     grab('gate-back').addEventListener('click', () => this.back());
@@ -557,6 +599,7 @@ export class LoginGate {
   }
 
   private showForm(): void {
+    this.stopChecking();
     this.overlay.hidden = false;
     this.picker.hidden = true;
     this.cards.hidden = true;
@@ -567,7 +610,13 @@ export class LoginGate {
     this.account.focus();
   }
 
+  /** Any path that leaves the name step drops an outstanding question with it. */
+  private stopChecking(): void {
+    this.checking = undefined;
+  }
+
   private showPicker(account: string, characters: readonly CharacterSummary[], max: number): void {
+    this.stopChecking();
     this.overlay.hidden = false;
     this.form.hidden = true;
     this.cards.hidden = true;
@@ -607,6 +656,7 @@ export class LoginGate {
 
   /** Opens the cards at the race page — for a fresh name, or for a body deciding what it was. */
   private startCards(start: { name?: string; adoptName?: string }): void {
+    this.stopChecking();
     this.chargen = { ...start, bonus: 0, spend: {}, page: 'race' };
     this.overlay.hidden = false;
     this.form.hidden = true;
