@@ -27,7 +27,11 @@
  * | `places`, `group` | DOM panels (`placemap.ts`, `grouproster.ts`) that owe the renderer nothing. Pure UI, and copying 600 lines of it would say nothing about whether the 3D world streams. |
  * | `pathFailed` | The refusal already arrives as a `log` line, which is rendered. The 2D client's extra flash is a 2D effect, and click-to-move's client-side seen-gate means most refusals this client could cause never reach the server to answer at all — see `pointer.ts`'s header. |
  * | `pong` | No latency HUD. Nothing sends `ping`. |
- * | `loggedOut`, `charRolled` | The handshake this client implements stops short of both — see `login.ts`. |
+ * | `loggedOut` | Nothing here sends `quit`, so nothing answers it. The 2D client's handler exists to forget which body the tab was in; this one has no command that produces the message. |
+ *
+ * `charRolled`, `charAdopt`, `account`, `authFailed` **are** wired — by `login.ts`, in its own
+ * constructor, which is why they are absent from the handler block below. The whole of protocol 24's
+ * creation conversation lives in that file now; this one only has to register it before `connect()`.
  *
  * ## `__debug3d`
  *

@@ -12,6 +12,11 @@
        * the shell the salvaged `log.ts` requires by id (#shell, #log, #log-bar, #log-caret,
        * #log-lines, #log-status, #log-entry, #log-input), a canvas host, two HUD lines, M8's
        * compass (#compass-rose, #compass-facing — `compass.ts`), and the login card.
+       *
+       * The login card grew a third panel when protocol 24's creation conversation was ported here
+       * (#gate-cards and everything under it). Every id below is grabbed by name in `login.ts` and
+       * `login.test.ts` re-reads *this file* to build its stub document, so an id deleted here fails
+       * the suite rather than the page.
        */
       :root {
         color-scheme: dark;
@@ -221,7 +226,17 @@
         position: fixed;
         inset: 0;
         display: grid;
-        place-items: center;
+        /*
+         * `safe center`, not `center`, and the difference only shows up on the creation card. `body`
+         * is `overflow: hidden` — a 3D view must not scroll — so the overlay is the only thing that
+         * can, and a plain centred grid item taller than its container overflows *both* edges, which
+         * puts half the card above the scroll origin where nothing can reach it. Measured: the roll
+         * page is 535px and the race page 470px against a 298px viewport in a short window, and the
+         * confirm button is the part that goes. `safe` falls back to `start` exactly then.
+         */
+        place-items: safe center;
+        overflow-y: auto;
+        padding: 1rem 0;
         background: #06080ad9;
         z-index: 10;
       }
@@ -264,11 +279,18 @@
         padding: 0.35rem 0.7rem;
         cursor: pointer;
       }
+      .card button:disabled {
+        opacity: 0.35;
+        cursor: default;
+      }
       .gate-character {
         display: block;
         width: 100%;
         text-align: left;
         margin-bottom: 0.3rem;
+      }
+      .gate-character span {
+        color: var(--dim);
       }
       #gate-error {
         margin-top: 0.7rem;
@@ -276,6 +298,119 @@
       }
       #gate-error[hidden] {
         display: none;
+      }
+
+      /* ------------------------------------------------------- creation cards */
+      /*
+       * Protocol 24's conversation, in the same dark card as the other two panels. The only thing
+       * it changes about the shell is the width: nine race choices each carrying a bonus line, a
+       * facts line and a blurb do not read at 22rem, so `#gate-card` takes `.wide` while the cards
+       * are up and gives them back 8rem. Measured against the longest row the data actually holds —
+       * Mountain Dwarf's "+2 STR  −1 DEX  +1 CON  −1 INT  +2 WIS  −1 CHA", 46 characters, which wraps
+       * at 22rem and does not at 30rem.
+       */
+      #gate-card.wide {
+        width: 30rem;
+      }
+      #gate-cards[hidden] {
+        display: none;
+      }
+      #gate-step {
+        margin: 0 0 0.8rem;
+        color: var(--dim);
+      }
+      #gate-choices {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+        /* Nine choices at ~4.2rem each overflow any sane viewport; the list scrolls, the card does not. */
+        max-height: 24rem;
+        overflow-y: auto;
+      }
+      #gate-choices[hidden] {
+        display: none;
+      }
+      .gate-choice {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: 0.4rem 0.55rem;
+      }
+      .gate-choice b {
+        display: block;
+        font-weight: 600;
+      }
+      .gate-choice .traits {
+        display: block;
+        color: #f0d99a;
+        font-size: 0.85em;
+      }
+      .gate-choice .facts,
+      .gate-choice .blurb {
+        display: block;
+        color: var(--dim);
+        font-size: 0.85em;
+      }
+      #gate-roll[hidden] {
+        display: none;
+      }
+      /*
+       * The roll row, and the reason for its column widths. The word leads because the word is the
+       * rule ("you learn your character is strong, not that it is 88"); the number follows in a
+       * fixed 2.2rem right-aligned cell so that all six numbers form one scannable column however
+       * ragged the words above them are — "lame" and "quite excellent" differ by eleven characters.
+       */
+      .score-row {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.12rem 0;
+      }
+      .score-row .ab {
+        width: 2.4rem;
+        color: var(--dim);
+        text-transform: uppercase;
+      }
+      .score-row .word {
+        flex: 1 1 auto;
+      }
+      .score-row .num {
+        width: 2.2rem;
+        text-align: right;
+        color: #f0d99a;
+      }
+      .score-row .plus {
+        width: 1.6rem;
+        color: #f0d99a;
+      }
+      .score-row button {
+        padding: 0.1rem 0.5rem;
+      }
+      #gate-bonus {
+        margin: 0.7rem 0 0;
+        color: #f0d99a;
+      }
+      #gate-dice {
+        margin: 0.3rem 0 0.8rem;
+        color: var(--dim);
+        font-size: 0.85em;
+      }
+      #gate-actions {
+        display: flex;
+        gap: 0.5rem;
+      }
+      #gate-actions button {
+        flex: 1 1 auto;
+      }
+      #gate-back {
+        margin-top: 0.8rem;
+        padding: 0;
+        background: none;
+        border: 0;
+        color: var(--dim);
+      }
+      #gate-back:hover {
+        color: var(--ink);
       }
     </style>
   </head>
@@ -315,7 +450,7 @@
     </div>
 
     <div id="gate">
-      <div class="card">
+      <div class="card" id="gate-card">
         <h1>MyGame — 3D grey-box</h1>
         <p class="note">M3. The same server, the same protocol, no art.</p>
         <form id="gate-form" autocomplete="off">
@@ -329,8 +464,30 @@
           <div id="gate-characters"></div>
           <form id="gate-new" autocomplete="off">
             <label>new character <input id="gate-new-name" type="text" /></label>
-            <button type="submit">create and enter</button>
+            <button type="submit">choose a race</button>
           </form>
+        </div>
+        <!--
+          Protocol 24's creation conversation. Three pages in one panel — race, calling, roll —
+          because they are one conversation and the card that carries them should not blink between
+          them. `login.ts` owns every string in here except the button labels; the roll's dice
+          explainer in particular is written from the message the server actually sent, so it can
+          never describe a roll that was not made.
+        -->
+        <div id="gate-cards" hidden>
+          <h1 id="gate-cards-title"></h1>
+          <p id="gate-step"></p>
+          <div id="gate-choices" hidden></div>
+          <div id="gate-roll" hidden>
+            <div id="gate-scores"></div>
+            <p id="gate-bonus"></p>
+            <p id="gate-dice"></p>
+            <div id="gate-actions">
+              <button type="button" id="gate-reroll">reroll</button>
+              <button type="button" id="gate-confirm">take this roll</button>
+            </div>
+          </div>
+          <button type="button" id="gate-back">back</button>
         </div>
         <p id="gate-error" hidden></p>
       </div>
