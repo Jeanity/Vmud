@@ -144,8 +144,8 @@ function weightsOf(id: string): [number, number][] {
 describe('the character key set', () => {
   it('gives the pool one material per atlas and no more', () => {
     assert.equal(new Set(CHARACTER_TEXTURES).size, CHARACTER_TEXTURES.length);
-    // 13 since the kobold: twelve Quaternius atlases and one in-house.
-    assert.equal(CHARACTER_TEXTURES.length, 13);
+    // 14: twelve Quaternius atlases and two in-house, the kobold's and the troll's.
+    assert.equal(CHARACTER_TEXTURES.length, 14);
     // The disjointness `pool.programKeyOf` relies on to answer "is this material's object skinned".
     for (const prop of CHARACTER_PROP_TEXTURES) {
       assert.ok((CHARACTER_TEXTURES as readonly string[]).includes(prop), `${prop} is not a character atlas`);
@@ -221,7 +221,7 @@ describe('the imported characters', () => {
         HAIR_MODELS.length +
         CREATURE_BODY_MODELS.length,
     );
-    assert.equal(manifest.models.length, 33);
+    assert.equal(manifest.models.length, 34);
   });
 
   it('classifies every model, and the five kinds partition it', () => {
@@ -229,7 +229,7 @@ describe('the imported characters', () => {
     for (const model of manifest.models) kinds.set(model.kind, (kinds.get(model.kind) ?? 0) + 1);
     assert.deepEqual([...kinds].sort(), [
       ['body', 2],
-      ['creature', 1],
+      ['creature', 2],
       ['hair', 6],
       ['outfit', 20],
       ['weapon', 4],

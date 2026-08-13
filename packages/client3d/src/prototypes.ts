@@ -1184,6 +1184,9 @@ export const CHARACTER_TEXTURES = [
   // in a roughness this renderer's Lambert never samples) into one merged geometry and one draw call.
   // A **skinned** atlas, so it is deliberately not in `CHARACTER_PROP_TEXTURES` and costs no program.
   'kobold',
+  // The forest troll's, likewise. Two in-house atlases now; both are worn by a `SkinnedMesh`, so
+  // neither is in `CHARACTER_PROP_TEXTURES` and neither costs a program.
+  'troll',
   'peasant',
   'ranger',
   'regular-female-dark',

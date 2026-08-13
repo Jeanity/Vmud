@@ -453,12 +453,85 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-### Start here — 2026-08-13, second day: the grey is gone and the world has furniture
+### Start here — 2026-08-13, third day: the world stops being one size, and things die properly
 
-**Read this block, then stop.** The two below it are the same day's earlier state and are kept only
-for the reasoning; everything operational has moved.
+**Read this block, then stop.** Everything below it is earlier state, kept for the reasoning.
 
-**The newest thing, and the one a next session is most likely to trip over: there is a fourth kind of
+**The day in one line: the world stopped being a crowd of identically-sized humans.** Five slices
+landed, and four of them are about size.
+
+| | what changed | where |
+| --- | --- | --- |
+| kobold | 42 templates draw as a real kobold on **its own 32-joint rig** | `9ae8b9c`..`5fc1760` |
+| camera | the pitch floor is a **function of distance** — 20° at 3 m, portrait framing | `226528f` |
+| race scale | **168 giants, 104 trolls, 85 gnomes** stop being 1.81 m | `a59cacf` |
+| corpses | two bone piles, drawn as meshes, **scaled to what died** | `87176af`, `b3e44bb`, `e968dbf` |
+
+**The one number a next session must know: `data/world` is regenerated, and the models with it.**
+Re-run both importers or the client boots against a stale manifest and refuses:
+
+```bash
+node --disable-warning=ExperimentalWarning packages/worldgen/src/modelgen.ts --characters   --source D:/MyGame/assets/quaternius/characters --creatures D:/MyGame/assets/creatures
+node --disable-warning=ExperimentalWarning packages/worldgen/src/modelgen.ts --props   --source D:/MyGame/assets/quaternius/props --objects D:/MyGame/assets/props
+```
+
+**Two things about size that are now true and were not this morning:**
+
+1. **Race is the second scale axis** (`appearance.RACE_SIZE`, `SIZE_SCALE`). Transcribed by *joining
+   two tables in the Duris source mechanically* — `defines.h` writes the mob code in a comment beside
+   each `RACE_*` constant and `common.c:172`'s `race_size()` switches on those constants. Only the 44
+   non-`SIZE_MEDIUM` races are listed, because `race_size()`'s own `default:` is medium. **Age times
+   race**: a `child/giant` is a giant's child.
+2. **A creature with its own mesh never takes a race scale.** The kobold is authored at 0.756 m and
+   `RACE_KOBOLD` is `SIZE_SMALL`; multiplying would draw it at 0.45 m. `appearanceOf` returns from the
+   creature branch *before* the race is read, and there is an assertion over the real population that
+   fails if those branches are ever swapped.
+
+**The in-house asset pipeline now has two halves, and they are siblings:**
+
+- `assets/creatures/<name>/<name>.gltf` → `modelgen.importCreatures` → rides the **characters**
+  manifest. Rigged bodies. Requires a skin (an unrigged creature would slide).
+- `assets/props/<folder>/<stem>.gltf` → `modelgen.importObjects` → rides the **props** manifest.
+  Static objects. Scans **file stems, not folders**, because `bonepile` and `bonepile_looted` share a
+  directory.
+
+`buildObject` bakes flat material colours into `COLOR_0` and ships a 70-byte 1x1 white PNG, so an
+untextured model wears a textured material and costs **no new shader program**. It refuses a file
+whose primitives share vertices across materials, because then a vertex's colour would depend on
+which primitive got there last.
+
+**Two silent-drop traps this cost a session to find, and both are still live for the next model:**
+
+- `PropsSet.load` filters the manifest by a **closed list**. A model absent from `PROPS_MODELS` /
+  `OBJECT_MODELS` is fetched by nobody and nothing says so.
+- `props.registerModel` matches a loaded primitive to its manifest row **by material name**. The
+  manifest's `parts[].material` is therefore a *join key*, not a description — if it does not equal the
+  emitted glTF's material name, the geometry is never registered and there is no error anywhere.
+
+**Known, measured, and not fixed** — the honest list:
+
+- **A body's collision radius is still one constant.** `BODY_RADIUS` is 0.313 m for everything, so
+  since the race scale a troll (0.68 m half-width) and a giant (1.24 m) stand inside each other and
+  inside walls. `bodies.ts`'s own docblock predicted this and names the three proofs a fix must
+  restate. **Task #49.**
+- **123 spawns are taller than their ceiling.** Interiors are 3 m; 115 giants and 8 ogres spawn in
+  roofed rooms. The owner's ruling (2026-08-13): **assign zones as giant folk and raise the roof to
+  ~6 m**. Eighteen zones qualify, headed by Jotunheim (56 spawns). Six metres is exactly **two courses
+  of the same 3.1227 m wall module** — and the module is placed by a single `push` at `y: elevation`
+  with `sy: 1`, so stacking is a loop, not a redesign. `roomScene-overrides.ts` looks like the right
+  home and is **not**: its own header says nothing reads it yet.
+- **Dropped loot is still a capsule.** Corpses have meshes; a dropped sword does not. That needs an
+  owner decision about art for 16,421 catalogue rows, not a slice.
+
+**The mob model wishlist**, ranked by how much of the world each covers — the owner is authoring
+these. Troll first (164 spawns, 7 zones, Ghore is a whole city of them), then insects (80 spawns but
+**12 zones**, the widest spread of anything), then giants (147, but 108 in Jotunheim alone and median
+level 45), then goblins (39, all in one zone). Humans, elves, drow, dwarves, gnomes and halflings —
+about 1,000 spawns — need nothing: the human mesh plus the race scale covers them.
+
+---
+
+**The kobold, in detail — a next session is most likely to trip over this: there is a fourth kind of
 body.** `assets/creatures/kobold/` is an **in-house** model — authored in WAM, not bought — and it
 carries **its own 32-joint armature and its own five clips**. Everything about the character pipeline
 that was written as *"one armature, 65 joints, shared by everything"* is still true and is now true
@@ -484,7 +557,7 @@ they are not kobolds and would be wrong at 0.76 m.
 
 **Rituals that changed — get these wrong and you will chase ghosts:**
 
-- The suite is **2,970 green, 0 skipped**, and needs **three** env vars now:
+- The suite is **3,057 green, 0 skipped**, and needs **three** env vars now:
   `GAME_NATURE_KIT=D:/MyGame/assets/quaternius/nature`
   `GAME_VILLAGE_KIT=D:/MyGame/assets/quaternius/village`
   `GAME_PROPS_KIT=D:/MyGame/assets/quaternius/props`

@@ -27,6 +27,7 @@ import {
   appearanceOf,
   bodyScaleFor,
   boundsOf,
+  drawnHeightOf,
   everyGearPartId,
   everyHairId,
   everyModelId,
@@ -551,8 +552,25 @@ describe('every body in the shipped world', { skip: HAVE_SPAWNS ? false : 'data/
     // 168 `G` at 2.75 is the headline: the treants, the giants and everything the builders filed as
     // one have stood at a grown man's height since M7b.
     assert.ok((byScale.get(2.75) ?? []).length >= 150, `expected the giants, got ${(byScale.get(2.75) ?? []).length}`);
-    assert.ok((byScale.get(1.5) ?? []).length >= 90, `expected the trolls, got ${(byScale.get(1.5) ?? []).length}`);
     assert.ok((byScale.get(2) ?? []).length >= 10, `expected the ogres, got ${(byScale.get(2) ?? []).length}`);
+
+    // **The trolls are checked by height and not by scale, and that is the lesson of the slice.**
+    // This line used to assert `scale === 1.5` and it was right until the troll got a mesh of its own
+    // — authored at 2.709 m, so its scale is now **1** and the old assertion read zero trolls. The
+    // scale was never the thing worth pinning; it is an implementation detail of *which mesh* is
+    // being stretched. How tall a troll is drawn is the fact, and it survives the next creature model
+    // as well as it survived this one.
+    const tall = shippedTemplates().filter((t) => {
+      const look = appearanceOf({ kind: 'mob', sprite: t.sprite, ...(t.race ? { race: t.race } : {}) });
+      return look ? drawnHeightOf(look.model, look.scale) > 2.5 : false;
+    });
+    assert.ok(tall.length >= 200, `expected the world's big bodies, got ${tall.length}`);
+    for (const t of shippedTemplates().filter((c) => c.race === 'PT')) {
+      const look = appearanceOf({ kind: 'mob', sprite: t.sprite, race: 'PT' });
+      assert.equal(look?.model, `${BASE_PREFIX}Troll`, `${t.vnum} ${t.name} is not drawn as a troll`);
+      // Its own mesh, so no race multiple on top of it — the double-count this ordering prevents.
+      assert.equal(look?.scale ?? 1, bodyScaleFor(t.sprite.split('/')[0] ?? ''), `${t.vnum} scaled twice`);
+    }
 
     // **Age times race, over the real population** — the product, not either factor. A `child` of a
     // large race must land on neither 0.72 nor 1.5.

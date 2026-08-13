@@ -131,8 +131,41 @@ export const CREATURE_BODY_FOR: Readonly<Record<string, string>> = {
   kobold: 'Kobold',
 };
 
+/**
+ * The same, keyed by **race code** — and there are two tables because neither signal alone names a
+ * creature. This is a finding rather than an inconvenience, and it is worth reading before adding the
+ * next model.
+ *
+ * ```
+ *   kobolds   race H (humanoid), 42 templates   -> race is useless, the head word had to be invented
+ *   trolls    head `troll`, 214 templates       -> head is useless, 113 of them are not trolls
+ * ```
+ *
+ * **The kobold case.** Every kobold in the world is filed under `RACE_HUMANOID`, which it shares with
+ * 382 other templates. So there was nothing in the race column to join on and `kobold` was added to
+ * the head vocabulary — a word the ULPC pack does not have, existing only as a 3D answer.
+ *
+ * **The troll case is the mirror of it, and worse.** Measured over the shipped harvest: 214 templates
+ * carry head shape `troll` and only **101** are race `PT`. The other 113 are 57 giants (earth
+ * elementals, fomorians, *the sultan of Nizari*), 26 humans, 11 ogres and 10 humanoids — because the
+ * 2D sweep had thirteen humanoid heads to describe the world with and used `troll` to mean *"big
+ * brutish humanoid"*. Joining a troll mesh to that word would put a forest troll's body on an earth
+ * elemental. Race `PT` is 104 templates and every one of them is a troll, including the three the
+ * sweep filed as `human` because their names are ranks — *the chief guard*, *Sir Frithyl*, *Yoo, the
+ * High Spirit of Shamans*.
+ *
+ * **Race is read first**, because it is a harvested column and the head word is a guess about
+ * appearance. Nothing is in both tables today and nothing should be: if a race and a head shape ever
+ * disagree about which mesh to draw, the race is the one that knows.
+ */
+export const CREATURE_BODY_FOR_RACE: Readonly<Record<string, string>> = {
+  PT: 'Troll',
+};
+
 /** The stems above, sorted — the staging list, and what `characters.test.ts` joins on. */
-export const CREATURE_BODY_MODELS: readonly string[] = Object.values(CREATURE_BODY_FOR).sort();
+export const CREATURE_BODY_MODELS: readonly string[] = [
+  ...new Set([...Object.values(CREATURE_BODY_FOR), ...Object.values(CREATURE_BODY_FOR_RACE)]),
+].sort();
 
 /**
  * Whether a model id names a body the **outfit pack can dress** — one predicate, because there are
@@ -521,6 +554,10 @@ export const MODEL_HEIGHT: Readonly<Record<string, number>> = {
   Superhero_Male_FullBody: 1.81,
   Superhero_Female_FullBody: 1.767,
   Kobold: 0.756,
+  // 2.709 against `SIZE_SCALE`'s prediction of 2.715 for `SIZE_LARGE`. The ladder was fitted from
+  // D&D's "a troll is nine feet" and the model was authored from a reference image; they agree to
+  // five millimetres, which is the closest thing to independent confirmation this table will get.
+  Troll: 2.709,
 };
 
 /** The height a `MEDIUM` human is drawn at — the denominator every corpse scale is taken against. */
@@ -1077,13 +1114,21 @@ export function appearanceOf(subject: AppearanceSubject): Appearance | undefined
   // hand-editable rows, and without this test a mistyped `male/wolff` would not draw a wolf — it
   // would emit `creature:wolff`, an id nothing has ever staged, and turn one guard into a 404. So an
   // unrecognised word falls through to the person below, exactly as an unrecognised body does.
-  // A head shape we have a **mesh** for. Read before both branches below, because it is more specific
-  // than either: a kobold is not an animal (it would draw as a tinted capsule) and not a person (it
-  // would draw as a 1.81 m human in peasant cloth), and the whole point of the row is to say so.
+  // A body we have a **mesh** for. Read before both branches below, because it is more specific than
+  // either: a troll is not an animal (it would draw as a tinted capsule) and not a person (it would
+  // draw as a 1.81 m human in peasant cloth), and the whole point of the row is to say so.
   //
-  // Bare, exactly like the animal branch above and for a stronger reason: that one has nothing to hang
-  // gear on, this one has a rig the gear does not fit. See `CREATURE_BODY_FOR`.
-  const creature = CREATURE_BODY_FOR[head];
+  // **Race first, then the head word**, and see `CREATURE_BODY_FOR_RACE` for why it takes two tables:
+  // every kobold in the world is race `H` and 113 of the 214 things the sweep called `troll` are not
+  // trolls, so each creature is joined on whichever of the two signals actually identifies it.
+  //
+  // Bare, exactly like the animal branch below and for a stronger reason: that one has nothing to hang
+  // gear on, this one has a rig the gear does not fit.
+  //
+  // **And no race scale.** These meshes are authored at their true heights — the kobold at 0.756 m,
+  // the troll at 2.709 m against the ladder's 2.715 — so returning here rather than falling through is
+  // what stops a troll being drawn at 1.5x of its own already-troll-sized body.
+  const creature = CREATURE_BODY_FOR_RACE[subject.race ?? ''] ?? CREATURE_BODY_FOR[head];
   if (creature) return { model: `${BASE_PREFIX}${creature}`, ...scaled };
 
   if (ANIMAL_HEADS.has(head)) {
