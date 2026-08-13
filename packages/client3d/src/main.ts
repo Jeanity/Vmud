@@ -93,9 +93,9 @@ import {
   CAMERA_DISTANCE_MAX,
   CAMERA_DISTANCE_MIN,
   CAMERA_PITCH_MAX,
-  CAMERA_PITCH_MIN,
   CameraRig,
   groundRadius,
+  pitchFloorFor,
 } from './rig.ts';
 import { PrecipFade, SkyClock, stormy, type Falling } from './sky.ts';
 import { Snow } from './snow.ts';
@@ -486,6 +486,9 @@ dolly.attach(renderer.domElement);
  * should be. `orbit.ts`'s header for why that is one boolean rather than a suspended third state.
  */
 orbit.poseOf = cameraPose;
+// M9: the tilt's floor depends on the distance *and* on the ceiling this canvas allows, so the orbit
+// reads the same number the wheel does. See `OrbitControl.ceilingOf`.
+orbit.ceilingOf = () => rig.maxDistance;
 orbit.onPose = (pose) => {
   const wasFollowing = followCamera.enabled;
   // `remember: false` — a `localStorage` write per `pointermove` is sixty a second. `onSettled` below
@@ -1069,11 +1072,32 @@ const cameraKnob = {
   get facing(): { bearing: number; point: string } {
     return { bearing: Number(bearingOf(rig.yaw).toFixed(1)), point: cardinalOf(rig.yaw) };
   },
-  /** The clamp, so a value that refuses to take is obviously a clamp and not a broken setter. */
-  get limits(): { distance: [number, number]; pitch: [number, number]; yaw: string } {
+  /**
+   * The clamp, so a value that refuses to take is obviously a clamp and not a broken setter.
+   *
+   * **The pitch pair is the floor *here*, not the floor everywhere** — M9's clamp is an envelope and
+   * its lower edge is a function of the distance (`rig.pitchFloorFor`). Reporting the constant would
+   * be the one reading that makes the feature look broken: the owner types `pitch = 22` at 3 m, it
+   * takes, and a readout claiming the minimum is 45 says the console is lying to them. `floorAt`
+   * comes with it so the shape of the curve is legible from one line without a source file.
+   */
+  get limits(): {
+    distance: [number, number];
+    pitch: [number, number];
+    floorAt: Record<string, number>;
+    lift: number;
+    yaw: string;
+  } {
+    const floorAt: Record<string, number> = {};
+    for (const metres of [CAMERA_DISTANCE_MIN, 10, 24, 36, 48, 96]) {
+      floorAt[`${metres}m`] = Number(pitchFloorFor(metres, rig.maxDistance).toFixed(2));
+    }
     return {
       distance: [CAMERA_DISTANCE_MIN, Math.min(rig.maxDistance, CAMERA_DISTANCE_MAX)],
-      pitch: [CAMERA_PITCH_MIN, CAMERA_PITCH_MAX],
+      pitch: [Number(rig.pitchFloor.toFixed(3)), CAMERA_PITCH_MAX],
+      floorAt,
+      /** Metres the aim point sits up the character's body at this distance. `rig.FOCUS_LIFT`. */
+      lift: Number(rig.focusLift.toFixed(3)),
       // Not a pair, because a circle has no ends — the yaw wraps where the other two clamp.
       yaw: 'wraps, (-180, 180]',
     };

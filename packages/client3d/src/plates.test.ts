@@ -18,6 +18,8 @@ import {
   DAMAGE_RISE,
   DAMAGE_SECONDS,
   NAMEPLATE_LIFT,
+  PLATE_CLOSE_FULL,
+  PLATE_CLOSE_GONE,
   PLATE_COUNT,
   PLATE_FAR,
   PLATE_NEAR,
@@ -28,6 +30,7 @@ import {
   plateSize,
 } from './plates.ts';
 import { BODY_POOL_SIZE } from './pool.ts';
+import { CAMERA_DISTANCE_MIN } from './rig.ts';
 
 /** Every scale a body can actually be drawn at, off the server's own table rather than a sample. */
 const BODY_SCALE_FACTORS: readonly number[] = Object.values(BODY_SCALE);
@@ -35,18 +38,38 @@ const BODY_SCALE_FACTORS: readonly number[] = Object.values(BODY_SCALE);
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 describe('a nameplate’s distance fade', () => {
-  it('is full inside the near band, gone past the far one, and linear between', () => {
-    assert.equal(plateOpacity(0), 1);
+  it('is full across the middle, gone at both ends, and linear between', () => {
+    assert.equal(plateOpacity(PLATE_CLOSE_FULL), 1);
     assert.equal(plateOpacity(PLATE_NEAR), 1);
     assert.equal(plateOpacity(PLATE_FAR), 0);
     assert.equal(plateOpacity(1000), 0);
     assert.ok(Math.abs(plateOpacity((PLATE_NEAR + PLATE_FAR) / 2) - 0.5) < 1e-9);
-    // Monotone, so a name never brightens as it recedes.
-    let previous = 1;
-    for (let metres = 0; metres < 60; metres += 0.5) {
+    // **The near end — M9.** A plate is a fixed 1.6 m quad, so at the new 3 m floor it is 56% of the
+    // screen's width at a seven-fold upscale of a 256 px canvas: a blurred banner across the very
+    // character the owner zoomed in to look at. Gone by 4 m, full again by 8.
+    assert.equal(plateOpacity(0), 0);
+    assert.equal(plateOpacity(CAMERA_DISTANCE_MIN), 0, 'a plate survives the closest pose the dolly reaches');
+    assert.equal(plateOpacity(PLATE_CLOSE_GONE), 0);
+    assert.ok(Math.abs(plateOpacity((PLATE_CLOSE_GONE + PLATE_CLOSE_FULL) / 2) - 0.5) < 1e-9);
+    assert.ok(PLATE_CLOSE_GONE > CAMERA_DISTANCE_MIN, 'the near fade must finish before the dolly does');
+    assert.ok(PLATE_CLOSE_FULL < PLATE_NEAR);
+    // Monotone in each half — a name never brightens as it recedes, and never brightens as it is
+    // walked into. The turn is a single peak rather than a ripple.
+    let previous = 0;
+    for (let metres = 0; metres <= PLATE_CLOSE_FULL; metres += 0.1) {
+      const now = plateOpacity(metres);
+      assert.ok(now >= previous - 1e-9, `opacity fell while approaching, at ${metres} m`);
+      previous = now;
+    }
+    for (let metres = PLATE_CLOSE_FULL; metres < 60; metres += 0.5) {
       const now = plateOpacity(metres);
       assert.ok(now <= previous + 1e-9, `opacity rose at ${metres} m`);
       previous = now;
+    }
+    // Bounded, which a two-ended ramp makes worth stating separately from monotone.
+    for (let metres = 0; metres < 120; metres += 0.25) {
+      const now = plateOpacity(metres);
+      assert.ok(now >= 0 && now <= 1, `opacity ${now} at ${metres} m`);
     }
   });
 

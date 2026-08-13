@@ -33,10 +33,29 @@
  * {@link ORBIT_DEGREES_PER_PIXEL} is 0.25 — a full circle in 1,440 px, which is one screen-width drag
  * on a typical monitor and is what `three`'s own OrbitControls does (2π per client width). The tilt is
  * {@link TILT_DEGREES_PER_PIXEL}, 0.08, and it is **not** the same number on purpose: the pitch clamp
- * is 19° wide against the yaw's 360, so at an equal rate the whole tilt range would cross in 76 px
+ * was 19° wide against the yaw's 360, so at an equal rate the whole tilt range would cross in 76 px
  * and every horizontal drag — none of which is perfectly horizontal — would slam the camera into one
- * of its stops. At 0.08 the full range is a 238 px pull and a 20 px wobble is 1.6°, which is under
- * the threshold at which anybody would notice the tilt moved at all.
+ * of its stops. At 0.08 a 20 px wobble is 1.6°, which is under the threshold at which anybody would
+ * notice the tilt moved at all.
+ *
+ * **M9 widened the tilt range and neither number moved.** The floor is a curve now
+ * (`rig.pitchFloorFor`), so the range runs 44° at the closest pose and 36.4° at the default 36 m
+ * against the old flat 19° — a 550 px and a 455 px pull rather than 238. That is a longer journey for
+ * a bigger range at an unchanged feel, and it makes the argument above *safer* rather than staler: a
+ * wider range is harder to slam into, not easier.
+ *
+ * ## Why the orbit rate is not scaled by distance, at 3 m or anywhere else
+ *
+ * The obvious worry about a camera that can come to three metres is that the same degrees-per-pixel
+ * is violent up close. The arithmetic says the opposite. An orbit is a rotation *about the character*,
+ * so the camera's own speed is `D · 0.25° · π/180` metres per pixel: **0.157 m/px at 36 m and
+ * 0.013 m/px at 3 m**. The close pose is twelve times calmer in world terms, the background sweeps
+ * *less* rather than more, and what the subject appears to do — turn on the spot — is the angular
+ * rate, which is exactly what the hand asked for by moving that many pixels.
+ *
+ * Scaling the rate with distance would therefore make the calm end calmer still, and would break the
+ * one property this number was chosen for: that one screen width is one full turn, at every pose, so
+ * the gesture has a length the hand can learn. It stays a constant.
  *
  * ## Shift is the discriminator, and it is read once
  *
@@ -88,15 +107,16 @@ export const TILT_DEGREES_PER_PIXEL = 0.08;
  * `follow` is carried through unchanged: switching it off is the *control's* decision (a drag that
  * moved nothing must not disarm a mode), not the mapping's.
  */
-export function orbitTo(from: CameraPose, dx: number, dy: number): CameraPose {
+export function orbitTo(from: CameraPose, dx: number, dy: number, ceiling?: number): CameraPose {
   return {
     ...from,
     // Right is a *fall* in yaw because the protocol's yaw runs anticlockwise seen from above — east
     // is -90 — and turning right is turning toward east. `rig.wrapYaw` for the whole convention.
     yaw: wrapYaw(from.yaw - dx * ORBIT_DEGREES_PER_PIXEL),
     // Down the screen is a *rise* in pitch, because pitch is degrees below the horizontal: pulling
-    // the mouse toward you tips the camera over onto the top of the world.
-    pitch: clampPitch(from.pitch + dy * TILT_DEGREES_PER_PIXEL),
+    // the mouse toward you tips the camera over onto the top of the world. M9: the floor the clamp
+    // stops at depends on where the camera is standing, so the drag's own distance goes in with it.
+    pitch: clampPitch(from.pitch + dy * TILT_DEGREES_PER_PIXEL, from.distance, ceiling),
   };
 }
 
@@ -142,6 +162,18 @@ export class OrbitControl {
 
   /** The pose to move *from*. Injected, because the rig owns the truth and this owns the gesture. */
   poseOf: (() => CameraPose) | undefined;
+
+  /**
+   * The dolly's live ceiling, if the canvas is too wide for the ring — the same hook `Dolly` carries,
+   * and M9 is why the *tilt* needs it too.
+   *
+   * `rig.pitchFloorFor` ramps to 45° at the ceiling rather than at `CAMERA_DISTANCE_MAX`, so on an
+   * ultrawide the floor is steeper at every distance. Without this the drag would compute a pitch
+   * below the real floor, the rig would clamp it on the way in (so nothing would *look* wrong), and
+   * `onSettled` would write the unclamped number to `localStorage` — a stored pose the rig refuses,
+   * which reads as the camera forgetting where it was left.
+   */
+  ceilingOf: (() => number) | undefined;
 
   private element: HTMLElement | undefined;
   private pointerId: number | undefined;
@@ -208,7 +240,7 @@ export class OrbitControl {
     // Applied from the *live* pose every move rather than accumulated from the press, so a drag that
     // runs into the pitch clamp and comes back out again tracks the hand instead of unwinding a
     // stored total — the same reason `Dolly` reads `poseOf` per notch.
-    const next = orbitTo(from, dx, dy);
+    const next = orbitTo(from, dx, dy, this.ceilingOf?.());
     if (next.yaw === from.yaw && next.pitch === from.pitch) return undefined;
     this.turned = true;
     this.onPose?.(next);

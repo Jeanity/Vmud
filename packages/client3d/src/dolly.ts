@@ -153,10 +153,15 @@ export const FOLLOW_ON_FRESH = true;
 /**
  * What a fresh machine starts at, and what a reset returns to.
  *
- * Pitch is the clamp's forward-looking floor rather than the authored 64: the owner's whole camera
- * arc ("lower the angles so we can see more what is in front" → the lock) points down-range, and a
- * machine with a remembered pose never reads this anyway — the migration keeps the owner's own
- * angle to the degree.
+ * Pitch is 45 rather than the authored 64: the owner's whole camera arc ("lower the angles so we can
+ * see more what is in front" → the lock) points down-range, and a machine with a remembered pose
+ * never reads this anyway — the migration keeps the owner's own angle to the degree.
+ *
+ * **It was "the clamp's floor" and since M9 it is just a number the owner chose.** The floor is a
+ * curve now (`rig.pitchFloorFor`) and at this pose's 36 m it is 27.56°, so the default sits 17°
+ * *above* its own floor and a tilt can descend from it. Left at 45 deliberately: it is the frame the
+ * owner has been playing in for two days, and moving a default nobody asked to move is how a session
+ * starts with "why does it look different".
  *
  * **Yaw is north and follow is on** — the yaw because the world was authored under it and because
  * `input.cameraRelative` is the identity there, the mode because M8b retired the reason it shipped off.
@@ -186,9 +191,18 @@ export function wheelNotches(event: Pick<WheelEvent, 'deltaX' | 'deltaY' | 'delt
   return raw / perNotch;
 }
 
-/** The pose `notches` of the wheel moves `from` to. Clamped; everything else carried through. */
+/**
+ * The pose `notches` of the wheel moves `from` to. Clamped; everything else carried through.
+ *
+ * **The pitch rides along since M9**, and it has to: the floor is a function of the distance
+ * (`rig.pitchFloorFor`), so a camera dropped to eye level three metres out and then wheeled back to
+ * 96 m would be holding a 20° pitch whose frame reaches 285 m — four rings past the built world. The
+ * wheel therefore tilts the camera *up* as it pulls back, but only ever as far as the floor demands:
+ * a pose already above its new floor is untouched, which is every zoom the owner has made until now.
+ */
 export function dollyTo(from: CameraPose, notches: number, ceiling?: number): CameraPose {
-  return { ...from, distance: clampDistance(from.distance * DOLLY_RATIO ** notches, ceiling) };
+  const distance = clampDistance(from.distance * DOLLY_RATIO ** notches, ceiling);
+  return { ...from, distance, pitch: clampPitch(from.pitch, distance, ceiling) };
 }
 
 /**
@@ -198,8 +212,8 @@ export function dollyTo(from: CameraPose, notches: number, ceiling?: number): Ca
  * pitch, because both are the same instinct: show me more of what is out there. `orbit.ts`'s drag
  * maps the same way and says so.
  */
-export function tiltTo(from: CameraPose, notches: number): CameraPose {
-  return { ...from, pitch: clampPitch(from.pitch - notches * PITCH_DEGREES_PER_NOTCH) };
+export function tiltTo(from: CameraPose, notches: number, ceiling?: number): CameraPose {
+  return { ...from, pitch: clampPitch(from.pitch - notches * PITCH_DEGREES_PER_NOTCH, from.distance, ceiling) };
 }
 
 /** Wrapped because storage access throws outright in a partitioned or cookie-blocked context. */
@@ -277,9 +291,15 @@ export function rememberedPose(): CameraPose | undefined {
   // distance, pitch and yaw (the owner tuned those by hand) and **re-reads the default for follow**,
   // exactly once. Anything saved since carries the marker and is honoured, including a deliberate off.
   const chosenEra = rawEra === POSE_ERA;
+  // M9: the pitch is clamped against the distance in the *same* value, so a stored `3,20` — a
+  // legitimate eye-level pose — survives the round trip instead of being dragged back to 45°. No
+  // ceiling is available this early (no canvas has been measured yet), so this is the permissive
+  // 96 m one; `rig.maxDistance`'s setter re-clamps both numbers the moment `main.ts` measures the
+  // canvas, which is the same tick.
+  const clamped = clampDistance(distance);
   return {
-    distance: clampDistance(distance),
-    pitch: clampPitch(pitch),
+    distance: clamped,
+    pitch: clampPitch(pitch, clamped),
     // `wrapYaw` answers 0 for a NaN, so a corrupt third field is north rather than a broken camera.
     yaw: wrapYaw(yaw),
     follow: !chosenEra || rawFollow === undefined || rawFollow === '' ? DEFAULT_POSE.follow : rawFollow === '1',

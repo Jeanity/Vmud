@@ -32,7 +32,7 @@ import { DataTexture, ShaderLib } from 'three';
 
 import { CAMERA_FOV_DEGREES, CAMERA_PITCH_DEGREES } from '@mygame/shared';
 
-import { CLAMP_CORNERS } from './fixture.ts';
+import { ENVELOPE_POSES } from './fixture.ts';
 import {
   FOLIAGE_MASK_GLSL,
   FOLIAGE_VERTEX_DECL,
@@ -49,7 +49,7 @@ import {
   foliageWindOffset,
   type ShaderPatch,
 } from './foliage.ts';
-import { CAMERA_DISTANCE, groundFrame } from './rig.ts';
+import { CAMERA_DISTANCE, frameAt, groundFrame } from './rig.ts';
 
 /** A stand-in for what three hands `onBeforeCompile`, built from the real chunk sources. */
 function shaderFor(kind: 'lambert' | 'depth'): ShaderPatch {
@@ -193,7 +193,7 @@ describe('the card-foliage material', () => {
     assert.equal(pair.depth.side, 2);
   });
 
-  it('fades the ground layer outside the frame and not across it, at every corner of the clamp', () => {
+  it('fades the ground layer outside the frame and not across it, everywhere on the envelope', () => {
     /*
      * **The M5a bug this pins.** `uFade` is compared against `-mvPosition.z`, which is depth along the
      * camera's own forward axis and not distance from the character — and at the authored pose the
@@ -207,7 +207,7 @@ describe('the card-foliage material', () => {
      * rig's distance and pitch are live now, and the frame's view-depth range travels from 21.2..27.6
      * at the near/steep corner to 37.9..65.6 at the far/shallow one — a band that is right at one of
      * those is wrong at the other three in *both* of M5a's directions at once. So the band is derived
-     * (`fadeBandsFor`) and this walks all four corners: at each, the fade must start inside the
+     * (`fadeBandsFor`) and this walks the whole envelope: at each pose, the fade must start inside the
      * frame's far half and finish outside the frame entirely.
      */
     const radians = Math.PI / 180;
@@ -217,8 +217,8 @@ describe('the card-foliage material', () => {
     const swing = (groundDepth / 2) * Math.cos(CAMERA_PITCH_DEGREES * radians);
     assert.ok(CAMERA_DISTANCE - swing > 30, 'the authored frame no longer starts where M5b measured it');
 
-    for (const [distance, pitch] of CLAMP_CORNERS) {
-      const frame = groundFrame(distance, pitch, 16 / 9);
+    for (const [distance, pitch] of ENVELOPE_POSES) {
+      const frame = frameAt(distance, pitch, 16 / 9);
       const bands = fadeBandsFor(frame);
       const at = `${distance} m / ${pitch}°`;
       for (const [label, band] of [['grass', bands.grass] as const, ['kit understory', bands.kitLeaf] as const]) {
@@ -228,12 +228,37 @@ describe('the card-foliage material', () => {
         // is 6 m deep at one corner of the clamp and 28 at another.
         const midway = (frame.nearDepth + frame.farDepth) / 2;
         assert.ok(band[0] > midway, `${label} starts fading at ${band[0]} m, inside the near half at ${at}`);
-        // …it must begin before the far edge, or it is a fade that never happens and the clutter
-        // accumulates out to the streaming ring's rim…
-        assert.ok(band[0] < frame.farDepth, `${label} never fades: it starts at ${band[0]} m, past ${at}`);
         // …and it must *finish* outside the frame, or the far strip of ground ends at a hard line
-        // where the last tuft is cut off mid-view rather than softening into the fog.
+        // where the last tuft is cut off mid-view rather than softening into the fog. **This one is
+        // unconditional and it is the one that protects a picture**: everything else here is economy.
         assert.ok(band[1] > frame.farDepth, `${label} finishes at ${band[1]} m, inside the frame at ${at}`);
+        /*
+         * It must also begin *before* the far edge, or it is a fade that never happens and the
+         * clutter accumulates out to the streaming ring's rim — **where the band can fit at all.**
+         *
+         * M9 is what put a caveat on that. `fadeBandFor` starts the grass at `near + 2/3 span`, so
+         * the grass has `span/3` of room before the far edge and always fits; the kit's band is the
+         * same one pushed {@link KIT_FADE_LAG} = 2 m further out, which needs `span > 3 · 2` = 6 m of
+         * view depth to still land inside the frame. The old clamp's shallowest frame was 6.4 m deep
+         * (24 m at 64°) and cleared it by 13 cm. M9's envelope reaches 3 m, where the same 64° frame
+         * is **1.1 m** deep, and no fixed lag can fit inside that.
+         *
+         * The remedy is to say so rather than to shrink the lag: a lag that scaled with the span
+         * would have to shrink at 24 m/64° too — the margin there is 13 cm — and that is a pose the
+         * owner has been playing in for two days. What actually happens at a 1 m-deep frame is that
+         * the kit's understory never dissolves, which costs a handful of instances in a frame that
+         * contains a handful of instances, and produces no line anywhere because the assertion above
+         * still holds. So: assert the economy where it is available and the *safety* where it is not.
+         */
+        const fits = frame.farDepth - frame.nearDepth > 3 * KIT_FADE_LAG;
+        if (label === 'grass' || fits) {
+          assert.ok(band[0] < frame.farDepth, `${label} never fades: it starts at ${band[0]} m, past ${at}`);
+        } else {
+          // Uniformly opaque across the whole frame — not partly faded, which would be a gradient
+          // running the wrong way. `>=` and not `>`: the two are equal at exactly `span = 3 · lag`.
+          assert.ok(band[0] >= frame.farDepth, `${label} half-fades at ${at}`);
+          assert.ok(frame.farDepth - frame.nearDepth < 3 * KIT_FADE_LAG + 1e-9, `${at} should have fitted`);
+        }
       }
       // The kit's understory outlives the tufts, which is the only difference between the two bands.
       assert.equal(bands.kitLeaf[0] - bands.grass[0], KIT_FADE_LAG);

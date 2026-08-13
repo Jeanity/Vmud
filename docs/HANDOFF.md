@@ -477,9 +477,12 @@ for the reasoning; everything operational has moved.
 
 **What landed after the block below** (`d8535bc` → `202998a`, all verified, all pushed):
 
-- **Camera**: orbit with Shift+drag, follow-behind on by default, wheel zoom to 96 m, a compass.
+- **Camera**: orbit with Shift+drag, follow-behind on by default, wheel zoom **3–96 m**, a compass.
   The follow ease is a **critically damped spring** — the exponential it replaced was fastest the
-  instant the target moved, which is what the owner meant by *"it almost snaps"*.
+  instant the target moved, which is what the owner meant by *"it almost snaps"*. The clamp is an
+  **envelope**, not a rectangle: the pitch floor falls to 20° as the camera comes in and rises back to
+  45° at the ceiling, so eye level is reachable up close and unaffordable far out. Nothing downstream
+  grew — the ring, the shadow box and the pool are byte-identical.
 - **Bodies are solid** and never spawn stacked or inside scenery (27 of 2,016 did). Then the bug
   that caused: deflection **oscillated** against a row of bodies, and oscillation is *motion*,
   which is what every stall counter tested for — so a mob's errand never ended and it stood there
@@ -635,6 +638,45 @@ suite is **2,749 green, 0 skipped** with **both** `GAME_NATURE_KIT` and `GAME_VI
   player is facing"*) and for the camera behind the player, so the objection was retired rather than
   argued and the constant is now `true`. (Also pre-existing and worth knowing: Shift is `input.ts`'s
   travel modifier, so orbiting and keyboard-walking are already mutually exclusive.)
+- **The camera clamp became an envelope** — *"move the camera angle right down to eye level and be
+  able to zoom in so I can see my character better just so I can check him out"* (owner, 2026-08-13).
+  The dolly now runs **3–96 m**, and the pitch floor is a **function of the distance**
+  (`rig.pitchFloorFor`): flat at **20°** through the ten-metre portrait band, then a straight ramp to
+  **45° at the dolly's ceiling**. So 20° at 3 m, 24.1° at 24 m, 27.6° at the default 36 m, 45° at 96 —
+  where it is M6's number exactly. The camera also **aims at the character's middle** now
+  (`rig.FOCUS_LIFT`, 0.9 m, fading to zero by 20 m): a rig aimed at the feet puts a 1.8 m head 35° off
+  a 15° half-frame at 3 m, so without it the close-up is a close-up of two boots.
+  **The ledger has no row, and that is the design rather than luck.** Every extent of the frame is
+  linear in the distance, so a pose costs `D · r(θ)`; the floor is a **chord of the curve
+  `D · r(θ) = 96 · r(45°)`**, and `r` is convex, so a chord between two points on or above it stays
+  above it. The worst reachable pose is therefore still 96 m at 45° — unchanged — and `RING_RADIUS`
+  (84.059 m), the 293-cell disc, the 586-chunk ceiling and the 14,068-wrapper pool are **byte-identical**.
+  Measured, not just argued: `rig.test.ts` walks 25,792 frame corners over the whole envelope at 52
+  yaws and the furthest is **81.56 m** against 84.06 m of guarantee, which is M8's own number.
+  **Eye level is 20° and not 5°, and the arithmetic is why.** The frame's far edge runs along the
+  `pitch − fov/2` ray; below **15°** that ray is above the horizon, meets no ground, and `groundFrame`
+  — with `ahead`, `halfWidthFar`, `farDepth` and every system derived from them — stops having an
+  answer. 20° is five degrees of grazing clearance, and it still *reads* as eye level because eye level
+  is a height: at 3 m the camera's eye is **1.93 m** above the ground.
+  **Three things at 3 m that were invisible at 24, each paid for:** nameplates gained a **near fade**
+  (a fixed 1.6 m quad is 56% of the screen's width at 3 m — gone by 4 m, full again by 8); M6's
+  near-wall fade **stopped being a courtesy** (the sightline clears a 3 m wall head only above
+  `atan(3/4.5)` = 33.7°, so below that the wall hides the *player*, not just a strip of floor — the
+  fade already covered it, but `interior.ts`'s claim that it never did had to go); and the kit
+  understory's fixed 2 m fade lag **stops engaging** in a frame shallower than 6 m of view depth,
+  which is harmless (the band's *end* is still past the far edge at every pose, so there is no line)
+  and left fixed because any proportional cap would also move 24 m/64°, a frame the owner is using.
+  **The limitation, named rather than fixed:** nothing pulls the camera in, so at 3 m it can sit
+  inside a wall or a tree, and it goes under the terrain at a component boundary (up to 4.4 m of step)
+  or against a roofed room one level up (4 m) — the 1.93 m of lift clears the worst *intra*-component
+  step of 1.4 m. A collision-aware camera is a slice of its own. Also unfixed and cosmetic: at 3 m the
+  camera is usually inside the room with you, but `occludingSides` only knows the yaw, so it still
+  fades a wall you are standing inside. The honest test needs the player's offset within their room.
+  **Where to stand to check Azder out:** zone 168, the kobold settlement. Wheel all the way in (about
+  five flicks from home), then Shift+drag *up* to run the tilt to its floor — head and shoulders at
+  3 m, the whole figure from 3.4 m, hair and the weapon in hand legible at both. `__debug3d.camera.limits`
+  now prints the live floor, the curve at six distances and the aim-point lift, because a readout
+  claiming the minimum is 45° while a typed 22 takes would be the console lying.
 - **Camera-relative movement** — **W is forward.** `input.cameraRelative` rotates the keyboard's steer
   vector through the rig's yaw before it becomes a `steer`; the server needs no new protocol, because it
   already derives `facing` from the direction you move (`sim.ts:2049`). At yaw 0 the rotation is the

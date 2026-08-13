@@ -14,28 +14,98 @@
  * Not a `.test.ts` file, so `node --test` does not try to run it.
  */
 
-import { boundsOf, type Room, type Sector, type Zone } from '@mygame/shared';
+import { CAMERA_PITCH_DEGREES, boundsOf, type Room, type Sector, type Zone } from '@mygame/shared';
 
 import {
+  CAMERA_DISTANCE,
   CAMERA_DISTANCE_MAX,
   CAMERA_DISTANCE_MIN,
+  CAMERA_PITCH_FLOOR,
   CAMERA_PITCH_MAX,
   CAMERA_PITCH_MIN,
+  PITCH_FLOOR_KNEE,
+  pitchFloorFor,
 } from './rig.ts';
 
 /**
- * The four corners of M6's dolly clamp — `[distance, pitch]`.
+ * How many rungs the ladder of distances has. Thirteen samples, `32^(1/12)` = 1.335x apart.
+ *
+ * Geometric rather than linear because the dolly is: `dolly.DOLLY_RATIO` is a *ratio*, so equal
+ * numbers of wheel notches are equal ratios of distance, and a linear ladder would spend eight of its
+ * thirteen samples between 60 and 96 m — the stretch where the envelope is a straight line and
+ * nothing interesting happens — while stepping over the whole portrait band in one.
+ */
+const ENVELOPE_RUNGS = 12;
+
+/**
+ * The **envelope** M9's dolly clamp became — `[distance, pitch]`, and it is a boundary walk rather
+ * than a corner list.
  *
  * Shared from here rather than restated in each test file, and rather than exported from one test
  * file into another (which would run that file's `describe`s twice). Four files walk this list:
  * `rig.test.ts` for the ring and the shadow volume, `foliage.test.ts` for the fade bands,
- * `unproject.test.ts` for the pointer's round trip, and `dolly.test.ts` for the clamp itself. Every
- * consequence of the frame is monotone in both axes, so the extremes are the corners — and a
- * milestone whose whole point is that the pose *moves* cannot be tested at one pose.
+ * `unproject.test.ts` for the pointer's round trip, and `dolly.test.ts` for the clamp itself.
+ *
+ * ## Why the corners of a rectangle stopped being the right sample set
+ *
+ * Until M9 the clamp was `[24, 96] x [45°, 64°]` and every consequence of the frame was monotone in
+ * both axes, so the four corners *were* the whole domain: no interior point could be worse than all
+ * four. M9 made the pitch floor a function of the distance ({@link rig.pitchFloorFor}), and a curved
+ * boundary has no corners — the extremes now live **along** the floor, at distances no corner list
+ * would name. Worse, the thing the ring is sized against is not monotone along that floor: measured
+ * at 16:9 the frame's circumradius runs 21.9 m at 3 m, rises to 46.4 m at the knee, **dips** to
+ * 46.0 m at 16 m and then climbs to 81.6 m at full pull-back. A sampler that took the two ends would
+ * have missed the middle, and the middle is where a wide canvas breaks first.
+ *
+ * So: a geometric ladder of distances, and at each rung **both** edges of the envelope — the
+ * shallowest pitch reachable there and the steepest. The interior needs no samples because pitch is
+ * still monotone at fixed distance; it is the *distance* axis that stopped being sortable.
+ *
+ * ## The four old corners are in the list, deliberately
+ *
+ * All four are still legal poses (the floor at 24 m is 24.07°, well under 45°), so appending them
+ * makes the pre-M9 rectangle a literal subset of what every test walks — which is the cheapest
+ * possible guard against M9 having moved something in the range the owner has actually been playing
+ * in for two days. {@link rig.CAMERA_DISTANCE}/{@link rig.CAMERA_PITCH_DEGREES} — home — is in for the
+ * same reason, and the knee because a piecewise curve should always be sampled at its kink.
  */
-export const CLAMP_CORNERS: readonly (readonly [distance: number, pitch: number])[] = [
-  [CAMERA_DISTANCE_MIN, CAMERA_PITCH_MIN],
-  [CAMERA_DISTANCE_MIN, CAMERA_PITCH_MAX],
+export const ENVELOPE_POSES: readonly (readonly [distance: number, pitch: number])[] = (() => {
+  const seen = new Set<string>();
+  const out: (readonly [number, number])[] = [];
+  const add = (distance: number, pitch: number): void => {
+    const key = `${distance.toFixed(6)}:${pitch.toFixed(6)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push([distance, pitch]);
+  };
+  const span = CAMERA_DISTANCE_MAX / CAMERA_DISTANCE_MIN;
+  for (let rung = 0; rung <= ENVELOPE_RUNGS; rung++) {
+    const distance = CAMERA_DISTANCE_MIN * span ** (rung / ENVELOPE_RUNGS);
+    add(distance, pitchFloorFor(distance));
+    add(distance, CAMERA_PITCH_MAX);
+  }
+  // The kink, and the pre-M9 rectangle. See the docblock.
+  add(PITCH_FLOOR_KNEE, CAMERA_PITCH_FLOOR);
+  add(PITCH_FLOOR_KNEE, CAMERA_PITCH_MAX);
+  add(CAMERA_DISTANCE, CAMERA_PITCH_DEGREES);
+  for (const distance of [24, CAMERA_DISTANCE_MAX]) {
+    add(distance, CAMERA_PITCH_MIN);
+    add(distance, CAMERA_PITCH_MAX);
+  }
+  return out;
+})();
+
+/**
+ * The pre-M9 clamp's four corners, kept under their own name for the tests that assert **nothing
+ * moved in the range that already existed**.
+ *
+ * Not a deprecated alias: `ENVELOPE_POSES` answers "is every reachable pose still affordable" and
+ * this answers the different question "is the frame at the poses the owner has been using this week
+ * the same frame it was". Both are worth asking and only one of them is allowed to change.
+ */
+export const LEGACY_CLAMP_CORNERS: readonly (readonly [distance: number, pitch: number])[] = [
+  [24, CAMERA_PITCH_MIN],
+  [24, CAMERA_PITCH_MAX],
   [CAMERA_DISTANCE_MAX, CAMERA_PITCH_MIN],
   [CAMERA_DISTANCE_MAX, CAMERA_PITCH_MAX],
 ];

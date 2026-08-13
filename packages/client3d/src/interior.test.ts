@@ -11,8 +11,9 @@
  * 3. **`roofedRoom` agrees with the IR.** It is a duplicated fact — `roomScene.isRoofed` is private —
  *    and a duplicated fact is one that can drift.
  * 4. **The camera never looks at a roof from inside, at any pose the dolly can reach.** Derived
- *    rather than eyeballed: the sightline's clearance over the wall head is computed at all four
- *    corners of the clamp.
+ *    rather than eyeballed: the sightline's clearance over the wall head is computed everywhere on
+ *    the pose envelope — and since M9 it goes *negative* below 33.7°, which is the finding rather
+ *    than a failure: see the sightline test.
  *
  * Follows the project's skip-if-absent shape for the world sweep; the geometry and the arithmetic
  * need nothing but numbers and always run.
@@ -38,6 +39,7 @@ import {
 } from '@mygame/shared';
 
 import { planChunk } from './chunkPlan.ts';
+import { ENVELOPE_POSES } from './fixture.ts';
 import { ROOM_METRES, cellOriginTiles, metresOfTile, placeFrame } from './frame.ts';
 import {
   CHORDS_PER_SIDE,
@@ -58,7 +60,7 @@ import {
   VILLAGE_SCALE,
   VILLAGE_WALL_MODELS_PER_ROOM,
 } from './prototypes.ts';
-import { CAMERA_DISTANCE_MAX, CAMERA_DISTANCE_MIN, CAMERA_PITCH_MAX, CAMERA_PITCH_MIN } from './rig.ts';
+import { CAMERA_PITCH_FLOOR, CAMERA_PITCH_MAX, CAMERA_PITCH_MIN } from './rig.ts';
 import { planScatter } from './scatter.ts';
 import { WARP_CHORD_SPAN } from './warp.ts';
 
@@ -66,6 +68,18 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '
 const ZONES_DIR = join(REPO_ROOT, 'data', 'world', 'zones');
 
 const OPEN_SIDES = occludingSides(CAMERA_PITCH_MAX).sides;
+
+/** Half a room, in metres — where the sightline to the player's feet crosses the wall's own plane. */
+const HALF_ROOM_METRES = ROOM_METRES / 2;
+
+/**
+ * The pitch at which that sightline exactly grazes the 3 m wall head — `atan(3 / 4.5)` = 33.69°.
+ *
+ * Derived here rather than written down, and asserted against its own two constants below: it is the
+ * boundary M6's *"the wall never hides the player"* claim was true above and M9's envelope reaches
+ * below. See the sightline test.
+ */
+const SIGHTLINE_CLEARS_ABOVE = (Math.atan(DIMENSIONS.ceilingHeight / HALF_ROOM_METRES) * 180) / Math.PI;
 
 describe('the module grid', () => {
   it('maps a 2 m module onto a 9 m room with no remainder', () => {
@@ -114,36 +128,64 @@ describe('the module grid', () => {
 });
 
 describe('what the camera is behind', () => {
-  it('finds exactly one occluding side, and clears the wall head, at all four clamp corners', () => {
-    const corners: [number, number][] = [
-      [CAMERA_DISTANCE_MIN, CAMERA_PITCH_MIN],
-      [CAMERA_DISTANCE_MIN, CAMERA_PITCH_MAX],
-      [CAMERA_DISTANCE_MAX, CAMERA_PITCH_MIN],
-      [CAMERA_DISTANCE_MAX, CAMERA_PITCH_MAX],
-    ];
+  it('finds exactly one occluding side, and says what the wall costs, everywhere on the envelope', () => {
+    /*
+     * **M9 flipped this test's headline claim and the flip is the finding.**
+     *
+     * M6 asserted `clearance > 0` at all four corners of its rectangle and `interior.ts` wrote the
+     * conclusion down: *"the wall never hides the **player** at any pose the dolly can reach. What it
+     * does hide is the strip of floor immediately inside it."* Both halves were true of a clamp whose
+     * floor was 45°. The sightline from the camera to the character's feet crosses the room's own
+     * boundary line 4.5 m out at `4.5 · tan(pitch)` above the floor, against a 3.0 m wall head, so it
+     * clears exactly while `tan(pitch) > 3/4.5` — **pitch > 33.69°**.
+     *
+     * M9's envelope reaches 20°, where that sightline is at 1.64 m and the wall head is 1.36 m
+     * *above* it. So the wall does hide the player now, at every pose shallower than 33.69° — which
+     * `pitchFloorFor` makes reachable at any distance under 57 m.
+     *
+     * **Nothing is broken by that and the fade is why.** The side is in `sides` at every one of those
+     * poses, which is what puts the wall's material into the faded set; the invariant that actually
+     * matters is *"a wall that stands between the camera and the player is reported"*, and that is
+     * what this now asserts. What M6 could add — that the fade was a courtesy for the floor strip
+     * rather than a necessity for the player — is simply no longer available at the shallow end, and
+     * saying so is cheaper than pretending the geometry did not change.
+     */
     const report: string[] = [];
-    for (const [distance, pitch] of corners) {
+    let hidingPoses = 0;
+    for (const [distance, pitch] of ENVELOPE_POSES) {
       const seen = occludingSides(pitch);
       // At yaw 0 the camera is pulled back along +Z, so only the south wall is between it and the
       // room — M6's answer, unchanged, and the fixed point the whole generalisation is checked from.
       assert.deepEqual([...seen.sides], ['south']);
-      // **The frame never shows the camera looking at a wall instead of the player.** The sightline
-      // to the character's feet passes the south boundary line 4.5 m out; it must be above the wall.
-      assert.ok(
-        seen.clearance > 0,
-        `at ${distance} m / ${pitch}° the south wall is ${-seen.clearance} m above the sightline`,
-      );
+      // The strip of floor the wall hides is always real and always finite. It grows as the tilt
+      // drops — `head / tan(pitch)` — and at the envelope's floor it is 8.24 m, which is past the
+      // room's own centre line. That is the arithmetic behind the flip above.
+      assert.ok(seen.hidden > 0 && Number.isFinite(seen.hidden), `nothing hidden at ${distance} m / ${pitch}°`);
+      assert.ok(seen.hidden < ROOM_METRES, `the wall hides more than a room at ${distance} m / ${pitch}°`);
+      // Above 33.69° the sightline clears the wall head, below it it does not, and the sign of
+      // `clearance` must agree with the pitch rather than with a constant somebody wrote down.
+      assert.equal(seen.clearance > 0, pitch > SIGHTLINE_CLEARS_ABOVE, `clearance disagrees at ${pitch}°`);
+      if (seen.clearance <= 0) hidingPoses += 1;
       // …and the roof is higher than the wall, so a lid that stayed on would be in the way even
       // where the wall is not. That is the whole justification for the cull being a separate rule.
       assert.ok(DIMENSIONS.ceilingHeight + ROOF_RIDGE > DIMENSIONS.ceilingHeight);
-      report.push(`${distance} m/${pitch}°: clears by ${seen.clearance} m, hides ${seen.hidden} m of floor`);
+      if (pitch === CAMERA_PITCH_MAX || Math.abs(pitch - CAMERA_PITCH_MIN) < 1e-9 || pitch === CAMERA_PITCH_FLOOR) {
+        report.push(`${distance.toFixed(0)} m/${pitch.toFixed(1)}°: clears by ${seen.clearance} m, hides ${seen.hidden} m`);
+      }
     }
-    console.log(`[M6 sightline] ${report.join('   ')}`);
-    // The shallow pose hides three metres of the room's own floor and the steep one under one and a
-    // half. That range is why the near wall fades rather than being left solid: at 45° a third of the
-    // room's depth, with whatever is standing in it, is behind a wall the camera can see over.
+    console.log(`[M9 sightline] ${report.join('   ')}`);
+    assert.ok(hidingPoses > 0, 'the envelope no longer reaches a pose where the wall hides the player');
+    // The three named poses, so the range is legible rather than inferred: the envelope's floor hides
+    // more than the room's half-depth, M6's floor hides three metres, and the authored pose under one
+    // and a half. That range is why the near wall fades rather than being left solid.
+    assert.ok(occludingSides(CAMERA_PITCH_FLOOR).hidden > HALF_ROOM_METRES);
     assert.ok(occludingSides(CAMERA_PITCH_MIN).hidden > 2.9);
     assert.ok(occludingSides(CAMERA_PITCH_MAX).hidden < 1.6);
+    // The crossing itself, from the two constants it is made of rather than from the number above.
+    assert.ok(
+      Math.abs(SIGHTLINE_CLEARS_ABOVE - (Math.atan(DIMENSIONS.ceilingHeight / HALF_ROOM_METRES) * 180) / Math.PI) < 1e-9,
+    );
+    assert.ok(SIGHTLINE_CLEARS_ABOVE > CAMERA_PITCH_FLOOR && SIGHTLINE_CLEARS_ABOVE < CAMERA_PITCH_MIN);
   });
 
   it('follows the camera round: one wall on a cardinal, two on a diagonal — M8', () => {

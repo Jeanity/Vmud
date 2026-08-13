@@ -17,11 +17,13 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { PerspectiveCamera, Scene } from 'three';
+import { PerspectiveCamera, Scene, Vector3 } from 'three';
 
+import { ENVELOPE_POSES } from './fixture.ts';
 import { CLEARING_SLOT, LightPool, SELF_LAYER } from './lights.ts';
 import { NightRig } from './night.ts';
 import { BodyPass, scenePasses, syncBodyCamera } from './post.ts';
+import { CameraRig } from './rig.ts';
 
 /**
  * Just enough renderer for a `RenderPass` and the `ClearPass` inside it.
@@ -136,6 +138,53 @@ describe('the body pass', () => {
     // The one thing about the twin that must never match.
     assert.equal(pass.camera3d.layers.mask, 1 << SELF_LAYER);
     assert.notEqual(camera.layers.mask, pass.camera3d.layers.mask);
+    pool.dispose();
+  });
+
+  it('follows a real rig to the closest pose the dolly reaches, lift and all — M9', () => {
+    /*
+     * **The pose the body pass was never built for.** It landed hours before M9 opened the clamp to
+     * 3 m, and everything about it is distance-free by construction — `syncBodyCamera` copies the
+     * main camera's matrices and projection verbatim, and the clearing light is excluded by being
+     * muted for the length of the pass rather than by any range test. This drives that claim through
+     * the *rig* rather than a hand-set camera, at every pose on the envelope, because two things M9
+     * changed could have broken it without changing a line of `post.ts`: the aim point is lifted now
+     * (so a twin syncing position-but-not-orientation would draw the body from under the floor), and
+     * the eye comes within 2.5 m of the body's own surface against a 0.5 m near plane.
+     *
+     * This is exactly the view in which a lighting artefact would be most visible — the character
+     * fills the frame — so it is the view worth pinning.
+     */
+    const { scene, pool } = fixture();
+    pool.clearing(12, 1.5, -7, 7);
+    const lit = pool.at(CLEARING_SLOT)!.intensity;
+    assert.ok(lit > 0);
+    const stub = stubRenderer(() => {
+      assert.equal(pool.at(CLEARING_SLOT)!.intensity, 0, 'the player was lit by their own light');
+    });
+    for (const [distance, pitch] of ENVELOPE_POSES) {
+      const rig = new CameraRig(16 / 9);
+      rig.distance = distance;
+      rig.pitch = pitch;
+      rig.follow(12, 0, -7);
+      rig.camera.updateMatrixWorld(true);
+      const pass = new BodyPass(scene, rig.camera, pool);
+      pass.render(stub.renderer, null as never, null as never, 1 / 60, false);
+      const at = `${distance.toFixed(1)} m / ${pitch.toFixed(1)}°`;
+      assert.deepEqual([...pass.camera3d.matrixWorld.elements], [...rig.camera.matrixWorld.elements], at);
+      assert.deepEqual([...pass.camera3d.projectionMatrix.elements], [...rig.camera.projectionMatrix.elements], at);
+      assert.equal(pass.camera3d.near, rig.camera.near, at);
+      assert.equal(pass.camera3d.far, rig.camera.far, at);
+      assert.equal(pass.camera3d.layers.mask, 1 << SELF_LAYER, at);
+      // And the light is *back* the instant the pass is over, or the world goes dark behind them.
+      assert.equal(pool.at(CLEARING_SLOT)!.intensity, lit, `the clearing light stayed muted at ${at}`);
+      assert.equal(pool.clearingMuted, false, at);
+      // The body's own middle — the point the rig is now aiming at — must land dead centre of the
+      // twin's frame. This is the assertion the lift would fail if `follow` raised the eye alone.
+      const middle = new Vector3(12, rig.focusLift, -7).project(pass.camera3d);
+      assert.ok(Math.abs(middle.x) < 1e-6 && Math.abs(middle.y) < 1e-6, `the body is off centre at ${at}`);
+      assert.ok(middle.z > -1 && middle.z < 1, `the body is outside the twin's depth range at ${at}`);
+    }
     pool.dispose();
   });
 

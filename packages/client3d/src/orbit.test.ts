@@ -23,7 +23,15 @@ import { describe, it } from 'node:test';
 
 import { DEFAULT_POSE, type CameraPose } from './dolly.ts';
 import { HOLD_THRESHOLD_MS, PointerControl, type PointerTarget } from './pointer.ts';
-import { CAMERA_PITCH_MAX, CAMERA_PITCH_MIN } from './rig.ts';
+import {
+  CAMERA_DISTANCE,
+  CAMERA_DISTANCE_MAX,
+  CAMERA_DISTANCE_MIN,
+  CAMERA_PITCH_FLOOR,
+  CAMERA_PITCH_MAX,
+  CAMERA_PITCH_MIN,
+  pitchFloorFor,
+} from './rig.ts';
 import {
   FOLLOW_SMOOTH_SECONDS,
   FOLLOW_SETTLE_DEGREES,
@@ -59,8 +67,23 @@ describe('the orbit mapping', () => {
     // two rates differ by three on purpose — see `orbit.ts` — and the ratio is asserted rather than
     // the numbers alone, because it is the ratio that stops a horizontal drag slamming the tilt.
     assert.equal(360 / ORBIT_DEGREES_PER_PIXEL, 1440);
-    assert.ok(Math.abs((CAMERA_PITCH_MAX - CAMERA_PITCH_MIN) / TILT_DEGREES_PER_PIXEL - 237.5) < 1);
     assert.ok(ORBIT_DEGREES_PER_PIXEL / TILT_DEGREES_PER_PIXEL > 2.5, 'the tilt is too twitchy for a stray wobble');
+    // **M9 widened the tilt and neither rate moved.** The range was a flat 19° and is now a curve:
+    // 36.4° at the default distance and 44° at the closest, which is a 455 px and a 550 px pull
+    // rather than 238. Asserted as a band rather than a number because the point is that the pull
+    // stayed inside a screen — a range that took two screen-heights to cross would be a range the
+    // hand gives up on halfway.
+    for (const distance of [CAMERA_DISTANCE_MIN, CAMERA_DISTANCE, CAMERA_DISTANCE_MAX]) {
+      const pixels = (CAMERA_PITCH_MAX - pitchFloorFor(distance)) / TILT_DEGREES_PER_PIXEL;
+      assert.ok(pixels > 200 && pixels < 720, `${pixels} px to cross the tilt at ${distance} m`);
+    }
+    assert.ok((CAMERA_PITCH_MAX - CAMERA_PITCH_MIN) / TILT_DEGREES_PER_PIXEL > 200, 'M6’s own range still fits');
+    // And the orbit rate is deliberately **not** scaled by distance: the camera's own speed is
+    // `D · 0.25° · π/180` m/px, so the close pose is already twelve times calmer in world terms than
+    // the default. See `orbit.ts`'s header for why scaling would make the calm end calmer still and
+    // break the one property the rate was chosen for.
+    const metresPerPixel = (distance: number): number => (distance * ORBIT_DEGREES_PER_PIXEL * Math.PI) / 180;
+    assert.ok(metresPerPixel(CAMERA_DISTANCE_MIN) < metresPerPixel(CAMERA_DISTANCE) / 10);
   });
 
   it('wraps the yaw and clamps the pitch, which is the difference between a circle and a range', () => {
@@ -71,9 +94,17 @@ describe('the orbit mapping', () => {
     // Across the seam: 179 + 4 is -177, not 183.
     assert.ok(Math.abs(orbitTo({ ...HOME, yaw: 179 }, -4 / ORBIT_DEGREES_PER_PIXEL, 0).yaw - -177) < 1e-9);
     assert.ok(orbitTo({ ...HOME, yaw: -179 }, 4 / ORBIT_DEGREES_PER_PIXEL, 0).yaw > 176);
-    // The pitch has ends and holds against them, however hard the hand pushes.
+    // The pitch has ends and holds against them, however hard the hand pushes. **The lower one is a
+    // function of the distance since M9**, so a drag that runs into it at 36 m stops 17° above where
+    // the same drag stops at 3 m — which is the envelope arriving through the gesture the owner
+    // asked for it with.
     assert.equal(orbitTo(HOME, 0, 10_000).pitch, CAMERA_PITCH_MAX);
-    assert.equal(orbitTo(HOME, 0, -10_000).pitch, CAMERA_PITCH_MIN);
+    assert.equal(orbitTo(HOME, 0, -10_000).pitch, pitchFloorFor(HOME.distance));
+    assert.equal(orbitTo({ ...HOME, distance: CAMERA_DISTANCE_MIN }, 0, -10_000).pitch, CAMERA_PITCH_FLOOR);
+    assert.ok(pitchFloorFor(HOME.distance) < CAMERA_PITCH_MIN, 'M9 did not widen the tilt at the default pose');
+    // A narrower ceiling steepens the floor at every distance inside it, and the drag has to see the
+    // same number the rig will — or `onSettled` writes a pose to storage that the rig then refuses.
+    assert.ok(orbitTo(HOME, 0, -10_000, 48).pitch > pitchFloorFor(HOME.distance), 'the ceiling was ignored');
     // And neither axis touches the other two fields.
     const turned = orbitTo({ ...HOME, follow: true }, 300, -50);
     assert.equal(turned.distance, HOME.distance, 'an orbit must not zoom');

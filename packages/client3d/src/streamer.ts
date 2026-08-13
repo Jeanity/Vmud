@@ -127,6 +127,13 @@ const WORST = groundFrame(CAMERA_DISTANCE_MAX, CAMERA_PITCH_MIN, RING_ASPECT);
  *   of the trapezoid, not the middle of its far edge, and once the yaw turns that corner can point
  *   down any axis. Sizing off `halfWidthFar` alone would leave the ring 17 m short on the diagonal —
  *   which is a hole that appears only when the owner orbits to 45°, i.e. immediately.
+ *
+ * **M9 opened the pitch floor to 20° and this number did not move.** The envelope's floor is a chord
+ * of the curve `D · r(θ) = 96 · r(45°)` — see `rig.pitchFloorFor` — so the worst reachable pose is
+ * still the one it always was, 96 m at 45°, and the ring, the pre-warmed pool and the ledger are
+ * byte-identical. `rig.test.ts` measures it rather than trusting the algebra: 25,792 frame corners
+ * over the whole envelope at 52 yaws, furthest **81.56 m** against 84.06 m of guarantee, which is the
+ * same furthest corner M8 reported.
  */
 export const RING_RADIUS = groundRadius(WORST) + SHADOW_PAD;
 
@@ -195,6 +202,20 @@ export const MAX_WINDOW_CHUNKS = RING_CELLS.length * WINDOW_LEVELS;
  * size is one they can read off `__debug3d.camera` and reason about. **And not at the live yaw, for
  * the same reason and more loudly** — a ceiling that varied with the yaw would zoom the camera in and
  * out as the owner orbited, which is the one behaviour a rotation control must not have.
+ *
+ * ## M9 made the pitch floor a curve and this function did not change — the *floor* reads this
+ *
+ * `rig.CAMERA_PITCH_MIN` is still exactly what this needs: the floor **at
+ * {@link rig.CAMERA_DISTANCE_MAX}**, which is the pose this is solving for. What M9 had to answer is
+ * the other half — a wide canvas widens the frame at *every* distance, not only at the ceiling, and
+ * a mid-range pose sitting on a floor derived for 16:9 reaches 88.7 m at 32:9 against 81.6 m of ring,
+ * at a distance well below whatever this returns. Lowering the ceiling cannot reach that pose.
+ *
+ * So the fix went into `rig.pitchFloorFor`, which ramps to 45° at the **ceiling this function
+ * returns** rather than at `CAMERA_DISTANCE_MAX`: the envelope compresses by the same factor the
+ * ceiling did, the invariant holds at every aspect, and **not one metre of zoom is spent** — 79.6 m
+ * at 21:9 and 56.5 m at 32:9, the same numbers as before M9. Solving it here instead, by pulling the
+ * ceiling in until the whole envelope fitted, would have cost an ultrawide 15 m and a 32:9 screen 23.
  */
 export function maxDistanceForAspect(aspect: number): number {
   if (!Number.isFinite(aspect) || aspect <= 0) return CAMERA_DISTANCE_MAX;

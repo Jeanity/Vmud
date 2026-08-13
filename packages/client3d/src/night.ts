@@ -46,6 +46,28 @@
  * uses the new camera, and a box whose corners reach half again as far as the streaming ring
  * guarantees ground. At yaw 0 every number in this file is M4's, unchanged.
  *
+ * **M9 opens the pitch floor to 20° at close range and this file changes by nothing at all** — not
+ * the constants, not the fit, not the pad. The envelope's floor is a chord of the curve along which
+ * the frame's ground reach is constant (`rig.pitchFloorFor`), so the *worst* box is still the one at
+ * 96 m and 45°, and the texel it costs is still the worst texel. The new poses are cheaper than the
+ * authored one rather than dearer, which is the direction it has to move when the character fills the
+ * frame — measured, as the ortho span the fit actually produces over 2048 texels:
+ *
+ * ```
+ *  3 m / 20°   47.5 m   2.32 cm      the portrait, and the closest pose there is
+ *  3 m / 64°   17.8 m   0.87 cm      straight down at your own feet
+ * 10 m / 20°   95.7 m   4.68 cm      the far end of the portrait band — the dearest of the new poses
+ * 36 m / 64°   50.9 m   2.48 cm      home, unchanged
+ * 96 m / 45°  165.8 m   8.10 cm      the worst, unchanged
+ * ```
+ *
+ * (The paragraph above says *"the worst pose costs 3.4 cm of texel instead of 2.2"*, and that was
+ * true when {@link rig.CAMERA_DISTANCE_MAX} was 48 m. It doubled on the owner's ask the same evening
+ * and the sentence did not follow; the worst has been 8.1 cm since, and it is the number a machine
+ * that struggles at full pull-back is struggling with.)
+ *
+ * `rig.test.ts` walks the containment at every pose on the envelope rather than at four corners.
+ *
  * ## The fog density is derived from the frame, not chosen
  *
  * See {@link FOG_DENSITY}. What matters for the acceptance is the plan's other clause — *"tuned so the
@@ -53,7 +75,8 @@
  * than by the fog: the streamer's ring guarantees 84.1 m of built ground in **every** direction since
  * M8 made it a disc (`streamer.RING_COVER`), and the furthest corner of the widest frame the dolly
  * can produce is 81.6 m away. **The window's boundary is never inside the frame at all, at any pose
- * in the clamp and at any yaw** (`rig.test.ts` sweeps the whole circle at all four corners), so the
+ * in the clamp and at any yaw** (`rig.test.ts` sweeps the whole circle at every pose on the
+ * envelope), so the
  * fog is free to be tuned for mood rather than for concealment. It is still a runtime knob, because
  * mood is the owner's call.
  *

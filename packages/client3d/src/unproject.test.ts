@@ -17,7 +17,7 @@
  * world position alone, so in principle nothing about the composition depends on where the camera
  * stands — but "in principle" is exactly what M5a's invisible undergrowth was, and the conditioning
  * of the ray-plane intersection genuinely does get worse as the pitch drops and the rays graze. So
- * the round trip is measured, at all four corners: grid point -> warp -> project -> unproject ->
+ * the round trip is measured, everywhere on the envelope: grid point -> warp -> project -> unproject ->
  * unwarp, back to the grid point it started at, against M5c's own sub-millimetre bar.
  *
  * ## M8: and around the whole circle
@@ -39,7 +39,7 @@ import { Vector3 } from 'three';
 
 import { WORLD_SCALE } from '@mygame/shared';
 
-import { CARDINAL_YAWS, CLAMP_CORNERS, SWEEP_YAWS, sampleZone } from './fixture.ts';
+import { CARDINAL_YAWS, ENVELOPE_POSES, SWEEP_YAWS, sampleZone } from './fixture.ts';
 import { metresOfPixel, pixelOfMetres, placeFrame } from './frame.ts';
 import { CameraRig } from './rig.ts';
 import { unprojectToGround } from './unproject.ts';
@@ -145,7 +145,7 @@ describe('unprojectToGround', () => {
     let moved = 0;
     let worstPush = 0;
 
-    for (const [distance, pitch] of CLAMP_CORNERS) {
+    for (const [distance, pitch] of ENVELOPE_POSES) {
       for (const yaw of CARDINAL_YAWS) {
         const rig = new CameraRig(16 / 9);
         rig.distance = distance;
@@ -193,7 +193,7 @@ describe('unprojectToGround', () => {
     }
 
     console.log(
-      `[M8 pointer] ${samples} round trips over four clamp corners x eight yaws: ` +
+      `[M8 pointer] ${samples} round trips over the pose envelope x eight yaws: ` +
         `worst ${(worst * 1000).toExponential(2)} mm at ${worstAt}; ` +
         `the lens pushed the ground up to ${worstPush.toFixed(2)} m under them`,
     );

@@ -21,7 +21,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { CLAMP_CORNERS } from './fixture.ts';
+import { ENVELOPE_POSES } from './fixture.ts';
 import {
   CAMERA_STORAGE_KEY,
   DEFAULT_POSE,
@@ -40,8 +40,12 @@ import {
   CAMERA_DISTANCE,
   CAMERA_DISTANCE_MAX,
   CAMERA_DISTANCE_MIN,
+  CAMERA_PITCH_FLOOR,
   CAMERA_PITCH_MAX,
   CAMERA_PITCH_MIN,
+  clampDistance,
+  clampPitch,
+  pitchFloorFor,
 } from './rig.ts';
 
 /**
@@ -97,12 +101,20 @@ describe('the two mappings', () => {
     // Scrolling *away* from the viewer pulls the camera back — "show me more".
     assert.ok(dollyTo(home, 1).distance > home.distance);
     assert.ok(dollyTo(home, -1).distance < home.distance);
-    // Twenty-four notches crosses the whole range — two comfortable flicks. It was one flick of
-    // twelve when the ceiling was 48; the range doubled on the owner's ask and the RATIO is what a
-    // notch feels like, so the ratio stayed and the journey lengthened.
+    // Sixty notches crosses the whole range. It was twelve when the ceiling was 48 and twenty-four
+    // when it doubled; M9 dropped the floor from 24 m to 3, which is another factor of eight, and
+    // `ln 32 / ln 1.06` is 59.5. The RATIO is what a notch *feels* like, so the ratio stays and the
+    // journey lengthens — five flicks end to end, and the wheel is still the same wheel.
     const near: CameraPose = { ...home, distance: CAMERA_DISTANCE_MIN, pitch: 64 };
-    assert.equal(dollyTo(near, 24).distance, CAMERA_DISTANCE_MAX);
-    assert.ok(dollyTo(near, 23).distance < CAMERA_DISTANCE_MAX);
+    assert.equal(dollyTo(near, 60).distance, CAMERA_DISTANCE_MAX);
+    assert.ok(dollyTo(near, 59).distance < CAMERA_DISTANCE_MAX);
+    // **A zoom-out tilts the camera up when it has to** — M9. From eye level at 3 m, the far end's
+    // floor is 45°, so the wheel cannot leave the pitch where it found it without pointing the frame
+    // at 285 m of ground the streamer never built. A pose already above its new floor is untouched.
+    const eyeLevel: CameraPose = { ...home, distance: CAMERA_DISTANCE_MIN, pitch: CAMERA_PITCH_FLOOR };
+    assert.equal(dollyTo(eyeLevel, 60).pitch, CAMERA_PITCH_MIN, 'the pitch did not ride the zoom out');
+    assert.equal(dollyTo(eyeLevel, -5).pitch, CAMERA_PITCH_FLOOR, 'zooming further in must not tilt');
+    assert.equal(dollyTo({ ...home, pitch: CAMERA_PITCH_MAX }, 60).pitch, CAMERA_PITCH_MAX, 'a steep pose moved');
     // M8: the yaw and the mode are carried through untouched. A wheel notch must not straighten the
     // camera and must not disarm a follow.
     const orbited = dollyTo({ ...home, yaw: -137, follow: true }, 1);
@@ -117,23 +129,40 @@ describe('the two mappings', () => {
     const out = tiltTo(authored, 1);
     assert.ok(Math.abs(out.pitch - (CAMERA_PITCH_MAX - PITCH_DEGREES_PER_NOTCH)) < 1e-9);
     assert.equal(out.distance, authored.distance, 'the tilt must not touch the distance');
-    // Down the range in thirteen notches, and it cannot climb past the authored pose.
-    assert.equal(tiltTo(authored, 20).pitch, CAMERA_PITCH_MIN);
+    // Down to the floor **for the distance it is standing at** — M9's envelope, through the wheel.
+    // At `home`'s 36 m that floor is 27.56°, so the descent is 25 notches rather than the 13 it was
+    // when the floor was a flat 45 everywhere; at 3 m it is 20° and the range is wider still.
+    assert.equal(tiltTo(authored, 100).pitch, pitchFloorFor(authored.distance));
+    assert.ok(pitchFloorFor(authored.distance) < CAMERA_PITCH_MIN, 'the floor at 36 m is below M6’s');
+    const close: CameraPose = { ...authored, distance: CAMERA_DISTANCE_MIN };
+    assert.equal(tiltTo(close, 100).pitch, CAMERA_PITCH_FLOOR, 'eye level is not reachable at 3 m');
     assert.equal(tiltTo(authored, -1).pitch, CAMERA_PITCH_MAX);
-    // And the new default already sits on the floor the owner chose.
+    // And the new default already sits on the floor the owner chose — which is no longer *the* floor,
+    // just the pitch they picked. A tilt can descend from it now.
     assert.equal(home.pitch, CAMERA_PITCH_MIN);
+    assert.ok(tiltTo(home, 1).pitch < CAMERA_PITCH_MIN, 'the default pose can no longer be tilted down');
   });
 
   it('clamps at both ends, and honours a ceiling the ring imposed', () => {
     assert.equal(dollyTo(home, 100).distance, CAMERA_DISTANCE_MAX);
     assert.equal(dollyTo(home, -100).distance, CAMERA_DISTANCE_MIN);
     assert.equal(dollyTo(home, 100, 40).distance, 40, 'an ultrawide canvas lowered the ceiling');
-    for (const [distance, pitch] of CLAMP_CORNERS) {
+    for (const [distance, pitch] of ENVELOPE_POSES) {
       const at: CameraPose = { ...home, distance, pitch };
-      // Every corner is a fixed point of a push further into its own corner, which is what "clamped"
-      // has to mean for a control the owner will hold against the stop.
-      assert.deepEqual(dollyTo(at, distance === CAMERA_DISTANCE_MAX ? 5 : -5), at);
-      assert.deepEqual(tiltTo(at, pitch === CAMERA_PITCH_MIN ? 5 : -5), at);
+      // **Every pose on the envelope is legal**, which is the first thing a curved boundary has to
+      // prove about itself: a sample the clamp would move is a sample that tests nothing downstream.
+      assert.equal(clampPitch(pitch, distance), pitch, `${distance} m / ${pitch}° is outside its own clamp`);
+      assert.equal(clampDistance(distance), distance);
+      // And a push further into the stop the pose is *already* against is a fixed point, which is
+      // what "clamped" has to mean for a control the owner will hold against it. Which stop that is
+      // now depends on the pose rather than on which of two constants it equals: on the floor it is
+      // a tilt down, at the ceiling a zoom out. Poses in the middle of the envelope have no stop to
+      // be held against and are not asked to be fixed points of anything.
+      const onFloor = Math.abs(pitch - pitchFloorFor(distance)) < 1e-9;
+      if (onFloor) assert.deepEqual(tiltTo(at, 5), at, `the floor gave way at ${distance} m`);
+      if (pitch === CAMERA_PITCH_MAX) assert.deepEqual(tiltTo(at, -5), at, `the ceiling gave way at ${distance} m`);
+      if (distance === CAMERA_DISTANCE_MAX) assert.deepEqual(dollyTo(at, 5), at);
+      if (distance === CAMERA_DISTANCE_MIN) assert.deepEqual(dollyTo(at, -5), at);
     }
   });
 });
@@ -233,13 +262,26 @@ describe('the remembered pose', () => {
       yaw: 0,
       follow: false,
     });
+    // M9: the pitch is clamped against the distance **in the same stored value**, so the floor here
+    // is 3 m's own 20° and not the far end's 45°. That is what lets a genuinely-chosen eye-level pose
+    // survive a reload — the whole point of remembering one.
     store.set(CAMERA_STORAGE_KEY, `1,1,0,0,${POSE_ERA}`);
     assert.deepEqual(rememberedPose(), {
       distance: CAMERA_DISTANCE_MIN,
-      pitch: CAMERA_PITCH_MIN,
+      pitch: CAMERA_PITCH_FLOOR,
       yaw: 0,
       follow: false,
     });
+    store.set(CAMERA_STORAGE_KEY, `3,20,0,1,${POSE_ERA}`);
+    assert.deepEqual(rememberedPose(), {
+      distance: CAMERA_DISTANCE_MIN,
+      pitch: CAMERA_PITCH_FLOOR,
+      yaw: 0,
+      follow: true,
+    });
+    // …while the same pitch stored against a far distance is still refused, because there it is.
+    store.set(CAMERA_STORAGE_KEY, `96,20,0,1,${POSE_ERA}`);
+    assert.equal(rememberedPose()?.pitch, CAMERA_PITCH_MIN);
     // The yaw wraps rather than clamping, and garbage in the third field is north rather than a
     // camera pointing at NaN — which would put the rig somewhere `lookAt` cannot recover from.
     store.set(CAMERA_STORAGE_KEY, `40,50,540,1,${POSE_ERA}`);

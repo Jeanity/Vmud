@@ -153,11 +153,43 @@ function alongX(dir: Cardinal): boolean {
  *
  * The pitch still decides how much a faded wall was costing: the sightline from the camera to the
  * player's feet passes the boundary line — 4.5 m out — at `4.5 x tan(pitch)` above the floor, which is
- * **4.5 m at the shallowest pose in the clamp and 9.2 m at the steepest**, against a wall 3.0 m tall.
- * So the wall never hides the *player* at any pose the dolly can reach. What it does hide is the strip
- * of floor immediately inside it, `wallHeight / tan(pitch)` deep: **3.00 m at 45 degrees and 1.46 m at
+ * **4.5 m at 45 degrees and 9.2 m at 64**, against a wall 3.0 m tall. What it hides is the strip of
+ * floor immediately inside it, `wallHeight / tan(pitch)` deep: **3.00 m at 45 degrees and 1.46 m at
  * 64**. A third of the room's depth at the shallow end, with whatever is standing in it — which is why
  * the wall fades rather than the ceiling alone coming off.
+ *
+ * ## M9: below 33.7 degrees the wall hides the player too, and the fade stopped being a courtesy
+ *
+ * M6 closed the paragraph above with *"so the wall never hides the **player** at any pose the dolly
+ * can reach"*, and that was true of a clamp whose floor was 45 degrees. M9 made the floor a function
+ * of the distance (`rig.pitchFloorFor`) so the owner can drop to **20 degrees** and look their
+ * character in the face. The sightline clears the wall head exactly while `tan(pitch) > 3/4.5`, so
+ * the claim holds above `atan(3/4.5)` = **33.69 degrees** and fails below it — reachable at any
+ * distance under 57 m. At the floor itself the sightline is at 1.64 m, the wall head is 1.36 m above
+ * it, and the hidden strip is **8.24 m**, which is past the room's own centre line and therefore past
+ * the player standing on it.
+ *
+ * Nothing here changes, and that is the point: the side is already in the returned set at those
+ * poses, so the wall is already faded and the player is already visible. What changed is the *reason*
+ * the fade exists — a courtesy for a strip of floor at 45 degrees, a necessity for the character at
+ * 20 — and a claim that is no longer true is worse than no claim. `interior.test.ts` asserts the
+ * crossing from its own two constants rather than from the number written here.
+ *
+ * ## The limitation M9 leaves standing: at three metres the camera is often *inside* the room
+ *
+ * This function knows the yaw and the pitch and nothing else, which was enough while the camera stood
+ * 24 m back — from there it is outside every room it looks into, and "which side is it past" is the
+ * whole question. At `rig.CAMERA_DISTANCE_MIN` the camera's ground offset is `3 x cos 20` = **2.82 m**
+ * against a half-room of 4.5, so a player standing anywhere near the middle of a tavern has the camera
+ * in the room with them and **no** wall between the two — yet one or two sides are still reported and
+ * still fade, and the owner sees daylight through a wall they are standing inside.
+ *
+ * It is cosmetic, it is in the safe direction (the alternative to over-fading is under-fading, which
+ * hides the player, which is the failure this whole mechanism exists to prevent), and it costs the
+ * budget nothing. It is **not** fixed here because the honest test — "is the camera past this wall's
+ * plane" — needs the player's offset *within their own room*, which this function is not given and
+ * `world3d.ts` would have to thread through `setCameraFrame`. That is a slice, not a line, and it is
+ * the obvious next one for anybody who finds the see-through wall annoying.
  *
  * The returned set is one of {@link OCCLUDING_SETS}' eight, **by identity**: `world3d.ts` compares the
  * set it gets against the set it holds to decide whether any wall in the window has to be rebuilt, and

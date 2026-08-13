@@ -73,6 +73,28 @@ export function liftFor(scale: number): number {
 export const PLATE_NEAR = 18;
 export const PLATE_FAR = 44;
 
+/**
+ * Metres below which a nameplate has gone again — **the near end of the band, and M9 is why.**
+ *
+ * A plate is a fixed {@link PLATE_METRES} = 1.6 m quad in world space with no distance compensation
+ * (see the file header: *"the range a plate is ever seen over is about 4:1, and a 256 x 64 canvas
+ * covers it"*). That was true of a camera clamped to 24 m and it stopped being true when
+ * `rig.CAMERA_DISTANCE_MIN` became 3: at 16:9 and a 30 degrees field, a 1.6 m quad is **7.6% of the
+ * screen's width at the old floor, 21% at 8 m and 56% at 3 m** — a seven-fold upscale of a 256 px
+ * canvas, which is a blurred banner across the character the owner zoomed in to look at.
+ *
+ * So the band gained a near end, and the two numbers are geometry rather than taste. **8 m** is where
+ * the plate reaches a fifth of the screen's width, and it is also — not by coincidence — about where
+ * {@link NAMEPLATE_LIFT}'s 2.1 m starts leaving the top of the frame at the envelope's shallow floor,
+ * so the fade takes over from the frame edge rather than fighting it. **4 m** is gone, which is inside
+ * the portrait band (`rig.PITCH_FLOOR_KNEE` is 10 m) and comfortably outside `rig.CAMERA_DISTANCE_MIN`.
+ *
+ * The owner loses nothing by it: at three metres there is exactly one character in the frame, it is
+ * theirs, and they know its name. What they were asking to see is the face under the plate.
+ */
+export const PLATE_CLOSE_GONE = 4;
+export const PLATE_CLOSE_FULL = 8;
+
 /** Seconds a damage number lives, and the metres it climbs in that time. */
 export const DAMAGE_SECONDS = 1.1;
 export const DAMAGE_RISE = 1.3;
@@ -81,13 +103,20 @@ export const DAMAGE_RISE = 1.3;
 export const PLATE_COUNT = 24;
 
 /**
- * A nameplate's opacity at a distance, `1` near and `0` far.
+ * A nameplate's opacity at a distance — **a band with two ends since M9**, `0` inside
+ * {@link PLATE_CLOSE_GONE}, `1` across the middle, `0` again beyond {@link PLATE_FAR}.
  *
- * Linear between the two bands and clamped outside them, which is deliberately the same shape
+ * Linear between the bands and clamped outside them, which is deliberately the same shape
  * `foliage.fadeBandsFor` gives the undergrowth: a name that dissolved on a curve would read as the
  * connection stuttering rather than as the character being far away.
+ *
+ * The near ramp is the same function mirrored rather than a second rule, so a plate crossing 8 m
+ * behaves exactly like one crossing 18 — which matters because the owner will cross both in one
+ * flick of the wheel.
  */
 export function plateOpacity(metres: number): number {
+  if (metres <= PLATE_CLOSE_GONE) return 0;
+  if (metres < PLATE_CLOSE_FULL) return (metres - PLATE_CLOSE_GONE) / (PLATE_CLOSE_FULL - PLATE_CLOSE_GONE);
   if (metres <= PLATE_NEAR) return 1;
   if (metres >= PLATE_FAR) return 0;
   return 1 - (metres - PLATE_NEAR) / (PLATE_FAR - PLATE_NEAR);

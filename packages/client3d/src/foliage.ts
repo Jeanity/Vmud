@@ -184,6 +184,21 @@ export const FADE_TAIL_FRACTION = 1 / 3;
  *
  * **A kit tree's canopy does not use this at all** — see `pool.ts`'s `kitLeaf` branch. A canopy must
  * never dissolve inside the frame, which is what `createFoliageUniforms`'s `1e6` default is for.
+ *
+ * ## It is a fixed two metres, and below a 6 m-deep frame it stops engaging — M9
+ *
+ * {@link fadeBandFor} leaves the band `span/3` of room before the frame's far edge, so a lag of 2 m
+ * lands inside the frame only while the frame is deeper than 6 m of view depth. M6's clamp never got
+ * shallower than 6.4 m (24 m at 64°, clearing it by 13 cm); M9's envelope reaches 3 m, where the same
+ * 64° frame is **1.1 m** deep, and from there out to about 22 m at the steepest tilt the kit's
+ * understory simply never dissolves.
+ *
+ * **Left fixed on purpose.** Scaling the lag with the span would change the pose at 24 m and 64° —
+ * the margin there is 13 cm, so any proportional cap bites — and that is a frame the owner has been
+ * playing in. What the fixed lag costs at a 1 m-deep frame is a handful of undissolved instances in
+ * a frame that contains a handful of instances; what it cannot do is produce a line, because the
+ * band's *end* is past the far edge at every pose in the envelope. `foliage.test.ts` asserts both
+ * halves of that — the economy where the band fits, the safety where it does not.
  */
 export const KIT_FADE_LAG = 2;
 
