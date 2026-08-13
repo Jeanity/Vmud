@@ -108,6 +108,7 @@ import {
   type WindClock,
 } from './foliage.ts';
 import { FOG_INDEX, fogTintRow, type FogState } from './fogOfWar.ts';
+import { createWallMapControls, patchWallTexture, type WallMapControls } from './masonry.ts';
 import {
   ARCHETYPES,
   ARCHETYPE_CASTS,
@@ -121,6 +122,8 @@ import {
   MATERIAL_KEYS,
   PORTAL_PULSE_DEPTH,
   PORTAL_PULSE_HZ,
+  PROPS_MODELS_PER_ROOM,
+  PROPS_PARTS_MAX,
   SHAPE_KEYS,
   TREE_VARIANTS_PER_ROOM,
   TREE_PARTS,
@@ -134,6 +137,7 @@ import {
   materialFamily,
   materialKey,
   villageRoleOf,
+  wallTextureOf,
   type Archetype,
   type GeometryKey,
   type KitTextureId,
@@ -215,6 +219,11 @@ const CHUNK_BUCKET_CEILING = ARCHETYPES.filter(
     a !== 'kitLeaf' &&
     a !== 'water' &&
     a !== 'puddle' &&
+    // M9's `propSolid` is `villageSolid`'s case in a second costume: it is `furnish.ts`'s, it is
+    // keyed by `(model, texture)` rather than by sector, and it is counted against
+    // {@link DRESSED_WRAPPER_CEILING} on the 293 cells that can be dressed rather than against all
+    // 586 chunks — half of which are the level below, which is never furnished.
+    a !== 'propSolid' &&
     // `ground` comes off its own free list — see `ScenePool.mintAttributed`.
     a !== 'ground',
 ).length;
@@ -266,6 +275,29 @@ const SCATTER_WRAPPER_CEILING =
 export const INTERIOR_WRAPPER_CEILING = VILLAGE_WALL_MODELS_PER_ROOM * VILLAGE_PARTS_MAX + 1 + 1 + 2 + 1;
 
 /**
+ * Wrappers one chunk's **furniture** can want — M9, derived from the same kind of caps as the two
+ * above it.
+ *
+ * A furnished room draws {@link prototypes.PROPS_MODELS_PER_ROOM} models of at most
+ * {@link prototypes.PROPS_PARTS_MAX} primitives each. **Six**, and every one of those buckets holds
+ * well inside {@link WRAPPER_CAPACITY}: `PROPS_PER_ROOM_MAX` is twelve instances across both models.
+ *
+ * Two models rather than four is a pool decision made in `prototypes.ts` and it is what keeps this
+ * number small enough to matter — see {@link DRESSED_WRAPPER_CEILING} for what it buys.
+ */
+const FURNITURE_WRAPPER_CEILING = PROPS_MODELS_PER_ROOM * PROPS_PARTS_MAX;
+
+/**
+ * Wrappers one chunk's **dressed scenery** can want — M9. One authored prop at
+ * {@link prototypes.PROPS_PARTS_MAX} primitives.
+ *
+ * One rather than several, and that is a fact about `roomScene.scenerySiting` rather than an
+ * assumption: `SCENERY_MODELS` names exactly one dressable kind (`cart`), and a room's scenery list
+ * is authored. `furnish.test.ts` sweeps the world and asserts no room asks for two.
+ */
+const SCENERY_WRAPPER_CEILING = PROPS_PARTS_MAX;
+
+/**
  * The wet-weather decal's own bucket — M5b. One per ground-level chunk, and provably one: every
  * puddle in a room is the same archetype with no sector and no variant, so they are one bucket of at
  * most eight instances in a wrapper that holds thirty-two.
@@ -276,7 +308,8 @@ export const INTERIOR_WRAPPER_CEILING = VILLAGE_WALL_MODELS_PER_ROOM * VILLAGE_P
 const PUDDLE_WRAPPERS = 1;
 
 /**
- * What a *dressed* chunk actually costs — **and the reason M6's second rendering mode is free.**
+ * What a *dressed* chunk actually costs — **the `max` that made M6's second rendering mode free, and
+ * what M9's furniture does to it.**
  *
  * The scatter term and the interior term are **mutually exclusive per chunk**, and not by luck: a
  * room is dressed by `interior.ts` only when it is roofed and `inside`, and every one of the four
@@ -285,13 +318,45 @@ const PUDDLE_WRAPPERS = 1;
  * room outright. So no chunk in the world can want both, and charging the pool for their sum would
  * size it for a room that cannot exist.
  *
- * `max(15 + 1, 11) = 16` — the interior fits inside the budget the understory already had, and the
- * pre-warmed pool does not grow by one wrapper for it. `interior.test.ts` asserts the exclusivity
- * over all 46,544 rooms rather than leaving it as an argument in a comment.
+ * At M6 that read `max(15 + 1, 11) = 16` and the interior fitted inside the budget the understory
+ * already had.
+ *
+ * ## What M9 changes, and — more importantly — what it does not
+ *
+ * **The exclusivity is untouched and it is the thing that was protected.** Furniture is added to the
+ * *interior* term rather than becoming a third one, because `furnish.planFurniture` refuses any room
+ * `interior.dressable` refuses — the same "roofed and `inside`" predicate, asked once and reused. So
+ * the `max` is still a `max` over two terms no chunk can want at once, and the whole-world sweep in
+ * `interior.test.ts` still says so.
+ *
+ * That is also why the **outdoor and city walls are a texture and not a village module**: a module
+ * would have put the interior term's modules on the chunks that grow scatter, which is exactly the
+ * assumption above, and `max(16, 11)` would have become `16 + 7 = 23` — `+7` wrappers on each of
+ * {@link SCATTER_CHUNKS} cells, `+8,138,368 B`. `prototypes.WALL_TEXTURES` argues the rest of it.
+ *
+ * What *does* move is which term wins:
+ *
+ * ```
+ * scatter  15 + puddle 1 + scenery 3 = 19      <- the binding term, and it is the scenery's doing
+ * interior 11 + furniture 6          = 17
+ * max                                = 19      (was 16)
+ * ```
+ *
+ * **The scenery term is the expensive one and it is worth naming as such.** Dressing an authored
+ * `cart` with a market stall costs `+3` on the *scatter* side, because all ten of the world's
+ * authored scenery props stand in outdoor `city` and `road` rooms and those chunks grow the
+ * understory too. Three wrappers on 293 cells is `+3,487,872 B` for three carts in one hand-authored
+ * zone — a poor rate against today's content, and taken anyway because `Room.scenery` is the seam the
+ * owner authors through and the price is per *slot* rather than per cart. Furniture and dressed
+ * scenery are made **exclusive per room** by `furnish.ts` so the two never sum: a room somebody
+ * bothered to put a fountain in does not also want two generated barrels.
+ *
+ * The `+3` is the whole of it, because the furniture's `+6` lands on the side that was losing:
+ * `11 + 6 = 17` is still under `15 + 1 + 3`.
  */
 export const DRESSED_WRAPPER_CEILING = Math.max(
-  SCATTER_WRAPPER_CEILING + PUDDLE_WRAPPERS,
-  INTERIOR_WRAPPER_CEILING,
+  SCATTER_WRAPPER_CEILING + PUDDLE_WRAPPERS + SCENERY_WRAPPER_CEILING,
+  INTERIOR_WRAPPER_CEILING + FURNITURE_WRAPPER_CEILING,
 );
 
 /**
@@ -649,6 +714,22 @@ function partsOf(key: MaterialKey): {
       texture: bits[1] as KitTextureId | undefined,
     };
   }
+  // `props|trim-metal` — M9, and the same shape `character|` is for the same reason: a furniture
+  // material's whole identity is its atlas. See `prototypes.propsMaterialKey`.
+  if (bits[0] === 'props') {
+    return {
+      archetype: 'propSolid',
+      sector: undefined,
+      // Never faded and never open: the level below is not furnished (`prototypes.NEVER_FADED`) and
+      // the near-wall fade is a *wall* thing — a barrel that went translucent because the camera was
+      // outside the room would read as a hole in the floor.
+      faded: false,
+      variant: bits[1],
+      // Left undefined so the cast falls through to `ARCHETYPE_CASTS.propSolid`, which is an
+      // unconditional true. `KIT_TEXTURE_CASTS` is the kit's table and knows nothing about `trim-*`.
+      texture: undefined,
+    };
+  }
   // `village|wall-plaster-straight|plaster[|open]` — the second marker-led key shape, and it is a
   // marker for `kit|`'s reason: a village model id and a kit model id are both "a lowercase
   // hyphenated word" and nothing about the string itself would tell them apart.
@@ -712,6 +793,12 @@ export class ScenePool {
    * rather than a lookup with a guard.
    */
   private readonly groundMaps = new Map<MaterialKey, GroundMapControls>();
+  /**
+   * The wall texture's four uniforms, per plain material — M9, and the sibling of
+   * {@link groundMaps} one family along. Every plain key is in here; only the `edge` and `barrier`
+   * ones are ever given a gain. See `masonry.ts`.
+   */
+  private readonly wallMaps = new Map<MaterialKey, WallMapControls>();
   /**
    * The foliage materials whose `uFade` follows the live frame, and which of the two bands each takes.
    *
@@ -1021,7 +1108,21 @@ export class ScenePool {
       };
       // One key for all 32 ground materials. The whole of §4's *"one shader handles all 98 pairs"*.
       material.customProgramCacheKey = (): string => 'ground-blend';
+      return material;
     }
+
+    // **Plain, and every one of them takes the wall patch** — M9. The map is a sampler this patch
+    // declares rather than `material.map`, so `USE_MAP` is never set and the biggest material family
+    // in the renderer still compiles one program; but a patched material and an unpatched one are two
+    // programs however identical their uniforms, so the patch goes on *all* 74 rather than on the two
+    // wall archetypes. `wallTextureOf` answers `undefined` for the other seventy-two, which is a gain
+    // of zero, which is a multiply by one and M3's painted box to the bit. See `masonry.ts`.
+    const wall = createWallMapControls(wallTextureOf(kind, sector), this.placeholder);
+    this.wallMaps.set(key, wall);
+    material.onBeforeCompile = (shader): void => {
+      patchWallTexture(shader as unknown as ShaderPatch, wall);
+    };
+    material.customProgramCacheKey = (): string => 'plain-wall';
     return material;
   }
 
@@ -1210,6 +1311,51 @@ export class ScenePool {
       dressed += 1;
     }
     return dressed;
+  }
+
+  /**
+   * Put the wall textures on the `edge` and `barrier` materials — M9, {@link dressGround}'s twin one
+   * family along, and it differs from it in exactly nothing that matters.
+   *
+   * Same sweep over the pool's own table rather than a call per key, because which sectors take a
+   * wall texture is `prototypes.ts`'s to say and the loader should not have to know them. Same
+   * `RepeatWrapping`, and it is not optional here either: the sample is a **world** coordinate and
+   * steps outside `[0, 1]` within the first metre, so three's default `ClampToEdgeWrapping` would
+   * smear one row of texels down an entire city wall. Same idempotence, because `kit.ts` and
+   * `village.ts` both finish their loads by sweeping and which lands first is a race.
+   *
+   * No anisotropy bump: a wall is seen close to **face-on** at a 45-to-64-degree camera, which is the
+   * one orientation trilinear filtering handles well and the exact opposite of the grazing floor
+   * `GROUND_ANISOTROPY` exists for. The two textures are shared objects, so a bump here would also be
+   * a bump on the floor, which already has one.
+   */
+  dressWalls(lookup: (id: string) => Texture | undefined): number {
+    let dressed = 0;
+    for (const [key, map] of this.wallMaps) {
+      const parts = partsOf(key);
+      const spec = wallTextureOf(parts.archetype as Archetype, parts.sector);
+      if (!spec) continue;
+      const texture = lookup(spec.texture);
+      if (!texture) continue;
+      if (texture.wrapS !== RepeatWrapping || texture.wrapT !== RepeatWrapping) {
+        texture.wrapS = RepeatWrapping;
+        texture.wrapT = RepeatWrapping;
+        texture.needsUpdate = true;
+      }
+      map.uWallMap.value = texture;
+      map.uWallGain.value = spec.gain;
+      dressed += 1;
+    }
+    return dressed;
+  }
+
+  /** Which wall materials are wearing a real texture. `__debug3d`, and the tests. */
+  wallTextured(): number {
+    let count = 0;
+    for (const map of this.wallMaps.values()) {
+      if (map.uWallGain.value > 0) count += 1;
+    }
+    return count;
   }
 
   /** Which ground materials are wearing a real floor texture. `__debug3d`, and the tests. */
@@ -1600,6 +1746,7 @@ export class ScenePool {
     // The textures these point at are the village pack's and were released in the sweep above; what
     // is dropped here is only the uniform objects that held them.
     this.groundMaps.clear();
+    this.wallMaps.clear();
     this.pulsing.length = 0;
   }
 }

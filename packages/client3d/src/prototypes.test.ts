@@ -33,6 +33,13 @@ import {
   KIT_PARTS,
   KIT_TEXTURES,
   MATERIAL_KEYS,
+  PROPS_GEOMETRY_KEYS,
+  PROPS_METRICS,
+  PROPS_MODELS,
+  PROPS_PARTS,
+  PROPS_PARTS_MAX,
+  PROPS_PART_TEXTURES,
+  PROPS_TEXTURES,
   SHAPE_KEYS,
   TREE_GEOMETRY_KEYS,
   TREE_LODS,
@@ -50,6 +57,7 @@ import {
   linearRgb,
   materialFamily,
   materialKey,
+  propsMaterialKey,
   treeFamily,
   treeMaterialKey,
   treePartsOf,
@@ -67,6 +75,8 @@ const VILLAGE_ARCHETYPE_COUNT = 1;
 
 /** `character` — M7b's one, and it is keyed by texture alone. Same reason it is a literal. */
 const CHARACTER_ARCHETYPE_COUNT = 1;
+/** M9's `propSolid`, likewise: keyed by `(model, texture)` in the geometry and by atlas in the material. */
+const PROPS_ARCHETYPE_COUNT = 1;
 
 describe('the pool key set', () => {
   it('has exactly seven built shapes, and the trees and the kit on top of them', () => {
@@ -103,7 +113,25 @@ describe('the pool key set', () => {
     assert.equal(VILLAGE_PARTS.length, 19);
     assert.equal(VILLAGE_GEOMETRY_KEYS.length, 19);
     assert.equal(new Set(VILLAGE_GEOMETRY_KEYS).size, 19);
-    assert.equal(GEOMETRY_KEYS.length, 7 + 153 + 48 + 19);
+    // M9's furniture: 26 of the Fantasy Props pack's 94 models, 49 `(model, texture)` parts. See
+    // `PROPS_PART_TEXTURES` for what is deliberately absent and why — two models whose primitives
+    // would collide on one pool key, three that are not a single node at identity, the two pieces the
+    // room grid's own walkability law refuses, and everything that wants a table top to stand on.
+    assert.equal(PROPS_MODELS.length, 26);
+    assert.equal(PROPS_PARTS.length, 49);
+    assert.equal(PROPS_GEOMETRY_KEYS.length, 49);
+    assert.equal(new Set(PROPS_GEOMETRY_KEYS).size, 49);
+    // **No model may carry two primitives on one atlas.** `registerGeometry` is first-wins, so the
+    // second would be silently dropped — which is exactly why `Anvil` and `Chest_Wood` are not in the
+    // drawn set. Checked here rather than in `props.test.ts` because it is a property of *this table*
+    // and holds with no manifest on disk.
+    for (const model of PROPS_MODELS) {
+      const textures = PROPS_PART_TEXTURES[model] ?? [];
+      assert.equal(new Set(textures).size, textures.length, `${model} repeats an atlas`);
+      assert.ok(textures.length <= PROPS_PARTS_MAX, `${model} has more than ${PROPS_PARTS_MAX} parts`);
+      assert.ok(PROPS_METRICS[model], `${model} has no measured footprint`);
+    }
+    assert.equal(GEOMETRY_KEYS.length, 7 + 153 + 48 + 19 + 49);
   });
 
   it('gives every kit part a role, and the two roles a family each', () => {
@@ -155,7 +183,7 @@ describe('the pool key set', () => {
     assert.ok(MATERIAL_KEYS.includes(treeMaterialKey('trunk', 'dead-tree-1' as never)));
   });
 
-  it('has exactly 312 materials, and the arithmetic is legible', () => {
+  it('has exactly 316 materials, and the arithmetic is legible', () => {
     // Terrain: 5 biome archetypes x 16 sectors = 80, of which `grass` never fades, so
     // 4 x 16 = 64 with twins (128) plus 16 without = 144.
     // Trees: 51 real parts across 28 variants, none of which fade.
@@ -166,7 +194,10 @@ describe('the pool key set', () => {
     //   policy's `dim` and has its own opacity — so 38.
     // Characters: 12 atlases, keyed by texture alone rather than by `(model, texture)` — a body
     //   material carries no per-model uniform, so 26 models share twelve materials. None fade.
-    // 144 + 51 + 19 + 48 + 38 + 12 = 312.
+    // Furniture: 4 atlases, keyed by texture alone for the characters' reason exactly — a barrel
+    //   material carries no per-model uniform either, so 26 models share four materials. None fade,
+    //   and none has an open twin: the near-wall fade is a *wall* thing.
+    // 144 + 51 + 19 + 48 + 38 + 12 + 4 = 316.
     //
     // 110 at M3. M4 added `glow` and its twin — the stairwell marker — the *whole* of M4's growth,
     // because the emissive ring is a uniform on an existing material and the three-state fog of war is
@@ -177,6 +208,9 @@ describe('the pool key set', () => {
     // twinned (38). Neither adds a *program*. **M7b adds 12** and, unlike every prior milestone, it
     // *does* add two programs — a body is a `SkinnedMesh` and the sword in its hand is not, and
     // `USE_SKINNING` is a `#define`. See the traversal test, which now asserts nine and says why.
+    // **M9 adds 4** — the Fantasy Props kit's four atlases — and no program at all: a barrel is
+    // `kitSolid`'s recipe with a different picture in it, which is the same free ride M6 and the
+    // character *props* took.
     const terrain = (BIOME_ARCHETYPES.length - 1) * SECTORS.length;
     let trees = 0;
     for (const variant of TREE_VARIANTS) trees += treePartsOf(variant).length;
@@ -186,11 +220,12 @@ describe('the pool key set', () => {
       VARIANT_ARCHETYPES.length -
       KIT_ARCHETYPE_COUNT -
       VILLAGE_ARCHETYPE_COUNT -
-      CHARACTER_ARCHETYPE_COUNT;
+      CHARACTER_ARCHETYPE_COUNT -
+      PROPS_ARCHETYPE_COUNT;
     assert.equal(terrain, 64);
     assert.equal(trees, 51);
     assert.equal(objects, 12);
-    assert.equal(MATERIAL_KEYS.length, 312);
+    assert.equal(MATERIAL_KEYS.length, 316);
     // The `- 5` is `self`, `other`, `marker`, `water` and `puddle` — the object archetypes with no
     // faded twin. Literals rather than `NEVER_FADED.size` on purpose, the same reasoning the file
     // header gives for the whole test: recomputing the exclusion from the table under test would let
@@ -204,7 +239,8 @@ describe('the pool key set', () => {
         (objects - 5) +
         KIT_PARTS.length +
         VILLAGE_PARTS.length * 2 +
-        CHARACTER_TEXTURES.length,
+        CHARACTER_TEXTURES.length +
+        PROPS_TEXTURES.length,
     );
   });
 
@@ -225,6 +261,9 @@ describe('the pool key set', () => {
       // Nor is M7b's: a character material's identity is its *texture* and nothing else — twelve
       // atlases across 26 models — which is the fifth loop below.
       if (archetype === 'character') continue;
+      // Nor is M9's, for the characters' reason one kit along: a furniture material's identity is its
+      // atlas — four across 26 models — which is the sixth loop below.
+      if (archetype === 'propSolid') continue;
       for (const faded of [false, true]) {
         for (const sector of SECTORS) {
           assert.ok(known.has(materialKey(archetype, sector, faded)), `${archetype}/${sector}/${faded}`);
@@ -251,6 +290,9 @@ describe('the pool key set', () => {
           `${part.model}/${part.texture}/${open}`,
         );
       }
+    }
+    for (const texture of PROPS_TEXTURES) {
+      assert.ok(known.has(propsMaterialKey(texture)), `props/${texture}`);
     }
   });
 
@@ -333,11 +375,20 @@ describe('the pool key set', () => {
     // why symmetric beat rotating the window (churn: an orbit is one continuous drag, and a window
     // that changed shape during it would rebuild the world under the gesture) and why the disc beat
     // the 19 x 19 square that covers the same radius (19% of the cells, for one `hypot`).
-    assert.equal(WRAPPER_POOL_SIZE, 10_552);
-    assert.equal(start.prewarmed, 11_431);
+    //
+    // **M9 moves it by 879 and every one of them is the scenery term.** The furniture rides the
+    // interior side of `pool.DRESSED_WRAPPER_CEILING`'s `max` — `11 + 6 = 17`, still under the
+    // understory's `15 + 1` — so ten thousand furnished rooms cost the pool nothing. What costs is
+    // dressing an authored `cart` with a market stall: all ten of the world's authored scenery props
+    // stand in outdoor `city` and `road` rooms, and those chunks grow the understory too, so the
+    // scatter side becomes `15 + 1 + 3 = 19` and the `max` follows. `586 x 10 + 293 x 19 + 4 = 11,431`.
+    // The wall texture that answers the owner's actual complaint moves **nothing**: it is a sampler on
+    // materials that already exist, which is the whole reason it beat a village module.
+    assert.equal(WRAPPER_POOL_SIZE, 11_431);
+    assert.equal(start.prewarmed, 12_310);
     assert.equal(start.blendWrappers, 879, 'ground and water both own their instanced attributes');
-    assert.equal(start.wrappersCreated, 11_431, 'all three free lists are whole before anything asks');
-    assert.equal(start.wrappersFree, 11_431);
+    assert.equal(start.wrappersCreated, 12_310, 'all three free lists are whole before anything asks');
+    assert.equal(start.wrappersFree, 12_310);
     assert.equal(start.wrappersLive, 0);
     // M7b: no rig exists until a base body has loaded, and none has. The body family is the one
     // allocation in this pool that is *not* pre-warmed — see `BODY_POOL_SIZE`.
@@ -557,7 +608,7 @@ describe('the pool key set', () => {
     pool.writeBlend(wall, 0, [1, 1, 1, 1], [1, 1, 1, 1]);
     pool.writeWarp(wall, 0, [1, 1, 1, 1]);
     pool.release(wall);
-    assert.equal(pool.snapshot().wrappersCreated, 11_431, 'the split lists must not mint');
+    assert.equal(pool.snapshot().wrappersCreated, 12_310, 'the split lists must not mint');
     pool.dispose();
   });
 
@@ -589,7 +640,7 @@ describe('the pool key set', () => {
     const again = pool.acquire('waterPlane', 'water');
     assert.equal(again, water, 'LIFO: the water list gave its own wrapper back');
     pool.release(again);
-    assert.equal(pool.snapshot().wrappersCreated, 11_431, 'the three lists must not mint');
+    assert.equal(pool.snapshot().wrappersCreated, 12_310, 'the three lists must not mint');
     pool.dispose();
   });
 

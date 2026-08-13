@@ -14,6 +14,9 @@
  *
  * node --disable-warning=ExperimentalWarning packages/worldgen/src/modelgen.ts --characters
  * GAME_CHARACTER_KIT=D:/MyGame/assets/quaternius/characters node ... /modelgen.ts --characters
+ *
+ * node --disable-warning=ExperimentalWarning packages/worldgen/src/modelgen.ts --props
+ * GAME_PROPS_KIT=D:/MyGame/assets/quaternius/props node ... /modelgen.ts --props
  * ```
  *
  * **Invoked with `node` directly and deliberately given no `package.json` script**, exactly as
@@ -152,6 +155,9 @@ export const VILLAGE_MANIFEST_VERSION = 1;
 
 /** The same, for `client3d/src/characters.ts`'s `CHARACTER_MANIFEST_VERSION`. M7b. */
 export const CHARACTER_MANIFEST_VERSION = 1;
+
+/** The same, for `client3d/src/props.ts`'s `PROPS_MANIFEST_VERSION`. M9's furniture. */
+export const PROPS_MANIFEST_VERSION = 1;
 
 /* -------------------------------------------------------------------------- */
 /* The shape of a glTF, narrowed to what this file reads                        */
@@ -537,7 +543,79 @@ export const CHARACTERS_PROFILE: KitProfile = {
   ],
 };
 
-export const PROFILES: readonly KitProfile[] = [NATURE_PROFILE, VILLAGE_PROFILE, CHARACTERS_PROFILE];
+/* ------------------------------------------------------------- the furniture */
+
+/**
+ * The Fantasy Props MegaKit's families. Longest prefix wins, and four pairs need it: `bed-twin`
+ * before `bed`, `book-group`/`book-stack`/`book-stand`/`bookcase` around `book`, `candle-stick`
+ * before `candle`, `stall-cart` before `stall`, `workbench-drawers` before `workbench`.
+ *
+ * Broader than the drawn set on purpose — the manifest is the whole pack, as both prop kits' are, and
+ * a family is what a human reads on a contact sheet rather than what the renderer branches on.
+ */
+export const PROPS_FAMILIES = [
+  'anvil', 'axe', 'bag', 'banner', 'barrel', 'bed', 'bed-twin', 'bench', 'book', 'book-group',
+  'book-stack', 'book-stand', 'bookcase', 'bottle', 'bucket', 'cabinet', 'cage', 'candle',
+  'candle-stick', 'carrot', 'cauldron', 'chain', 'chair', 'chalice', 'chandelier', 'chest', 'coin',
+  'crate', 'dummy', 'farm-crate', 'key', 'lantern', 'mug', 'nightstand', 'peg-rack', 'pickaxe',
+  'pot', 'potion', 'pouch', 'rope', 'scroll', 'shelf', 'shield', 'small-bottle', 'small-bottles',
+  'stall', 'stall-cart', 'stool', 'sword', 'table', 'torch', 'vase', 'weapon-stand', 'whetstone',
+  'workbench', 'workbench-drawers',
+] as const;
+
+export function propsFamily(id: string): string {
+  return familyOf(id, PROPS_FAMILIES);
+}
+
+/**
+ * The Fantasy Props MegaKit — M9, and the **fourth tenant of one importer with nothing new in it**.
+ *
+ * Every parameter is one the first three already needed. The pack shares the village kit's
+ * Unreal-style texture naming (`T_Trim_Furniture_BaseColor.png`), so `textureId` is
+ * {@link villageTextureId} for the third time; nothing in it sways, so `role` is the constant
+ * `CHARACTERS_PROFILE` already uses; and nothing in it is ever *scattered*, so `blocking` is the
+ * empty set both the village and the characters carry — a furniture piece is placed by
+ * `client3d/src/furnish.ts` from the room's own name and its footprint is checked against
+ * `roomScene.walkableRequired` there, which is a stricter question than "may this be dropped on open
+ * ground?" and is asked in a different file.
+ *
+ * **Three of its five atlases are already on the wire.** `MI_Trim_Furniture`, `MI_Trim_Metal` and
+ * `MI_Trim_Props` are the same three the *Modular Character Outfits* props wear — the sword, the axe
+ * and the shield — and `ScenePool.registerTexture` is keyed by manifest id, so whichever pack loads
+ * first pays for them and the other gets them free. What this kit actually adds to the download is
+ * `trim-cloth` and `page-noise`.
+ *
+ * The source unpacks as `props/Exports/glTF`, which {@link gltfDirOf}'s single-child descent already
+ * handles — `Textures/` beside it has no `glTF` of its own, so the choice is unambiguous.
+ */
+export const PROPS_PROFILE: KitProfile = {
+  id: 'props',
+  env: 'GAME_PROPS_KIT',
+  version: PROPS_MANIFEST_VERSION,
+  generator: 'modelgen.ts from the Quaternius Fantasy Props MegaKit (CC0)',
+  textureId: villageTextureId,
+  role: () => 'solid',
+  family: propsFamily,
+  blocking: new Set(),
+  pack: '**Quaternius — Fantasy Props MegaKit**, textured glTF line, Standard tier.',
+  changes: [
+    '- Normal, roughness and ORM maps dropped: `client3d` is Lambert throughout and samples none of',
+    '  them. Five base-colour atlases survive of the pack’s thirteen PNGs.',
+    '- `images`/`textures` rebuilt and reindexed; image URIs pointed at the shared `textures/` directory.',
+    '- Geometry, accessors and buffer views are the upstream bytes, unmodified. Nothing is rescaled on',
+    '  disk — the pack is authored at world scale already (a barrel is 0.90 m tall, a table 0.81 m, a',
+    '  bookcase 2.55 m), which is the one thing the nature kit’s understory was not.',
+    '- `Chest_Wood` keeps its skin: it is the pack’s only rigged file (an animated lid) and a node',
+    '  naming a `skins` array that is not in the document is a `GLTFLoader` throw.',
+  ],
+};
+
+export const PROFILES: readonly KitProfile[] = [
+  NATURE_PROFILE,
+  VILLAGE_PROFILE,
+  CHARACTERS_PROFILE,
+  PROPS_PROFILE,
+];
 
 /* -------------------------------------------------------------------------- */
 /* The manifest, as this file writes it and `client3d/src/kit.ts` reads it      */
@@ -1247,7 +1325,9 @@ function main(): void {
     ? CHARACTERS_PROFILE
     : process.argv.includes('--village')
       ? VILLAGE_PROFILE
-      : NATURE_PROFILE;
+      : process.argv.includes('--props')
+        ? PROPS_PROFILE
+        : NATURE_PROFILE;
   const outDir = join(MODELS_DIR, profile.id);
   const source = sourceDir(profile);
   const gltfDir = gltfDirOf(source);

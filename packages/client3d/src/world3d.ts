@@ -104,8 +104,11 @@ import { bitsFromBase64, bitsetAdd, bitsetBytes, bitsetHas } from '@mygame/share
 
 import { planChunk, roomElevation, type Placement } from './chunkPlan.ts';
 import { fogStateOf, type FogState } from './fogOfWar.ts';
+import { dressedScenery, planFurniture, planScenery } from './furnish.ts';
 import { dressable, hasRoof, occludingSides, planInterior, roofGroups, roofedRoom } from './interior.ts';
 import type { Enclosure } from './indoors.ts';
+import { PropsSet } from './props.ts';
+import { PROPS_PART_TEXTURES, propsGeometryKey } from './prototypes.ts';
 import { VillageSet } from './village.ts';
 import {
   METRES_PER_TILE,
@@ -174,6 +177,8 @@ interface LoadedChunk {
   kit: number;
   /** Village modules this chunk drew — walls, floor, arches, roof. `__debug3d.villageInstances`. */
   village: number;
+  /** Furniture primitives this chunk drew — M9. `__debug3d.propInstances`. */
+  props: number;
   /** True when this chunk drew a water surface. `__debug3d.waterChunks`. */
   water: boolean;
   readonly meshes: InstancedMesh[];
@@ -200,6 +205,8 @@ export class World3D implements ChunkSink {
   readonly kit = new KitSet();
   /** The Medieval Village kit — M6. A third registry, the same contract. See `village.ts`. */
   readonly village = new VillageSet();
+  /** The Fantasy Props kit — M9. A fourth registry, and the furniture half of the interiors. */
+  readonly props = new PropsSet();
   private readonly streamer = new ChunkStreamer(this);
   private readonly chunks = new Map<string, LoadedChunk>();
   private readonly scratch = new Object3D();
@@ -377,6 +384,8 @@ export class World3D implements ChunkSink {
     water: number;
     village: number;
     interiors: number;
+    props: number;
+    furnished: number;
   } {
     let trees = 0;
     let instances = 0;
@@ -384,15 +393,19 @@ export class World3D implements ChunkSink {
     let water = 0;
     let village = 0;
     let interiors = 0;
+    let props = 0;
+    let furnished = 0;
     for (const chunk of this.chunks.values()) {
       trees += chunk.trees;
       instances += chunk.scatter;
       kit += chunk.kit;
       village += chunk.village;
+      props += chunk.props;
       if (chunk.village > 0) interiors += 1;
+      if (chunk.props > 0) furnished += 1;
       if (chunk.water) water += 1;
     }
-    return { trees, instances, kit, water, village, interiors };
+    return { trees, instances, kit, water, village, interiors, props, furnished };
   }
 
   /* ------------------------------------------------------------- M5b: weather */
@@ -939,6 +952,7 @@ export class World3D implements ChunkSink {
       scatter: 0,
       kit: 0,
       village: 0,
+      props: 0,
       water: false,
       meshes: [],
       keys: [],
@@ -1056,6 +1070,19 @@ export class World3D implements ChunkSink {
     // and on this not being the level below, which is `prototypes.NEVER_FADED`'s rule for every
     // other art layer in this renderer.
     const dressed = !chunk.faded && this.village.available && dressable(scene);
+    // M9. Which authored scenery props the furniture kit is standing a model in for — derived once,
+    // used twice: `planChunk` drops their grey box and `planScenery` draws the model. Gated on the
+    // level, on the kit having loaded and on the individual geometry, so a half-loaded pack leaves
+    // the box where it was rather than leaving the floor bare.
+    const scenery =
+      !chunk.faded && this.props.available
+        ? dressedScenery(scene).filter(({ model }) =>
+            (PROPS_PART_TEXTURES[model] ?? []).every((texture) =>
+              this.pool.hasGeometry(propsGeometryKey(model, texture)),
+            ),
+          )
+        : [];
+    const dressedKinds = scenery.length > 0 ? new Set(scenery.map(({ feature }) => feature.kind)) : undefined;
     chunk.open = open;
     const room3d = planChunk({
       scene,
@@ -1068,6 +1095,7 @@ export class World3D implements ChunkSink {
       // `top`, because the slab and the gable must never both appear or both be missing.
       roof: open ? 'open' : dressed && hasRoof(scene, top) ? 'kit' : 'slab',
       dressed,
+      ...(dressedKinds ? { dressedScenery: dressedKinds } : {}),
     });
 
     // M5a. Two gates, both in the file header: nothing grows on the level below, and nothing grows
@@ -1110,6 +1138,24 @@ export class World3D implements ChunkSink {
       if (inside.length > 0) {
         placements = [...placements, ...inside];
         chunk.village = inside.length;
+      }
+    }
+
+    // M9's furniture, on the same gate and after the same per-placement filter. Two conditions
+    // beyond the kit having loaded, and both are the interior dressing's own: the level below is not
+    // furnished, and a room the village has not dressed is a grey shell that a bookcase standing in
+    // it would only make stranger. `planFurniture` refuses everything `dressable` refuses anyway —
+    // that is what keeps `pool.DRESSED_WRAPPER_CEILING` a `max` — so this is the renderer's half of
+    // a decision the planner has already made, stated where the other three layers state theirs.
+    chunk.props = 0;
+    if (this.props.available && (dressed || scenery.length > 0)) {
+      const furniture = [
+        ...(dressed ? planFurniture({ scene, name: room.name, flags: room.flags, origin, elevation }) : []),
+        ...(scenery.length > 0 ? planScenery({ scene, origin, elevation }) : []),
+      ].filter((p) => this.pool.hasGeometry(p.geometry));
+      if (furniture.length > 0) {
+        placements = [...placements, ...furniture];
+        chunk.props = furniture.length;
       }
     }
 

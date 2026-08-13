@@ -29,6 +29,8 @@ import {
   KIT_MANIFEST_VERSION,
   NATURE_PROFILE,
   VILLAGE_MANIFEST_VERSION,
+  PROPS_MANIFEST_VERSION,
+  PROPS_PROFILE,
   VILLAGE_PROFILE,
   buildAnimationLibrary,
   buildCatalogue,
@@ -42,6 +44,7 @@ import {
   readGlb,
   readSources,
   sourceDir,
+  propsFamily,
   villageFamily,
   villageRole,
   villageTextureId,
@@ -651,5 +654,112 @@ describe('the shipped animation library', { skip: existsSync(SHIPPED_UAL1) ? fal
     for (const clip of json.animations) assert.equal(clip.channels.length, 195, clip.name);
     assert.equal(json.meshes, undefined, 'the mannequin is still in the shipped file');
     assert.deepEqual(json.animations.map((clip) => clip.name).sort(), [...CHARACTER_CLIPS['ual1']!].sort());
+  });
+});
+
+describe('the props profile’s naming rules', () => {
+  it('sorts a furniture model into the family a contact sheet would file it under', () => {
+    // Longest prefix wins, and five pairs need it — the same rule the village families follow and the
+    // same trap: a shorter prefix that is also a whole family swallows the longer one otherwise.
+    assert.equal(propsFamily('bed-twin1'), 'bed-twin');
+    assert.equal(propsFamily('bookcase-2'), 'bookcase');
+    assert.equal(propsFamily('book-stand'), 'book-stand');
+    assert.equal(propsFamily('book-stack-1'), 'book-stack');
+    assert.equal(propsFamily('book-5'), 'book');
+    assert.equal(propsFamily('candle-stick-triple'), 'candle-stick');
+    assert.equal(propsFamily('candle-1'), 'candle');
+    assert.equal(propsFamily('stall-cart-empty'), 'stall-cart');
+    assert.equal(propsFamily('stall-empty'), 'stall');
+    assert.equal(propsFamily('workbench-drawers'), 'workbench-drawers');
+    assert.equal(propsFamily('workbench'), 'workbench');
+  });
+
+  it('reuses the village pack’s texture naming, because the pack does', () => {
+    // `T_Trim_Furniture_BaseColor.png` is the Unreal channel convention the village kit taught this
+    // importer, so the props profile is the third tenant of `villageTextureId` rather than a fourth
+    // naming function. That is also what makes `trim-metal` here the same id as `trim-metal` in the
+    // character packs, which is what lets the two share one fetch.
+    assert.equal(PROPS_PROFILE.textureId('T_Trim_Furniture_BaseColor.png'), 'trim-furniture');
+    assert.equal(PROPS_PROFILE.textureId('T_Trim_Metal_BaseColor.png'), 'trim-metal');
+    assert.equal(PROPS_PROFILE.textureId('T_Page_Noise.png'), 'page-noise');
+    // Nothing in a furniture pack sways, and nothing in it is ever scattered.
+    assert.equal(PROPS_PROFILE.role('trim-cloth'), 'solid');
+    assert.equal(PROPS_PROFILE.blocking.size, 0);
+    // No `kind`, so the three optional manifest fields stay off and the emitted JSON is the shape the
+    // two other prop kits emit.
+    assert.equal(PROPS_PROFILE.kind, undefined);
+  });
+});
+
+describe('the props importer’s catalogue', () => {
+  const source = sourceDir(PROPS_PROFILE);
+  const dir = gltfDirOf(source);
+  if (!dir) {
+    it('skips: the Quaternius Fantasy Props kit is not on disk', (t) => {
+      t.skip(
+        `no kit under ${source} — assets/** is git-ignored, so point --source or GAME_PROPS_KIT at ` +
+          `the main checkout: node packages/worldgen/src/modelgen.ts --props ` +
+          `--source D:/MyGame/assets/quaternius/props`,
+      );
+    });
+    return;
+  }
+
+  const { sources: propSources, textures: propTextures } = readSources(dir, PROPS_PROFILE);
+
+  it('finds the pack one directory deeper than the flag points', () => {
+    // The pack unpacks as `props/Exports/glTF`, which `gltfDirOf`'s single-child descent handles —
+    // `Textures/` beside it has no `glTF` of its own, so the choice is unambiguous rather than a coin
+    // toss. The village kit taught this importer the same trick with a bracketed directory name.
+    assert.ok(dir.split(/[\\/]/).pop() === 'glTF', dir);
+    assert.ok(dir.includes('Exports'), 'the pack unpacks one directory deeper than the flag points');
+    assert.equal(propSources.length, 94, 'the textured glTF line is 94 models');
+  });
+
+  it('is byte-identical on a second run over the same input', () => {
+    const first = buildCatalogue(propSources, propTextures, PROPS_PROFILE);
+    const second = buildCatalogue(propSources, propTextures, PROPS_PROFILE);
+    assert.equal(JSON.stringify(first.manifest), JSON.stringify(second.manifest));
+    assert.equal(sha1(first), sha1(second), 'the props import is not reproducible');
+    const ids = first.manifest.models.map((model) => model.id);
+    assert.deepEqual(ids, [...ids].sort(), 'the manifest is not sorted by id');
+  });
+
+  it('describes the whole pack at world scale, with a served path per model', () => {
+    const { manifest } = buildCatalogue(propSources, propTextures, PROPS_PROFILE);
+    assert.equal(manifest.version, PROPS_MANIFEST_VERSION);
+    assert.ok(manifest.generator.includes('Fantasy Props'));
+    assert.equal(manifest.models.length, 94);
+    let triangles = 0;
+    for (const model of manifest.models) {
+      assert.ok(model.url.startsWith('models/props/'), `${model.url} is not a served path`);
+      assert.ok(!model.url.includes('..'), `${model.url} escapes the served root`);
+      assert.ok(model.triangles > 0, `${model.id} has no triangles`);
+      assert.equal(model.blocks, false, `${model.id} claims to block`);
+      assert.equal(model.family !== 'unknown', true, `${model.id} has no family`);
+      triangles += model.triangles;
+    }
+    assert.equal(triangles, 121603, 'the pack’s triangle count moved');
+    // Five base-colour atlases survive of thirteen PNGs; `page-noise` is the 4096 scroll sheet and is
+    // the reason the client fetches four of the five.
+    assert.equal(manifest.textures.length, 5);
+    assert.deepEqual(
+      manifest.textures.map((texture) => texture.id),
+      ['page-noise', 'trim-cloth', 'trim-furniture', 'trim-metal', 'trim-props'],
+    );
+  });
+
+  it('keeps the one rigged file’s skin, and gives the other 93 none', () => {
+    // `Chest_Wood` is an animated lid and is the pack’s only skinned mesh. A node naming a `skins`
+    // array that is not in the document is a `GLTFLoader` throw rather than an untextured mesh, so the
+    // conditional emit M7b added for the characters is load-bearing here too — and it is why the other
+    // 93 files come out byte-for-byte the shape the two other prop kits emit.
+    const { gltfs } = buildCatalogue(propSources, propTextures, PROPS_PROFILE);
+    let skinned = 0;
+    for (const [id, text] of gltfs) {
+      if (text.includes('"skins"')) skinned += 1;
+      else assert.ok(!text.includes('"skin"'), `${id} names a skin it does not carry`);
+    }
+    assert.equal(skinned, 1, 'exactly one file in this pack is rigged');
   });
 });

@@ -720,6 +720,211 @@ export const VILLAGE_GEOMETRY_KEYS: readonly GeometryKey[] = VILLAGE_PARTS.map((
 );
 
 /* -------------------------------------------------------------------------- */
+/* The furniture — M9                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The Fantasy Props MegaKit's atlases — **four of five, and three of the four are already paid for.**
+ *
+ * `trim-furniture`, `trim-metal` and `trim-props` are the same three the character packs' held props
+ * wear ({@link CHARACTER_PROP_TEXTURES}), and `ScenePool.registerTexture` is keyed by manifest id, so
+ * whichever pack's fetch lands first pays and the other gets them free. What this kit actually adds
+ * to the wire is `trim-cloth` — a banner, a bedspread, a training dummy's sacking — at 1.9 MB.
+ *
+ * `page-noise` is the fifth and is deliberately absent: it is a **4096²** sheet, 7.3 MB, worn by the
+ * two `Scroll_*` primitives and nothing else. A scroll is 24 cm of prop that this camera cannot read
+ * at any dolly distance, so the models are imported (the manifest is the whole pack, as both other
+ * prop kits' are) and given no pool key — the same named gap the nature kit's five `Petal_*` are.
+ */
+export const PROPS_TEXTURES = ['trim-cloth', 'trim-furniture', 'trim-metal', 'trim-props'] as const;
+
+export type PropsTextureId = (typeof PROPS_TEXTURES)[number];
+
+/**
+ * Everything a piece of furniture is, in one row — **measured off the pack, not chosen.**
+ *
+ * The footprint is what `furnish.ts` sites against `roomScene.walkableRequired`, so it has to be the
+ * model's own and it has to be here rather than read from the manifest: the planner is pure and runs
+ * in the whole-world sweep where no manifest exists, exactly as `VILLAGE_METRICS` is. `props.test.ts`
+ * asserts every number back against the generated manifest, so a re-import that resized a bookcase
+ * fails rather than quietly standing it in a doorway.
+ */
+export interface PropsMetric {
+  /** Metres, east–west at the model's own yaw. */
+  readonly width: number;
+  /** Metres, north–south at the model's own yaw. This is the one the arrival ring cares about. */
+  readonly depth: number;
+  readonly height: number;
+}
+
+/**
+ * The twenty-six models the furniture pass draws, of the pack's ninety-four.
+ *
+ * Short for `VILLAGE_PART_TEXTURES`' reason before it is short for any other: every `(model,
+ * texture)` pair is a bucket and `pool.ts`'s ceiling is `models per room x parts per model`. What is
+ * **absent** is worth naming, because none of it is an oversight and three of the four groups are
+ * findings rather than taste:
+ *
+ * - **`Anvil` and `Chest_Wood` carry two primitives on one atlas.** A pool key is
+ *   `(model, texture)` and `ScenePool.registerGeometry` is first-wins, so the second primitive would
+ *   be silently dropped and the chest would arrive without its lid. `Anvil_Log` — the same anvil on
+ *   a chopping block — has three primitives on three atlases and is the better smithy piece anyway.
+ * - **`Axe_Bronze`, `Crate_Wooden` and `Chest_Wood` are not a single node at identity.** The village
+ *   and nature packs are ({@link VILLAGE_METRICS} says so, and it is why the importer measures a
+ *   bounding box straight off the accessors); these three carry a node rotation or a 0.78 scale that
+ *   nothing downstream composes, so the manifest's footprint would be wrong by up to 28%.
+ *   `Crate_Metal` and `FarmCrate_Empty` stand in for the wooden crate.
+ * - **`Table_Large` (2.85 x 1.10 m) and `Bed_Twin1/2` (1.88 x 2.41 m) do not fit any legal slot.**
+ *   See `furnish.ts`: the room grid's largest free rectangle is the one-tile strip against a wall or
+ *   a 2 x 2 m island, and both of those pieces are bigger than both. They are a named gap, and the
+ *   fix is a smaller model rather than a relaxed law.
+ * - **Everything you put *on* furniture** — the mug, the plate, the fork, the candle, the coin pile,
+ *   the bottles. They want a surface to stand on and this pass sites on floor tiles, so a tankard
+ *   would sit on the boards beside the bench. A second pass that dresses a table top is the follow-up
+ *   and is why the models are imported.
+ *
+ * The order is the manifest's, so a diff of this list against a re-import is a diff of the kit.
+ */
+export const PROPS_PART_TEXTURES: Readonly<Record<string, readonly PropsTextureId[]>> = {
+  'anvil-log': ['trim-furniture', 'trim-metal', 'trim-props'],
+  bag: ['trim-cloth', 'trim-furniture'],
+  barrel: ['trim-furniture', 'trim-metal'],
+  'barrel-holder': ['trim-furniture', 'trim-metal'],
+  bench: ['trim-furniture', 'trim-metal'],
+  'book-stand': ['trim-furniture'],
+  'bookcase-2': ['trim-furniture', 'trim-metal'],
+  'bucket-wooden-1': ['trim-furniture', 'trim-metal'],
+  cabinet: ['trim-furniture', 'trim-metal'],
+  'cage-small': ['trim-metal'],
+  'candle-stick-stand': ['trim-metal', 'trim-props'],
+  cauldron: ['trim-metal'],
+  'chair-1': ['trim-furniture', 'trim-metal'],
+  'crate-metal': ['trim-furniture', 'trim-metal'],
+  dummy: ['trim-furniture', 'trim-metal', 'trim-cloth'],
+  'farm-crate-empty': ['trim-furniture', 'trim-metal'],
+  'nightstand-shelf': ['trim-furniture'],
+  'pot-1': ['trim-metal'],
+  'rope-2': ['trim-furniture'],
+  'stall-cart-empty': ['trim-metal', 'trim-furniture', 'trim-cloth'],
+  'stall-empty': ['trim-metal', 'trim-furniture', 'trim-cloth'],
+  stool: ['trim-furniture'],
+  'vase-2': ['trim-props'],
+  'weapon-stand': ['trim-furniture', 'trim-metal'],
+  whetstone: ['trim-furniture', 'trim-metal', 'trim-props'],
+  workbench: ['trim-furniture', 'trim-metal'],
+};
+
+/** The closed list of drawn furniture ids. Twenty-six; see {@link PROPS_PART_TEXTURES}. */
+export const PROPS_MODELS: readonly string[] = Object.keys(PROPS_PART_TEXTURES);
+
+/**
+ * Each drawn model's own extents, in metres — the pack's numbers, to the millimetre.
+ *
+ * **This kit is correctly scaled and that is worth recording, because the nature kit's understory was
+ * not.** A barrel is 0.90 m tall, a stool 0.59, a table 0.81, a bookcase 2.55 and a training dummy
+ * 1.86 against a 1.81 m character. Nothing here is multiplied by anything: a furniture placement's
+ * scale is 1 unless the scenery catalogue's own footprint says otherwise (see
+ * {@link SCENERY_MODELS}).
+ */
+export const PROPS_METRICS: Readonly<Record<string, PropsMetric>> = {
+  'anvil-log': { width: 0.929, depth: 0.821, height: 1.073 },
+  bag: { width: 0.655, depth: 0.544, height: 0.799 },
+  barrel: { width: 0.698, depth: 0.698, height: 0.898 },
+  'barrel-holder': { width: 1.359, depth: 0.741, height: 1.257 },
+  bench: { width: 2.777, depth: 0.534, height: 0.533 },
+  'book-stand': { width: 0.507, depth: 0.511, height: 1.447 },
+  'bookcase-2': { width: 1.461, depth: 0.429, height: 2.545 },
+  'bucket-wooden-1': { width: 0.434, depth: 0.383, height: 0.293 },
+  cabinet: { width: 1.362, depth: 0.357, height: 0.997 },
+  'cage-small': { width: 0.855, depth: 0.884, height: 0.805 },
+  'candle-stick-stand': { width: 0.732, depth: 0.731, height: 1.313 },
+  cauldron: { width: 0.989, depth: 0.944, height: 0.816 },
+  'chair-1': { width: 0.581, depth: 0.549, height: 1.123 },
+  'crate-metal': { width: 0.864, depth: 0.866, height: 0.868 },
+  dummy: { width: 0.809, depth: 0.585, height: 1.863 },
+  'farm-crate-empty': { width: 0.714, depth: 0.414, height: 0.244 },
+  'nightstand-shelf': { width: 0.693, depth: 0.393, height: 1.216 },
+  'pot-1': { width: 0.539, depth: 0.486, height: 0.224 },
+  'rope-2': { width: 0.808, depth: 0.845, height: 0.124 },
+  'stall-cart-empty': { width: 3.021, depth: 1.06, height: 2.632 },
+  'stall-empty': { width: 1.845, depth: 0.932, height: 2.627 },
+  stool: { width: 0.475, depth: 0.475, height: 0.589 },
+  'vase-2': { width: 0.695, depth: 0.695, height: 0.516 },
+  'weapon-stand': { width: 1.386, depth: 0.983, height: 1.109 },
+  whetstone: { width: 1.141, depth: 0.902, height: 1.17 },
+  workbench: { width: 2.019, depth: 1.024, height: 0.895 },
+};
+
+/**
+ * Which models stand in for a {@link scenery.SceneryKind} — **and the four kinds nothing does.**
+ *
+ * `SCENERY_KINDS` names ten things and this pack contains exactly one of them: a cart. There is **no
+ * fountain, no well, no statue and no haystack** in either the Fantasy Props kit or the Medieval
+ * Village kit — checked model by model, not assumed — so those four keep `chunkPlan`'s grey box and
+ * are reported as a sourcing gap rather than filled with something that is nearly one. The four
+ * scatter kinds (`stump`, `log`, `bush`, `toadstools`) are the *nature* kit's business and are
+ * already dressed by `scatter.ts`; a plinth is a stepped granite dais with a noticeboard bolted to it
+ * and the pack has no such thing either.
+ *
+ * Two entries for `cart` because the pack has two wheeled trade props and they are different objects:
+ * `Stall_Empty` is a market booth and `Stall_Cart_Empty` is the same booth on shafts and a wheel.
+ * Which one a room gets is its seed's; **both are scaled to the catalogue's own footprint** by
+ * `furnish.sceneryScale`, which is why the cart's 3.02 m length is not a problem and is also why the
+ * scale is derived rather than chosen.
+ */
+export const SCENERY_MODELS: Readonly<Record<string, readonly string[]>> = {
+  cart: ['stall-empty', 'stall-cart-empty'],
+};
+
+/** The pool key for one furniture primitive. `props:barrel:trim-metal`. */
+export function propsGeometryKey(model: string, texture: string): GeometryKey {
+  return `props:${model}:${texture}`;
+}
+
+/**
+ * Its material — **one per atlas, not one per pair**, which is {@link CHARACTER_TEXTURES}' break with
+ * the two scatter kits and it is right here for the same reason.
+ *
+ * A kit material's identity is its `(model, texture)` pair because two bushes wearing one leaf atlas
+ * still want different `uTreeHeight`s. A furniture material carries no per-model uniform at all — it
+ * is a Lambert with a base-colour map and the pack's baked vertex colour — so a barrel and a bookcase
+ * wearing `T_Trim_Furniture` are the *same* material, and giving them one each would be 26 copies of
+ * four. Four materials for the whole kit, and no new program: see {@link materialFamily}.
+ */
+export function propsMaterialKey(texture: string): MaterialKey {
+  return `props|${texture}`;
+}
+
+/** Every `(model, texture)` pair the furniture pass can draw: 49 across 26 models. */
+export const PROPS_PARTS: readonly { readonly model: string; readonly texture: PropsTextureId }[] = (() => {
+  const out: { model: string; texture: PropsTextureId }[] = [];
+  for (const model of PROPS_MODELS) {
+    for (const texture of PROPS_PART_TEXTURES[model] ?? []) out.push({ model, texture });
+  }
+  return out;
+})();
+
+export const PROPS_GEOMETRY_KEYS: readonly GeometryKey[] = PROPS_PARTS.map((part) =>
+  propsGeometryKey(part.model, part.texture),
+);
+
+/**
+ * Distinct furniture **models** one room may draw. Two, and it is a pool constant before it is a
+ * design one — see `pool.FURNITURE_WRAPPER_CEILING`.
+ *
+ * Two families of object placed several times each is also how a real room reads: a tavern is benches
+ * and barrels, a library is bookcases and a lectern, a smithy is an anvil and a whetstone. Six of one
+ * and half a dozen of another is a showroom.
+ */
+export const PROPS_MODELS_PER_ROOM = 2;
+
+/** Primitives the widest drawn furniture model has. Three: wood, iron and cloth on one market stall. */
+export const PROPS_PARTS_MAX = 3;
+
+/** Instances one room may grow, across both its models. Well inside `pool.WRAPPER_CAPACITY`. */
+export const PROPS_PER_ROOM_MAX = 12;
+
+/* -------------------------------------------------------------------------- */
 /* The character packs — M7b                                                    */
 /* -------------------------------------------------------------------------- */
 
@@ -847,6 +1052,7 @@ export const GEOMETRY_KEYS: readonly GeometryKey[] = [
   ...TREE_GEOMETRY_KEYS,
   ...KIT_GEOMETRY_KEYS,
   ...VILLAGE_GEOMETRY_KEYS,
+  ...PROPS_GEOMETRY_KEYS,
 ];
 
 /* -------------------------------------------------------------------------- */
@@ -890,6 +1096,12 @@ export const ARCHETYPES = [
   // the pool draws it. Never a `planChunk` placement, so it is carved out of the per-chunk ceiling
   // exactly as `self`/`other`/`marker` are.
   'character',
+  // M9. Every Fantasy Props primitive — a barrel, a bookcase, a market stall. One archetype for
+  // `villageSolid`'s reason exactly: what varies between an anvil and a bed is where `furnish.ts`
+  // puts it, not how the pool draws it. Keyed by `(model, texture)` in the geometry and by texture
+  // alone in the material, and carved out of the per-chunk ceiling because it is `furnish.ts`'s and
+  // rides `DRESSED_WRAPPER_CEILING` with the rest of the dressing.
+  'propSolid',
 ] as const;
 
 export type Archetype = (typeof ARCHETYPES)[number];
@@ -967,6 +1179,11 @@ const NEVER_FADED: ReadonlySet<Archetype> = new Set<Archetype>([
   // would be indistinguishable from a wall the camera is looking through. The level below keeps its
   // grey shell, faded, which is the cliff read M3 designed and M6 must not blur.
   'villageSolid',
+  // M9's furniture, for the village modules' reason and one more: furniture is only ever placed
+  // inside a room `interior.ts` has already dressed, and that room's walls are not drawn on the level
+  // below either — so a floating barrel at 30% alpha would be the only thing visible of a storey the
+  // renderer is deliberately showing as an empty grey shell.
+  'propSolid',
 ]);
 
 /**
@@ -1013,6 +1230,9 @@ export const ARCHETYPE_GEOMETRY: Readonly<Record<Archetype, GeometryKey>> = {
   // Never read: a character primitive's geometry is chosen by the rig from the wire's own model and
   // gear ids, never from an archetype default. A box so the table stays total.
   character: 'box',
+  // The same exception `villageSolid` is: `furnish.ts` writes the real key onto the placement and
+  // this is the fallback a reader would expect to find.
+  propSolid: PROPS_GEOMETRY_KEYS[0] ?? 'box',
 };
 
 /**
@@ -1082,6 +1302,13 @@ export const ARCHETYPE_CASTS: Readonly<Record<Archetype, boolean>> = {
   // ground rather than hovering a hand's width above it, and at this camera pitch it is most of what
   // sells the contact. No per-primitive exception — the eyes cast too, inside the head, for nothing.
   character: true,
+  // **Furniture casts, without exception.** No per-texture table beside this one, and the difference
+  // from `kitSolid` is the point: the kit's exceptions exist because a 10 cm path stone and a 3 m
+  // boulder share `rocks-diffuse`, so the texture is the only place the bulk is known. Nothing in the
+  // drawn furniture set is under 12 cm and most of it is waist high or taller, so every piece is
+  // worth its draw in the shadow pass — and a bookcase standing in a lamplit room with no shadow is
+  // the most obviously wrong thing an interior can contain.
+  propSolid: true,
 };
 
 /**
@@ -1164,7 +1391,8 @@ export const MATERIAL_KEYS: readonly MaterialKey[] = (() => {
       archetype === 'kitSolid' ||
       archetype === 'kitLeaf' ||
       archetype === 'villageSolid' ||
-      archetype === 'character'
+      archetype === 'character' ||
+      archetype === 'propSolid'
     ) {
       continue;
     }
@@ -1193,6 +1421,10 @@ export const MATERIAL_KEYS: readonly MaterialKey[] = (() => {
   }
   // M7b. Twelve, one per texture rather than one per primitive — see {@link CHARACTER_TEXTURES}.
   for (const texture of CHARACTER_TEXTURES) keys.push(characterMaterialKey(texture));
+  // M9. Four, on the same reasoning one level along: a furniture material's whole identity is its
+  // atlas. No open twin — `interior.ts`'s near-wall fade is a *wall* thing, and a barrel that went
+  // translucent because the camera was outside the room would be a hole in the floor.
+  for (const texture of PROPS_TEXTURES) keys.push(propsMaterialKey(texture));
   return keys;
 })();
 
@@ -1248,6 +1480,11 @@ export function materialFamily(archetype: Archetype, variant?: string): Material
   // is right and rain darkening a person's face is a wet-look mask nobody asked for — so the pool
   // branches on the archetype once, where the material is built. See `ScenePool.buildMaterial`.
   if (archetype === 'character') return 'kitSolid';
+  // M9, and the third free ride on the same recipe: a barrel is a Lambert with a base-colour map and
+  // the pack's baked vertex colour, drawn single-sided. Four more materials, no tenth program — and
+  // unlike `character` it *does* take the wetness patch, because a rain barrel standing in a doorway
+  // is exactly the surface that should darken.
+  if (archetype === 'propSolid') return 'kitSolid';
   if (archetype === 'kitSolid') return 'kitSolid';
   if (archetype === 'kitLeaf') return 'kitLeaf';
   if (archetype === 'water') return 'water';
@@ -1340,6 +1577,9 @@ const OBJECT_COLOUR: Readonly<Record<Archetype, number>> = {
   // White, so the pack’s own texture is what you see — the same statement the village makes. A
   // tint here would put a wash over every face in the world.
   character: 0xffffff,
+  // White, for the third time and the same reason. Never actually read — `archetypeColour` answers
+  // before it reaches here — and present so the record stays total.
+  propSolid: 0xffffff,
 };
 
 /** What the deep end of a water surface mixes toward. See `water.ts`'s depth fade. */
@@ -1372,7 +1612,7 @@ export const EMISSIVE_COLOUR: Readonly<Partial<Record<Archetype, number>>> = {
  * it wrong would also leave an unexplored kit trunk the wrong kind of dark.
  */
 export function archetypeColour(archetype: Archetype, sector: Sector | undefined, variant?: string): number {
-  if (archetype === 'villageSolid') return 0xffffff;
+  if (archetype === 'villageSolid' || archetype === 'propSolid') return 0xffffff;
   if (variant !== undefined && TREE_SOURCE[variant as TreeVariant] === 'kit') return 0xffffff;
   if (archetype === 'ground') return SECTOR_COLOUR[sector ?? 'field'].ground;
   // A lid, and the sector says what it is made of. Darker than the wall that holds it up because the
@@ -1502,6 +1742,129 @@ export const GROUND_TEXTURES: Readonly<Partial<Record<Sector, GroundTexture>>> =
 /** The floor texture a sector's ground wears, or nothing — see {@link GROUND_TEXTURES}. */
 export function groundTextureOf(sector: Sector | undefined): GroundTexture | undefined {
   return sector === undefined ? undefined : GROUND_TEXTURES[sector];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Wall textures — M9                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What the thing that walls a room in is *made of* — **the owner's actual complaint, and the last
+ * grey box in the renderer.**
+ *
+ * The screenshots were bodies standing beside grey blocks in a kobold field room and in a city
+ * street. Those blocks are `chunkPlan.ts`'s `edge` and `barrier` archetypes, and M6 textured only
+ * *interior* walls: a room that is roofed and `inside` gets village panels and its grey boxes are
+ * suppressed, and every other room in the world — 3,544 city edges among them — still wears M3's
+ * flat `SECTOR_COLOUR.dressing`.
+ *
+ * ## Why a texture and not a village module
+ *
+ * A module was the obvious answer and it is the wrong one, on four counts, and the first is the one
+ * that decides it:
+ *
+ * 1. **It would break the exclusivity `pool.DRESSED_WRAPPER_CEILING` is a `max` over.** That `max` is
+ *    only a `max` because no chunk can want the understory *and* the interior dressing: a room is
+ *    dressed by `interior.ts` only when it is roofed and `inside`, and no scatter table has an
+ *    `inside` row. Putting village walls on **outdoor** rooms puts them on exactly the chunks that
+ *    also grow scatter, so `max(16, 11)` would become `16 + 7` and the pool would grow by seven
+ *    wrappers on each of 293 cells — `+8,138,368 B` on a pinned ledger. A texture costs **zero**
+ *    wrappers, zero placements and zero programs, because it changes what an existing box *looks*
+ *    like rather than what is drawn.
+ * 2. **It reaches every grey wall at once.** 77,341 of the world's cardinal boundaries are solid; the
+ *    village pack is masonry and only some of those are masonry. The kobold field room's block is a
+ *    bank of earth, and a plaster panel would be a worse answer there than the grey it replaced.
+ * 3. **The geometry is already right and a module's is not.** `chunkPlan.wallDepth` makes the box at
+ *    least half the gap deep so two rooms' walls meet on the midline — *"what you see is a wall and
+ *    not a gap at all"*. A village panel is 0.61 m against a 1 m gap and reopens the 0.39 m footing
+ *    the `dressed` flag's docblock already names as its cost. Indoors a roof hides that; outdoors
+ *    nothing does.
+ * 4. **It costs nothing on the wire.** Both textures are the village pack's own and both are already
+ *    fetched for the interiors, exactly as the three floor textures were.
+ *
+ * What a texture cannot do, stated so it is not mistaken for an oversight: **a window, a door frame
+ * or a quoin.** Those are geometry and they want a module. A city wall with real openings in it is
+ * the follow-up, and it should be priced against the ledger row above before it is built.
+ *
+ * ## The two pictures, and the four rules {@link GROUND_TEXTURES} set
+ *
+ * The same four, and each is kept the same way — see that table for the full argument. The map is a
+ * `sampler2D` a patch declares rather than `material.map`, so `USE_MAP` is never set and all 74 plain
+ * materials still compile one program (rule 1). It is divided by its own linear mean, so an average
+ * texel multiplies the palette by exactly one and the fog-of-war ratio rows are untouched (rule 2).
+ * It is sampled in **world space on the dominant axis of the face's own normal**, so a wall's courses
+ * run horizontally, two rooms' walls meet with no seam, and the top of a wall gets the plan view
+ * rather than a stretched elevation (rule 3, one sample and two `step`s rather than a three-tap
+ * triplanar). And the repeat is stated in metres (rule 4).
+ *
+ * `uneven-brick` is the city's own paving at the city's own 3 m repeat, so a street and the wall
+ * beside it are cut from one stone — which is what a town looks like and is free, because
+ * `GROUND_TEXTURES.city` already fetched it. `plaster` is a soft neutral mottle whose hue is divided
+ * out, which is what a bank of earth or a rock face looks like at a low gain; it is the same picture
+ * a dirt road already wears, at a coarser repeat because a wall is seen from further away.
+ *
+ * **`cave` is deliberately absent and so are the four water sectors.** A cave's rock walls are
+ * `chunkPlan`'s shell at the sector's own colour and that is M6's ruling — *plaster in a cavern would
+ * be worse than grey* — and a wall that a lake laps against is a surface nobody has looked at yet.
+ */
+export interface WallTexture {
+  /** A manifest texture id. Both are the village pack's and both are already fetched. */
+  readonly texture: VillageTextureId;
+  /** Metres one repeat spans, along the wall and up it. See {@link GroundTexture.metres}. */
+  readonly metres: number;
+  /** 0 leaves the wall exactly as M3 painted it; 1 is the full normalised multiply. */
+  readonly gain: number;
+  /** The texture's mean colour in **linear** space. {@link GROUND_TEXTURES}' own measurement, reused. */
+  readonly mean: readonly [number, number, number];
+}
+
+const MASONRY: WallTexture = {
+  texture: 'uneven-brick',
+  metres: 3,
+  gain: 0.8,
+  mean: [0.2471, 0.1951, 0.1395],
+};
+
+/**
+ * A bank of earth and stone rather than a course of masonry — the same soft mottle a dirt road's
+ * ground wears, at a 5 m repeat because a wall stands further from the eye than the floor does, and
+ * at a lower gain because what it has to add is *unevenness* and not a pattern. A boundary with a
+ * pattern in it is a built thing, and the whole point of this row is that a field's edge is not.
+ */
+const EARTH: WallTexture = {
+  texture: 'plaster',
+  metres: 5,
+  gain: 0.45,
+  mean: [0.4269, 0.3423, 0.2125],
+};
+
+export const WALL_TEXTURES: Readonly<Partial<Record<Sector, WallTexture>>> = {
+  city: MASONRY,
+  // An `inside` room whose village modules have not loaded, and — more often — the *barrier* walls of
+  // one that has: `chunkPlan`'s `dressed` suppression is per room, so an undressed neighbour still
+  // draws its own grey side of a party wall.
+  inside: MASONRY,
+  road: EARTH,
+  field: EARTH,
+  forest: EARTH,
+  hills: EARTH,
+  mountain: EARTH,
+  swamp: EARTH,
+  desert: EARTH,
+  arctic: EARTH,
+};
+
+/**
+ * The wall texture an `edge` or a `barrier` wears in this sector, or nothing.
+ *
+ * Takes the archetype as well as the sector because the table is about **walls** and the `plain`
+ * material family is not: a door, a stair, a landmark, a destination ring and a body all come out of
+ * it too, and every one of them would be wrong with masonry multiplied over it. Every other plain
+ * archetype answers `undefined`, which is a gain of zero, which is a multiply by one.
+ */
+export function wallTextureOf(archetype: Archetype, sector: Sector | undefined): WallTexture | undefined {
+  if (archetype !== 'edge' && archetype !== 'barrier') return undefined;
+  return sector === undefined ? undefined : WALL_TEXTURES[sector];
 }
 
 function darken(colour: number, factor: number): number {

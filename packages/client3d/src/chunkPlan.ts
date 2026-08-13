@@ -200,6 +200,24 @@ export interface ChunkPlanInput {
    * is a room you can see into.
    */
   readonly dressed?: boolean;
+  /**
+   * Scenery kinds `furnish.ts` is standing a **kit model** in for — M9, and the same suppression the
+   * flag above it is, one system along.
+   *
+   * A `prop` feature draws a grey box `DIMENSIONS.propHeight` tall over the footprint the collision
+   * grid stamped. When the props kit has a model for that kind, the box would stand *inside* the
+   * model — the two are the same footprint by construction — so it is not drawn at all rather than
+   * overlaid. Suppression rather than overlay for `dressed`'s reason exactly: a grey slab visible
+   * through the spokes of a handcart is worse than either alone.
+   *
+   * Per **kind** rather than a single boolean, because the kit has a model for one of the catalogue's
+   * ten and a room may hold both a cart and a fountain. The fountain keeps its box, which is the
+   * honest picture of a thing nothing has been sourced for.
+   *
+   * Safe by the same construction `dressed` is: `world3d.ts` fills it from `furnish.dressedScenery`,
+   * which is the one derivation both the suppression and the placements come from.
+   */
+  readonly dressedScenery?: ReadonlySet<string>;
 }
 
 /** Ramp rise over its three-metre run, in metres. A slope, where a stairwell is a ladder. */
@@ -532,6 +550,8 @@ export function planChunk(input: ChunkPlanInput): readonly Placement[] {
 
   for (const feature of scene.features) {
     if (feature.t === 'prop') {
+      // M9: the props kit is standing a handcart here, so the grey box would be inside it.
+      if (input.dressedScenery?.has(feature.kind) === true) continue;
       const w = feature.width * METRES_PER_TILE;
       const d = feature.depth * METRES_PER_TILE;
       put(

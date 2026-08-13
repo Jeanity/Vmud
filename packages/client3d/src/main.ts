@@ -228,6 +228,29 @@ void world.village.load(world.pool).then((problem) => {
 });
 
 /**
+ * M9's boot step: the Fantasy Props kit — 26 drawn models of 94, and four atlases of which three are
+ * the character packs' own.
+ *
+ * Not awaited, and it is the weakest-stakes of the five: without it a furnished room is an M6 room,
+ * which is a plastered box with a lid, and that is a correct picture of an empty room. `PropsSet` is
+ * also the one registry whose gate is *liveness* rather than completeness — one barrel that arrives is
+ * worth drawing, where one missing wall module stands the whole village kit down. See `props.ts`.
+ *
+ * Ordered after the village deliberately: `dressAll` in that file is what puts the wall textures on
+ * the grey `edge` and `barrier` boxes, and both loads sweep the same shared texture cache.
+ */
+void world.props.load(world.pool).then((problem) => {
+  if (problem) log.write('error', problem);
+  else {
+    log.write(
+      'system',
+      `props: ${world.props.loaded} models, ${world.props.triangles} tris, ` +
+        `${world.props.textures} new atlases (${(world.props.textureBytes / 1024 / 1024).toFixed(1)} MB)`,
+    );
+  }
+});
+
+/**
  * M7b's boot step: the character packs — 26 models, twelve atlases and two re-cut animation libraries.
  *
  * **Not awaited**, and the argument is the other three's with the stakes raised: this is the payload
@@ -1541,6 +1564,37 @@ const debug = {
       villageInstances: census.village,
       villageLoaded: world.village.loaded,
       dressing: world.village.available,
+    };
+  },
+  /* ------------------------------------------------------------------- M9 */
+
+  /**
+   * The furniture and the wall texture, in one object — **M9's read-out, and it answers the owner's
+   * two screenshots directly.**
+   *
+   * `wallMaterials` is how many of the pool's `edge`/`barrier` materials are wearing a real picture
+   * rather than M3's flat colour: 20 when the village pack has landed (ten sectors x present/faded),
+   * 0 before it, and the number that says the grey blocks are gone. `furnished` counts the chunks in
+   * the window carrying furniture and `propInstances` the pieces themselves — the same pair
+   * `interiors`/`villageInstances` is, one layer up.
+   */
+  get furniture(): {
+    furnished: number;
+    propInstances: number;
+    propsLoaded: number;
+    wallMaterials: number;
+    propTextures: { count: number; megabytes: number };
+  } {
+    const census = world.scatterCensus();
+    return {
+      furnished: census.furnished,
+      propInstances: census.props,
+      propsLoaded: world.props.loaded,
+      wallMaterials: world.pool.wallTextured(),
+      propTextures: {
+        count: world.props.textures,
+        megabytes: Number((world.props.textureBytes / 1024 / 1024).toFixed(2)),
+      },
     };
   },
   /** Village textures loaded and the megabytes they cost. The compression slice's second target. */

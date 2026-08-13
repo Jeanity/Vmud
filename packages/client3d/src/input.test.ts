@@ -520,13 +520,22 @@ describe('the loop the freeze exists to break is real — do not delete it', () 
     assert.ok(swing > 300, `an unguarded sidestep only swung the camera ${swing}°; the loop may have moved`);
   });
 
-  it('shakes it at half the frame rate on a held backstep, unguarded', () => {
+  it('shakes it on a held backstep, unguarded', () => {
+    // **The threshold moved when the follow ease became a spring, and the loop did not.** This
+    // asserted `> 200` — a flip every other frame — while the camera chased its target
+    // exponentially, which is fastest the instant the target jumps. A critically damped spring
+    // starts at rest, so the same instability now oscillates at about a seventh of the rate: 43
+    // flips over 300 frames rather than 290. Slower, and every bit as unusable, which is the claim
+    // this test exists to make. Read `orbit.followSpring` for why the curve changed.
+    //
+    // Still a characterisation test, still deliberately unguarded, and still the thing to delete
+    // when task #35 removes the step function that feeds it.
     const trace = hold(STEERS.S, 0, 'north', FRAMES, false);
     let flips = 0;
     for (let index = STEADY + 1; index < FRAMES; index += 1) {
       if (trace[index]!.facing !== trace[index - 1]!.facing) flips += 1;
     }
-    assert.ok(flips > 200, `an unguarded backstep only flipped the facing ${flips} times; the loop may have moved`);
+    assert.ok(flips > 20, `an unguarded backstep only flipped the facing ${flips} times; the loop may have moved`);
   });
 
   it('and the guarded versions of both are dead still', () => {

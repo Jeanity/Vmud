@@ -339,4 +339,10 @@ function dressAll(pool: ScenePool): void {
   // rather than folded into the loop above: the village pack is the *source* of the pictures, not the
   // owner of the surfaces they land on.
   pool.dressGround((id) => pool.texture(id));
+  // **And the walls** — M9, and the same sentence one surface along. `prototypes.WALL_TEXTURES` names
+  // two of this pack's textures for the grey `edge` and `barrier` boxes M6 left outdoors, and both
+  // are already fetched above because a wall or a floor module wears them too. So the owner's grey
+  // blocks cost no new asset, no new fetch and no new byte on the wire either — only this line, and
+  // the four uniforms behind it.
+  pool.dressWalls((id) => pool.texture(id));
 }

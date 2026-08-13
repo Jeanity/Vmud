@@ -134,6 +134,7 @@ const BASELINE_ROOM = 100;
  * | zoom x2 | 23,438,604 | **the owner's "about 100% more"**: the dolly ceiling 48 -> 96 m, the ring 108 -> 300 cells with the shadow pad folded into the derivation — +3,744 wrappers at 3,968 B, zero geometry |
  * | M7b | 23,517,236 | **+78,632 B, and it is the first per-*entity* term in this table.** `+3,968` is one more wrapper — the `creature:` capsules' own, which carry a per-instance colour the two people wrappers must not. `+73,920` is **seven body rigs at 10,560 B**, the high-water of the churn this walk now runs; unlike everything else here they cannot be pre-warmed (there are no bones to clone until a pack has loaded), so they climb from zero and then stop, and the stopping is what is asserted. `+744` is four stand-in character geometries. |
  * | M8 orbit | 45,646,772 | **+22,129,536 B: `+5,577` wrappers at 3,968 B, zero geometry, zero rigs.** The owner's Shift+drag. A streaming ring with a lookahead is a claim about which way the camera points, so the ring became a symmetric **disc** — 293 cells a level, 586 chunks against 300 — and `pool.ts` derived its pre-warm from it as it always has: `586 x 10 + 293 x 16 + 4 = 10,552`, plus 586 ground and 293 water wrappers on their own lists = 11,431. Nothing here was chosen; the shape was. The two alternatives and their prices are in `streamer.ts`: rotating the window with the view costs a rebuild *during* every orbit gesture, and the 19 x 19 square that covers the same radius costs another 136 cells a level (`+10.8 MB`) for the corners no frame can reach. |
+ * | M9 furniture | 49,175,804 | **+3,529,032 B, and none of it is the furniture.** `+3,487,872` is `+879` wrappers at 3,968 B: `pool.DRESSED_WRAPPER_CEILING` went `max(15 + 1, 11) = 16` to `max(15 + 1 + 3, 11 + 6) = 19`, so `586 x 10 + 293 x 19 + 4 = 11,431` pre-warmed plus 586 ground and 293 water = 12,310. The `+6` is the furniture and it is **free**, because it rides the interior side of a `max` that the understory was already winning; the `+3` that actually moved the number is the **scenery** term — dressing an authored `cart` with a market stall, on chunks that grow scatter too, because all ten of the world's authored scenery props stand in outdoor `city` and `road` rooms. Three carts in one hand-authored zone for 3.49 MB is a poor rate against today's content and a fair one against the slot: `Room.scenery` is the seam the owner authors through. `+41,160` is geometry: forty-nine props stand-in boxes at 840 B, the headless proxy for the twenty-six real models (in a browser this term is their own vertex data — 41,689 triangles across the drawn set). **The wall texture that answers the owner's actual complaint is not in this row at all** — it is a `sampler2D` on materials that already existed, which is exactly why it beat a village module; see `prototypes.WALL_TEXTURES` for the `+8,138,368 B` the module would have cost. |
  *
  * The camera delta was `+2,789,504` B, all of it instance buffer and all of it a consequence of one
  * decision: the dolly's clamp reaches 48 m at 45°, `streamer.ts` derives the ring from that pose, and
@@ -147,11 +148,19 @@ const BASELINE_ROOM = 100;
  * — 117,880 triangles across the imported pack, of which the drawn subset is a few thousand).
  *
  * What is **not** in that delta is the second rendering mode's dressing, and its absence is the
- * design: `pool.DRESSED_WRAPPER_CEILING` is `max(scatter + puddle, interior) = max(16, 11)`, because
+ * design: `pool.DRESSED_WRAPPER_CEILING` was `max(scatter + puddle, interior) = max(16, 11)`, because
  * a room is dressed by `interior.ts` only when it is roofed and `inside`, and none of the four
  * scatter tables has an `inside` row. Interiors fit inside the budget the understory already had.
+ *
+ * **M9's furniture fits inside it too, and that is the point of where it was put.** `planFurniture`
+ * refuses every room `interior.dressable` refuses — the same predicate, imported rather than
+ * restated — so the six furniture buckets are added to the *interior* term rather than becoming a
+ * third one, and the `max` is still a `max` over two things no chunk can want at once. `11 + 6 = 17`
+ * is under `15 + 1`, so ten thousand furnished rooms cost nothing. The three buckets that did move it
+ * are the dressed **scenery**, which lands on outdoor chunks and therefore has to be summed with the
+ * understory rather than maxed against it.
  */
-const LEDGER_BYTES = 45_646_772;
+const LEDGER_BYTES = 49_175_804;
 
 /**
  * The stand-in armature and cast the body churn runs on — M7b.
@@ -224,6 +233,11 @@ describe('M3: streaming a real world with a flat ledger', () => {
     // has. A flat ledger measured with the interiors switched off would be a statement about M5c
     // wearing M6's version number, and 47.2% of the world is roofed or paved.
     world.village.standIn(world.pool);
+    // M9: **and so must the furniture**, which is now more than a third of a furnished interior's
+    // buckets and all of a dressed cart's. A flat ledger measured with the props kit switched off
+    // would be a statement about M6 wearing M9's version number — the same sentence the three lines
+    // above make, and the reason the ledger's own delta table can name the scenery term.
+    world.props.standIn(world.pool);
     // M7b: **and so must the bodies.** A flat ledger measured with nobody in the world would be a
     // statement about a renderer that draws rooms, and the whole of this milestone is the first
     // allocation family in `pool.ts` that is *per entity* rather than per chunk. Every room the walk
