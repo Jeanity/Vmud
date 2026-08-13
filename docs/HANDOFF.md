@@ -606,7 +606,39 @@ game server, and it hard-wires `dev:client` into the same `concurrently` line. `
 + client3d + admin. Verified with 5273 refusing connections: server on 8787, supervisor 8790, admin
 5274, 3D client 5280, and a socket to the game server opens fine.
 
-**What still needs the 2D client, and it is not login:**
+**Character generation lives here now — the 3D client is self-sufficient.** `login.ts` went 294 ->
+869 lines and speaks protocol 24's whole conversation: race -> calling -> roll, with reroll and
+bonus spend, plus `charAdopt` (the same cards minus the name step) for a pre-Phase-21 save. **No
+server code moved**; `index.ts` had handled create/adopt/enter since Phase 21 and the Phaser client
+was simply the only thing that ever spoke it.
+
+**Protocol is 32.** `checkName` / `nameChecked` — asking whether a name is free at the step that
+asked for it. The name used to ride on `charCreate`, which is not sent until a race *and* a calling
+are chosen, so `that name is taken` arrived two decisions later on a panel not asking about names.
+Half the answer never needed the server: `characterNameProblem` is in `@mygame/shared` so the client
+runs the law itself and `Drizzt` is refused without a packet. The check is **advisory** — nothing is
+reserved between it and `charCreate`, so the mint's own refusal stays and remains the one that
+decides.
+
+**Two hazards in this area, one fixed and one live:**
+
+- **Fixed here.** `charConfirm` arms a pending `enter`, and a reconnect *also* produces an `account`
+  — so consuming it unconditionally sends `enter` on a name that was never minted, and the server's
+  `enter` on a free name claims it and spawns it **identity-less**. That is exactly the state 121 of
+  the world's records were in. The 3D gate believes a mint on two grounds only: the answer came back
+  on the confirm's own socket, or the refreshed list names the character *with a race*.
+- **Still live in `packages/client/src/login.ts`**, which takes the pending enter with no check at
+  all. Task #53 carries the diagnosis and the fix; whether it is worth doing depends on whether the
+  2D client is being retired.
+
+**A deleted character can still read as taken until the server restarts.** `store.hasStored` checks
+an in-memory cache as well as disk. Not a bug — but it cost a confusing minute, so: delete the file,
+then restart.
+
+**What still needs the 2D client:** nothing, for login or creation. It remains
+`PLAN-3d-migration.md` §7.6's safety net and nothing more.
+
+**What the 2D client was needed for until 2026-08-14, kept for the reasoning:**
 
 - **Making a new character.** The creation conversation — race cards, class cards, the roll in words,
   five bonus points — is 656 lines that live only in the Phaser client. `client3d/login.ts` says so at
