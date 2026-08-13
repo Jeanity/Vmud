@@ -53,11 +53,14 @@ describe('the furniture registry', () => {
         assert.ok(PROPS_TEXTURES.includes(texture), `${model} wears an unlisted atlas ${texture}`);
       }
     }
-    // A scenery model must be a drawn model, or `furnish.dressedScenery` would suppress a grey box
-    // and draw nothing in its place — a hole where the catalogue promises a handcart.
+    // A scenery stand-in from *this* pack must be a drawn model, or `furnish.dressedScenery` would
+    // suppress a grey box and draw nothing in its place — a hole where the catalogue promises a
+    // handcart. The other two packs answer the same question in `furnish.test.ts`, which is where the
+    // three registries are checked together.
     for (const [kind, models] of Object.entries(SCENERY_MODELS)) {
-      for (const model of models) {
-        assert.ok(PROPS_MODELS.includes(model), `scenery ${kind} names ${model}, which is not drawn`);
+      for (const entry of models) {
+        if (entry.pack !== 'props') continue;
+        assert.ok(PROPS_MODELS.includes(entry.model), `scenery ${kind} names ${entry.model}, which is not drawn`);
       }
     }
   });

@@ -108,7 +108,7 @@ import { dressedScenery, planFurniture, planScenery } from './furnish.ts';
 import { dressable, hasRoof, occludingSides, planInterior, roofGroups, roofedRoom } from './interior.ts';
 import type { Enclosure } from './indoors.ts';
 import { PropsSet } from './props.ts';
-import { PROPS_PART_TEXTURES, propsGeometryKey } from './prototypes.ts';
+import { sceneryParts } from './prototypes.ts';
 import { VillageSet } from './village.ts';
 import {
   METRES_PER_TILE,
@@ -1070,18 +1070,21 @@ export class World3D implements ChunkSink {
     // and on this not being the level below, which is `prototypes.NEVER_FADED`'s rule for every
     // other art layer in this renderer.
     const dressed = !chunk.faded && this.village.available && dressable(scene);
-    // M9. Which authored scenery props the furniture kit is standing a model in for — derived once,
-    // used twice: `planChunk` drops their grey box and `planScenery` draws the model. Gated on the
-    // level, on the kit having loaded and on the individual geometry, so a half-loaded pack leaves
-    // the box where it was rather than leaving the floor bare.
-    const scenery =
-      !chunk.faded && this.props.available
-        ? dressedScenery(scene).filter(({ model }) =>
-            (PROPS_PART_TEXTURES[model] ?? []).every((texture) =>
-              this.pool.hasGeometry(propsGeometryKey(model, texture)),
-            ),
-          )
-        : [];
+    // M9. Which scenery props a kit is standing a model in for — derived once, used twice:
+    // `planChunk` drops their grey box and `planScenery` draws the model. Gated on the level and on
+    // the individual geometry, so a half-loaded pack leaves the box where it was rather than leaving
+    // the floor bare.
+    //
+    // **The per-pack `available` flag is deliberately not consulted, and M9b is why.** A stand-in now
+    // comes from any of three registries (`prototypes.SCENERY_PACKS`) and a room can hold props from
+    // two of them at once, so a single pack's flag would be the wrong question asked once. The right
+    // one is per placement and this filter already asks it: every primitive of the chosen model has
+    // to be in the pool before its box is suppressed.
+    const scenery = chunk.faded
+      ? []
+      : dressedScenery(scene).filter(({ entry }) =>
+          sceneryParts(entry, chunk.lod).every((part) => this.pool.hasGeometry(part.geometry)),
+        );
     const dressedKinds = scenery.length > 0 ? new Set(scenery.map(({ feature }) => feature.kind)) : undefined;
     chunk.open = open;
     const room3d = planChunk({
@@ -1148,10 +1151,12 @@ export class World3D implements ChunkSink {
     // that is what keeps `pool.DRESSED_WRAPPER_CEILING` a `max` — so this is the renderer's half of
     // a decision the planner has already made, stated where the other three layers state theirs.
     chunk.props = 0;
-    if (this.props.available && (dressed || scenery.length > 0)) {
+    if ((dressed && this.props.available) || scenery.length > 0) {
       const furniture = [
-        ...(dressed ? planFurniture({ scene, name: room.name, flags: room.flags, origin, elevation }) : []),
-        ...(scenery.length > 0 ? planScenery({ scene, origin, elevation }) : []),
+        ...(dressed && this.props.available
+          ? planFurniture({ scene, name: room.name, flags: room.flags, origin, elevation })
+          : []),
+        ...(scenery.length > 0 ? planScenery({ scene, origin, elevation, lod: chunk.lod }) : []),
       ].filter((p) => this.pool.hasGeometry(p.geometry));
       if (furniture.length > 0) {
         placements = [...placements, ...furniture];

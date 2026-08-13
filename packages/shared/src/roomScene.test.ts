@@ -620,16 +620,32 @@ describe('purity', () => {
     // `hashRoom`, and if anyone ever "unifies" them these props move under players' feet. The one
     // movement sanctioned since M2 is a *drop*, not a move — `sceneryOf` thins scatter standing on
     // a staircase, downstream of this function — so what `scatterFor` answers stays frozen.
+    //
+    // **M9b changed every `kind` here and not one `tx`/`ty`, and that is the assertion.** Taking the
+    // foliage out of `SCATTER_BY_SECTOR` is a change to what a slot grows; the block a slot lands in
+    // and the jitter inside it come off their own salts, so the wilderness kept its shape exactly
+    // while the things standing in it became objects a player can read as obstacles. What *does*
+    // move is the collision footprint — a `bush` is two tiles by two and a `crate` is one by one —
+    // which is the point: there is strictly less blocked ground than there was.
     assert.deepEqual(scatterFor(92060, 'forest', undefined), [
       { kind: 'stump', tx: 6, ty: 5 },
-      { kind: 'stump', tx: 6, ty: 2 },
+      { kind: 'crate', tx: 6, ty: 2 },
     ]);
     assert.deepEqual(scatterFor(1, 'field', undefined), [
-      { kind: 'stump', tx: 2, ty: 6 },
-      { kind: 'bush', tx: 5, ty: 5 },
-      { kind: 'stump', tx: 2, ty: 3 },
+      { kind: 'crate', tx: 2, ty: 6 },
+      { kind: 'barrel', tx: 5, ty: 5 },
+      { kind: 'crate', tx: 2, ty: 3 },
     ]);
     assert.deepEqual(scatterFor(7, 'inside', undefined), []);
+    // Nothing a hash grows is foliage any more — the owner's rule, at the source rather than at the
+    // renderer: *"Foliage should not be a blocker unless it is for boundaries."*
+    for (const sector of ['forest', 'field', 'hills', 'swamp']) {
+      for (let room = 1; room < 400; room++) {
+        for (const prop of scatterFor(room, sector, undefined)) {
+          assert.ok(prop.kind !== 'bush' && prop.kind !== 'toadstools', `${sector} grew a solid ${prop.kind}`);
+        }
+      }
+    }
   });
 });
 

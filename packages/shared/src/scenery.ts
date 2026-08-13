@@ -32,11 +32,32 @@
  * @see `DESIGN-open-world.md` §V8d.
  */
 
-/** Every prop the world knows how to stand up. The client keeps one image per name. */
+/**
+ * Every prop the world knows how to stand up. The client keeps one image per name.
+ *
+ * `barrel` and `crate` are M9b's, and they are here because of what the owner said on walking into a
+ * field full of them: *"plants that can be walked through in some cases and not others will be
+ * confusing. they need to be objects like wagons, carts, barrels, headstones etc."* A prop is a thing
+ * in the way, and a thing in the way has to **look** like one — see {@link SCATTER_BY_SECTOR}.
+ *
+ * `bush` and `toadstools` stay in the catalogue and are no longer *derived* into it. An author may
+ * still stand a thicket in a doorway on purpose; nothing generates one, which is the whole of the
+ * change and the reason the change is in that table rather than in this list.
+ *
+ * There is no `headstone`, and that is a **named gap** rather than an oversight: neither prop kit nor
+ * the village kit contains one, so adding the kind would only add an eleventh grey box. It joins
+ * `fountain`, `plinth`, `well`, `statue` and `haystack` on the list of things this world can describe
+ * and cannot yet draw.
+ */
 export const SCENERY_KINDS = [
   'fountain', 'plinth', 'well', 'statue', 'cart', 'haystack',
-  // Scatter — never authored, placed by `scatterFor`. See its note for why they are solid.
-  'stump', 'log', 'bush', 'toadstools',
+  // The things somebody put down and did not pick up. Authored, and — `cart`, `barrel`, `crate` —
+  // scattered across worked ground by `scatterFor`.
+  'barrel', 'crate',
+  // Solid wood. Scattered across wild country, where a cut trunk is the honest obstacle.
+  'stump', 'log',
+  // Foliage. Authorable, never derived: see `SCATTER_BY_SECTOR`.
+  'bush', 'toadstools',
 ] as const;
 
 export type SceneryKind = (typeof SCENERY_KINDS)[number];
@@ -126,8 +147,19 @@ export const SCENERY: Readonly<Record<SceneryKind, SceneryProp>> = {
   },
   cart: {
     width: 2, depth: 2, height: 2, frames: 1, frameMs: 0, opaque: false,
-    keywords: ['cart', 'handcart', 'barrow'],
+    keywords: ['cart', 'handcart', 'barrow', 'wagon'],
     look: 'A wooden handcart tipped onto its shafts, one wheel worn to the felloe. Empty, and not recently.',
+  },
+  /** M9b, and the owner's own word. One tile, because a barrel is one tile of anybody's floor. */
+  barrel: {
+    width: 1, depth: 1, height: 1, frames: 1, frameMs: 0, opaque: false,
+    keywords: ['barrel', 'cask', 'keg', 'tun'],
+    look: 'A squat barrel hooped in iron, one stave gone green where the rain comes off the roof onto it.',
+  },
+  crate: {
+    width: 1, depth: 1, height: 1, frames: 1, frameMs: 0, opaque: false,
+    keywords: ['crate', 'box', 'chest'],
+    look: 'A banded crate of rough boards, its corners knocked pale and its lid still nailed down.',
   },
   haystack: {
     width: 2, depth: 2, height: 3, frames: 1, frameMs: 0, opaque: true,
@@ -195,13 +227,60 @@ export function isSceneryKind(value: unknown): value is SceneryKind {
  * middle of the Spine would say the wrong thing about a city that sweeps its streets. Mountain and
  * cave get nothing either: the blocker lines V8b stamps on their borders are already rock, and
  * loose scenery on top of that reads as clutter rather than as terrain.
+ *
+ * ## **No foliage. M9b, and the owner ruled on it after walking into a field of it.**
+ *
+ * > *"plants that can be walked through in some cases and not others will be confusing. they need to
+ * > be objects like wagons, carts, barrels, headstones etc. Foliage should not be a blocker unless it
+ * > is for boundaries."*
+ *
+ * This table used to grow `bush` and `toadstools` — 9,797 of them across the world — and every one
+ * was **solid**, because everything in this file is solid by definition. Meanwhile the 3D client's
+ * own scatter layers (M5a's undergrowth, M5b's Quaternius understory) draw bushes, ferns, mushrooms,
+ * clover and grass *by the dozen per room* and none of them blocks anything: they are paint, chosen
+ * by a hash of the tile, and they can be because they can never desync. So the world contained two
+ * bushes that looked identical and behaved differently, and the only way to tell was to walk into
+ * one. That is worse than the grey box it replaced, because a grey box is at least honestly strange.
+ *
+ * The rule this table now keeps:
+ *
+ * - **Inside a room, a blocker is a man-made object or solid wood.** A barrel, a crate, a handcart, a
+ *   sawn stump. Those read as obstacles at a glance, which is the entire job of a prop.
+ * - **Foliage still blocks at a boundary**, which is the owner's own exception and needs no code:
+ *   the treeline and the rock apron in `client3d/scatter.ts` stand *outside* the room block, in the
+ *   void the collision grid has no tiles for, where nobody can walk anyway.
+ * - **Wild country grows what somebody cut; worked ground grows what somebody left.** A stump in a
+ *   wood, a bog or a hillside is a felled tree. A crate, a barrel or a cart in a field is a farm.
+ *
+ * `bush`, `toadstools` and `haystack` are absent from this table and remain in {@link SCENERY} — an
+ * author who wants a thicket across a path may still say so, and then it is a deliberate sentence
+ * about that room rather than something a hash did ten thousand times.
  */
 const SCATTER_BY_SECTOR: Readonly<Record<string, readonly SceneryKind[]>> = {
-  forest: ['stump', 'bush', 'bush', 'toadstools'],
-  field: ['bush', 'stump'],
-  hills: ['bush', 'stump'],
-  swamp: ['stump', 'toadstools', 'toadstools', 'bush'],
+  // Two in three a stump, one in three a woodcutter's crate — this is worked forest, and the world's
+  // forests are full of the treeline and the understory already.
+  forest: ['stump', 'stump', 'crate'],
+  // The sector the owner is standing in, and also the *default* for a room no rule classified — so
+  // its palette has to read as plausible on open ground of any sort. A cart, a barrel, a crate and a
+  // stump are what is lying about at the edge of anybody's field.
+  field: ['stump', 'crate', 'barrel', 'cart'],
+  hills: ['stump'],
+  swamp: ['stump'],
 };
+
+/**
+ * Every kind {@link scatterFor} can grow, derived from the table above rather than restated.
+ *
+ * The distinction it draws is the one the renderer's pool is sized on: a **scattered** kind can
+ * appear up to {@link SCATTER_BLOCKS}`.length` times in one room and an **authored** kind is placed
+ * by a human, and the two never share a room because `scatterFor` returns the authored list *instead
+ * of* a generated one. A client that budgets for those two cases separately needs to know which is
+ * which, and deriving it here is the same argument {@link SCATTER_BLOCKS}' own docblock makes: a
+ * second list that agrees today is a budget that silently stops covering the palette tomorrow.
+ */
+export const SCATTER_KINDS: ReadonlySet<SceneryKind> = new Set(
+  Object.values(SCATTER_BY_SECTOR).flat(),
+);
 
 /**
  * The four blocks a scattered prop may stand in.

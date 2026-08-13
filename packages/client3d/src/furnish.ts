@@ -86,6 +86,7 @@ import {
   ROOM_TILES,
   SCATTER_BLOCKS,
   SCATTER_BLOCK_TILES,
+  SCENERY,
   hashCell,
   type Cardinal,
   type RoomScene,
@@ -99,9 +100,14 @@ import {
   PROPS_MODELS_PER_ROOM,
   PROPS_PART_TEXTURES,
   PROPS_PER_ROOM_MAX,
+  SCENERY_BOXES,
   SCENERY_MODELS,
   propsGeometryKey,
   propsMaterialKey,
+  sceneryParts,
+  type SceneryBox,
+  type SceneryModel,
+  type SceneryPosture,
 } from './prototypes.ts';
 import { freeTiles } from './scatter.ts';
 
@@ -602,98 +608,189 @@ function modelsFor(seed: number, palette: readonly string[]): readonly string[] 
 /* -------------------------------------------------------------------------- */
 
 /**
- * The room's authored scenery props this file has a model for — **the join between V8d's catalogue
- * and M5b's kit registry, and it is one row long.**
+ * The scenery props in this room that a kit has a mesh for — **the join between V8d's catalogue and
+ * three model registries, and M9b is where it stopped being one row long.**
  *
- * `scenery.SCENERY_KINDS` names ten things. The Fantasy Props kit contains **a cart** and nothing
- * else on that list: there is no fountain, no well, no statue and no haystack in it or in the
- * Medieval Village kit, checked model by model. Those four keep `chunkPlan`'s grey box and are a
- * **sourcing gap**, reported rather than filled with something that is nearly one — a wellhead drawn
- * as a barrel is worse than a grey box, because a grey box is honestly unfinished and a barrel is a
- * lie the player will type `look well` at.
+ * `scenery.SCENERY_KINDS` names ten things and five of them now draw. The five that do not —
+ * `fountain`, `plinth`, `well`, `statue`, `haystack` — are in none of the three packs, checked model
+ * by model, and keep `chunkPlan`'s grey box as a **sourcing gap** rather than being filled with
+ * something that is nearly one. See `prototypes.SCENERY_MODELS` for the table and for what each
+ * stand-in is.
  *
- * Returned as a list of `(feature, model)` pairs rather than as placements so `world3d.ts` can use
+ * The kinds M9 missed are the ones that matter most, because they are the ones `scenery.scatterFor`
+ * grows: a `stump`, a `crate`, a `barrel` or a `cart` is derived into every forest, field, hillside
+ * and bog in the world, so where an authored cart is three props in one zone these are tens of
+ * thousands. That is why this function now runs hot and why it takes a `lod`.
+ *
+ * Returned as a list of `(feature, entry)` pairs rather than as placements so `world3d.ts` can use
  * the same answer to suppress the grey `prop` box — one derivation, so the picture and the
  * suppression can never disagree about which props were dressed.
  */
 export function dressedScenery(
   scene: RoomScene,
-): readonly { readonly feature: Extract<RoomScene['features'][number], { t: 'prop' }>; readonly model: string }[] {
-  const out: { feature: Extract<RoomScene['features'][number], { t: 'prop' }>; model: string }[] = [];
+): readonly {
+  readonly feature: Extract<RoomScene['features'][number], { t: 'prop' }>;
+  readonly entry: SceneryModel;
+}[] {
+  const out: { feature: Extract<RoomScene['features'][number], { t: 'prop' }>; entry: SceneryModel }[] = [];
   for (const feature of scene.features) {
     if (feature.t !== 'prop') continue;
     const models = SCENERY_MODELS[feature.kind];
     if (!models || models.length === 0) continue;
-    const model = models[Math.floor(roll(scene.seed, SALT_SCENERY, feature.tx * ROOM_TILES + feature.ty) * models.length)]!;
-    if (!PROPS_METRICS[model]) continue;
-    out.push({ feature, model });
+    // The prop's own tile, so two bushes in one room are not the same mesh twice and a field is not
+    // one silhouette repeated. `cart` has picked between a booth and a handcart this way since M9.
+    const entry = models[Math.floor(roll(scene.seed, SALT_SCENERY, feature.tx * ROOM_TILES + feature.ty) * models.length)]!;
+    if (!SCENERY_BOXES[entry.model]) continue;
+    out.push({ feature, entry });
   }
   return out;
 }
 
 /**
- * How much a model is shrunk to sit inside the catalogue footprint the collision grid already
- * stamped — **derived, never chosen, and never above 1.**
+ * The box a stand-in presents to the tile grid once its posture and its quarter turn are applied —
+ * **the yaw first and the footprint against the yawed box**, which is `siteOnIsland`'s own correction
+ * one system along and matters here for the same reason: `SCENERY.log` is three tiles by two, so a
+ * quarter turn is the difference between a 3 m log and a 2 m one.
+ *
+ * Everything is in the model's own metres at scale 1, in **world axes**: `ex`/`ez` are what has to
+ * fit the stamped rectangle, `ey` is what the catalogue's height bounds, `cx`/`cz` are where the
+ * box's centre lands relative to the placement origin, and `my` is its underside.
+ *
+ * The felled case is a rotation about **`rz`** and not `rx`, and that is load-bearing. `world3d.ts`
+ * writes `rotation.set(rx, ry, rz)` into a three.js Euler in its default `XYZ` order, which composes
+ * as `Rx · Ry · Rz` — so `rz` is applied *innermost*, the model tips over first and the yaw then
+ * steers the fallen trunk about the world's own vertical. Felling with `rx` would apply the yaw
+ * first and merely roll the log about its own length, and every log in the world would point north.
+ */
+function presentedBox(
+  box: SceneryBox,
+  posture: SceneryPosture,
+  quarter: number,
+): { ex: number; ez: number; ey: number; cx: number; cz: number; my: number } {
+  // Local axes, mapped to world. Upright is the identity; `Rz(+90°)` sends `(x, y, z)` to
+  // `(-y, x, z)`, so the model's height becomes its length and its width becomes its standing height.
+  const felled = posture === 'felled';
+  const x0 = felled ? -box.maxY : box.minX;
+  const x1 = felled ? -box.minY : box.maxX;
+  const y0 = felled ? box.minX : box.minY;
+  const y1 = felled ? box.maxX : box.maxY;
+  const midX = (x0 + x1) / 2;
+  const midZ = (box.minZ + box.maxZ) / 2;
+  const spanX = x1 - x0;
+  const spanZ = box.maxZ - box.minZ;
+  // `Ry(q · 90°)` on the horizontal box: odd quarters swap the axes, and the centre goes with them.
+  const turned = (quarter & 3) % 2 === 1;
+  const rotated: readonly [number, number] =
+    (quarter & 3) === 1 ? [midZ, -midX]
+    : (quarter & 3) === 2 ? [-midX, -midZ]
+    : (quarter & 3) === 3 ? [-midZ, midX]
+    : [midX, midZ];
+  return {
+    ex: turned ? spanZ : spanX,
+    ez: turned ? spanX : spanZ,
+    ey: y1 - y0,
+    cx: rotated[0],
+    cz: rotated[1],
+    my: y0,
+  };
+}
+
+/**
+ * How much a model is shrunk to sit inside the catalogue box the collision grid already stamped —
+ * **derived, never chosen, and never above 1.**
  *
  * `SCENERY.cart` is two tiles by two, and both the server and every client have written those four
  * tiles solid. `Stall_Empty` is 1.845 x 0.932 m and needs no help; `Stall_Cart_Empty` is
  * **3.021 x 1.060 m** and would hang a metre of shaft over walkable floor in each direction, which is
- * `scatter.ts`'s forbidden lie in its most visible form. So it is drawn at `2 / 3.021 = 0.662` and
- * measures 2.00 x 0.70 x 1.74 m — a handcart rather than a market cart, which is what the catalogue's
+ * `scatter.ts`'s forbidden lie in its most visible form. So it is drawn at `2.03 / 3.021 = 0.672` and
+ * measures 2.03 x 0.71 x 1.77 m — a handcart rather than a market cart, which is what the catalogue's
  * own prose promises anyway (*"A wooden handcart tipped onto its shafts"*).
  *
- * The alternative was to widen `SCENERY.cart` to three tiles. That is a change to `shared`, it moves
- * a footprint the server stamps into the collision grid, and it is the right fix the day a cart wants
- * to be a cart — at which point this function returns 1 for it on its own and nothing here changes.
+ * **The height term is the posture's**, and only a stand-in pays it: see
+ * `prototypes.SCENERY_POSTURES`. A `standing` model *is* the object and keeps its own proportions
+ * against the footprint alone, which is M9's rule and is why the cart's two factors are unchanged; a
+ * `cropped` or `felled` model is a whole tree standing in for a piece of one, and then the
+ * catalogue's declared height is the only statement of how tall the thing should be. The fit stays
+ * **uniform** in all three cases — a squashed mesh is a lie about a shape rather than about a size.
  */
-export function sceneryScale(model: string, widthTiles: number, depthTiles: number): number {
-  const metric = PROPS_METRICS[model];
-  if (!metric) return 1;
+export function sceneryScale(
+  entry: SceneryModel,
+  widthTiles: number,
+  depthTiles: number,
+  heightTiles: number,
+  quarter = 0,
+): number {
+  const box = SCENERY_BOXES[entry.model];
+  if (!box) return 1;
+  const presented = presentedBox(box, entry.posture, quarter);
+  const height =
+    entry.posture === 'standing' ? Infinity : (heightTiles * METRES_PER_TILE + SLOT_SLACK) / presented.ey;
   return Math.min(
     1,
-    (widthTiles * METRES_PER_TILE + SLOT_SLACK) / metric.width,
-    (depthTiles * METRES_PER_TILE + SLOT_SLACK) / metric.depth,
+    (widthTiles * METRES_PER_TILE + SLOT_SLACK) / presented.ex,
+    (depthTiles * METRES_PER_TILE + SLOT_SLACK) / presented.ez,
+    height,
   );
 }
 
 /**
- * The authored scenery a room stands up, as kit models.
+ * The scenery a room stands up, as kit models.
  *
- * Placed on the footprint's own centre, at a hashed quarter turn, scaled to fit it. Unlike the
- * furniture this runs on **every** room the renderer draws — a cart stands in a market square, and
- * three of the world's ten authored props are exactly that — which is why the scenery term is charged
- * to the scatter side of `pool.DRESSED_WRAPPER_CEILING` and why it is the term that moved it.
+ * Placed with the **model's own bounding box** centred on the footprint, at a hashed quarter turn,
+ * scaled to fit. Box-centred rather than origin-centred, and that is M9b's second fix rather than a
+ * tidy-up: a mesh's origin is wherever the artist left it, `Stall_Cart_Empty`'s is at the back of its
+ * bed (`x ∈ [-2.107, +0.914]`), and M9 stood that origin on the footprint's centre — so the shafts of
+ * every handcart in Velen reached **1.42 m** across floor the collision grid calls walkable while the
+ * scale that was supposed to prevent exactly that was computed correctly. The scale bounds a model's
+ * *size*; only the centring bounds where it ends up.
+ *
+ * Unlike the furniture this runs on **every** room the renderer draws, and after M9b that is most of
+ * the outdoors — which is why the scenery term is charged to the scatter side of
+ * `pool.DRESSED_WRAPPER_CEILING` and why it is the term that moved it, twice.
  */
 export function planScenery(input: {
   readonly scene: RoomScene;
   readonly origin: { readonly tx: number; readonly ty: number };
   readonly elevation: number;
+  /** Which baked level of detail this chunk draws, for the `tree` stand-ins. `planScatter`'s own. */
+  readonly lod: number;
 }): readonly Placement[] {
-  const { scene, origin, elevation } = input;
+  const { scene, origin, elevation, lod } = input;
   const dressed = dressedScenery(scene);
   if (dressed.length === 0) return [];
   const out: Placement[] = [];
   const x0 = metresOfTile(origin.tx);
   const z0 = metresOfTile(origin.ty);
-  for (const { feature, model } of dressed) {
-    const scale = sceneryScale(model, feature.width, feature.depth);
-    const x = x0 + metresOfTile(feature.tx) + (feature.width * METRES_PER_TILE) / 2;
-    const z = z0 + metresOfTile(feature.ty) + (feature.depth * METRES_PER_TILE) / 2;
-    const yaw = (Math.floor(roll(scene.seed, SALT_YAW, feature.tx * ROOM_TILES + feature.ty) * 4) * Math.PI) / 2;
-    for (const texture of PROPS_PART_TEXTURES[model] ?? []) {
+  for (const { feature, entry } of dressed) {
+    const box = SCENERY_BOXES[entry.model]!;
+    const quarter = Math.floor(roll(scene.seed, SALT_YAW, feature.tx * ROOM_TILES + feature.ty) * 4);
+    const height = SCENERY[feature.kind].height;
+    const scale = sceneryScale(entry, feature.width, feature.depth, height, quarter);
+    const presented = presentedBox(box, entry.posture, quarter);
+    // The centre of the stamped rectangle, less wherever the model's own box sits relative to its
+    // origin. `Matrix4.compose` is `position + R · (S · v)`, so the offset is rotated and scaled
+    // exactly as the mesh is.
+    const x = x0 + metresOfTile(feature.tx) + (feature.width * METRES_PER_TILE) / 2 - presented.cx * scale;
+    const z = z0 + metresOfTile(feature.ty) + (feature.depth * METRES_PER_TILE) / 2 - presented.cz * scale;
+    // **Only a felled model is seated.** Every pack authors an upright prop with its origin on the
+    // ground — a bush's `minY` of -0.235 is root sinkage the artist meant — so lifting one to put its
+    // lowest vertex on the grass would make it hover. Tipping a model over moves its base off the
+    // origin entirely, and then the ground has to be found again.
+    const y = elevation - (entry.posture === 'felled' ? presented.my * scale : 0);
+    for (const part of sceneryParts(entry, lod)) {
       out.push({
-        archetype: 'propSolid',
-        geometry: propsGeometryKey(model, texture),
-        material: propsMaterialKey(texture),
+        archetype: part.archetype,
+        geometry: part.geometry,
+        material: part.material,
         x,
-        y: elevation,
+        y,
         z,
         sx: scale,
         sy: scale,
         sz: scale,
         rx: 0,
-        ry: yaw,
-        rz: 0,
+        ry: (quarter * Math.PI) / 2,
+        rz: entry.posture === 'felled' ? Math.PI / 2 : 0,
       });
     }
   }

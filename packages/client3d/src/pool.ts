@@ -124,6 +124,8 @@ import {
   PORTAL_PULSE_HZ,
   PROPS_MODELS_PER_ROOM,
   PROPS_PARTS_MAX,
+  SCENERY_AUTHORED_PARTS_MAX,
+  SCENERY_SCATTER_PARTS_MAX,
   SHAPE_KEYS,
   TREE_VARIANTS_PER_ROOM,
   TREE_PARTS,
@@ -149,7 +151,7 @@ import { MAX_WINDOW_CHUNKS, WINDOW_LEVELS } from './streamer.ts';
 import { createPuddleMaterial, createWetControls, patchWetGround, type WetControls } from './wetness.ts';
 import { createWaterMaterial, type WaterControls, createWaterControls } from './water.ts';
 import { createWarpControls, patchWarpVertex, type WarpControls } from './warp.ts';
-import { SECTORS, type Sector } from '@mygame/shared';
+import { SCATTER_BLOCKS, SECTORS, type Sector } from '@mygame/shared';
 
 /**
  * Instances one wrapper can hold.
@@ -288,14 +290,38 @@ export const INTERIOR_WRAPPER_CEILING = VILLAGE_WALL_MODELS_PER_ROOM * VILLAGE_P
 const FURNITURE_WRAPPER_CEILING = PROPS_MODELS_PER_ROOM * PROPS_PARTS_MAX;
 
 /**
- * Wrappers one chunk's **dressed scenery** can want — M9. One authored prop at
- * {@link prototypes.PROPS_PARTS_MAX} primitives.
+ * Wrappers one chunk's **dressed scenery** can want — M9, and the one number M9b actually costs.
  *
- * One rather than several, and that is a fact about `roomScene.scenerySiting` rather than an
- * assumption: `SCENERY_MODELS` names exactly one dressable kind (`cart`), and a room's scenery list
- * is authored. `furnish.test.ts` sweeps the world and asserts no room asks for two.
+ * At M9 this was `PROPS_PARTS_MAX`: one authored prop at three primitives, because `SCENERY_MODELS`
+ * named exactly one dressable kind and a room's scenery list was hand-written. M9b gives four more
+ * kinds a mesh and **four of the five that draw are ones `scenery.scatterFor` derives**, so a room
+ * can now ask for as many props as that function can place.
+ *
+ * A `max` and not a sum, and the exclusivity is `scatterFor`'s own first line — *"a room that was
+ * authored keeps what it was given"*, it returns the authored list **instead of** a generated one —
+ * so no room in the world holds both an authored fountain and four generated crates:
+ *
+ * ```
+ * authored   1 prop  x 2 primitives (the widest kind nothing derives)             = 2
+ * scattered  4 props x 3 primitives (the market cart's wood, iron and cloth)      = 12
+ * max                                                                             = 12  (was 3)
+ * ```
+ *
+ * The four is `scenery.SCATTER_BLOCKS.length` — the same constant the scatter dedupes against, one
+ * prop a quadrant — and `tilemap.sceneryOf` only ever thins that list further. The two and the three
+ * are read off {@link prototypes.SCENERY_MODELS} rather than written down, so a kind given a wider
+ * stand-in tomorrow resizes the pool instead of overflowing it.
+ *
+ * **The three is the expensive digit and it is the `cart`'s.** A barrel, a crate and a stump are one
+ * or two primitives; the market cart is three, and scattering it across open field is what takes this
+ * from 8 to 12 — `+4` wrappers on each of 293 cells, `+4,650,496 B`. Taken because the owner asked
+ * for wagons in a field by name. `furnish.test.ts` sweeps the world and reports the measured worst
+ * room against this bound, which it does not reach.
  */
-const SCENERY_WRAPPER_CEILING = PROPS_PARTS_MAX;
+const SCENERY_WRAPPER_CEILING = Math.max(
+  SCENERY_AUTHORED_PARTS_MAX,
+  SCATTER_BLOCKS.length * SCENERY_SCATTER_PARTS_MAX,
+);
 
 /**
  * The wet-weather decal's own bucket — M5b. One per ground-level chunk, and provably one: every

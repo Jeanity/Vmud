@@ -78,7 +78,7 @@
  * between two materials in a family is a *uniform*. See `foliage.ts` and `blend.ts`.
  */
 
-import { SECTORS, type Sector } from '@mygame/shared';
+import { SCATTER_KINDS, SECTORS, type SceneryKind, type Sector } from '@mygame/shared';
 
 /* -------------------------------------------------------------------------- */
 /* Shapes                                                                      */
@@ -855,26 +855,230 @@ export const PROPS_METRICS: Readonly<Record<string, PropsMetric>> = {
   workbench: { width: 2.019, depth: 1.024, height: 0.895 },
 };
 
+/* -------------------------------------------------------------------------- */
+/* Scenery, dressed — M9, and M9b's correction to it                            */
+/* -------------------------------------------------------------------------- */
+
 /**
- * Which models stand in for a {@link scenery.SceneryKind} — **and the four kinds nothing does.**
+ * Which pack owes a scenery stand-in its mesh — **three, and M9 only ever looked in one of them.**
  *
- * `SCENERY_KINDS` names ten things and this pack contains exactly one of them: a cart. There is **no
- * fountain, no well, no statue and no haystack** in either the Fantasy Props kit or the Medieval
- * Village kit — checked model by model, not assumed — so those four keep `chunkPlan`'s grey box and
- * are reported as a sourcing gap rather than filled with something that is nearly one. The four
- * scatter kinds (`stump`, `log`, `bush`, `toadstools`) are the *nature* kit's business and are
- * already dressed by `scatter.ts`; a plinth is a stepped granite dais with a noticeboard bolted to it
- * and the pack has no such thing either.
+ * That was the bug the owner saw as *"boxes instead of things"*: M9 asked the Fantasy Props kit for
+ * all ten of `scenery.SCENERY_KINDS`, found a cart, and reported the other nine as a sourcing gap.
+ * Five of them genuinely are. The rest are the kinds `scenery.scatterFor` grows across the *whole
+ * world*, which is why they are the ones you actually walk past — and between the props kit and the
+ * Nature MegaKit's trunks there was a mesh for every one of them. Nobody had looked in the second
+ * kit, and the answer to half of it turned out not to be a mesh at all: see {@link SCENERY_MODELS}
+ * on why `bush` and `toadstools` stopped being blockers instead of getting one.
  *
- * Two entries for `cart` because the pack has two wheeled trade props and they are different objects:
- * `Stall_Empty` is a market booth and `Stall_Cart_Empty` is the same booth on shafts and a wheel.
- * Which one a room gets is its seed's; **both are scaled to the catalogue's own footprint** by
- * `furnish.sceneryScale`, which is why the cart's 3.02 m length is not a problem and is also why the
- * scale is derived rather than chosen.
+ * - `props` — the Fantasy Props kit. {@link PROPS_PART_TEXTURES}, {@link propsGeometryKey}.
+ * - `kit` — the Nature MegaKit's understory. {@link KIT_PART_TEXTURES}, {@link kitGeometryKey}.
+ * - `tree` — the Nature MegaKit's *trunks*, which live in the tree registry rather than the prop one
+ *   ({@link TREE_VARIANTS}, {@link treeGeometryKey}) because a trunk is half of a tree everywhere
+ *   else in this renderer. A stand-in draws the `trunk` part and never the canopy, which is
+ *   `scatter.ts`'s own idiom for a cut tree: *"the absence of a canopy is what says this was cut"*.
+ *
+ * No pack adds a geometry key, a material or a program: every mesh named below is one M5b, M6 or M9
+ * already registered and sized the pool for. What M9b moves is the *bucket* count — see
+ * `pool.SCENERY_WRAPPER_CEILING`.
  */
-export const SCENERY_MODELS: Readonly<Record<string, readonly string[]>> = {
-  cart: ['stall-empty', 'stall-cart-empty'],
+export const SCENERY_PACKS = ['props', 'kit', 'tree'] as const;
+
+export type SceneryPack = (typeof SCENERY_PACKS)[number];
+
+/**
+ * How a stand-in is stood up — **and the one place the catalogue's `height` is allowed to bind.**
+ *
+ * `scenery.SceneryProp` is explicit that `width` and `depth` are the ground the prop stands on and
+ * `height` is *artwork* height with the three-quarter view's overhang folded into it. So height is a
+ * bound on how tall the thing looks, not a promise about a mesh — which is exactly right for a model
+ * that **is** the object and exactly wrong for one standing in for it at the wrong size.
+ *
+ * - **`standing`** — the model is the thing. Fitted to the stamped footprint and no more: a market
+ *   booth's canopy may be taller than the sprite ever was, because the booth is the truth and the
+ *   sprite was the approximation. This is M9's rule, unchanged, and it is why the cart still draws
+ *   at the factors `furnish.test.ts` has always asserted.
+ * - **`cropped`** — the model is a whole tree standing in for a piece of one. The catalogue's box is
+ *   then the only description of the object there is, so all three of its numbers bind and the fit is
+ *   still **uniform**: a stump is a dead tree shrunk until it is a metre tall, not one squashed.
+ *   The word is optimistic — nothing is cut, so what you get is a small snag with a 13 cm stem. It
+ *   lands within 10% of the hand-picked `scatter.STUMP_SCALE`, which is the same picture this
+ *   renderer has drawn for a felled tree since M5a, now derived instead of chosen.
+ * - **`felled`** — the same, tipped onto its side first (`rz`, so the yaw still steers it in world
+ *   space; see `furnish.planScenery`). A fallen trunk with its branches still on it is a deadfall,
+ *   which is one of `SCENERY.log`'s own keywords.
+ */
+export const SCENERY_POSTURES = ['standing', 'cropped', 'felled'] as const;
+
+export type SceneryPosture = (typeof SCENERY_POSTURES)[number];
+
+export interface SceneryModel {
+  readonly pack: SceneryPack;
+  readonly model: string;
+  readonly posture: SceneryPosture;
+}
+
+/**
+ * Which models stand in for a {@link scenery.SceneryKind} — **and the five kinds nothing does.**
+ *
+ * `SCENERY_KINDS` names ten things and five of them have a mesh. There is **no fountain, no plinth,
+ * no well, no statue and no haystack** in the Fantasy Props kit, the Medieval Village kit or the
+ * Nature MegaKit — checked model by model in all three, not assumed — so those five keep
+ * `chunkPlan`'s grey box and are reported as a sourcing gap rather than filled with something that
+ * is nearly one. A wellhead drawn as a barrel is worse than a grey box, because a grey box is
+ * honestly unfinished and a barrel is a lie the player will type `look well` at.
+ *
+ * **Two entries a kind, everywhere**, so a field of bushes is two meshes and not one repeated —
+ * `furnish.dressedScenery` picks between them off the prop's own tile hash, exactly as the cart has
+ * picked between a booth and a handcart since M9. Two rather than four is a pool decision as much as
+ * an art one: every `(model, texture)` pair a room can draw is a bucket.
+ *
+ * | kind | models | why these |
+ * | --- | --- | --- |
+ * | `cart` | `Stall_Empty`, `Stall_Cart_Empty` | a market booth and the same booth on shafts |
+ * | `barrel` | `Barrel`, `Barrel_Holder` | 0.70 m against a one-tile stamp, and a two-barrel rack for the other roll |
+ * | `crate` | `Crate_Metal` | **one and not two**, and the reason is already written down: `Crate_Wooden` carries a node transform nothing downstream composes, so it is not in the drawn set at all. A kind gets a second model when the pack has a second one |
+ * | `stump` | `DeadTree_1`, `DeadTree_4` | the two dead trees with the thickest base flare, which is all a stump is once the rest is shrunk away |
+ * | `log` | `DeadTree_3`, `DeadTree_5` | the two longest, so a felled one is a 3 m trunk rather than a 3 m ball of branches |
+ *
+ * **`bush` and `toadstools` are deliberately absent**, and their absence is M9b's actual answer to
+ * *"boxes instead of things"*. They were mapped to `Bush_Common` and `Mushroom_Common` for exactly
+ * one working day, and the owner ruled on the result: *"plants that can be walked through in some
+ * cases and not others will be confusing."* They were right — this renderer already draws bushes,
+ * ferns and mushrooms by the dozen per room as **paint** (`scatter.ts`), so a solid bush and a
+ * decorative one were the same picture with different rules. `scenery.SCATTER_BY_SECTOR` stopped
+ * deriving them; nothing in the world is a foliage blocker any more, and the kinds keep no mapping
+ * here so that an author who stands a thicket in a doorway on purpose gets an honestly strange grey
+ * box rather than a bush nobody can read.
+ *
+ * `stump` and `log` are the same family on purpose and are **different variants** on purpose: the
+ * posture alone would make one lie down, but a lying `DeadTree_1` beside a standing `DeadTree_1` is
+ * still the same silhouette twice.
+ */
+export const SCENERY_MODELS: Readonly<Record<string, readonly SceneryModel[]>> = {
+  cart: [
+    { pack: 'props', model: 'stall-empty', posture: 'standing' },
+    { pack: 'props', model: 'stall-cart-empty', posture: 'standing' },
+  ],
+  barrel: [
+    { pack: 'props', model: 'barrel', posture: 'standing' },
+    { pack: 'props', model: 'barrel-holder', posture: 'standing' },
+  ],
+  crate: [{ pack: 'props', model: 'crate-metal', posture: 'standing' }],
+  stump: [
+    { pack: 'tree', model: 'dead-tree-1', posture: 'cropped' },
+    { pack: 'tree', model: 'dead-tree-4', posture: 'cropped' },
+  ],
+  log: [
+    { pack: 'tree', model: 'dead-tree-3', posture: 'felled' },
+    { pack: 'tree', model: 'dead-tree-5', posture: 'felled' },
+  ],
 };
+
+/**
+ * A drawn model's own bounding box in its own space, in metres — **six numbers and not three, and
+ * the third pair is what M9 was missing.**
+ *
+ * {@link PROPS_METRICS} carries `width`/`depth`/`height`, which is enough to *scale* a model to a
+ * footprint and not enough to *place* it in one, because a mesh's origin is wherever the artist put
+ * it. `Stall_Cart_Empty`'s is at the back of its bed: `x ∈ [-2.107, +0.914]`, so its shafts reach
+ * 2.107 m one way and 0.914 m the other. M9 scaled it correctly to 2.03 m of a 2 x 2 m footprint and
+ * then stood its **origin** on the footprint's centre — so the shafts ended 1.416 m from that centre
+ * where the stamp allows 1.0 m, hanging **0.42 m** of handcart over floor the collision grid calls
+ * walkable. `scatter.ts`'s forbidden lie, in the one prop the owner has three of.
+ * `furnish.planScenery` now centres the *box*, which needs these.
+ *
+ * Measured off the glTF `POSITION` accessors' own `min`/`max` — the source of truth the manifest is
+ * itself derived from — and `furnish.test.ts` asserts every row back against them, so a re-import
+ * that moved a pivot fails rather than quietly leaning a cart across a doorway.
+ *
+ * A `tree` row is the **bark primitive alone**, which is why it cannot come from the nature manifest:
+ * that file's `width`/`depth`/`height` are the whole model, leaves included, and a `DeadTree` only
+ * happens to agree because it has no leaves.
+ */
+export interface SceneryBox {
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minY: number;
+  readonly maxY: number;
+  readonly minZ: number;
+  readonly maxZ: number;
+}
+
+export const SCENERY_BOXES: Readonly<Record<string, SceneryBox>> = {
+  // props — the Fantasy Props kit
+  'stall-empty': { minX: -0.922, maxX: 0.922, minY: -0.005, maxY: 2.622, minZ: -0.461, maxZ: 0.472 },
+  'stall-cart-empty': { minX: -2.107, maxX: 0.914, minY: -0.004, maxY: 2.628, minZ: -0.53, maxZ: 0.53 },
+  barrel: { minX: -0.349, maxX: 0.349, minY: 0.003, maxY: 0.901, minZ: -0.349, maxZ: 0.349 },
+  'barrel-holder': { minX: -0.68, maxX: 0.68, minY: -0.006, maxY: 1.251, minZ: -0.352, maxZ: 0.389 },
+  'crate-metal': { minX: -0.432, maxX: 0.432, minY: 0.003, maxY: 0.871, minZ: -0.433, maxZ: 0.433 },
+  // tree — the Nature MegaKit's trunks, bark primitive only
+  'dead-tree-1': { minX: -2.592, maxX: 3.557, minY: -0.336, maxY: 9.16, minZ: -2.903, maxZ: 2.845 },
+  'dead-tree-3': { minX: -3.848, maxX: 2.54, minY: -0.336, maxY: 12.945, minZ: -3.387, maxZ: 3.043 },
+  'dead-tree-4': { minX: -3.363, maxX: 4.598, minY: -0.336, maxY: 12.435, minZ: -3.599, maxZ: 4.133 },
+  'dead-tree-5': { minX: -3.971, maxX: 4.386, minY: -0.336, maxY: 16.102, minZ: -4.797, maxZ: 3.616 },
+};
+
+/** Every model any kind names, once. The closed list `furnish.test.ts` measures against the packs. */
+export const SCENERY_STAND_INS: readonly SceneryModel[] = Object.values(SCENERY_MODELS).flat();
+
+/**
+ * The pool keys one scenery stand-in draws, one per primitive — **the one place the three packs'
+ * three key shapes are reconciled, so no caller ever branches on a pack again.**
+ *
+ * `lod` is only read by a `tree` stand-in and is the chunk's own, exactly as `planScatter` takes it.
+ * A kit tree registers the same mesh under all three of {@link TREE_LODS}, so the ladder is a
+ * formality here — but asking for the chunk's level rather than hard-coding zero is what keeps a
+ * `world3d.hasGeometry` check honest about the mesh it is actually going to draw.
+ */
+export function sceneryParts(
+  entry: SceneryModel,
+  lod: number,
+): readonly { readonly archetype: Archetype; readonly geometry: GeometryKey; readonly material: MaterialKey }[] {
+  if (entry.pack === 'tree') {
+    return [
+      {
+        archetype: 'trunk',
+        geometry: treeGeometryKey(entry.model as TreeVariant, 'trunk', lod),
+        material: treeMaterialKey('trunk', entry.model as TreeVariant),
+      },
+    ];
+  }
+  if (entry.pack === 'kit') {
+    return (KIT_PART_TEXTURES[entry.model] ?? []).map((texture) => ({
+      archetype: (kitRoleOf(texture) === 'leaf' ? 'kitLeaf' : 'kitSolid') as Archetype,
+      geometry: kitGeometryKey(entry.model, texture),
+      material: kitMaterialKey(entry.model, texture),
+    }));
+  }
+  return (PROPS_PART_TEXTURES[entry.model] ?? []).map((texture) => ({
+    archetype: 'propSolid' as Archetype,
+    geometry: propsGeometryKey(entry.model, texture),
+    material: propsMaterialKey(texture),
+  }));
+}
+
+/** Primitives the widest stand-in for these kinds has. Used to size the pool; see `pool.ts`. */
+function sceneryPartsMax(kinds: readonly string[]): number {
+  let most = 0;
+  for (const kind of kinds) {
+    for (const entry of SCENERY_MODELS[kind] ?? []) most = Math.max(most, sceneryParts(entry, 0).length);
+  }
+  return most;
+}
+
+/**
+ * Primitives the widest **scattered** stand-in has. Two: the flowering bush's leaves and its flowers.
+ *
+ * Split from the authored figure below because the two can never share a room — `scatterFor` returns
+ * a room's authored list *instead of* a generated one — which is what lets `pool.ts` take a `max`
+ * over the two terms rather than summing them.
+ */
+export const SCENERY_SCATTER_PARTS_MAX = sceneryPartsMax([...SCATTER_KINDS]);
+
+/** Primitives the widest **authored** stand-in has. Three: wood, iron and cloth on one market stall. */
+export const SCENERY_AUTHORED_PARTS_MAX = sceneryPartsMax(
+  Object.keys(SCENERY_MODELS).filter((kind) => !SCATTER_KINDS.has(kind as SceneryKind)),
+);
 
 /** The pool key for one furniture primitive. `props:barrel:trim-metal`. */
 export function propsGeometryKey(model: string, texture: string): GeometryKey {

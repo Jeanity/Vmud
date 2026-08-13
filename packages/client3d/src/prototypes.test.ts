@@ -384,11 +384,26 @@ describe('the pool key set', () => {
     // scatter side becomes `15 + 1 + 3 = 19` and the `max` follows. `586 x 10 + 293 x 19 + 4 = 11,431`.
     // The wall texture that answers the owner's actual complaint moves **nothing**: it is a sampler on
     // materials that already exist, which is the whole reason it beat a village module.
-    assert.equal(WRAPPER_POOL_SIZE, 11_431);
-    assert.equal(start.prewarmed, 12_310);
+    //
+    // **M9b moves it by 2,637, and it is the same term again for the same reason at scale.** M9 gave
+    // one of the catalogue's ten scenery kinds a mesh; M9b gives five of twelve one, and four of
+    // those five are kinds `scenery.scatterFor` *derives* — so the scenery term stops being "one
+    // authored prop at three primitives" and becomes "one prop per `SCATTER_BLOCKS` quadrant at three",
+    // `max(authored 2, 4 x 3) = 12`. The scatter side becomes `15 + 1 + 12 = 28` and the `max`
+    // follows: `586 x 10 + 293 x 28 + 4 = 14,068`, plus 586 ground and 293 water = 14,947. `+2,637`
+    // wrappers at 3,968 B is `+10,463,616 B` — and it buys **14,787 props across the whole outdoors**
+    // where M9's `+879` bought three carts in one hand-authored zone. Zero geometry and zero
+    // materials: every mesh M9b names was registered by M5b or M9 already.
+    //
+    // The **three** is the market stall's wood, iron and cloth, and it is the whole of the difference
+    // between this and `4 x 2 = 8`: scattering `cart` into open field costs `+4,650,496 B` over
+    // scattering only the one- and two-primitive props. Taken because the owner asked for it by name
+    // — *"objects like wagons, carts, barrels"* — and the price is per *slot* rather than per cart.
+    assert.equal(WRAPPER_POOL_SIZE, 14_068);
+    assert.equal(start.prewarmed, 14_947);
     assert.equal(start.blendWrappers, 879, 'ground and water both own their instanced attributes');
-    assert.equal(start.wrappersCreated, 12_310, 'all three free lists are whole before anything asks');
-    assert.equal(start.wrappersFree, 12_310);
+    assert.equal(start.wrappersCreated, 14_947, 'all three free lists are whole before anything asks');
+    assert.equal(start.wrappersFree, 14_947);
     assert.equal(start.wrappersLive, 0);
     // M7b: no rig exists until a base body has loaded, and none has. The body family is the one
     // allocation in this pool that is *not* pre-warmed — see `BODY_POOL_SIZE`.
@@ -608,7 +623,7 @@ describe('the pool key set', () => {
     pool.writeBlend(wall, 0, [1, 1, 1, 1], [1, 1, 1, 1]);
     pool.writeWarp(wall, 0, [1, 1, 1, 1]);
     pool.release(wall);
-    assert.equal(pool.snapshot().wrappersCreated, 12_310, 'the split lists must not mint');
+    assert.equal(pool.snapshot().wrappersCreated, 14_947, 'the split lists must not mint');
     pool.dispose();
   });
 
@@ -640,7 +655,7 @@ describe('the pool key set', () => {
     const again = pool.acquire('waterPlane', 'water');
     assert.equal(again, water, 'LIFO: the water list gave its own wrapper back');
     pool.release(again);
-    assert.equal(pool.snapshot().wrappersCreated, 12_310, 'the three lists must not mint');
+    assert.equal(pool.snapshot().wrappersCreated, 14_947, 'the three lists must not mint');
     pool.dispose();
   });
 
