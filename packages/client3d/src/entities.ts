@@ -46,6 +46,7 @@
 import { Object3D, type Camera, type InstancedMesh, type Scene } from 'three';
 
 import {
+  OBJECT_PREFIX,
   PLAYER_SPEED,
   ROOM_TILES,
   TILE_SIZE,
@@ -61,7 +62,7 @@ import type { CharacterSet } from './characters.ts';
 import { metresOfPixel } from './frame.ts';
 import { SELF_LAYER, WORLD_LAYER } from './lights.ts';
 import type { PlateSet } from './plates.ts';
-import { DIMENSIONS } from './prototypes.ts';
+import { DIMENSIONS, OBJECT_MODELS, propsGeometryKey, propsMaterialKey } from './prototypes.ts';
 import { WRAPPER_CAPACITY, type ScenePool } from './pool.ts';
 import type { WarpVec } from './warp.ts';
 
@@ -158,6 +159,16 @@ export class EntityLayer {
   /** Last {@link CharacterSet.generation} acted on — see {@link render}'s re-body pass. */
   private packGeneration = -1;
 
+  /**
+   * One `InstancedMesh` per drawn object model, minted on demand. See {@link objectMesh}.
+   *
+   * A map rather than two fields because the *count* is a property of `OBJECT_MODELS` rather than of
+   * this class, and because both of its entries are reached by the same three lines.
+   */
+  private readonly objectMeshes = new Map<string, InstancedMesh>();
+  /** How many of each are drawn this frame. Keys are cleared, never deleted — see `render`. */
+  private readonly objectCounts = new Map<string, number>();
+
   /** Fields are declared rather than written as parameter properties — see `streamer.ts`'s note. */
   constructor(scene: Scene, pool: ScenePool, characters: CharacterSet, plates?: PlateSet) {
     this.pool = pool;
@@ -174,6 +185,15 @@ export class EntityLayer {
     // with a white `instanceColor`, so this is a statement about what is *not* done rather than a
     // call: nothing repaints these two, ever. The creature wrapper is repainted per *class*, which is
     // identity rather than fog — see its own note.
+    // **One wrapper per object model, and they are the first entity meshes that are not capsules.**
+    // Taken here for the reason the three above are — an object on the floor is an entity, so it is
+    // not streamed and has no unload to give a wrapper back on. Two of them, from a closed list, so
+    // this stays a constant rather than a map that grows with whatever the server drops.
+    //
+    // A corpse arrives before the props manifest does (`PropsSet.load` is not awaited, the same
+    // argument the characters make), so the geometry may not be registered yet. `acquire` would throw
+    // on a key the pool has no geometry for, so the wrapper is minted lazily in `render` instead —
+    // see {@link objectMesh}.
     scene.add(this.selfMesh, this.otherMesh, this.creatureMesh);
     // **The capsule half of the lighting rule, and it is one line because the wrapper is already
     // split.** `selfMesh` holds the player's own body and nothing else, so it goes on the body pass's
@@ -185,6 +205,30 @@ export class EntityLayer {
 
   get count(): number {
     return this.bodies.size;
+  }
+
+  /**
+   * The wrapper for one object model, minted on the frame the pool first has its geometry.
+   *
+   * Lazy and not eager, because `PropsSet.load` is not awaited: a corpse can be on the wire before its
+   * mesh has been fetched, and `pool.acquire` on a geometry key the pool has never registered throws
+   * inside a frame. Answering `undefined` for a beat draws nothing, which is right — a corpse that
+   * appears half a second late is better than a renderer that stops.
+   *
+   * Bounded by {@link OBJECT_MODELS}, so this map has two entries and reaches two for ever.
+   */
+  private objectMesh(stem: string): InstancedMesh | undefined {
+    const held = this.objectMeshes.get(stem);
+    if (held) return held;
+    const geometry = propsGeometryKey(stem, stem);
+    const material = propsMaterialKey(stem);
+    if (!this.pool.hasGeometry(geometry) || !this.pool.hasMaterial(material)) return undefined;
+    const mesh = this.pool.acquire(geometry, material);
+    // A corpse takes no fog-of-war tint, for the reason a body does not: the pool mints every wrapper
+    // white and nothing repaints these.
+    this.scene.add(mesh);
+    this.objectMeshes.set(stem, mesh);
+    return mesh;
   }
 
   /** How many entities are drawn as a real composed mesh. `__debug3d.rigs`. */
@@ -403,6 +447,8 @@ export class EntityLayer {
     let selfCount = 0;
     let otherCount = 0;
     let creatureCount = 0;
+    // Cleared rather than rebuilt, so the map's two entries are allocated once for the session.
+    for (const key of this.objectCounts.keys()) this.objectCounts.set(key, 0);
     const diameter = DIMENSIONS.bodyRadius * 2;
     // `CapsuleGeometry(0.5, 1)` is two metres tall, so the height scale is half the wanted height.
     const heightScale = DIMENSIONS.bodyHeight / 2;
@@ -440,6 +486,30 @@ export class EntityLayer {
           // adult's 2.1 m would have it hanging three quarters of a metre above them.
           this.plates.showName(id, body.view.name, worldX, ground, worldZ, distance, camera, scale);
         }
+        continue;
+      }
+
+      // **An object on the ground: a corpse, and the first entity with a real mesh that is not a
+      // body.** Read before `creatureLook` because it is more specific — an `object:` model is never
+      // an animal — and before the capsule fallthrough because that is what it replaces.
+      const object = objectStem(body.view.model);
+      if (object) {
+        const mesh = this.objectMesh(object);
+        if (!mesh) continue;
+        const index = this.objectCounts.get(object) ?? 0;
+        if (index >= WRAPPER_CAPACITY) continue;
+        this.objectCounts.set(object, index + 1);
+        // Sits **on** the ground rather than centred on it: the pile is authored with its lowest
+        // vertex at y = 0, so its origin is where the floor is. The same rule the kit's trees follow
+        // and the opposite of the capsule below, which is centred because a capsule has no feet.
+        this.scratch.position.set(worldX, ground, worldZ);
+        this.scratch.rotation.set(0, 0, 0);
+        // **Uniform, from the wire.** `view.scale` on a corpse is what died divided by an adult —
+        // see `appearance.corpseScaleFor`. A dragon leaves a dragon-sized pile because the number
+        // says so, not because there is a second mesh.
+        this.scratch.scale.setScalar(scale);
+        this.scratch.updateMatrix();
+        mesh.setMatrixAt(index, this.scratch.matrix);
         continue;
       }
 
@@ -488,6 +558,10 @@ export class EntityLayer {
     this.selfMesh.count = selfCount;
     this.otherMesh.count = otherCount;
     this.creatureMesh.count = creatureCount;
+    for (const [stem, mesh] of this.objectMeshes) {
+      mesh.count = this.objectCounts.get(stem) ?? 0;
+      mesh.instanceMatrix.needsUpdate = true;
+    }
     this.pool.finish(this.selfMesh);
     this.pool.finish(this.otherMesh);
     this.pool.finish(this.creatureMesh);
@@ -541,6 +615,19 @@ export class EntityLayer {
     body.lastX = undefined;
     body.lastZ = undefined;
   }
+}
+
+/**
+ * The stem of an `object:` model, or nothing for anything else.
+ *
+ * Gated on {@link OBJECT_MODELS} rather than on the prefix alone, and that is the same discipline
+ * `appearance.ANIMAL_HEADS` states for `creature:`: a closed set means a server that invented an id
+ * draws the fallback rather than reaching for a pool key nothing ever registered.
+ */
+function objectStem(model: string | undefined): string | undefined {
+  if (!model?.startsWith(OBJECT_PREFIX)) return undefined;
+  const stem = model.slice(OBJECT_PREFIX.length);
+  return (OBJECT_MODELS as readonly string[]).includes(stem) ? stem : undefined;
 }
 
 /** What `anim.ts` needs off a view. Three optional fields, all already on the wire. */

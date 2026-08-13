@@ -738,7 +738,29 @@ export const VILLAGE_GEOMETRY_KEYS: readonly GeometryKey[] = VILLAGE_PARTS.map((
  */
 export const PROPS_TEXTURES = ['trim-cloth', 'trim-furniture', 'trim-metal', 'trim-props'] as const;
 
-export type PropsTextureId = (typeof PROPS_TEXTURES)[number];
+/** One of the kit's four shared atlases — what a piece of *furniture* wears. */
+export type PropsAtlasId = (typeof PROPS_TEXTURES)[number];
+
+/** What any part in this family may wear: an atlas, or an object's own one-model white. */
+export type PropsTextureId = PropsAtlasId | ObjectId;
+
+/**
+ * The in-house **objects** — models that ride the props manifest without being furniture.
+ *
+ * Two today, and they are the two states of a corpse. They are here rather than in
+ * {@link PROPS_MODELS} because that list is *what a room may be furnished with*, and a room furnished
+ * with a corpse is a bug in `furnish.ts` rather than a feature. What they need from this file is only
+ * the pooled keys, which is what the two lines below give them.
+ *
+ * **Each is its own "texture" as well as its own model**, which reads oddly until you remember what a
+ * props texture *is*: the atlas that gives a material its identity. These carry their colour in a
+ * vertex attribute and wear a 1x1 white PNG (see `modelgen.buildObject`), so "the bonepile atlas" is
+ * exactly one model's worth of white — and keying it that way costs two materials, no new program,
+ * and keeps `propsMaterialKey`'s rule (a material's identity is its picture) literally true.
+ */
+export const OBJECT_MODELS = ['bonepile', 'bonepile_looted'] as const;
+
+export type ObjectId = (typeof OBJECT_MODELS)[number];
 
 /**
  * Everything a piece of furniture is, in one row — **measured off the pack, not chosen.**
@@ -785,7 +807,7 @@ export interface PropsMetric {
  *
  * The order is the manifest's, so a diff of this list against a re-import is a diff of the kit.
  */
-export const PROPS_PART_TEXTURES: Readonly<Record<string, readonly PropsTextureId[]>> = {
+export const PROPS_PART_TEXTURES: Readonly<Record<string, readonly PropsAtlasId[]>> = {
   'anvil-log': ['trim-furniture', 'trim-metal', 'trim-props'],
   bag: ['trim-cloth', 'trim-furniture'],
   barrel: ['trim-furniture', 'trim-metal'],
@@ -1105,6 +1127,10 @@ export const PROPS_PARTS: readonly { readonly model: string; readonly texture: P
   for (const model of PROPS_MODELS) {
     for (const texture of PROPS_PART_TEXTURES[model] ?? []) out.push({ model, texture });
   }
+  // The objects, appended rather than crossed: one primitive each, and the model *is* the texture.
+  // They join here — and only here — because `props.ts`'s loader gates on this list, so a model absent
+  // from it is a model fetched and dropped on the floor of `registerModel`.
+  for (const model of OBJECT_MODELS) out.push({ model, texture: model });
   return out;
 })();
 
@@ -1634,6 +1660,10 @@ export const MATERIAL_KEYS: readonly MaterialKey[] = (() => {
   // atlas. No open twin — `interior.ts`'s near-wall fade is a *wall* thing, and a barrel that went
   // translucent because the camera was outside the room would be a hole in the floor.
   for (const texture of PROPS_TEXTURES) keys.push(propsMaterialKey(texture));
+  // M9b: one per object, for the reason `OBJECT_MODELS` gives. Two materials, and no new program —
+  // a bone pile is `kitSolid`'s recipe with a white picture in it, which is the same free ride the
+  // whole props family took.
+  for (const object of OBJECT_MODELS) keys.push(propsMaterialKey(object));
   return keys;
 })();
 

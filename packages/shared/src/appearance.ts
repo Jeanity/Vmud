@@ -474,6 +474,84 @@ export function raceScaleFor(race: string | undefined): number {
   return size === undefined ? 1 : (SIZE_SCALE[size] ?? 1);
 }
 
+/* -------------------------------------------------------------------------- */
+/* Objects on the ground — what a corpse looks like                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Namespace for an in-house **static** model: a thing lying on the floor rather than a body.
+ *
+ * The fourth prefix, and it exists for the reason the other three do — {@link BASE_PREFIX} says *"a
+ * stem in the character pack"*, this says *"a stem in the props manifest, drawn by nothing that has a
+ * skeleton"*. `appearanceOf` still answers nothing for an item, deliberately: what a *dropped sword*
+ * looks like is a question about the catalogue's 16,421 rows, and this is only about corpses.
+ */
+export const OBJECT_PREFIX = 'object:';
+
+/**
+ * The two states of the generic corpse, by their own file stems.
+ *
+ * The 3D half of a ruling the 2D client already made and stated well: *"A fresh corpse is a pile of
+ * bones; a looted one is a single bone, so it reads as picked clean from across the room… it makes a
+ * corridor of corpses readable."* The meshes were authored to that: the looted pile is knocked flat
+ * and spread — 0.21 m high against 0.41, 0.97 m across against 0.76 — so the difference survives being
+ * seen at the camera's usual 24 m without a nameplate.
+ */
+export const CORPSE_MODELS = ['bonepile', 'bonepile_looted'] as const;
+
+/** Which pile this corpse is. Reads the same `looted` flag `corpseSprite` does, so the two agree. */
+export function corpseModelFor(looted: boolean): string {
+  return `${OBJECT_PREFIX}${looted ? 'bonepile_looted' : 'bonepile'}`;
+}
+
+/**
+ * **How tall each mesh is as authored**, in metres — the table that makes "scale the bones to what
+ * died" a single multiplication instead of a special case per creature.
+ *
+ * Measured off the models themselves, not declared: the two base bodies are the vendor's, the kobold
+ * is the in-house one, and `characters.test.ts` already asserts the manifest agrees with the first two.
+ *
+ * The reason this exists rather than reusing {@link Appearance.scale}: **`scale` is relative to a
+ * body's own mesh, and the meshes are not the same size.** A giant is `scale: 2.75` of a 1.81 m human
+ * and a kobold is `scale: 1` of a 0.756 m kobold, so reading `scale` alone would leave a kobold's
+ * corpse the size of a man's. What a corpse needs is *absolute* height, which is this table times that
+ * number.
+ */
+export const MODEL_HEIGHT: Readonly<Record<string, number>> = {
+  Superhero_Male_FullBody: 1.81,
+  Superhero_Female_FullBody: 1.767,
+  Kobold: 0.756,
+};
+
+/** The height a `MEDIUM` human is drawn at — the denominator every corpse scale is taken against. */
+export const ADULT_HEIGHT = MODEL_HEIGHT['Superhero_Male_FullBody']!;
+
+/**
+ * How tall a body is actually drawn, in metres — mesh height times whatever `appearanceOf` scaled it.
+ *
+ * **1.81 for a body with no mesh**, which is a `creature:` capsule: those are sized by
+ * `body.CREATURE_LOOK` in the renderer and the simulation has never known their heights. A wolf
+ * therefore leaves a man-sized pile, which is wrong and is the smallest wrong answer available —
+ * the alternative is a second copy of that table on this side of the wire, kept in step by hope.
+ */
+export function drawnHeightOf(model: string | undefined, scale = 1): number {
+  if (!model) return ADULT_HEIGHT;
+  const stem = model.slice(model.indexOf(':') + 1);
+  return (MODEL_HEIGHT[stem] ?? ADULT_HEIGHT) * scale;
+}
+
+/**
+ * What multiple the bone pile is drawn at for a body of this height.
+ *
+ * The pile is authored at a human corpse's size, so a human is 1 and everything else is its share of
+ * {@link ADULT_HEIGHT}: a hill giant leaves a 2.75x pile, a kobold youth a 0.30x one. That is the
+ * owner's rule — *"if we kill a dragon the pile of bones should be huge like the dragon"* — expressed
+ * as the one number it actually is.
+ */
+export function corpseScaleFor(heightMetres: number): number {
+  return heightMetres / ADULT_HEIGHT;
+}
+
 const BASE_BODY_FOR: Readonly<Record<BodySex, string>> = {
   female: 'Superhero_Female_FullBody',
   male: 'Superhero_Male_FullBody',

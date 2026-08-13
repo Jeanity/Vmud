@@ -20,9 +20,14 @@
  */
 
 import {
+  ADULT_HEIGHT,
   SECTOR_REQUIRES_MOVEMENT,
   TILE_SIZE,
+  appearanceOf,
   carry,
+  corpseModelFor,
+  corpseScaleFor,
+  drawnHeightOf,
   type EntityId,
   type EntityView,
   type Inventory,
@@ -87,6 +92,21 @@ export interface Corpse {
    * one thing still in it is not hidden behind a sprite that says "nothing here".
    */
   looted: boolean;
+  /**
+   * **How tall the body was, in metres** — recorded at death because after it there is nobody to ask.
+   *
+   * The owner's rule for the 3D corpse: *"we might need to make the scale to whatever was killed
+   * though. if we kill a dragon the pile of bones should be huge like the dragon."* One pile mesh is
+   * authored at a human corpse's size and everything else is a multiple of it, so the whole of that
+   * rule is this number divided by `appearance.ADULT_HEIGHT`.
+   *
+   * **Height and not `Appearance.scale`**, and the difference is the kobold: a giant is `scale: 2.75`
+   * of a 1.81 m human mesh and a kobold is `scale: 1` of a 0.756 m kobold mesh, so the scale alone
+   * would leave a kobold's bones the size of a man's. See `appearance.drawnHeightOf`.
+   *
+   * Optional so a corpse saved by an older build loads, and absent reads as adult.
+   */
+  readonly height?: number;
   /** Milliseconds left before it goes. */
   remainingMs: number;
   /** Set once the "starting to rot" line has been said, so it is said once. */
@@ -154,6 +174,14 @@ export function spoilsOf(actor: Actor): Item[] {
  * saves a player the walk over to find out.
  */
 export function makeCorpse(yard: Graveyard, actor: Actor, wasPlayer: boolean, contents: readonly Item[] = []): Corpse {
+  // Asked here, of the living body, because it is the last moment anything knows how big it was.
+  // Only the two fields that decide size are passed: a corpse's mesh is a pile of bones and what the
+  // deceased was wearing has no bearing on how big the pile is.
+  const look = appearanceOf({
+    kind: actor.kind === 'player' ? 'player' : 'mob',
+    sprite: actor.sprite,
+    ...('race' in actor && typeof actor.race === 'string' ? { race: actor.race } : {}),
+  });
   const corpse: Corpse = {
     id: nextCorpseId--,
     of: actor.name,
@@ -164,6 +192,7 @@ export function makeCorpse(yard: Graveyard, actor: Actor, wasPlayer: boolean, co
     y: actor.y,
     contents: [...contents],
     looted: contents.length === 0,
+    height: drawnHeightOf(look?.model, look?.scale),
     remainingMs: wasPlayer ? PLAYER_CORPSE_DECAY_MS : CORPSE_DECAY_MS,
     warned: false,
   };
@@ -236,6 +265,12 @@ export function corpseViewOf(corpse: Corpse): EntityView {
     kind: 'item',
     name: corpseName(corpse),
     sprite: corpseSprite(corpse),
+    // The 3D half of `corpseSprite`, read off the same flag so the two clients cannot disagree about
+    // whether a body has been picked over.
+    model: corpseModelFor(corpse.looted),
+    ...(corpse.height !== undefined && corpse.height !== ADULT_HEIGHT
+      ? { scale: corpseScaleFor(corpse.height) }
+      : {}),
     x: corpse.x,
     y: corpse.y,
     // Corpses do not face anywhere. `south` is the resting value every `EntityView` carries and the

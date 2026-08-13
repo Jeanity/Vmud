@@ -78,14 +78,20 @@ describe('the furniture registry', () => {
     );
   });
 
-  it('costs four materials and no new program', () => {
+  it('costs six materials and no new program', () => {
     // The whole reason `propsMaterialKey` takes a texture and not a pair: 26 models, four materials.
     // And the reason `materialFamily` answers `kitSolid`: a barrel is a Lambert with a base-colour
     // map and a vertex colour drawn single-sided, which is a boulder to the `#define`.
+    //
+    // **Six since the corpses**, and the two extra are the interesting ones: `bonepile` and
+    // `bonepile_looted` carry no atlas at all — their colour is baked into `COLOR_0` and their map is
+    // a 1x1 white (see `modelgen.buildObject`). They are still `map x vertexColour` drawn
+    // single-sided, so they are the *same* `#define` set, which is exactly what the program assertion
+    // below now proves rather than assumes: colour without a texture cost two materials and no shader.
     const pool = new ScenePool();
     const before = pool.programKeys().size;
     const keys = new Set(PROPS_PARTS.map((part) => propsMaterialKey(part.texture)));
-    assert.equal(keys.size, 4);
+    assert.equal(keys.size, 6);
     for (const key of keys) {
       const material = pool.material(key);
       assert.ok(material.map, 'a furniture material has no texture slot to swap into');

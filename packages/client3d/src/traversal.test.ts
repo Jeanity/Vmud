@@ -140,6 +140,8 @@ const BASELINE_ROOM = 100;
  *
  * | kobold | 59,639,606 | **+186 B: one geometry, zero wrappers, zero materials, zero programs, and one *fewer* byte per rig than the constant allows.** The first mob in the world with a mesh of its own — 2,060 triangles, 32 joints, authored in-house because *Ultimate Monsters* is Patreon-only. The 186 B is the **stand-in's**, and it is the whole delta because that is all this test can see: `position` 36 + `normal` 36 + `uv` 24 + `color` 12 + `skinIndex` 24 + `skinWeight` 48 + `index` 6. In a browser the term is the merged kobold's own vertex data, registered once at boot beside the other 32 models, and it is one geometry rather than seven because all seven of its authored materials wear one atlas. **No new wrapper**: a creature is placed by the simulation's coordinates through the same `EntityLayer` seam as a person. **No new rig cost**: `BODY_RIG_BYTES` is sized for 65 joints and a kobold binds 32, so the pool's per-entity ceiling is a ceiling with room in it. |
  *
+ * | corpses | 59,641,286 | **+1,680 B: two geometries, zero wrappers, zero programs.** The owner authored a generic corpse and a looted twin, and 840 B each is `PropsSet.standIn`'s box — the headless proxy, exactly as the nineteen village boxes are. In a browser the term is 2,800 + 2,520 triangles of real pile. **No wrapper here, and that is the surprising half**: `entities.ts` mints one `InstancedMesh` per object model, so two more wrappers exist in a *session* — but they are taken lazily, in `render`, on the frame the props manifest first has their geometry, and this walk uses stand-ins and never reaches that branch. The honest reading is that the ledger sees the geometry and not the two wrappers; `pool.wrappersCreated` is still flat across the walk, which is the property this file actually asserts. |
+ *
  * The camera delta was `+2,789,504` B, all of it instance buffer and all of it a consequence of one
  * decision: the dolly's clamp reaches 48 m at 45°, `streamer.ts` derives the ring from that pose, and
  * `pool.ts` derives its pre-warm from the ring. Nothing there was chosen; the clamp was.
@@ -164,7 +166,7 @@ const BASELINE_ROOM = 100;
  * are the dressed **scenery**, which lands on outdoor chunks and therefore has to be summed with the
  * understory rather than maxed against it.
  */
-const LEDGER_BYTES = 59_639_606;
+const LEDGER_BYTES = 59_641_286;
 
 /**
  * The stand-in armature and cast the body churn runs on — M7b.

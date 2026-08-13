@@ -33,6 +33,7 @@ import {
   KIT_PARTS,
   KIT_TEXTURES,
   MATERIAL_KEYS,
+  OBJECT_MODELS,
   PROPS_GEOMETRY_KEYS,
   PROPS_METRICS,
   PROPS_MODELS,
@@ -118,9 +119,12 @@ describe('the pool key set', () => {
     // would collide on one pool key, three that are not a single node at identity, the two pieces the
     // room grid's own walkability law refuses, and everything that wants a table top to stand on.
     assert.equal(PROPS_MODELS.length, 26);
-    assert.equal(PROPS_PARTS.length, 49);
-    assert.equal(PROPS_GEOMETRY_KEYS.length, 49);
-    assert.equal(new Set(PROPS_GEOMETRY_KEYS).size, 49);
+    // 51, not 49: the two in-house objects are appended to `PROPS_PARTS` without joining
+    // `PROPS_MODELS`, because a room may be *furnished* with 26 things and none of them is a corpse.
+    // That asymmetry is the whole reason `OBJECT_MODELS` is a second list rather than four more rows.
+    assert.equal(PROPS_PARTS.length, 51);
+    assert.equal(PROPS_GEOMETRY_KEYS.length, 51);
+    assert.equal(new Set(PROPS_GEOMETRY_KEYS).size, 51);
     // **No model may carry two primitives on one atlas.** `registerGeometry` is first-wins, so the
     // second would be silently dropped — which is exactly why `Anvil` and `Chest_Wood` are not in the
     // drawn set. Checked here rather than in `props.test.ts` because it is a property of *this table*
@@ -131,7 +135,9 @@ describe('the pool key set', () => {
       assert.ok(textures.length <= PROPS_PARTS_MAX, `${model} has more than ${PROPS_PARTS_MAX} parts`);
       assert.ok(PROPS_METRICS[model], `${model} has no measured footprint`);
     }
-    assert.equal(GEOMETRY_KEYS.length, 7 + 153 + 48 + 19 + 49);
+    // `+ 51` rather than `+ 49`: the two in-house objects carry a geometry key each, on the same
+    // `(model, texture)` shape as a barrel — see `OBJECT_MODELS`.
+    assert.equal(GEOMETRY_KEYS.length, 7 + 153 + 48 + 19 + 51);
   });
 
   it('gives every kit part a role, and the two roles a family each', () => {
@@ -183,7 +189,7 @@ describe('the pool key set', () => {
     assert.ok(MATERIAL_KEYS.includes(treeMaterialKey('trunk', 'dead-tree-1' as never)));
   });
 
-  it('has exactly 317 materials, and the arithmetic is legible', () => {
+  it('has exactly 319 materials, and the arithmetic is legible', () => {
     // Terrain: 5 biome archetypes x 16 sectors = 80, of which `grass` never fades, so
     // 4 x 16 = 64 with twins (128) plus 16 without = 144.
     // Trees: 51 real parts across 28 variants, none of which fade.
@@ -197,7 +203,9 @@ describe('the pool key set', () => {
     // Furniture: 4 atlases, keyed by texture alone for the characters' reason exactly — a barrel
     //   material carries no per-model uniform either, so 26 models share four materials. None fade,
     //   and none has an open twin: the near-wall fade is a *wall* thing.
-    // 144 + 51 + 19 + 48 + 38 + 13 + 4 = 317.
+    // Objects: 2 — the corpse and its looted twin, keyed like a furniture atlas because that is what
+    //   a 1x1 white PNG is to `propsMaterialKey`. Neither fades and neither adds a program.
+    // 144 + 51 + 19 + 48 + 38 + 13 + 4 + 2 = 319.
     //
     // 110 at M3. M4 added `glow` and its twin — the stairwell marker — the *whole* of M4's growth,
     // because the emissive ring is a uniform on an existing material and the three-state fog of war is
@@ -226,7 +234,7 @@ describe('the pool key set', () => {
     assert.equal(terrain, 64);
     assert.equal(trees, 51);
     assert.equal(objects, 12);
-    assert.equal(MATERIAL_KEYS.length, 317);
+    assert.equal(MATERIAL_KEYS.length, 319);
     // The `- 5` is `self`, `other`, `marker`, `water` and `puddle` — the object archetypes with no
     // faded twin. Literals rather than `NEVER_FADED.size` on purpose, the same reasoning the file
     // header gives for the whole test: recomputing the exclusion from the table under test would let
@@ -241,7 +249,10 @@ describe('the pool key set', () => {
         KIT_PARTS.length +
         VILLAGE_PARTS.length * 2 +
         CHARACTER_TEXTURES.length +
-        PROPS_TEXTURES.length,
+        PROPS_TEXTURES.length +
+        // The objects, summed apart from `PROPS_TEXTURES` because they are not atlases — the
+        // separation `PropsAtlasId` draws in the types, restated where it is counted.
+        OBJECT_MODELS.length,
     );
   });
 
