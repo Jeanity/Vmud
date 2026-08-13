@@ -453,6 +453,60 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
+### Start here — 2026-08-13, second day: the grey is gone and the world has furniture
+
+**Read this block, then stop.** The two below it are the same day's earlier state and are kept only
+for the reasoning; everything operational has moved.
+
+**Rituals that changed — get these wrong and you will chase ghosts:**
+
+- The suite is **2,970 green, 0 skipped**, and needs **three** env vars now:
+  `GAME_NATURE_KIT=D:/MyGame/assets/quaternius/nature`
+  `GAME_VILLAGE_KIT=D:/MyGame/assets/quaternius/village`
+  `GAME_PROPS_KIT=D:/MyGame/assets/quaternius/props`
+- **No bare letter is a view key any more.** A letter typed in the world goes to the command line
+  (`open door` just works), Enter opens the line, Esc leaves it. Every view toggle is **alt+key**:
+  `alt+O` follow camera, `alt+C` camera home, `alt+K` roof cull, `alt+G` day/night, `alt+T` tone
+  mapping, `alt+R` rain, `alt+B` bloom, `alt+F` freeze wind, `alt+V` warp, `alt+[`/`alt+]` the hour.
+  **F1 prints the list.** Movement is unchanged: WASD/arrows walk (camera-relative), Shift+them
+  takes the named exit, Q/E stairs.
+- `packages/server/src/bodies.test.ts` **scans every `packages/server/src/*.ts`** — a scratch file
+  left in that directory fails the suite.
+- `sim.ts` contains a literal NUL as a map-key delimiter, so `grep` treats it as binary and stops
+  silently. Use the Grep tool.
+
+**What landed after the block below** (`d8535bc` → `202998a`, all verified, all pushed):
+
+- **Camera**: orbit with Shift+drag, follow-behind on by default, wheel zoom to 96 m, a compass.
+  The follow ease is a **critically damped spring** — the exponential it replaced was fastest the
+  instant the target moved, which is what the owner meant by *"it almost snaps"*.
+- **Bodies are solid** and never spawn stacked or inside scenery (27 of 2,016 did). Then the bug
+  that caused: deflection **oscillated** against a row of bodies, and oscillation is *motion*,
+  which is what every stall counter tested for — so a mob's errand never ended and it stood there
+  for the life of the server. Errands are now judged on **progress**, not motion.
+- **The ground closed over**: rooms drew only 32.3% of the gap between them, through three separate
+  holes; walls were 0.6 m thick in a 2 m gap, which was the visible slot of sky. Coverage is now
+  100%, walls fill their own gap, and 22,179 rooms have textured floors.
+- **Mobs are armed** — and 66.2% of the world's equipment was attached to the wrong creature, which
+  the +8 armour cap had been quietly compensating for. Mobs are now measurably *easier*.
+- **The grey is gone**: 56,190 walls textured, 4,512 interiors furnished, and — the owner's ruling —
+  **nothing plant-shaped is solid inside a room**. Solid scenery tiles fell 36,382 → 16,281.
+
+**Owner decisions standing open:**
+
+1. **Five scenery kinds have no mesh in any kit we own** — fountain, plinth, well, statue,
+   haystack. They stay honestly grey. Sourcing or building them is a real decision.
+2. **Monster models** are still unsourced; Quaternius's animated packs are pre-2022 flat-colour and
+   the art rule forbids mixing eras. Ultimate Monsters is Patreon-only.
+3. **Snow is 9× more common than rain** in the modal climate, and every zone runs the *same*
+   climate row, so wind is always zero. A per-zone climate table is what makes weather geography.
+4. The **LLM mob re-sweep** still wants a human eye.
+
+**Next, in the order the owner agreed:** the real float heading (#35 — retires the follow-freeze
+workaround and the last of the turn judder), client-side body collision (the server stops you but
+the client does not know, so you rubber-band), compression (kit trees are 5–15× the baked ones;
+25 MB of uncompressed atlas), then per-zone climates.
+
 ### Start here — 2026-08-13, end of day: the world has clothes, weather, and rooms with lids
 
 **Nine verified slices landed today, `main` at `d8535bc`** — a tenth (the sky wiring, task #29)
