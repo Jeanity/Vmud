@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "concurrently -n server,client,admin -c cyan,magenta,yellow \"npm:dev:server\" \"npm:dev:client\" \"npm:dev:admin\"",
     "dev:supervised": "concurrently -n supervisor,client,admin -c green,magenta,yellow \"npm:supervisor\" \"npm:dev:client\" \"npm:dev:admin\"",
+    "dev:3d": "concurrently -n supervisor,client3d,admin -c green,cyan,yellow \"npm:supervisor\" \"npm:dev:client3d\" \"npm:dev:admin\"",
     "dev:server": "npm run dev --workspace @mygame/server",
     "dev:client": "npm run dev --workspace @mygame/client",
     "dev:client3d": "npm run dev --workspace @mygame/client3d",

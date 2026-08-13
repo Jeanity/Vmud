@@ -600,6 +600,26 @@ templates in `data/world/overrides/mobs.json` were moved from `*/lizard` to `*/k
 `lizard` templates — lizard men, troglodytes, a grippli, a dryder — are **deliberately still humans**;
 they are not kobolds and would be wrong at 0.76 m.
 
+**`npm run dev:3d` starts the 3D world on its own — the 2D client is no longer in the loop.**
+It was never a runtime dependency; `dev:supervised` was simply the *only* script that started the
+game server, and it hard-wires `dev:client` into the same `concurrently` line. `dev:3d` is supervisor
++ client3d + admin. Verified with 5273 refusing connections: server on 8787, supervisor 8790, admin
+5274, 3D client 5280, and a socket to the game server opens fine.
+
+**What still needs the 2D client, and it is not login:**
+
+- **Making a new character.** The creation conversation — race cards, class cards, the roll in words,
+  five bonus points — is 656 lines that live only in the Phaser client. `client3d/login.ts` says so at
+  the door rather than stalling.
+- **Adopting a pre-Phase-21 save.** The server answers `charAdopt` for a record with history but no
+  identity trio, and the 3D gate has nothing to decide it with. **Measured: 121 of the 127 player
+  records are in that state** — but they are all `aldric*` test junk. The six real characters,
+  including **Azder**, carry `race`/`class`/`scores` and walk straight in.
+
+So in practice: log in and play entirely in 3D; reach for the 2D client only to roll a *new*
+character. A free name still boots directly (`?character=Name`), which is the one-URL path for a
+throwaway body.
+
 **Rituals that changed — get these wrong and you will chase ghosts:**
 
 - The suite is **3,057 green, 0 skipped**, and needs **three** env vars now:

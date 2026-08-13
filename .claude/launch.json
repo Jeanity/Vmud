@@ -4,7 +4,10 @@
     {
       "name": "mygame",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:supervised"],
+      "runtimeArgs": [
+        "run",
+        "dev:supervised"
+      ],
       "port": 5273
     },
     {
@@ -15,7 +18,10 @@
     {
       "name": "mygame3d",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:client3d"],
+      "runtimeArgs": [
+        "run",
+        "dev:3d"
+      ],
       "port": 5280
     }
   ]
