@@ -647,6 +647,18 @@ export interface Mob extends Actor {
    * `reset.ts`.
    */
   readonly vnum: number;
+  /**
+   * Duris' mob race code, copied off the template at spawn — `MobTemplate.race`.
+   *
+   * On the *instance* rather than looked up per frame from the template, because `viewOf` runs for
+   * every body in every watched room on every resync and a map probe per body per tick to learn a
+   * value that cannot change is work with a known answer. Absent for a template the harvest left
+   * unraced, which `appearance.raceScaleFor` reads as person-sized.
+   *
+   * Its first reader is {@link appearance.RACE_SIZE}; the handoff already expected a second at
+   * Phase 21, where aggression predicates and the racewar both need it.
+   */
+  readonly race?: string;
   // `equipped` is on `Actor` since Phase 16 — see the note there. A mob's is filled from the zone file's
   // `E` commands *after* it spawns, because `E` attaches to the last mobile loaded; `refitMobArmour`
   // folds the whole kit into `combat` once, rather than per piece.
@@ -2403,6 +2415,11 @@ export class Simulation {
     const look = appearanceOf({
       kind: actor.kind,
       sprite: actor.sprite,
+      // Mobs only. A player's height is their own race's and they have one — but nothing yet asks
+      // `RACES[identity.race]` for a size, and inventing one here would make a troll player 1.5x tall
+      // in a world whose doors, stairs and camera were all measured against 1.81 m. That is a
+      // decision, not an omission: the mobs are the population this slice was asked to fix.
+      ...(isMob(actor) && actor.race !== undefined ? { race: actor.race } : {}),
       ...(wearing ? { wearing } : {}),
       ...(holding ? { holding } : {}),
       ...(player && actor.hair !== undefined ? { hair: actor.hair } : {}),
@@ -2503,6 +2520,7 @@ export class Simulation {
       id: this.nextId++,
       kind: 'mob',
       vnum: template.vnum,
+      ...(template.race !== undefined ? { race: template.race } : {}),
       aggro: template.aggro,
       pursuit: template.pursuit,
       wimpyAt: template.wimpyAt,

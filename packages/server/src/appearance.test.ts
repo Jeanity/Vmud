@@ -25,11 +25,13 @@ import {
   BASE_PREFIX,
   CREATURE_PREFIX,
   appearanceOf,
+  bodyScaleFor,
   boundsOf,
   everyGearPartId,
   everyHairId,
   everyModelId,
   makeRng,
+  raceScaleFor,
   wearsOutfits,
   yawOf,
   type Item,
@@ -390,6 +392,8 @@ interface Template {
   readonly vnum: number;
   readonly name: string;
   readonly sprite: string;
+  /** Duris' mob race code, as harvested. Absent for a template the harvest left unraced. */
+  readonly race?: string;
 }
 
 /** Every mob template the server would load, with its `mobs.json` override applied — as it ships. */
@@ -407,7 +411,13 @@ function shippedTemplates(): readonly Template[] {
       // The same merge the server performs at boot, so this sweep sees the sprites the world uses
       // rather than the ones the harvest wrote.
       const merged = override ? (applyMobOverride(base as never, override) as unknown as Template) : base;
-      out.push({ vnum: base.vnum, name: base.name, sprite: merged.sprite });
+      out.push({
+        vnum: base.vnum,
+        name: base.name,
+        sprite: merged.sprite,
+        // Off the *harvest* rather than the merge: `mobs.json` overrides sprites, never races.
+        ...(typeof base.race === 'string' ? { race: base.race } : {}),
+      });
     }
   }
   return out;
@@ -514,6 +524,53 @@ describe('every body in the shipped world', { skip: HAVE_SPAWNS ? false : 'data/
     assert.ok(muscular.length > 100, `expected the martial row to be populous, got ${muscular.length}`);
     for (const t of muscular) {
       assert.equal(appearanceOf({ kind: 'mob', sprite: t.sprite })?.scale, undefined, `${t.vnum} ${t.name}`);
+    }
+  });
+
+  it('makes the giants giant, and counts every size the world actually ships', () => {
+    // **The second whole-world sweep, and it exists because the first one is blind to this axis.**
+    // The test above passes no `race`, so every assertion in it is about the body word alone — which
+    // was the whole truth until `RACE_SIZE` landed and is now a *subset* of it. A slice that added a
+    // second scale input and left only the first one swept would read as fully covered.
+    //
+    // Measured 2026-08-13 over the shipped harvest. Every count here is a join of two tables neither
+    // of which this project wrote: the harvest's `race` column, and `common.c`'s `race_size()`.
+    const byScale = new Map<number, string[]>();
+    for (const t of shippedTemplates()) {
+      const look = appearanceOf({ kind: 'mob', sprite: t.sprite, ...(t.race ? { race: t.race } : {}) });
+      const scale = look?.scale ?? 1;
+      (byScale.get(scale) ?? byScale.set(scale, []).get(scale)!).push(`${t.vnum} ${t.name}`);
+    }
+    const counts = [...byScale].sort(([a], [b]) => a - b).map(([scale, rows]) => [scale, rows.length]);
+
+    // The population is 1,503 and every one of them lands in a bucket the two tables predict.
+    assert.equal(
+      counts.reduce((n, [, rows]) => n + (rows as number), 0),
+      shippedTemplates().length,
+    );
+    // 168 `G` at 2.75 is the headline: the treants, the giants and everything the builders filed as
+    // one have stood at a grown man's height since M7b.
+    assert.ok((byScale.get(2.75) ?? []).length >= 150, `expected the giants, got ${(byScale.get(2.75) ?? []).length}`);
+    assert.ok((byScale.get(1.5) ?? []).length >= 90, `expected the trolls, got ${(byScale.get(1.5) ?? []).length}`);
+    assert.ok((byScale.get(2) ?? []).length >= 10, `expected the ogres, got ${(byScale.get(2) ?? []).length}`);
+
+    // **Age times race, over the real population** — the product, not either factor. A `child` of a
+    // large race must land on neither 0.72 nor 1.5.
+    const young = shippedTemplates().filter(
+      (t) => /^(child|teen)\//.test(t.sprite) && t.race !== undefined && raceScaleFor(t.race) !== 1,
+    );
+    for (const t of young) {
+      const look = appearanceOf({ kind: 'mob', sprite: t.sprite, race: t.race! });
+      const expected = bodyScaleFor(t.sprite.split('/')[0]!) * raceScaleFor(t.race!);
+      assert.equal(look?.scale, expected, `${t.vnum} ${t.name}`);
+    }
+
+    // **And the kobolds are not scaled twice.** Their mesh is authored at 0.756 m and `RACE_KOBOLD` is
+    // `SIZE_SMALL`; a kobold that picked up the 0.6 as well would be drawn at 0.45 m. This is the one
+    // assertion in the file that would fail if the creature branch were ever moved below the race one.
+    for (const t of shippedTemplates().filter((c) => c.sprite.endsWith('/kobold'))) {
+      const look = appearanceOf({ kind: 'mob', sprite: t.sprite, ...(t.race ? { race: t.race } : {}) });
+      assert.equal(look?.scale ?? 1, bodyScaleFor(t.sprite.split('/')[0]!), `${t.vnum} ${t.name} was scaled twice`);
     }
   });
 });

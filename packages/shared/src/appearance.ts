@@ -325,6 +325,155 @@ export function bodyScaleFor(bodyWord: string): number {
   return BODY_SCALE[bodyWord] ?? 1;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Race — the other axis, and the one the body word could not carry            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Duris' seven size classes, by their own ordinals — `defines.h:1113-1123`.
+ *
+ * Kept as the MUD's numbers rather than remapped to ours, because they are the join key to
+ * {@link RACE_SIZE} and because `SIZE_MEDIUM = 3` is a fact somebody will one day want to check
+ * against the C.
+ */
+export const SIZE_NONE = 0;
+export const SIZE_TINY = 1;
+export const SIZE_SMALL = 2;
+export const SIZE_MEDIUM = 3;
+export const SIZE_LARGE = 4;
+export const SIZE_HUGE = 5;
+export const SIZE_GIANT = 6;
+export const SIZE_GARGANTUAN = 7;
+
+/**
+ * **A mob race code to the size Duris gives it** — transcribed by *joining two tables in the source*,
+ * never by hand.
+ *
+ * `defines.h` writes the mob code in a comment beside every constant
+ * (`#define RACE_KOBOLD 32 /* mob race code: KB *\/`) and `common.c:172`'s `race_size()` switches on
+ * those constants, so the join is mechanical and was done mechanically. 100 races carry a code; only
+ * the 44 that are **not** `SIZE_MEDIUM` are listed here, because `race_size()`'s `default:` *is*
+ * medium and reproducing 54 rows that all say 3 would be 54 chances to typo one.
+ *
+ * ## Why race and not the body word
+ *
+ * {@link BODY_SCALE}'s own docblock states the gap and refuses to guess at it: *"The obvious other
+ * half of the feature — make giants giant — cannot be written from this table, because
+ * `BODY_WORDS.muscular` conflates size with role: its trigger list is `giant, ogre, troll, brute,
+ * huge, massive, hulking, warrior, guard, champion`. Scaling that row up would inflate every town
+ * guard in the world into an ogre."* That is still true. Race is the signal that does not conflate
+ * them — it is a harvested fact about the mobile rather than a word somebody matched in its name, and
+ * it is already on {@link MobTemplate.race} for a reader Phase 21 was going to add anyway.
+ *
+ * ## What it moves, measured over the shipped harvest
+ *
+ * ```
+ *   549  PH  human       medium        104  PT  troll       LARGE
+ *   382  H   humanoid    medium         75  PG  gnome       SMALL
+ *   168  G   giant       GIANT          17  PO  ogre        HUGE
+ *    93  PE  grey elf    medium         10  PF  halfling    SMALL
+ * ```
+ *
+ * **168 giants**, including *the huge treant*, have been drawn at a grown man's 1.81 m since M7b.
+ * That is the single largest visual correction still available, and it is one table away.
+ *
+ * No template in the shipped world is `D` (dragon) today. The row is here anyway, because the ladder
+ * has to answer for the top of the scale before somebody authors one rather than after.
+ */
+export const RACE_SIZE: Readonly<Record<string, number>> = {
+  A: SIZE_SMALL, // animal
+  AA: SIZE_SMALL, // primate
+  AE: SIZE_LARGE, // revenant
+  AP: SIZE_NONE, // parasite
+  AS: SIZE_TINY, // arachnid
+  AV: SIZE_GARGANTUAN, // avatar
+  B: SIZE_TINY, // flying animal
+  BH: SIZE_LARGE, // beholder
+  CN: SIZE_GARGANTUAN, // construct
+  CT: SIZE_LARGE, // centaur
+  D: SIZE_GARGANTUAN, // dragon
+  DK: SIZE_LARGE, // dragonkin
+  DR: SIZE_LARGE, // drider
+  DV: SIZE_NONE, // deva
+  E: SIZE_HUGE, // efreet
+  EA: SIZE_HUGE, // air elemental
+  EE: SIZE_HUGE, // earth elemental
+  EF: SIZE_HUGE, // fire elemental
+  EW: SIZE_HUGE, // water elemental
+  F: SIZE_TINY, // aquatic animal
+  FB: SIZE_HUGE, // firbolg
+  G: SIZE_GIANT, // giant
+  HF: SIZE_TINY, // faerie
+  HG: SIZE_SMALL, // goblin
+  I: SIZE_TINY, // insect
+  IE: SIZE_HUGE, // ice elemental
+  KB: SIZE_SMALL, // kobold
+  MT: SIZE_HUGE, // minotaur
+  PF: SIZE_SMALL, // halfling
+  PG: SIZE_SMALL, // gnome
+  PO: SIZE_HUGE, // ogre
+  PT: SIZE_LARGE, // troll
+  PW: SIZE_LARGE, // purple worm
+  R: SIZE_TINY, // reptile
+  RS: SIZE_TINY, // snake
+  SA: SIZE_SMALL, // shade
+  SO: SIZE_LARGE, // snow ogre
+  SW: SIZE_NONE, // shadow
+  TT: SIZE_GARGANTUAN, // titan
+  US: SIZE_LARGE, // psionic beast
+  VE: SIZE_HUGE, // vapour elemental
+  VT: SIZE_GIANT, // plant
+  X: SIZE_GIANT, // demon
+  Y: SIZE_GIANT, // devil
+};
+
+/**
+ * What each size class draws at, as a multiple of the base body's **1.81 m** — the one table here
+ * that is a judgement rather than a transcription, and it says so.
+ *
+ * Duris' sizes are *ordinals*: `race_size()` returns 1..7 and the C never says how tall any of them
+ * is, because a MUD does not need to know. A renderer does. So the ladder is anchored at the two ends
+ * we can actually measure and interpolated with the Realms' own reference heights in between:
+ *
+ * ```
+ *   TINY        0.30   0.54 m   a faerie, a snake — mostly `creature:` capsules already
+ *   SMALL       0.60   1.09 m   a gnome (3'6" = 1.07 m), a halfling (3'0")
+ *   MEDIUM      1.00   1.81 m   MEASURED — the base body, as authored
+ *   LARGE       1.50   2.72 m   a troll (9')
+ *   HUGE        2.00   3.62 m   an ogre, a minotaur, an elemental
+ *   GIANT       2.75   4.98 m   a hill giant (16')
+ *   GARGANTUAN  4.00   7.24 m   a dragon, a titan
+ * ```
+ *
+ * **`SIZE_NONE` is 1 and not 0**, deliberately: it means *"this race has no body"* (a shadow, a deva,
+ * a parasite), which is a statement about incorporeality rather than about height, and a zero scale
+ * is a mesh collapsed to a point rather than a ghost. Drawing it at adult height is the same
+ * placeholder answer the renderer already gives anything it has no art for.
+ *
+ * **The top of the ladder is checked against the room.** A room is `ROOM_METRES` across — 9 m — so a
+ * gargantuan at 7.24 m stands nearly as tall as its room is wide. That is intended and it is the
+ * point; it is also why the ladder stops at 4.0 rather than reaching for a dragon's real 12 m, which
+ * would put a body through the ceiling of every interior in the world.
+ *
+ * **A creature with its own mesh never comes here.** The kobold is authored at 0.756 m and is
+ * `SIZE_SMALL`; multiplying it by 0.60 would draw it at 0.45 m, which is the double-count this
+ * separation exists to prevent. See {@link appearanceOf} — the creature branch returns before the
+ * race is ever read, and `characters.BodyTemplate.composable` is the renderer's name for the same
+ * distinction.
+ */
+export const SIZE_SCALE: readonly number[] = [1, 0.3, 0.6, 1, 1.5, 2, 2.75, 4];
+
+/**
+ * The multiple a race draws at. **1 for an unknown code**, which is the same answer an unknown body
+ * word gets and for the same reason: a harvest that grew a race this table has never heard of should
+ * put a person-sized body in the world, not nothing and not a guess.
+ */
+export function raceScaleFor(race: string | undefined): number {
+  if (race === undefined) return 1;
+  const size = RACE_SIZE[race];
+  return size === undefined ? 1 : (SIZE_SCALE[size] ?? 1);
+}
+
 const BASE_BODY_FOR: Readonly<Record<BodySex, string>> = {
   female: 'Superhero_Female_FullBody',
   male: 'Superhero_Male_FullBody',
@@ -769,6 +918,18 @@ export interface AppearanceSubject {
   readonly kind: 'player' | 'mob' | 'item';
   /** The 2D sprite key: `body/head`, or a bare word for a body the sweep never classified. */
   readonly sprite: string;
+  /**
+   * Duris' **mob race code** — `MobTemplate.race`, the fourth column of `race_names_table`.
+   *
+   * The only input here that is a *harvested* fact rather than a derived one, and that is exactly why
+   * it is the one that can carry size: every other signal about how big a body is has been a word
+   * somebody matched in its name. See {@link RACE_SIZE}.
+   *
+   * Absent for a player (a body word and a class already describe them) and for any template the
+   * harvest left unraced, and absent means **1** — a person-sized body, which is what the whole world
+   * has been drawn at until now.
+   */
+  readonly race?: string;
   /** Slot → art class, exactly `EntityView.wearing`. */
   readonly wearing?: Readonly<Record<string, string>>;
   /**
@@ -821,8 +982,13 @@ export function appearanceOf(subject: AppearanceSubject): Appearance | undefined
   // Read before the animal branch, deliberately: a `child/wolf` is a wolf **cub**, and the placeholder
   // capsule `entities.ts` draws for it should be the smaller one. Scale is a fact about the body word
   // and the body word is on every sprite, mesh or no mesh.
-  const scale = bodyScaleFor(body);
-  const scaled = scale === 1 ? {} : { scale };
+  //
+  // **Age times race, and they multiply.** The body word says how far through its own life a body is
+  // and the race says how big its kind gets, so a `child/giant` is a giant's child — 0.72 x 2.75 —
+  // rather than either a small human or a full-grown giant. Neither number can be derived from the
+  // other, which is the whole argument for reading two.
+  const ageScale = bodyScaleFor(body);
+  const scaled = ageScale === 1 ? {} : { scale: ageScale };
 
   // An animal, and we have no animal meshes. The class is the head shape the 2D sweep chose, so this
   // is a rename away from being a real model id the day one exists.
@@ -850,6 +1016,15 @@ export function appearanceOf(subject: AppearanceSubject): Appearance | undefined
 
   const sex = SEX_FOR_BODY_WORD[body] ?? 'male';
   const model = `${BASE_PREFIX}${BASE_BODY_FOR[sex]}`;
+
+  // **The race scale lands here and nowhere above it.** Everything before this line either has a mesh
+  // of its own (a kobold, authored at its true 0.756 m) or no mesh at all (a wolf's capsule, sized by
+  // `body.CREATURE_LOOK`); both already know how big they are, and multiplying either by its race
+  // would be counting the same fact twice. This is the branch that draws a body with the *human* mesh,
+  // and the human mesh is 1.81 m whatever is wearing it — so this is the only branch where "how big
+  // is this kind of thing" is still an open question. See `SIZE_SCALE`.
+  const scale = ageScale * raceScaleFor(subject.race);
+  const sized = scale === 1 ? {} : { scale };
 
   // A player wears what the character sheet says. **A mob wears its template's cut even now that it
   // has a real equipment list**, and the reason changed in Phase 16 from "it has none" to a measured
@@ -886,7 +1061,7 @@ export function appearanceOf(subject: AppearanceSubject): Appearance | undefined
     ...(gear.length > 0 ? { gear } : {}),
     ...(hair ? { hair } : {}),
     ...(hands ? { hands } : {}),
-    ...scaled,
+    ...sized,
   };
 }
 
