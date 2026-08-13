@@ -37,7 +37,6 @@ import {
   normaliseIntent,
   pursues,
   samePlace,
-  stepMovement,
   tileCentre,
   type Direction,
   type PursuitRule,
@@ -575,7 +574,10 @@ export function advanceHunts(
       const distance = Math.min((AMBLE_SPEED * elapsedMs) / 1000, Math.hypot(dx, dy));
       const startX = mob.x;
       const startY = mob.y;
-      const next = stepMovement(grid, mob.x, mob.y, intent.x, intent.y, distance);
+      // Bodies are solid, so the shuffle goes through the simulation's mover rather than straight at
+      // the tiles: an amble toward a spot somebody else is standing on should stop short of them, and
+      // the stall-heal below is already the right answer when it does.
+      const next = sim.stepActor(mob, grid, intent.x, intent.y, distance);
       mob.x = next.x;
       mob.y = next.y;
       if (mob.x === startX && mob.y === startY) {
@@ -696,7 +698,10 @@ export function advanceHunts(
     const before = mob.roomId;
     const startX = mob.x;
     const startY = mob.y;
-    const next = stepMovement(grid, mob.x, mob.y, intent.x, intent.y, distance);
+    // The same mover the player walk and the station-keeper use, so a walker rounds a body standing in
+    // the room rather than gliding through it. Threshold ground is exempt (see `bodySolidAt`), which is
+    // what stops a queue of wanderers from corking the doorway they are all heading for.
+    const next = sim.stepActor(mob, grid, intent.x, intent.y, distance);
     mob.x = next.x;
     mob.y = next.y;
     if (mob.x === startX && mob.y === startY) {

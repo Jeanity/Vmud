@@ -35,7 +35,6 @@ import {
   normaliseIntent,
   roomAtTile,
   samePlace,
-  stepMovement,
 } from '@mygame/shared';
 
 import { HUNT_SPEED } from './hunt.ts';
@@ -127,7 +126,14 @@ export function advanceStations(sim: Simulation, world: GameWorld, elapsedMs: nu
     const heading = normaliseIntent(target.x - actor.x, target.y - actor.y);
     // Clamped to the gap, never past it. Overshooting is what makes a follower orbit its target —
     // the same clamp click-to-move applies to its waypoints, and for the same reason.
-    const next = stepMovement(grid, actor.x, actor.y, heading.x, heading.y, Math.min(reach, gap));
+    //
+    // **The numbers reconcile, and it is worth stating why this pass is safe.** Bodies keep
+    // `BODY_SEPARATION` — 20px — between their centres, and {@link MELEE_STATION} is `TILE_SIZE`, 32.
+    // A fighter therefore stops 12px *outside* the radius that would refuse it, so solid bodies can
+    // never leave one jittering against its opponent while the round timer fires. Several mobs on one
+    // target still fit: two points 32px from the same centre need only 36.4° between them to keep 20px
+    // apart, so nine can ring a player before the last one has to stand off.
+    const next = sim.stepActor(actor, grid, heading.x, heading.y, Math.min(reach, gap));
 
     // A step that would leave the room is refused outright, which cannot normally happen — the target
     // is in this room and the mob is closing on it — but a doorway on the direct line would otherwise

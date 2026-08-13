@@ -76,6 +76,15 @@ export interface ResetOutcome {
   readonly atLimit: number;
   /** Doors put back to their authored state. */
   readonly doors: number;
+  /**
+   * Mobs this pass could not give a tile of their own — **placed anyway, and counted**.
+   *
+   * A missing mob is worse than an overlap, so `spawnMob` degrades to sharing a tile when a room has
+   * more bodies than standable floor (zone 168's Cubs Den is the case that motivated it). Reporting the
+   * number is what keeps that from being a silent policy: a zone that crowds every reset is a zone
+   * whose population outgrew its geometry, and this is the only place that would ever say so.
+   */
+  readonly crowded: number;
   /** Pieces of kit put on or into the mobs that were loaded. Phase 15c. */
   readonly kitted: number;
   /**
@@ -186,6 +195,10 @@ export function runReset(
   const contents: { template: ItemTemplate; container: number }[] = [];
   const placedThisPass = new Map<number, number>();
   let doors = 0;
+  // Diffed rather than returned per spawn: `spawnMob` answers with a `Mob` and nothing else, and
+  // threading a placement report back through it would put a rendering concern in its signature for
+  // the sake of one counter. The tally is monotonic, so a before/after pair is this pass's share.
+  const crowdedBefore = sim.crowding.stacked + sim.crowding.blocked;
 
   // The explicit chain state §4.9 asks for. `lastSucceeded` gates a command whose `ifPrevious` is set;
   // `lastMob` is the separate cursor that lets a mob's kit keep loading after one piece of it fails
@@ -368,7 +381,8 @@ export function runReset(
 
   clock.age = 0;
   clock.lifespan = rollLifespan(clock.spawns, rng);
-  return { zone: clock.spawns.zone, spawned, atLimit, doors, kitted, objects, contents };
+  const crowded = sim.crowding.stacked + sim.crowding.blocked - crowdedBefore;
+  return { zone: clock.spawns.zone, spawned, atLimit, doors, kitted, objects, contents, crowded };
 }
 
 /**

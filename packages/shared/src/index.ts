@@ -34,6 +34,9 @@ export * from './chargen-resume.ts';
 export * from './protocol.ts';
 export * from './scenery.ts';
 export * from './tilemap.ts';
+// Solid bodies: the collision and placement rules for whoever is standing on the floor `tilemap.ts`
+// draws. One module because "may not walk into" and "may not be placed on" are one fact.
+export * from './bodies.ts';
 // M0 of the 3D migration: the simulation -> renderer axis map. Pure numbers, no renderer.
 export * from './space.ts';
 // M2: the scene IR — one room and its four neighbours described, purely, with no GPU anywhere.

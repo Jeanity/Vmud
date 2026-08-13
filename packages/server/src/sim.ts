@@ -97,7 +97,11 @@ import {
   type Stack,
   samePlace,
   statusFor,
-  stepMovement,
+  BODY_SEPARATION,
+  placeBody,
+  stepBody,
+  type BodyPoint,
+  type Landing,
   type Posture,
   type Status,
   type SkillId,
@@ -125,6 +129,17 @@ import { LOCKS_HOLD, placeOf, type GameWorld } from './world.ts';
 
 /** Pixels a character covers in one tick at walking pace — 15 at today's numbers. */
 const STEP_PER_TICK = PLAYER_SPEED * (TICK_MS / 1000);
+
+/**
+ * How far around a mover {@link Simulation.bodiesNear} looks for something to bump into — 84px.
+ *
+ * Two tiles plus the separation, which is comfortably more than any pair of bodies can close in one
+ * tick: the fastest thing in the world is `HUNT_SPEED` at 192px/s, so both of them together cover
+ * 38.4px per 100ms tick and would still be inside the box when the test runs. Larger than it needs to
+ * be on purpose — the cost is a subtraction per actor and the failure it prevents is a body that walks
+ * through another because the query missed it by a pixel.
+ */
+const BODY_QUERY_REACH = TILE_SIZE * 2 + BODY_SEPARATION;
 
 /**
  * The three pools, and where each one lives on {@link Player}.
@@ -787,9 +802,97 @@ export class Simulation {
    */
   private readonly relit = new Set<EntityId>();
   private nextId = 1;
+  private readonly crowdingTally = { stacked: 0, blocked: 0 };
 
   constructor(world: GameWorld) {
     this.world = world;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Solid bodies — the two funnels                                      */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * **The one way a body moves continuously**, and the reason it is a method rather than four calls to
+   * `stepBody`.
+   *
+   * Four passes move a body a fraction of a tile at a time — the player walk in {@link tick},
+   * `hunt.ts`'s in-room drift and its room-to-room walk, and `station.ts` closing a fighter to melee —
+   * and they must not disagree about what a body may walk through. Routing all four through here means
+   * a fifth mover written next year gets the rule by construction; the alternative is a discipline, and
+   * this file's history is a list of disciplines that were forgotten once.
+   *
+   * With nothing solid nearby this is `stepMovement` exactly, so terrain behaviour is untouched.
+   */
+  stepActor(
+    actor: Actor,
+    grid: TileGrid,
+    intentX: number,
+    intentY: number,
+    distance: number,
+  ): { x: number; y: number } {
+    return stepBody(grid, actor, intentX, intentY, distance, this.bodiesNear(actor));
+  }
+
+  /**
+   * Everyone close enough to `actor` to be worth testing against.
+   *
+   * A box rather than the room, and deliberately: two outdoor rooms merge along their whole shared
+   * edge, so a body standing just over a seam is inches away on the same continuous ground while being
+   * in a different room entirely. {@link BODY_QUERY_REACH} is generously larger than one tick's travel
+   * plus {@link BODY_SEPARATION}, so nothing can cross the box's edge and the separation in one step.
+   *
+   * O(actors) per mover per tick, which is the cost `actorsIn` and `playersIn` already pay several
+   * times a tick; movers are a handful even in a busy zone.
+   */
+  private *bodiesNear(actor: Actor): Iterable<BodyPoint> {
+    for (const other of this.actors.values()) {
+      if (other.id === actor.id) continue;
+      if (!samePlace(other.place, actor.place)) continue;
+      if (Math.abs(other.x - actor.x) > BODY_QUERY_REACH) continue;
+      if (Math.abs(other.y - actor.y) > BODY_QUERY_REACH) continue;
+      yield other;
+    }
+  }
+
+  /**
+   * **The one way a body is put on the floor** — spawns, zone resets and arrivals alike.
+   *
+   * Answers in *pixels* rather than tiles, because that is what every caller assigns to `x`/`y`, and
+   * tallies the degradations on the way past so a crowded den shows up as a number rather than as two
+   * kobolds in the same square. `self` is excluded from the occupancy scan: a body being relocated is
+   * still standing wherever it was and must not refuse its own destination.
+   */
+  private landing(
+    grid: TileGrid,
+    place: Place,
+    roomId: RoomId,
+    origin: { readonly tx: number; readonly ty: number },
+    prefer: { readonly tx: number; readonly ty: number },
+    self?: EntityId,
+  ): { x: number; y: number; landing: Landing } {
+    const occupied: BodyPoint[] = [];
+    for (const other of this.actors.values()) {
+      if (other.id === self) continue;
+      if (other.roomId !== roomId) continue;
+      if (!samePlace(other.place, place)) continue;
+      occupied.push(other);
+    }
+    const landing = placeBody(grid, roomId, origin, prefer, occupied);
+    if (landing.stacked) this.crowdingTally.stacked++;
+    if (landing.blocked) this.crowdingTally.blocked++;
+    return { x: tileCentre(landing.tx), y: tileCentre(landing.ty), landing };
+  }
+
+  /**
+   * How many bodies have had to be placed badly, ever, on this server.
+   *
+   * **A missing mob is worse than an overlap**, so {@link landing} degrades rather than refusing — but a
+   * degradation that nobody can see is indistinguishable from a bug. `reset.ts` reads this before and
+   * after a pass to report what that pass cost, and the boot log prints the total.
+   */
+  get crowding(): { readonly stacked: number; readonly blocked: number } {
+    return this.crowdingTally;
   }
 
   get tickMs(): number {
@@ -867,9 +970,12 @@ export class Simulation {
   spawn(name: string, rng: Rng, classId?: ClassId): Player {
     const spawnRoom = this.world.spawnRoom();
     const place = placeOf(spawnRoom);
-    const origin = this.world.grid(place)?.roomOrigins.get(spawnRoom.id);
-    if (!origin) throw new Error(`spawn room ${spawnRoom.id} is not on any rendered grid`);
-    const centre = roomCentre(origin);
+    const grid = this.world.grid(place);
+    const origin = grid?.roomOrigins.get(spawnRoom.id);
+    if (!grid || !origin) throw new Error(`spawn room ${spawnRoom.id} is not on any rendered grid`);
+    // The centre is the preference, not the destination: a second character logging in should not land
+    // inside the first, and the recall room is as entitled to a fountain in the middle as any other.
+    const spot = this.landing(grid, place, spawnRoom.id, origin, roomCentre(origin));
 
     // **Phase 14b: the MUD's scale, not the SRD's.** `maxHitPoints(8, 1, 1)` gave 9 — the SRD's
     // d8-plus-Con — and the gentlest creature in the world is a level-2 baby kobold with 23. The
@@ -887,8 +993,8 @@ export class Simulation {
       // client's business — see `Actor.sprite`.
       sprite: 'human',
       // Centre of the tile, not its corner, so the collision box starts clear of walls.
-      x: tileCentre(centre.tx),
-      y: tileCentre(centre.ty),
+      x: spot.x,
+      y: spot.y,
       facing: 'south',
       roomId: spawnRoom.id,
       place,
@@ -1974,7 +2080,12 @@ export class Simulation {
       // One movement routine for both kinds of movement. Click-to-move deliberately owns no code
       // here beyond choosing the direction: a second implementation would drift from the client's
       // predictor and desync every walk.
-      const next = stepMovement(grid, player.x, player.y, intentX, intentY, distance);
+      //
+      // **And one routine for walls and bodies both** — {@link stepActor}, since bodies became solid.
+      // A route is planned over the tilemap and cannot see a mob standing on it, so the deflection in
+      // `stepBody` is what keeps the stall counter below from ending an honest walk as `'stuck'`
+      // merely because something was in the way.
+      const next = this.stepActor(player, grid, intentX, intentY, distance);
 
       // **`DESIGN-engagement.md` §4: steering works inside the room, every exit is refused.**
       //
@@ -2080,8 +2191,9 @@ export class Simulation {
   relocate(actor: Actor, roomId: RoomId, heading?: Direction): Place | undefined {
     const target = this.world.locate(roomId);
     if (!target) return undefined;
-    const origin = this.world.grid(target.place)?.roomOrigins.get(roomId);
-    if (!origin) return undefined;
+    const grid = this.world.grid(target.place);
+    const origin = grid?.roomOrigins.get(roomId);
+    if (!grid || !origin) return undefined;
 
     // **You arrive at the wall you came through, not in the middle of the floor.** Owner's report
     // (2026-08-03): landing on the centre meant every body that changed room stacked on one tile, and
@@ -2089,12 +2201,20 @@ export class Simulation {
     // north puts you at the southern edge. Omitted — a teleport, a respawn, a portal — keeps the
     // centre, which is honest when nothing was walked through. The lateral spread is the actor's id
     // rather than a roll, so no `Rng` has to reach this and a restart still reproduces the world.
+    //
+    // The spread is a **preference** since bodies became solid, for two reasons it never covered. Two
+    // ids that fold to the same lateral offset still collided, and the tile it picks is picked blind:
+    // `arrivalTile` knows the room's width and nothing about the scenery stamped into it, so an arrival
+    // could land in a prop exactly as a spawn could. {@link landing} keeps the answer when it is a
+    // legal one and walks outward from it when it is not, so the arrival fiction survives and the
+    // failures do not.
     const arrival = arrivalTile(origin, lateralHeading(heading), actor.id);
+    const spot = this.landing(grid, target.place, roomId, origin, arrival, actor.id);
     actor.place = target.place;
     actor.roomId = roomId;
     // Centre of the tile, not its corner, so the collision box starts clear of walls.
-    actor.x = tileCentre(arrival.tx);
-    actor.y = tileCentre(arrival.ty);
+    actor.x = spot.x;
+    actor.y = spot.y;
 
     // **You face the way you walked.** Owner's report, 2026-08-13: *"the mobs have a tendency to run
     // backwards"* — and this is where most of that came from. Every other mover already turns itself:
@@ -2310,8 +2430,16 @@ export class Simulation {
    *
    * The tile is rolled too, from the same stream. Duris has no notion of where in a room something
    * stands — a room is a point there — so a position has to come from somewhere, and stacking every
-   * inhabitant on the centre tile would put them exactly where an arriving player lands. A room's floor is
-   * `ROOM_TILES` square and carved walkable by `buildZoneTilemap`, so any offset inside it is valid ground.
+   * inhabitant on the centre tile would put them exactly where an arriving player lands.
+   *
+   * **The roll is a preference, not the answer.** *"A room's floor is `ROOM_TILES` square and carved
+   * walkable"* is what this comment used to claim, and it was wrong twice over: V8d stamps scenery into
+   * the room block as solid `Prop` and `Blocker` cells, and nothing here looked at who was standing
+   * there already. Both bills came due on 2026-08-13 — the owner photographed a kobold youth in room
+   * 41260 with its head and shoulders out of the top of a grey scenery block, and asked in the same
+   * session that bodies never load on top of each other. {@link landing} takes the rolled tile and
+   * returns the nearest one a body can actually stand on, so the RNG stream is untouched and only a
+   * bad roll moves.
    *
    * Answers nothing when the room is not on a rendered grid — a reset command for a zone this server does
    * not load. That is a configuration that has moved on, not a broken build, so the caller counts it.
@@ -2320,8 +2448,9 @@ export class Simulation {
     const located = this.world.locate(roomId);
     if (!located) return undefined;
     const place = placeOf(located.room);
-    const origin = this.world.grid(place)?.roomOrigins.get(roomId);
-    if (!origin) return undefined;
+    const grid = this.world.grid(place);
+    const origin = grid?.roomOrigins.get(roomId);
+    if (!grid || !origin) return undefined;
 
     // A template whose hp expression the harvest let through unparseable would otherwise be a mob with
     // NaN hit points, which reads as a health bar that never moves. One point is a body; zero is nothing.
@@ -2329,6 +2458,7 @@ export class Simulation {
     const maxHp = dice ? Math.max(1, rollDice(rng, dice)) : 1;
     const tx = origin.tx + Math.floor(rng() * ROOM_TILES);
     const ty = origin.ty + Math.floor(rng() * ROOM_TILES);
+    const spot = this.landing(grid, place, roomId, origin, { tx, ty });
 
     const mob: Mob = {
       id: this.nextId++,
@@ -2340,8 +2470,8 @@ export class Simulation {
       name: template.name,
       sprite: template.sprite,
       // Centre of the tile, as `spawn` does, so the collision box starts clear of walls.
-      x: tileCentre(tx),
-      y: tileCentre(ty),
+      x: spot.x,
+      y: spot.y,
       facing: 'south',
       roomId,
       place,

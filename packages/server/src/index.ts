@@ -1127,7 +1127,11 @@ for (const spawns of loadedSpawns) {
     `[pop] zone ${String(spawns.zone).padStart(4)} "${world.zone(spawns.zone)?.name ?? '?'}" — ` +
       `${String(outcome.spawned.length).padStart(4)} mobs from ${spawns.templates.length} templates, ` +
       `${outcome.doors} doors set, ${outcome.kitted} pieces of kit, ${dropped} objects; next reset in ${clock.lifespan} ticks ` +
-      `(${Math.round((clock.lifespan * ZONE_TICK_MS) / 60_000)} min)`,
+      `(${Math.round((clock.lifespan * ZONE_TICK_MS) / 60_000)} min)` +
+      // Only when it happened, so the ordinary line stays the shape it has always been. A den with more
+      // bodies than standable floor still gets all of them — see `placeBody` — and this is the only
+      // place that would ever say the world had to give something up to manage it.
+      (outcome.crowded > 0 ? `; ${outcome.crowded} placed on a shared tile` : ''),
   );
 }
 if (loadedSpawns.length === 0) {
@@ -11468,7 +11472,8 @@ setInterval(() => {
     if (outcome.spawned.length === 0 && outcome.doors === 0 && droppedNow === 0) continue;
     console.log(
       `[pop] zone ${outcome.zone} repopped: +${outcome.spawned.length} mobs, ` +
-        `${outcome.doors} doors reset, +${droppedNow} objects, ${outcome.atLimit} already at limit`,
+        `${outcome.doors} doors reset, +${droppedNow} objects, ${outcome.atLimit} already at limit` +
+        (outcome.crowded > 0 ? `, ${outcome.crowded} on a shared tile` : ''),
     );
     // Anyone standing where something appeared has to be told. Presence is per-observer and gated on
     // light, so `syncEntitiesIn` is the right call rather than a broadcast — a mob that repopped in a dark

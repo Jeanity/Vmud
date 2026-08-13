@@ -292,16 +292,28 @@ describe('path following', () => {
   it('covers exactly the same ground per tick as keyboard movement', () => {
     // The guard on "one movement code path". If click-to-move ever grows its own stepping, these two
     // drift apart and client-side prediction breaks for one of them.
-    const { world, sim, player: manual } = makeSim();
-    const clicker = sim.spawn('Clicker', makeRng(1));
+    //
+    // **One walker per simulation, since bodies became solid.** Both used to spawn into the same world
+    // and stand on the same tile, which is exactly the stacking the owner asked us to stop
+    // (2026-08-13) — `spawn` now walks the second one off the centre, so they start a tile apart, aim
+    // from different places and bump into each other on the way. Separate worlds restore the only
+    // thing this case was ever about: two ways of asking for a step, one routine that takes it.
+    const manualSide = makeSim();
+    const clickSide = makeSim();
+    const manual = manualSide.player;
+    const clicker = clickSide.player;
+    assert.deepEqual(tileOf(manual), tileOf(clicker), 'the two fixtures must start level');
 
-    sim.setIntent(manual.id, 1, 0);
-    const seen = seenWalking(gridOf(world, clicker), WEST, MIDDLE);
-    const result = plan(world, clicker, seen, MIDDLE);
+    manualSide.sim.setIntent(manual.id, 1, 0);
+    const seen = seenWalking(gridOf(clickSide.world, clicker), WEST, MIDDLE);
+    const result = plan(clickSide.world, clicker, seen, MIDDLE);
     assert.ok(result.ok);
-    sim.setPath(clicker, result.points);
+    clickSide.sim.setPath(clicker, result.points);
 
-    for (let i = 0; i < 5; i++) sim.tick();
+    for (let i = 0; i < 5; i++) {
+      manualSide.sim.tick();
+      clickSide.sim.tick();
+    }
     assert.equal(clicker.x, manual.x);
     assert.equal(clicker.y, manual.y);
     assert.ok(clicker.x > centrePx(WEST.tx), 'both should have actually moved');
