@@ -8,7 +8,7 @@
  *    plausible opposite (`orbit.ts`'s header argues each), and both are invisible in a screenshot —
  *    a reversed yaw looks like a working camera going the wrong way.
  * 2. **The wrap.** A yaw is a circle; the pose that comes out of a drag across the seam has to be a
- *    yaw and not 181 degrees, or `followStep`'s shortest arc has two targets to choose between.
+ *    yaw and not 181 degrees, or `followSpring`'s shortest arc has two targets to choose between.
  * 3. **The discrimination.** A Shift+drag must send no `moveTo` and start no steer; an unshifted
  *    press must still do both, on the same button, on the same element. This is the property with
  *    the most ways to be *nearly* right.
@@ -25,14 +25,14 @@ import { DEFAULT_POSE, type CameraPose } from './dolly.ts';
 import { HOLD_THRESHOLD_MS, PointerControl, type PointerTarget } from './pointer.ts';
 import { CAMERA_PITCH_MAX, CAMERA_PITCH_MIN } from './rig.ts';
 import {
-  FOLLOW_HALF_LIFE_S,
+  FOLLOW_SMOOTH_SECONDS,
   FOLLOW_SETTLE_DEGREES,
   FollowCamera,
   ORBIT_DEGREES_PER_PIXEL,
   OrbitControl,
   TILT_DEGREES_PER_PIXEL,
   claimsOrbit,
-  followStep,
+  followSpring,
   orbitTo,
 } from './orbit.ts';
 
@@ -198,28 +198,58 @@ describe('the orbit gesture, against click-to-move and hold-to-steer', () => {
 });
 
 describe('follow mode', () => {
-  it('closes half the angle every half-life, whatever the frame rate', () => {
-    // The property that makes the constant mean something: two half-steps and one whole step have to
-    // land in the same place, or the camera swings at a speed that depends on the machine.
-    const oneStep = followStep(0, 90, FOLLOW_HALF_LIFE_S);
-    let two = followStep(0, 90, FOLLOW_HALF_LIFE_S / 2);
-    two = followStep(two, 90, FOLLOW_HALF_LIFE_S / 2);
-    assert.ok(Math.abs(oneStep - two) < 1e-9, `${oneStep} vs ${two}`);
-    assert.ok(Math.abs(oneStep - 45) < 1e-9, 'a half-life must close exactly half the angle');
-    // 90% in a second, which is the number `orbit.ts` writes down and a stopwatch could check.
-    let yaw = 0;
-    for (let i = 0; i < 60; i++) yaw = followStep(yaw, 90, 1 / 60);
-    assert.ok(yaw > 81 && yaw < 82, `${yaw}° of 90 after one second`);
+  it('starts at rest, which is the whole of why it replaced the exponential', () => {
+    // The owner's report — "it almost snaps to the new view" — was a description of exponential
+    // decay, whose speed is *maximal* the instant the target jumps. A critically damped spring
+    // begins at rest. So the first frame of a 90-degree corner must move only a little, where the
+    // old ease threw away 45 degrees in its first half-life.
+    const first = followSpring(0, 90, 0, 1 / 60);
+    assert.ok(first.yaw > 0 && first.yaw < 3, `${first.yaw}° in the first frame is a lurch`);
+    assert.ok(first.velocity > 0, 'and it must be moving by the end of that frame');
+
+    // It accelerates: the second frame covers more ground than the first.
+    const second = followSpring(first.yaw, 90, first.velocity, 1 / 60);
+    assert.ok(second.yaw - first.yaw > first.yaw, 'the swing should build, not decay from the start');
+  });
+
+  it('arrives without overshooting, at any frame rate', () => {
+    // Critically damped means exactly this: it gets there and stops, rather than sailing past and
+    // coming back. A camera that overshoots a corner reads as a wobble on every turn.
+    for (const dt of [1 / 240, 1 / 60, 1 / 30, 1 / 10]) {
+      let yaw = 0;
+      let velocity = 0;
+      let worst = 0;
+      for (let i = 0; i < 600; i++) {
+        ({ yaw, velocity } = followSpring(yaw, 90, velocity, dt));
+        worst = Math.max(worst, yaw);
+      }
+      assert.ok(worst <= 90 + 1e-6, `overshot to ${worst}° at ${dt}s frames`);
+      assert.ok(Math.abs(yaw - 90) < 0.5, `${yaw}° of 90 after ten seconds at ${dt}s frames`);
+    }
+  });
+
+  it('turns a corner in about the time the constant claims, whatever the frame rate', () => {
+    // Frame-rate independence is the property that keeps the camera feeling the same on every
+    // machine. The integrator is a rational approximation rather than a closed form, so this is a
+    // tolerance rather than an identity — but a 4x change in frame time must not change the feel.
+    const after = (dt: number, seconds: number): number => {
+      let yaw = 0;
+      let velocity = 0;
+      for (let i = 0; i < Math.round(seconds / dt); i++) ({ yaw, velocity } = followSpring(yaw, 90, velocity, dt));
+      return yaw;
+    };
+    const fast = after(1 / 240, FOLLOW_SMOOTH_SECONDS);
+    const slow = after(1 / 30, FOLLOW_SMOOTH_SECONDS);
+    assert.ok(Math.abs(fast - slow) < 2, `${fast}° vs ${slow}° — the frame rate changed the swing`);
+    // And it is substantially there by the time the constant names, without being finished early.
+    assert.ok(fast > 50 && fast < 85, `${fast}° of 90 after ${FOLLOW_SMOOTH_SECONDS}s`);
   });
 
   it('takes the short way round, including across the seam', () => {
     // 170 to -170 is a 20° swing through south, not a 340° tour through north. A camera that took the
-    // long way would spin the whole world exactly once per turn, which is the M7b body-yaw trap one
-    // level up — and the reason this is degrees and half-life where that one is radians and rate.
-    const step = followStep(170, -170, FOLLOW_HALF_LIFE_S);
-    assert.ok(step > 170 || step <= -170, `${step} took the long way`);
-    assert.ok(Math.abs(followStep(170, -170, 100) - -170) < 1e-9, 'a long step must arrive, not overshoot');
-    assert.ok(followStep(-170, 170, FOLLOW_HALF_LIFE_S) < -170 + 1e-9 || followStep(-170, 170, 0.3) > 170);
+    // long way would spin the whole world exactly once per turn.
+    const step = followSpring(170, -170, 0, 1 / 60);
+    assert.ok(step.yaw > 170 || step.yaw <= -170, `${step.yaw} took the long way`);
     // Every answer is a wrapped yaw, or the pose that comes out is not one the rig would accept.
     for (const [from, to] of [
       [179, -179],
@@ -227,18 +257,22 @@ describe('follow mode', () => {
       [0, 180],
       [90, -90],
     ] as const) {
-      const out = followStep(from, to, 0.1);
-      assert.ok(out > -180 && out <= 180, `${out} is not a wrapped yaw`);
+      const out = followSpring(from, to, 0, 0.1);
+      assert.ok(out.yaw > -180 && out.yaw <= 180, `${out.yaw} is not a wrapped yaw`);
     }
   });
 
-  it('settles rather than chasing an exponential tail forever', () => {
+  it('settles rather than creeping forever', () => {
     // Below the floor it snaps, and the snap is what makes "nothing moved" a state the frame can be
-    // cheap in — every yaw write refits the shadow box and asks `interior.ts` for a wall set.
-    assert.equal(followStep(90, 90 + FOLLOW_SETTLE_DEGREES / 2, 1 / 60), 90 + FOLLOW_SETTLE_DEGREES / 2);
-    assert.equal(followStep(90, 90, 1 / 60), 90);
+    // cheap in — every yaw write refits the shadow box and asks `interior.ts` for a wall set. The
+    // spring needs the velocity in the test too: a body still swinging is not settled however close
+    // it happens to be this frame.
+    const settled = followSpring(90, 90 + FOLLOW_SETTLE_DEGREES / 2, 0, 1 / 60);
+    assert.equal(settled.yaw, 90 + FOLLOW_SETTLE_DEGREES / 2);
+    assert.equal(settled.velocity, 0);
+    assert.equal(followSpring(90, 90, 0, 1 / 60).yaw, 90);
     // A zero-length frame moves nothing, rather than dividing by it.
-    assert.equal(followStep(0, 90, 0), 0);
+    assert.equal(followSpring(0, 90, 0, 0).yaw, 0);
   });
 
   it('snaps on first sight and eases ever after', () => {
@@ -273,9 +307,10 @@ describe('follow mode', () => {
     // unusable. Stated as a ratio so it survives either constant moving.
     const bodySeconds = Math.PI / 2 / 10;
     let yaw = 0;
+    let velocity = 0;
     let seconds = 0;
     while (Math.abs(yaw - 90) > 9 && seconds < 10) {
-      yaw = followStep(yaw, 90, 1 / 60);
+      ({ yaw, velocity } = followSpring(yaw, 90, velocity, 1 / 60));
       seconds += 1 / 60;
     }
     assert.ok(seconds > bodySeconds * 4, `the camera reached 90% in ${seconds.toFixed(2)} s — too fast to read`);

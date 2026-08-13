@@ -266,20 +266,6 @@ export class OrbitControl {
 /* Follow mode                                                                 */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Seconds for the camera to close **half** the angle to the player's back. 0.30.
- *
- * A half-life rather than a rate, so the ease is frame-rate independent by construction
- * (`1 - 2^(-dt/T)`) and so the number means something you can check with a stopwatch: 90% of the arc
- * in 1.0 s, 99% in 2.0 s. A 90° corner is visibly *swung*, not cut.
- *
- * **It is deliberately far slower than the body it chases.** `anim.TURN_RATE` is 10 rad/s, which
- * turns a body through 90° in 0.16 s; the wire's yaw is one of four cardinals, so every corner is a
- * 90° step function. At the body's rate the camera would snap with it and the world would jump. At
- * this rate the body turns *inside* the frame and the frame comes after — which is the difference
- * between a camera and a pole welded to somebody's shoulders.
- */
-export const FOLLOW_HALF_LIFE_S = 0.3;
 
 /**
  * Degrees of disagreement the ease ignores. 0.05.
@@ -299,12 +285,69 @@ export const FOLLOW_SETTLE_DEGREES = 0.05;
  * camera's yaw is in degrees and eased by half-life while a body's is in radians and rate-limited —
  * *the camera's yaw and the body's yaw are different things* even when one is chasing the other.
  */
-export function followStep(from: number, to: number, seconds: number): number {
+
+/**
+ * How long the spring below takes to *substantially* arrive, in seconds. 0.55.
+ *
+ * Not a half-life: {@link followSpring} spends the first part of that accelerating, so a corner reads
+ * as a turn beginning rather than as the camera being yanked. Longer than the retired half-life's 0.3 in name and **shorter in felt lag**, because an exponential's slowest
+ * stretch is its tail and a spring's is its ends.
+ */
+export const FOLLOW_SMOOTH_SECONDS = 0.55;
+
+/** Below this, in degrees a second, the camera is not really moving. Paired with the settle floor. */
+export const FOLLOW_SETTLE_RATE = 1;
+
+/**
+ * One frame of a **critically damped spring** toward `to`, carrying its own velocity.
+ *
+ * ## Why this replaced the exponential, in the owner's words
+ *
+ * > *"turning could be smoother.. currently it almost snaps to the new view instead of smoothly
+ * > following the player"* — 2026-08-13.
+ *
+ * They were describing the defining property of exponential decay rather than a bug: `from + delta *
+ * (1 - 2^(-dt/h))` moves **fastest at the instant the target jumps** and slows for ever after. The
+ * wire's yaw is one of four cardinals (`space.yawOf`), so a corner is a 90° step, and an exponential
+ * answers a step by throwing 45° of it away in its first half-life and then crawling
+ * through the rest. Lengthening the half-life does not fix that shape — it makes the lurch smaller
+ * *and* the crawl longer, which is the trade that makes cameras feel floaty.
+ *
+ * A critically damped spring starts **at rest**, accelerates, and arrives at rest, with no overshoot
+ * at any frame rate. So the frame leans into a corner and settles out of it, which is what "smoothly
+ * following" means and what no single decay constant can express.
+ *
+ * The integrator is the standard stable form (Game Programming Gems 4's `SmoothDamp`) rather than a
+ * naive `v += k·x·dt`: the rational approximation to `e^-x` keeps it from exploding on a long frame,
+ * which matters because this runs on a tab that can be backgrounded for a second and then resumed.
+ *
+ * **Not the real fix, and the real one is already queued.** The step function is the disease; task
+ * #35 gives the simulation a continuous heading and the target stops jumping at all. When it lands
+ * this spring will have less to do — and will still be the right curve for the little it does.
+ */
+export function followSpring(
+  from: number,
+  to: number,
+  velocity: number,
+  seconds: number,
+): { readonly yaw: number; readonly velocity: number } {
   const delta = wrapYaw(to - from);
-  if (Math.abs(delta) <= FOLLOW_SETTLE_DEGREES) return wrapYaw(to);
-  if (!(seconds > 0)) return wrapYaw(from);
-  const closed = 1 - 2 ** (-seconds / FOLLOW_HALF_LIFE_S);
-  return wrapYaw(from + delta * closed);
+  if (Math.abs(delta) <= FOLLOW_SETTLE_DEGREES && Math.abs(velocity) <= FOLLOW_SETTLE_RATE) {
+    return { yaw: wrapYaw(to), velocity: 0 };
+  }
+  if (!(seconds > 0)) return { yaw: wrapYaw(from), velocity };
+  const omega = 2 / FOLLOW_SMOOTH_SECONDS;
+  const x = omega * seconds;
+  // The rational stand-in for `exp(-x)`: exact enough below a tenth of a second and, unlike the real
+  // exponential paired with an explicit integrator, unconditionally stable above it.
+  const decay = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+  // Worked in "distance still to go" so the wrap is applied once, at the top, and the spring never
+  // sees the discontinuity at ±180.
+  const change = -delta;
+  const temp = (velocity + omega * change) * seconds;
+  const nextVelocity = (velocity - omega * temp) * decay;
+  const nextYaw = to + (change + temp) * decay;
+  return { yaw: wrapYaw(nextYaw), velocity: nextVelocity };
 }
 
 /**
@@ -328,6 +371,15 @@ export class FollowCamera {
    */
   private seeded = false;
 
+  /**
+   * The spring's carried velocity, in degrees a second. Zero except while a turn is in flight.
+   *
+   * State, where the exponential needed none — which is the price of a curve that eases *in* as well
+   * as out, and the reason {@link followSpring} is handed it rather than owning it: a pure step
+   * function stays testable frame by frame at any rate.
+   */
+  private velocity = 0;
+
   constructor(enabled: boolean) {
     this.enabled = enabled;
   }
@@ -335,6 +387,8 @@ export class FollowCamera {
   /** A new world, or a new body. The next heading is a first sight again. */
   clear(): void {
     this.seeded = false;
+    // Or the swing that was in flight when the Place changed resumes into the new one.
+    this.velocity = 0;
   }
 
   /**
@@ -351,9 +405,11 @@ export class FollowCamera {
     const target = wrapYaw((targetRadians * 180) / Math.PI);
     if (!this.seeded) {
       this.seeded = true;
+      this.velocity = 0;
       return target;
     }
-    const next = followStep(yawDegrees, target, seconds);
-    return next === yawDegrees ? undefined : next;
+    const stepped = followSpring(yawDegrees, target, this.velocity, seconds);
+    this.velocity = stepped.velocity;
+    return stepped.yaw === yawDegrees ? undefined : stepped.yaw;
   }
 }
