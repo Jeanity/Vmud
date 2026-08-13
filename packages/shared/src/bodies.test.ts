@@ -202,11 +202,13 @@ describe('the no-wedge proof: a gate cannot be corked', () => {
     // bodies abreast on the column inside the far room is the worst arrangement solidity still allows
     // near a doorway, and a nine-tile room is wide enough that it blocks a line rather than a route.
     //
-    // Walked with one intermediate aim, because **going round a wall of bodies is the planner's job**,
-    // exactly as going round a wall of stone is: `stepMovement` has always slid along geometry and left
-    // `pathfind.ts` to decide which way round. Three abreast is a local minimum no stateless rule
-    // escapes — every tangent points back into the pocket between the next pair — so the claim this
-    // case makes is the true one: the room is not sealed, and a walker that steers gets there.
+    // Walked with intermediate aims, and that is now a *choice* rather than a necessity. It was written
+    // when going round a wall of bodies was the planner's job — three abreast being, the note said, a
+    // local minimum no stateless rule escapes. `stepBody` escapes it since 2026-08-13 (see the wall
+    // cases above), so the walker would very likely get there aimed straight at the far side. Steering
+    // it by hand keeps the claim this case is actually here to make narrow and stable: **the room is
+    // not sealed** — a property of the geometry and the exemption, which must go on holding whatever
+    // the deflection does next.
     const grid = pair();
     const far = originOf(grid, 2);
     const midY = far.ty + (ROOM_TILES - 1) / 2;
@@ -372,6 +374,96 @@ describe('stepBody', () => {
     const walk = walkTo(grid, self, goal, [blocker]);
     assert.equal(walk.arrived, true, `stopped short at ${walk.x},${walk.y}`);
     assert.ok(walk.ticks < 100, `took ${walk.ticks} ticks, which reads as an orbit rather than a detour`);
+  });
+
+  it('walks round a wall of bodies instead of oscillating in the pocket between two of them', () => {
+    // **The owner's kobolds, 2026-08-13**: five lined up along a room edge, *"haven't moved since."*
+    //
+    // The deflection used to be the tangent of the *nearest* disc, and against a row of them that is a
+    // two-tick flip-flop — clearing A makes B the nearest, and B's tangent points back at A. Measured
+    // in the server at 3.53px of amplitude, in perpetuity. It is the *sequence* that fails and no
+    // single step of which is wrong, so this has to be walked rather than asserted; `walkTo`'s own
+    // docblock says as much and this is the case it was written for.
+    const grid = solitary();
+    const origin = originOf(grid, 1);
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    // Five abreast down the middle column — wider than the three the old note called a local minimum
+    // no stateless rule escapes, and still two clear rows at each end of a nine-tile room to go by.
+    const wall = [-2, -1, 0, 1, 2].map((dy, i) => at(10 + i, origin.tx + 4, midY + dy));
+    const self = { id: 1, x: tileCentre(origin.tx + 1), y: tileCentre(midY) };
+    const goal = { x: tileCentre(origin.tx + ROOM_TILES - 1), y: tileCentre(midY) };
+
+    // Every position the walk stood on, so the failure can be named rather than inferred from a
+    // timeout: a mover that revisits a pixel it has already left is going back and forth by
+    // definition, and that is the whole of the bug.
+    const seen = new Set<string>();
+    let repeated: string | undefined;
+    let { x, y } = self;
+    let arrived = false;
+    for (let n = 0; n < 400 && !arrived; n++) {
+      const key = `${x.toFixed(2)},${y.toFixed(2)}`;
+      if (seen.has(key) && repeated === undefined) repeated = key;
+      seen.add(key);
+      const dx = goal.x - x;
+      const dy = goal.y - y;
+      const remaining = Math.hypot(dx, dy);
+      if (remaining <= 1) {
+        arrived = true;
+        break;
+      }
+      const intent = normaliseIntent(dx, dy);
+      const next = stepBody(grid, { id: 1, x, y }, intent.x, intent.y, Math.min(15, remaining), wall);
+      x = next.x;
+      y = next.y;
+    }
+
+    assert.equal(repeated, undefined, `stood on ${repeated} twice — the mover is oscillating, not walking`);
+    assert.equal(arrived, true, `never got past the wall; stopped at ${x},${y}`);
+    // And it did go *round*, not through: the wall is as solid as it ever was.
+    for (const body of wall) {
+      assert.ok(
+        Math.hypot(x - body.x, y - body.y) >= BODY_SEPARATION - 1e-6,
+        'ended up inside one of the wall',
+      );
+    }
+  });
+
+  it('commits to one side of a wall rather than re-deciding, which is what made the loop', () => {
+    // The property behind the fix, stated on its own so a rewrite cannot lose it while keeping the walk
+    // above green: the way round must be chosen by **which end of the wall is nearer**, and nothing
+    // else. That is what makes it monotone — every step toward the near end shortens that side and
+    // lengthens the other, so acting on the answer only confirms it. The old rule read the nearest
+    // *body* instead, which says nothing about where the wall ends, and flipped every tick.
+    //
+    // Pressed against the wall at exactly {@link BODY_SEPARATION}, so the mover is genuinely refused at
+    // every offset. Further off and it slips diagonally between two of them — legal, 23px of clearance
+    // at the midpoint — and never reaches the deflection at all.
+    const grid = solitary();
+    const origin = originOf(grid, 1);
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    const wall = [-2, -1, 0, 1, 2].map((dy, i) => at(10 + i, origin.tx + 4, midY + dy));
+    const face = tileCentre(origin.tx + 4) - BODY_SEPARATION;
+
+    for (let offset = 4; offset <= TILE_SIZE * 2; offset += 4) {
+      for (const hand of [1, -1]) {
+        const self = { id: 1, x: face, y: tileCentre(midY) + offset * hand };
+        const next = stepBody(grid, self, 1, 0, 15, wall);
+        // Nearer the southern end, go south; nearer the northern end, go north. Never the long way.
+        assert.ok(
+          hand > 0 ? next.y > self.y : next.y < self.y,
+          `${offset}px ${hand > 0 ? 'south' : 'north'} of centre, the mover took the long way round`,
+        );
+        // And it is a *sidestep*, not a shuffle into the wall: the forward axis must not creep.
+        assert.equal(next.x, self.x, 'the detour crept toward the wall instead of along it');
+      }
+    }
+
+    // Dead centre is the one genuine tie, and `CLAUDE.md` rule 3 forbids tossing for it: the road rule
+    // decides, and decides the same way on every restart.
+    const centred = { id: 1, x: face, y: tileCentre(midY) };
+    const first = stepBody(grid, centred, 1, 0, 15, wall);
+    assert.ok(first.y > centred.y, 'a symmetric wall should be passed on the right, which is south');
+    for (let n = 0; n < 5; n++) assert.deepEqual(stepBody(grid, centred, 1, 0, 15, wall), first);
   });
 
   it('passes a head-on body on the same side every time, because a coin toss is not deterministic', () => {

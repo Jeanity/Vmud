@@ -117,6 +117,18 @@ export interface Hunt {
    * the forge leaves no post.
    */
   driftTo?: { readonly x: number; readonly y: number };
+  /**
+   * The closest this errand has ever come to the point it is walking at, in pixels — the high-water
+   * mark the stall counter is measured against. Undefined until the first step, and cleared whenever
+   * the aim itself moves (a new exit, a new room), because a watermark against a different target is
+   * not a watermark at all.
+   *
+   * **Only errands with a fixed destination keep one.** A chase's destination is a person who is
+   * running away, and "never got closer than before" is the normal condition of chasing someone your
+   * own speed; there the old rule — did the body move at all — is the right one, and `pursuit.ts`'s
+   * patience is what ends it. See {@link advanceHunts}.
+   */
+  closest?: number;
 }
 
 /** What happened to one hunter this tick, for the caller to announce and sync. */
@@ -451,6 +463,27 @@ const WALK_GIVE_UP_MS = 30_000;
 const DRIFT_GIVE_UP_MS = 3_000;
 
 /**
+ * How much nearer its aim an errand must get to count as having got anywhere — pixels of **new best**,
+ * not pixels travelled.
+ *
+ * The owner, 2026-08-13, with a photograph of five kobold youths lined up along a room edge: *"they
+ * haven't moved since."* They had, in fact, been moving the whole time. Bodies became solid a few hours
+ * earlier, and the deflection that walks a body round another one used to re-read the nearest blocker
+ * every tick, which against a *row* of blockers is a two-tick oscillation — measured at 3.53px, in
+ * perpetuity. Every stall counter in this file asked *"did the body move?"*, so the answer was yes,
+ * forever: `lostForMs` reset every tick, the errand never gave up, and the wander pass skips any mob
+ * that already has one. A live hunt going nowhere is a mob welded to the floor for the life of the
+ * server, and it is a far worse failure than the one it hides.
+ *
+ * {@link tangent} no longer oscillates, so the specific loop is gone. This is the counter that would
+ * have caught it anyway, and the reason to keep both is that the class is not: any local rule that
+ * jitters is invisible to a motion test and obvious to a progress test. One pixel of new best is a
+ * fifth of a tick's travel at {@link AMBLE_SPEED} — generous for a body genuinely working its way round
+ * something, and unreachable by anything vibrating on the spot.
+ */
+const STALL_PROGRESS_PX = 1;
+
+/**
  * A heading as motion, for the arrival settle: the few steps a walker takes onward into the room it
  * just entered. The two verticals are absent on purpose — a stairwell is a Place change, and there
  * is no "onward" to amble.
@@ -580,11 +613,17 @@ export function advanceHunts(
       const next = sim.stepActor(mob, grid, intent.x, intent.y, distance);
       mob.x = next.x;
       mob.y = next.y;
-      if (mob.x === startX && mob.y === startY) {
+      // **Getting nearer, not merely moving** — see {@link STALL_PROGRESS_PX}. A shuffle that cannot
+      // better its own best for three seconds has been refused by something, whether it is standing
+      // still against it or sliding along it, and the answer to both is to stop shuffling and let the
+      // next wander pulse pick somewhere else.
+      const reach = Math.hypot(hunt.driftTo.x - mob.x, hunt.driftTo.y - mob.y);
+      if (reach <= (hunt.closest ?? Infinity) - STALL_PROGRESS_PX) hunt.closest = reach;
+      else {
         hunt.lostForMs += elapsedMs;
         if (hunt.lostForMs >= DRIFT_GIVE_UP_MS) hunts.delete(id);
-        continue;
       }
+      if (mob.x === startX && mob.y === startY) continue;
       mob.facing = headingOf(intent.x, intent.y, mob.facing);
       moved.push(mob);
       continue;
@@ -674,6 +713,10 @@ export function advanceHunts(
       continue;
     }
 
+    // A new exit, or the same exit seen from the next room along, is a new aim — and a high-water mark
+    // measured against the old one would call the whole next leg a stall. Read before the assignment,
+    // because these two fields are the only record of where the last one was.
+    if (hunt.nextRoom !== step.room || hunt.heading !== step.dir) delete hunt.closest;
     hunt.nextRoom = step.room;
     hunt.heading = step.dir;
 
@@ -704,29 +747,40 @@ export function advanceHunts(
     const next = sim.stepActor(mob, grid, intent.x, intent.y, distance);
     mob.x = next.x;
     mob.y = next.y;
-    if (mob.x === startX && mob.y === startY) {
-      // **Routed but not moving — the give-up clock must run, or this hunt is wedged for ever.**
-      // The graph can say "exit" while the tiles say no: a closed door's solid tiles, an `exitAim`
-      // fallback pointing at a neighbour's centre through two walls. And for one whole build the
-      // clock here was decoration: the route-found path above reset `lostForMs` every tick before
-      // this branch could accrue it, so a wedged walk oscillated between 0 and one tick's worth and
-      // never died. The kobold youths proved what that costs — every east or west stroll out of the
-      // overgrown field slid its walker along the south wall into a corner tile and pinned it there
-      // *permanently*, pulse-starved by its own immortal hunt, until the room's corners each held a
-      // small crowd. The reset now lives on the far side of this branch, where motion is a fact.
-      //
-      // A stroll gets the shuffle's patience rather than its rule's: three seconds against a wall is
-      // enough to know the tiles said no, and it was going nowhere in particular anyway. A chase
-      // keeps its rule — the quarry may move, and with it the route.
+    // **Routed but getting nowhere — the give-up clock must run, or this hunt is wedged for ever.**
+    // The graph can say "exit" while the tiles say no: a closed door's solid tiles, an `exitAim`
+    // fallback pointing at a neighbour's centre through two walls. And for one whole build the clock
+    // here was decoration: the route-found path above reset `lostForMs` every tick before the stall
+    // branch could accrue it, so a wedged walk oscillated between 0 and one tick's worth and never
+    // died. The kobold youths proved what that costs — every east or west stroll out of the overgrown
+    // field slid its walker along the south wall into a corner tile and pinned it there *permanently*,
+    // pulse-starved by its own immortal hunt, until the room's corners each held a small crowd.
+    //
+    // **And then they proved it twice**, which is why the test below is no longer "did it move".
+    // Solid bodies gave a blocked walker something to slide along, so the second wedge moved — 3.53px,
+    // back and forth, every tick — and a motion test reads that as a body making its way. What a
+    // stroll owes is *progress*, so a stroll is judged on its high-water mark; see
+    // {@link STALL_PROGRESS_PX}. A chase keeps the motion test, because its aim is a person running
+    // away and never bettering your best is what chasing someone your own speed feels like.
+    //
+    // A stroll gets the shuffle's patience rather than its rule's: three seconds against a wall is
+    // enough to know the tiles said no, and it was going nowhere in particular anyway.
+    const still = mob.x === startX && mob.y === startY;
+    const stroll = hunt.walkTo !== undefined;
+    const reach = Math.hypot(aim.x - mob.x, aim.y - mob.y);
+    const gained = reach <= (hunt.closest ?? Infinity) - STALL_PROGRESS_PX;
+    if (gained) hunt.closest = reach;
+    if (stroll ? !gained : still) {
       hunt.lostForMs += elapsedMs;
-      const patience = hunt.walkTo !== undefined ? DRIFT_GIVE_UP_MS : rule.giveUpMs;
+      const patience = stroll ? DRIFT_GIVE_UP_MS : rule.giveUpMs;
       if (patience !== null && hunt.lostForMs >= patience) {
         hunts.delete(id);
-        if (hunt.walkTo === undefined) events.push({ mob, kind: 'gaveUp' });
+        if (!stroll) events.push({ mob, kind: 'gaveUp' });
       }
-      continue;
-    }
-    hunt.lostForMs = 0;
+    } else hunt.lostForMs = 0;
+    // Nothing to announce or sync for a body that did not move, whatever the clock decided. A stroll
+    // abandoned on the far side of this line still keeps the ground it covered getting there.
+    if (still) continue;
     mob.facing = headingOf(intent.x, intent.y, mob.facing);
     moved.push(mob);
 

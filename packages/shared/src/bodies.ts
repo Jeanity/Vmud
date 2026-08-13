@@ -35,11 +35,12 @@
  *    refusal that also refused the way *out* of an overlap would weld the two together for ever.
  * 2. **A body dead ahead is walked around, not walked into.** Terrain slides because a wall is
  *    axis-aligned and `stepMovement` resolves the axes separately; a body is a disc, and a mover
- *    heading straight at one has no off-axis component to slide on. {@link stepBody} projects the
- *    intent onto the disc's tangent instead, which is the same idea the wall slide is — remove the
- *    component that points into the obstacle and keep the rest.
+ *    heading straight at one has no off-axis component to slide on. {@link stepBody} steps sideways
+ *    instead, toward whichever end of the obstruction is nearer — and *the obstruction*, not the
+ *    nearest body, because a row of them read one at a time is a loop rather than a detour. See
+ *    {@link tangent} for the kobolds that proved it.
  *
- * Nothing here rolls anything. Placement search order is fixed and the tangent's tie-break is a
+ * Nothing here rolls anything. Placement search order is fixed and the sidestep's tie-break is a
  * constant, so two servers with the same seed put the same body on the same tile (`CLAUDE.md` rule 3).
  */
 
@@ -233,7 +234,19 @@ function bodiesAllow(
   return true;
 }
 
-/** {@link stepMovement}'s axis-separated slide, with each axis also asked of the bodies. */
+/**
+ * {@link stepMovement}'s axis-separated slide, with each axis also asked of the bodies.
+ *
+ * `major` reverses the order the two axes are attempted in, and it exists because **the order decides
+ * the answer** whenever the first axis spends clearance the second one needed. A detour heading nearly
+ * due south still carries a pixel or two of east in it; taking that east first walks the mover into the
+ * very body it is trying to get round, and the southward metre it actually wanted is then refused for
+ * want of the clearance the pixel cost. Measured: a mover 21px west of a column of bodies could pass
+ * south of one and, having first been nudged 1.5px east, could not.
+ *
+ * Off by default, so the {@link stepBody} step that stands in for terrain keeps `stepMovement`'s own
+ * x-then-y convention exactly. On for the detours, which are ours to order.
+ */
 function slide(
   grid: TileGrid,
   self: BodyPoint,
@@ -241,16 +254,27 @@ function slide(
   intentY: number,
   distance: number,
   solid: readonly BodyPoint[],
+  major = false,
 ): { x: number; y: number } {
   let nx = self.x;
   let ny = self.y;
 
-  const tryX = nx + intentX * distance;
-  if (canStand(grid, tryX, ny) && bodiesAllow(solid, nx, ny, tryX, ny)) nx = tryX;
+  const stepX = (): void => {
+    const tryX = nx + intentX * distance;
+    if (canStand(grid, tryX, ny) && bodiesAllow(solid, nx, ny, tryX, ny)) nx = tryX;
+  };
+  const stepY = (): void => {
+    const tryY = ny + intentY * distance;
+    if (canStand(grid, nx, tryY) && bodiesAllow(solid, nx, ny, nx, tryY)) ny = tryY;
+  };
 
-  const tryY = ny + intentY * distance;
-  if (canStand(grid, nx, tryY) && bodiesAllow(solid, nx, ny, nx, tryY)) ny = tryY;
-
+  if (major && Math.abs(intentY) > Math.abs(intentX)) {
+    stepY();
+    stepX();
+  } else {
+    stepX();
+    stepY();
+  }
   return { x: nx, y: ny };
 }
 
@@ -270,9 +294,9 @@ function slide(
  * 2. If that made **no real headway**, ask whether the **terrain** would have refused it anyway. A
  *    mover pressed into a corner is a wall problem, walls already slide, and deflecting off a body that
  *    happens to be nearby would send them somewhere they never asked to go.
- * 3. Otherwise a body is in the way and the floor is not, so **go round it**: project the intent onto
- *    the tangent of the nearest disc ahead and slide along that. This is escape valve 2, and it is what
- *    keeps click-to-move honest — a route planned over the tilemap cannot see a mob standing on it, and
+ * 3. Otherwise a body is in the way and the floor is not, so **go round it**: take the shorter way out
+ *    of the group of bodies ahead and slide along that. This is escape valve 2, and it is what keeps
+ *    click-to-move honest — a route planned over the tilemap cannot see a mob standing on it, and
  *    without the deflection the walker would grind to a halt and `STUCK_TICKS` would end the route as
  *    `'stuck'` two tenths of a second later.
  *
@@ -282,14 +306,17 @@ function slide(
  * ever, moving every tick and arriving nowhere. Measured along the intent and against the same
  * {@link PROGRESS_FRACTION} the route's own stall counter uses, so the two agree about what counts.
  *
- * ## What this deliberately does not do
+ * ## The wall, which this used to hand to the planner and now does not
  *
- * **It goes round one body, not round a wall of them.** Three bodies abreast is a local minimum for
- * any stateless rule — every tangent points back into the pocket between the next pair — and escaping
- * one needs a plan rather than a reflex. That is not a gap, it is the same division of labour terrain
- * already has: `stepMovement` slides along a wall and `pathfind.ts` decides which way round it. The
- * consequence to keep in mind is that a body-wall is a *planner* problem, and the exemption in
- * {@link bodySolidAt} is what guarantees one can never form where it would matter.
+ * This once went round **one** body and said so: three abreast was *"a local minimum for any stateless
+ * rule"*, to be solved by steering. The owner's kobolds refuted the premise rather than the conclusion.
+ * A stateless rule that re-reads the nearest disc every tick does oscillate; one that asks *which way is
+ * shorter out of the whole group* does not, because that answer only improves as you act on it. See
+ * {@link tangent}. So a wall of bodies is now walked round here, and `pathfind.ts` keeps the job it
+ * always had — walls of **stone**, which do not move and which no local rule can see the end of.
+ *
+ * The exemption in {@link bodySolidAt} is still what guarantees a wall can never form where it would
+ * *seal* anything; this is what stops one being a wall at all.
  */
 export function stepBody(
   grid: TileGrid,
@@ -310,28 +337,100 @@ export function stepBody(
   const terrain = stepMovement(grid, self.x, self.y, intentX, intentY, distance);
   if (terrain.x === self.x && terrain.y === self.y) return direct;
 
-  const around = tangent(self, intentX, intentY, solid);
-  if (!around) return direct;
-  const detour = slide(grid, self, around.x, around.y, distance, solid);
-  // The detour is sideways by construction, so it can never win on the intent's own axis. Taking it
-  // whenever it moves at all is the point: a step that goes nowhere useful is worth trading for one
-  // that at least changes which side of the obstacle you are on.
-  if (detour.x === self.x && detour.y === self.y) return direct;
-  return detour;
+  // The detour is sideways by construction, so it can never win on the intent's own axis — it is judged
+  // on **its own**, against the same {@link PROGRESS_FRACTION}. "Moved at all" was the first rule here
+  // and it was too weak by exactly the margin that matters: a detour whose only accepted axis is the
+  // pixel of *forward* left in it creeps into the obstacle it is rounding, a step at a time, and reads
+  // as a body working away at something it will never get past. If neither way round earns its step the
+  // mover is genuinely wedged, and saying so plainly is what lets the caller's stall clock free it.
+  for (const way of detours(self, intentX, intentY, solid)) {
+    const detour = slide(grid, self, way.x, way.y, distance, solid, true);
+    const sideways = (detour.x - self.x) * way.x + (detour.y - self.y) * way.y;
+    if (sideways >= distance * PROGRESS_FRACTION) return detour;
+  }
+  return direct;
 }
 
 /**
- * A unit heading that goes **around** the nearest body ahead instead of into it.
+ * The ways round, best first: **sideways, sideways-and-back, then back.**
  *
- * The blocker is chosen by distance among those the mover is actually facing (`dot > 0`), because the
- * one behind you is not why you stopped. From there it is the wall slide's own arithmetic on a curved
- * surface: strip out the component of the intent that points at the blocker's centre and keep what is
- * left, which is the tangent.
+ * More than one candidate because a mover that reached the obstacle *at an angle* can wedge itself
+ * somewhere pure sideways cannot leave. Two bodies on adjacent tiles are 32px apart and each wants
+ * {@link BODY_SEPARATION}, so the pocket between them admits a mover to 12px of the line joining their
+ * centres and then holds it: the way out needs 20px of clearance it no longer has, and every forward and
+ * sideways step is refused. A goal *behind the middle of a wall* aims a walker straight into one of
+ * these, which is exactly what a mob strolling at a doorway does — the far side of the wall is where it
+ * wants to be, so it cuts in as soon as it has any room, and cuts in too early.
  *
- * Dead-on, that leaves nothing — the tangent of a disc you are aimed at the centre of is a coin toss,
- * and `CLAUDE.md` rule 3 does not allow tossing one. **Pass on the right**, then: `(-iy, ix)` is a
- * quarter turn clockwise on a y-down screen, which is the mover's right hand, which is the road rule
- * and is stable across restarts.
+ * The way out of a pocket is the way in, so the later candidates bend **away from the nearest body**:
+ * first blended with the tangent, which backs out *and* round in one step and is what anyone would
+ * actually do; then straight away from it, for the pocket so tight that even the blend's sideways half
+ * is refused. Each is tried only when the one before it earned nothing, so an ordinary detour round an
+ * ordinary body never sees them.
+ *
+ * A retreat cannot become a habit: {@link bodiesAllow} always permits a step that opens a gap, so the
+ * back-out is *reliable* rather than merely likely, and it is the caller's stall clock — which counts
+ * ground gained on the destination, not pixels travelled — that notices a mover buying room it never
+ * converts into progress.
+ */
+function detours(
+  self: BodyPoint,
+  intentX: number,
+  intentY: number,
+  solid: readonly BodyPoint[],
+): { x: number; y: number }[] {
+  const around = tangent(self, intentX, intentY, solid);
+  if (!around) return [];
+
+  let nearest: BodyPoint | undefined;
+  let nearestSq = Infinity;
+  for (const other of solid) {
+    const sq = (other.x - self.x) ** 2 + (other.y - self.y) ** 2;
+    if (sq >= nearestSq) continue;
+    nearestSq = sq;
+    nearest = other;
+  }
+  if (!nearest) return [around];
+  const away = normaliseIntent(self.x - nearest.x, self.y - nearest.y);
+  if (away.x === 0 && away.y === 0) return [around];
+  const bent = normaliseIntent(around.x + away.x, around.y + away.y);
+  if (bent.x === 0 && bent.y === 0) return [around, away];
+  return [around, bent, away];
+}
+
+/**
+ * A unit heading that goes **around the blocking group** instead of into it.
+ *
+ * ## Why this is not the tangent of the nearest disc
+ *
+ * It was, until the owner's kobolds proved what that costs (2026-08-13: *five kobold youths lined up
+ * along a room edge, "haven't moved since"*). Projecting the intent onto the nearest blocker's tangent
+ * is correct for one body and **oscillates against a row of them**: sliding clear of A makes B the
+ * nearest, whose tangent points back at A. The measured period was two ticks and the amplitude 3.53px,
+ * forever — and because that is *motion*, every stall counter downstream read it as a mover making its
+ * way and never gave up. A body welded to a spot while technically moving is the worst of both.
+ *
+ * So the question asked here is the one a planner would ask, not the one a reflex would: **which way is
+ * shorter out of this wall?** Answered over every body the mover is facing rather than over the nearest
+ * one alone, and answered in the only currency that matters — how far sideways the mover must displace
+ * before there is a gap it fits through. See {@link sidestep}.
+ *
+ * *Every* body ahead, with no bound on how far ahead, because the only honest definition of "this wall"
+ * is the one the sweep itself applies: bodies belong to the same wall when there is no gap between them
+ * a mover could fit through. An earlier attempt fenced the group by depth instead — bodies within a
+ * separation of the nearest — and it read a wall approached at an angle as two bodies rather than five,
+ * because the far end of a wall you are beside is a long way *ahead* of you. It then sent the mover back
+ * along the wall it had nearly cleared. Anything past a real gap is somebody else's problem and the
+ * sweep stops there of its own accord.
+ *
+ * That makes the choice **monotone**, which is the property the tangent lacked: every step toward the
+ * near end shortens that side and lengthens the other, so the mover commits and walks out instead of
+ * flip-flopping in the pocket. Still stateless, still deterministic, still no dice — `CLAUDE.md` rule 3
+ * is satisfied by the tie-break rather than by a stored side.
+ *
+ * **Pass on the right** on a tie: `(-iy, ix)` is a quarter turn clockwise on a y-down screen, which is
+ * the mover's right hand and the road rule. A single body dead ahead is exactly a tie — it reaches the
+ * same distance either way — so the one-body behaviour this replaced is preserved by construction.
  */
 function tangent(
   self: BodyPoint,
@@ -339,26 +438,44 @@ function tangent(
   intentY: number,
   solid: readonly BodyPoint[],
 ): { x: number; y: number } | undefined {
-  let nearest: BodyPoint | undefined;
-  let nearestSq = Infinity;
+  // The mover's right hand, and the sideways offset of every body it is facing. The one behind you is
+  // not why you stopped, and that is the only body dropped here.
+  const px = -intentY;
+  const py = intentX;
+  const sides: number[] = [];
   for (const other of solid) {
     const dx = other.x - self.x;
     const dy = other.y - self.y;
     if (dx * intentX + dy * intentY <= 0) continue;
-    const sq = dx * dx + dy * dy;
-    if (sq >= nearestSq) continue;
-    nearestSq = sq;
-    nearest = other;
+    sides.push(dx * px + dy * py);
   }
-  if (!nearest) return undefined;
+  if (sides.length === 0) return undefined;
 
-  const away = normaliseIntent(self.x - nearest.x, self.y - nearest.y);
-  if (away.x === 0 && away.y === 0) return { x: -intentY, y: intentX };
+  return sidestep(sides, 1) <= sidestep(sides, -1) ? { x: px, y: py } : { x: -px, y: -py };
+}
 
-  const into = intentX * away.x + intentY * away.y;
-  const off = normaliseIntent(intentX - away.x * into, intentY - away.y * into);
-  if (off.x === 0 && off.y === 0) return { x: -intentY, y: intentX };
-  return off;
+/**
+ * How far the mover must displace along `hand` before it clears every body in the group — the length of
+ * the detour, in pixels.
+ *
+ * A sweep outward from the mover's own line. Bodies fully behind it on this side cannot obstruct and
+ * are skipped; each remaining one either leaves a gap wide enough to slip through (and the sweep stops,
+ * because the mover is out) or pushes the answer past its own far shoulder. Reaching the end of the
+ * group is the same answer as finding a gap: there is nothing further out to be blocked by.
+ *
+ * A gap counts when consecutive centres are {@link BODY_SEPARATION} apart *from the displaced mover*,
+ * which is what makes two bodies on adjacent tiles impassable — 32px of centre spacing against 20px of
+ * clearance each side — and keeps this arithmetic honest with {@link bodiesAllow}.
+ */
+function sidestep(sides: readonly number[], hand: 1 | -1): number {
+  const ordered = sides.map((side) => side * hand).sort((a, b) => a - b);
+  let out = 0;
+  for (const at of ordered) {
+    if (at + BODY_SEPARATION <= out) continue;
+    if (at - out >= BODY_SEPARATION) break;
+    out = at + BODY_SEPARATION;
+  }
+  return out;
 }
 
 /* -------------------------------------------------------------------------- */

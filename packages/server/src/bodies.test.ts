@@ -264,6 +264,144 @@ describe('every pass that moves a body asks the same question', () => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* And nothing may end up welded to the floor                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * **The owner's kobolds, 2026-08-13**: five youths lined up along a room edge, *"haven't moved since."*
+ *
+ * Solidity landed a few hours before the photograph and this is the bill for it. The deflection that
+ * walks a body round another one re-read the nearest blocker every tick, which against a *row* of them
+ * is a two-tick oscillation — 3.53px, measured, forever. Every stall counter in `hunt.ts` asked *did the
+ * body move*, so the answer was yes on every one of those ticks: `lostForMs` reset, the errand never
+ * expired, and the wander pass skips any mob that already has one. **A live hunt going nowhere is a mob
+ * welded to the floor for the life of the server.**
+ *
+ * Both halves are fixed and both are tested here, because either alone would have left the game with a
+ * failure the owner can see: `shared/bodies.test.ts` proves the deflection no longer loops, and these
+ * prove that a body which *does* get stuck is let go of instead of held for ever. The second is the one
+ * that has to keep working when some future local rule finds a pocket nobody has thought of yet.
+ */
+describe('a body that cannot get where it is going is released, not held there', () => {
+  /** A wall of `n` bodies abreast on the column at `tx`, centred on the room's middle row. */
+  function wallAt(sim: Simulation, origin: { tx: number; ty: number }, tx: number, n: number): Mob[] {
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    const half = (n - 1) / 2;
+    const out: Mob[] = [];
+    for (let i = 0; i < n; i++) out.push(mobAt(sim, tx, midY + i - half));
+    return out;
+  }
+
+  it('gives up a shuffle it cannot finish, instead of holding it open for ever', () => {
+    // The reproduction. Before the fix this ran the full 600 ticks — a simulated minute — with the hunt
+    // still live and the walker flip-flopping between two positions 3.53px apart, and it would have run
+    // until the process died. The claim is not that the walker arrives; a shuffle is allowed to fail.
+    // It is that the *hunt ends*, because that is the only thing standing between the mob and the next
+    // wander pulse.
+    const { world, sim, origin } = makeFixture();
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    const walker = mobAt(sim, origin.tx + 1, midY);
+    wallAt(sim, origin, origin.tx + 4, 4);
+
+    const hunts = new Map<number, Hunt>();
+    beginDrift(hunts, walker, { x: tileCentre(origin.tx + 7), y: tileCentre(midY) });
+    let ticks = 0;
+    while (ticks < 600 && hunts.size > 0) {
+      advanceHunts(sim, world, hunts, 100);
+      ticks++;
+    }
+    assert.equal(hunts.size, 0, `the shuffle was still live after ${ticks} ticks — the mob is welded`);
+    // Three seconds is `DRIFT_GIVE_UP_MS`; the walk out to the wall is allowed on top of it.
+    assert.ok(ticks < 200, `took ${ticks} ticks to notice, which is long enough for the owner to see`);
+  });
+
+  it('never leaves a crowded room with a body that has not moved, over a long run', () => {
+    // Six bodies in one nine-tile room, every one of them repeatedly told to go somewhere else in it —
+    // the Cubs Den's own crowding (zone 168 holds eight) with the dice taken out, so the case is the
+    // arrangement rather than a seed. Ten simulated minutes, and the measure is the one the owner
+    // applied to the screenshot: has this body been anywhere?
+    const { world, sim, grid, origin } = makeFixture();
+    const hunts = new Map<number, Hunt>();
+    const crowd: Mob[] = [];
+    for (const [tx, ty] of [[1, 1], [1, 4], [1, 7], [2, 2], [2, 6], [3, 4]] as const) {
+      crowd.push(mobAt(sim, origin.tx + tx, origin.ty + ty));
+    }
+    const anchored = wallAt(sim, origin, origin.tx + 5, 5);
+    const mark = new Map<number, { x: number; y: number }>();
+    const reached = new Map(crowd.map((m) => [m.id, 0]));
+    /** The census starts here, so the answer is about the *steady state* rather than the first minute. */
+    const settled = 3_000;
+
+    // A wander pulse every ten seconds, exactly as `index.ts` beats it, aiming each idle body at the
+    // far side of the room — the far side being *behind the wall*, which is the errand that fails.
+    for (let tick = 0; tick < 6_000; tick++) {
+      if (tick % 100 === 0) {
+        for (const mob of crowd) {
+          beginDrift(hunts, mob, { x: tileCentre(origin.tx + 7), y: tileCentre(origin.ty + (tick / 100) % ROOM_TILES) });
+        }
+      }
+      advanceHunts(sim, world, hunts, 100);
+      if (tick === settled) for (const mob of crowd) mark.set(mob.id, { x: mob.x, y: mob.y });
+      if (tick < settled) continue;
+      for (const mob of crowd) {
+        const from = mark.get(mob.id)!;
+        reached.set(mob.id, Math.max(reached.get(mob.id)!, Math.hypot(mob.x - from.x, mob.y - from.y)));
+      }
+    }
+
+    // Measured over the **second half**, and that is the whole point of the measure: a welded body has
+    // usually walked somewhere before it welded, so "did it ever move" is answered yes by the very
+    // screenshot this is about. Five minutes in, a body that is going to amble has ambled.
+    for (const mob of crowd) {
+      assert.ok(
+        reached.get(mob.id)! > TILE_SIZE,
+        `mob ${mob.id} never got a tile from where it stood five minutes in — it is the screenshot`,
+      );
+    }
+    // Solid throughout. A liveliness fix that quietly let bodies interpenetrate would pass everything
+    // above and undo the feature this whole module is.
+    //
+    // Asked of bodies standing on **solid ground**, which is the rule rather than a softening of it:
+    // threshold cells are exempt on purpose, so two wanderers may share the mouth of a gate and the
+    // only honest claim is the one `bodySolidAt` actually makes. The first draft aimed the crowd at the
+    // room's east edge, walked them into the exemption, and failed here — correctly.
+    const solid = [...crowd, ...anchored].filter((m) => bodySolidAt(grid, m.x, m.y));
+    assert.ok(solid.length >= crowd.length, 'the run ended with almost everybody in the doorway');
+    for (const a of solid) {
+      for (const b of solid) {
+        if (a.id === b.id) continue;
+        assert.ok(gap(a, b) >= BODY_SEPARATION - 1e-6, `${a.id} and ${b.id} ended up inside each other`);
+      }
+    }
+  });
+
+  it('lets the player walk past a line of five, which a chokepoint proof does not cover', () => {
+    // The wedge proof is about *doorways*: no arrangement of bodies can seal a room, because every tile
+    // that could be the last way out is a tile a body is not solid on. **A line across open floor is not
+    // a chokepoint**, so none of that applies to it — and the owner walking into five kobolds in the
+    // middle of a field must still get where they were going. Before the fix this player pushed east for
+    // thirty seconds and finished 0.66 of a tile short of the line, having slid 0.29 of a tile sideways.
+    const { sim, grid, player, origin } = makeFixture();
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    player.x = tileCentre(origin.tx + 1);
+    player.y = tileCentre(midY);
+    const line = wallAt(sim, origin, origin.tx + 4, 5);
+    for (const mob of line) {
+      assert.equal(bodySolidAt(grid, mob.x, mob.y), true, 'the fixture must be a wall on solid ground');
+    }
+
+    sim.setIntent(player.id, 1, 0);
+    for (let n = 0; n < 300; n++) sim.tick();
+    assert.ok(player.x > tileCentre(origin.tx + 4), `never got past the line; stopped at ${player.x},${player.y}`);
+    // Past, not through, and without shoving anybody: the line is where it was put.
+    for (const mob of line) {
+      assert.ok(gap(player, mob) >= BODY_SEPARATION - 1e-6, 'the player ended up inside one of them');
+      assert.equal(mob.x, tileCentre(origin.tx + 4), 'a mob was pushed off its tile — bodies are not shovable');
+    }
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /* Combat must still reach                                                     */
 /* -------------------------------------------------------------------------- */
 
