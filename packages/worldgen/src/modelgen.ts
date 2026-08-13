@@ -1780,7 +1780,12 @@ export function buildObject(id: string, text: string): ObjectImport | undefined 
         blockRadius: 0,
         parts: [
           {
-            material: gltf.materials.map((m) => m.name).join('+'),
+            // **The emitted material's name, not the source's four.** `props.registerModel` matches a
+            // loaded primitive to its manifest part *by material name*, so this field is a join key
+            // rather than a description — and the file this importer writes has one material called
+            // `<id>`. Recording `sand+bone+aged+dark` here was true of the source and useless to the
+            // loader, which then registered nothing and left the pile un-drawn with no error anywhere.
+            material: id,
             role: 'solid',
             texture: id,
             triangles,

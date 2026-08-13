@@ -31,7 +31,7 @@ import type { BufferGeometry, Mesh, Object3D } from 'three';
 import { BoxGeometry, BufferAttribute, SRGBColorSpace, TextureLoader } from 'three';
 
 import type { ScenePool } from './pool.ts';
-import { PROPS_MODELS, PROPS_PARTS, propsGeometryKey, propsMaterialKey } from './prototypes.ts';
+import { OBJECT_MODELS, PROPS_MODELS, PROPS_PARTS, propsGeometryKey, propsMaterialKey } from './prototypes.ts';
 
 /* -------------------------------------------------------------------------- */
 /* The manifest, as the client reads it                                        */
@@ -151,13 +151,17 @@ export class PropsSet {
       return `props manifest is version ${manifest.version}, this client reads ${PROPS_MANIFEST_VERSION} — re-run modelgen --props`;
     }
 
-    const wanted = new Set(PROPS_MODELS);
+    // **Both lists, and it has to be both.** `PROPS_MODELS` is what a room may be *furnished* with;
+    // `OBJECT_MODELS` is what may be dropped on its floor. They are separate on purpose — `furnish.ts`
+    // must never stand a corpse in a tavern — but they are fetched together, because from here down
+    // the two are the same thing: a manifest row with a geometry and a material.
+    const wanted = new Set<string>([...PROPS_MODELS, ...OBJECT_MODELS]);
     const models = manifest.models.filter((model) => wanted.has(model.id));
     for (const model of models) this.entries.set(model.id, model);
 
-    // Only the atlases the drawn models refer to: four of the pack's five. `page-noise` is a 4096²
-    // sheet worn by the two scrolls and nothing else, so it is never fetched — see
-    // `prototypes.PROPS_TEXTURES`.
+    // Only the atlases the drawn models refer to: four of the pack's five, plus one 70-byte white per
+    // object. `page-noise` is a 4096² sheet worn by the two scrolls and nothing else, so it is never
+    // fetched — see `prototypes.PROPS_TEXTURES`.
     const needed = new Set<string>();
     for (const model of models) for (const part of model.parts) needed.add(part.texture);
 
