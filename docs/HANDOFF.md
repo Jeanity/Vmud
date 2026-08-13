@@ -533,7 +533,7 @@ which primitive got there last.
   holds `shared/bodies.ts`, `server/station.ts` and part of `sim.ts`, i.e. the first half of the
   collision slice. A `git add -A` ran while a subagent held those files, and the hair change it meant
   to capture is in `assets/`, which is git-ignored, so the commit swept the only thing it could find.
-  The remainder landed in `9f2e6c1` with an honest message. **Nothing is lost and nothing needs
+  The remainder landed in `229b161` with an honest message. **Nothing is lost and nothing needs
   reverting** — but `git log --follow` on `bodies.ts` will point at troll hair, and that is why.
   *(The hair fix itself is real and on disk in `assets/creatures/troll/troll.wam` and its two baked
   atlases; like every asset in this project it lives outside git and is reproducible from source.)*
