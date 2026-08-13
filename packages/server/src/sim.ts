@@ -97,7 +97,8 @@ import {
   type Stack,
   samePlace,
   statusFor,
-  BODY_SEPARATION,
+  MAX_BODY_RADIUS,
+  bodySizeOf,
   placeBody,
   stepBody,
   type BodyPoint,
@@ -131,15 +132,22 @@ import { LOCKS_HOLD, placeOf, type GameWorld } from './world.ts';
 const STEP_PER_TICK = PLAYER_SPEED * (TICK_MS / 1000);
 
 /**
- * How far around a mover {@link Simulation.bodiesNear} looks for something to bump into — 84px.
+ * How far around a mover {@link Simulation.bodiesNear} looks for something to bump into — 144px.
  *
- * Two tiles plus the separation, which is comfortably more than any pair of bodies can close in one
- * tick: the fastest thing in the world is `HUNT_SPEED` at 192px/s, so both of them together cover
- * 38.4px per 100ms tick and would still be inside the box when the test runs. Larger than it needs to
- * be on purpose — the cost is a subtraction per actor and the failure it prevents is a body that walks
- * through another because the query missed it by a pixel.
+ * **Two tiles plus the widest pair the world can produce**, and the second term is what changed on
+ * 2026-08-14. It used to be `BODY_SEPARATION`, 20px, which was two adults touching; a body's radius is
+ * now its own, {@link MAX_BODY_RADIUS} is 40px, and the widest pair therefore need **80px** between
+ * their centres before either is even allowed to approach. A box of 84px would have offered a
+ * gargantuan to the mover four pixels *after* the mover was already inside it — which is not a near
+ * miss but a body walked clean through, because a blocker the query never yields is a blocker
+ * `stepBody` never hears about.
+ *
+ * The two tiles on top are the closing margin, and they are still generous: the fastest thing in the
+ * world is `HUNT_SPEED` at 192px/s, so two of them together cover 38.4px in a 100ms tick against 64px
+ * of slack. The cost of the larger box is a subtraction per actor per mover; the cost of a small one
+ * is the feature.
  */
-const BODY_QUERY_REACH = TILE_SIZE * 2 + BODY_SEPARATION;
+const BODY_QUERY_REACH = TILE_SIZE * 2 + MAX_BODY_RADIUS * 2;
 
 /**
  * The three pools, and where each one lives on {@link Player}.
@@ -281,6 +289,25 @@ export interface Actor {
    * many PNGs a sentry is made of is not game state.
    */
   readonly sprite: string;
+  /**
+   * How big this body is as a multiple of an adult human — `BodyPoint.scale`, and **absent means 1**.
+   *
+   * The field that makes a giant collide like a giant. It is read by every body-against-body test in
+   * `shared/bodies.ts` (through `bodyRadius`) and by `station.ts`'s reach, and it is on the *instance*
+   * for the reason {@link Mob.race} is: `bodiesNear` yields it for every candidate blocker for every
+   * mover on every tick, and re-deriving a value that cannot change would be `appearanceOf` run
+   * thousands of times a second to learn the same number.
+   *
+   * **Written once, at spawn, from `bodySizeOf`** — which is `appearanceOf`'s own verdict read in
+   * metres, so the number collision uses and the number the renderer draws with come from one
+   * function and one set of inputs. Both inputs it reads (`sprite`, `Mob.race`) are `readonly`, so
+   * there is no later moment at which the two could drift apart. `bodies.test.ts` asserts the identity
+   * over the shipped world rather than trusting that sentence.
+   *
+   * Absent for a player: `viewOf` deliberately does not size a player by their race — see the note
+   * there — so every character in the world is 1, and an absent field says exactly that.
+   */
+  readonly scale?: number;
   x: number;
   y: number;
   facing: Direction;
@@ -871,7 +898,8 @@ export class Simulation {
    * A box rather than the room, and deliberately: two outdoor rooms merge along their whole shared
    * edge, so a body standing just over a seam is inches away on the same continuous ground while being
    * in a different room entirely. {@link BODY_QUERY_REACH} is generously larger than one tick's travel
-   * plus {@link BODY_SEPARATION}, so nothing can cross the box's edge and the separation in one step.
+   * plus the **widest** clearance any pair of bodies can want, so nothing can cross the box's edge and
+   * that clearance in one step — see the constant for why "widest" replaced "two adults".
    *
    * O(actors) per mover per tick, which is the cost `actorsIn` and `playersIn` already pay several
    * times a tick; movers are a handful even in a busy zone.

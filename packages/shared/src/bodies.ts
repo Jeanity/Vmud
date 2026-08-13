@@ -26,6 +26,15 @@
  * could be the last way out of a room is a tile a body cannot stand on *as an obstacle*, so no
  * arrangement of bodies can seal a room. Everywhere else there is a nine-tile floor to walk around on.
  *
+ * ## And *how much* floor a body takes is a property of the body
+ *
+ * Since 2026-08-14 the second half of that sentence is real: a body's radius is {@link BODY_RADIUS}
+ * times its own size, so a hill giant keeps 2.75x the room a person does and a kobold youth keeps
+ * 0.30x. Every test here is therefore about the **pair** — {@link bodyClearance}, `rA + rB` — and each
+ * of the three arguments that used to rest on one constant says so in its own docblock:
+ * {@link bodySolidAt}'s no-wedge exemption, {@link sidestep}'s sweep, and, in the server,
+ * `station.ts`'s melee reach.
+ *
  * ## And the two escape valves
  *
  * Even inside a room, a refusal must never be a trap:
@@ -45,6 +54,14 @@
  */
 
 import {
+  ADULT_HEIGHT,
+  MODEL_HEIGHT,
+  SIZE_SCALE,
+  type AppearanceSubject,
+  appearanceOf,
+  drawnHeightOf,
+} from './appearance.ts';
+import {
   CONNECTOR_WIDTH,
   PLAYER_RADIUS,
   ROOM_TILES,
@@ -62,50 +79,143 @@ import type { RoomId } from './world.ts';
 
 /**
  * Anything that occupies floor. Structural on purpose: `Actor` lives in the server and `shared` may not
- * import it, and the only three fields collision needs are the three every body already has.
+ * import it, and the only fields collision needs are ones every body already has.
  */
 export interface BodyPoint {
   readonly id: number;
   readonly x: number;
   readonly y: number;
+  /**
+   * How big this body is **as a multiple of an adult human** — absent means 1.
+   *
+   * The scale and not the radius, because a stored radius would be a second copy of a number the
+   * simulation and the wire already carry, kept in step by hope. {@link bodyRadius} does the one
+   * multiplication and {@link bodySizeOf} is where the number comes from.
+   *
+   * Optional, and not out of politeness: every rule in this module was written for a person, a body
+   * nobody has sized *is* a person, and so every call site that predates the size ladder keeps exactly
+   * the answer it always had. Measured over the shipped world on 2026-08-14, 1,090 of 2,016 spawned
+   * bodies are adult-sized and would leave this absent.
+   */
+  readonly scale?: number;
 }
 
 /**
- * Half-extent of a living body for body-against-body tests, in pixels — **the same number the terrain
- * box uses**, and that identity is the point rather than a coincidence.
+ * Half-extent of an **adult human** body for body-against-body tests, in pixels — the bottom rung of a
+ * ladder since 2026-08-14, and no longer the whole of it.
  *
- * A second, smaller figure would let a body slip through a gap its own collision box does not fit in;
- * a larger one would let it be refused by a doorway it demonstrably fits through. One radius means the
- * space a body needs is the space a body takes.
+ * A tile is 32px and a room is nine tiles across `ROOM_METRES` — 9 m — so one pixel is 1/32 m and this
+ * is **0.3125 m of half-width**: a 0.625 m disc under a 1.81 m body, which is a person's shoulders and
+ * a little air. At scale 1 it is also **the same number the terrain box uses** (`PLAYER_RADIUS`), and
+ * that identity is what makes a body fit through every doorway its own collision box fits through.
  *
- * The consequence worth writing down is the number it produces. Two bodies keep {@link BODY_SEPARATION}
- * — 20px — between their centres, and `station.ts`'s `MELEE_STATION` is `TILE_SIZE`, 32. Its docblock
- * already claimed *"there are 12 units of daylight between the collision boxes"* at station; with this
- * constant that sentence stops being an observation about the art and becomes the collision rule:
- * 32 − 20 = 12, so a fighter closing to station is never refused by the body it is closing on.
+ * ## The lie this used to be, and the part of it that is left
  *
- * ## It is one number for every body, and since the scale slice that is a known lie
+ * The docblock this replaces called one radius for every body *"a known lie"* and named the three
+ * proofs a per-body radius would move. The measurement that finally forced it is the giants: the
+ * shipped world stands **192 bodies at 2.75x** — 4.98 m tall, drawn — and under a single 10px radius
+ * two of them kept 0.625 m between their centres while their silhouettes wanted 1.72 m. They stood
+ * inside each other, and it was visible from the camera's usual 24 m.
  *
- * `appearance.BODY_SCALE` draws the world's 86 `child` and 44 `teen` templates at 0.72 and 0.88 of
- * adult height, and `EntityView.scale` puts that on the wire — but **nothing here reads it**. A kobold
- * youth is drawn 1.30 m tall and collides as a 1.81 m man: it needs the same 20 px of clearance, it
- * seals the same three-tile gate, and two of them cannot stand as close together as they look like
- * they could.
+ * So a body's radius is `BODY_RADIUS × scale` ({@link bodyRadius}) and the pair test is `rA + rB`
+ * ({@link bodyClearance}). The ladder the world actually stands on runs from **3.01px** (a kobold
+ * youth, 0.54 m drawn) to **27.5px** (a hill giant): **926 of 2,016 spawned bodies — 45.9% — are not
+ * adult-sized**, which is what makes this a rule about pairs rather than a rounding error.
  *
- * That is deliberate, and it is a slice rather than an oversight. Making the radius a property of the
- * body would move three separate proofs at once — the no-wedge argument in {@link bodySolidAt} (which
- * counts 32 px tile centres against a *constant* 20 px of clearance), {@link sidestep}'s gap
- * arithmetic, and `station.ts`'s 32 − 20 = 12 — and every one of them would become a statement about
- * the *pair* of bodies involved rather than about the world. Half of the work is already done: the
- * scale is now on the wire, so the day it is worth doing, both sides can read the same number.
+ * ## What deliberately did **not** move: the terrain box
+ *
+ * `canStand` and `stepMovement` still test a fixed `PLAYER_RADIUS` half-extent whatever is walking, so
+ * a giant still fits through a doorway sized for a human and can still stand with 17.5px of itself
+ * inside a wall. That is a knowingly-shipped remainder and not an oversight, because a 27.5px terrain
+ * box **does not fit inside a 32px tile**: `placeBody`'s {@link standable} rests on the whole box lying
+ * in one cell at a tile centre, the no-wedge proof rests on a 96px gate admitting anybody, and the
+ * client predictor rests on `stepBody` being `stepMovement` byte for byte where no body is near. All
+ * three would have to be rebuilt in one slice. Body-against-body is the half the owner photographed.
  */
 export const BODY_RADIUS = PLAYER_RADIUS;
 
-/** How far apart two body centres must stay. Two discs of {@link BODY_RADIUS}, touching. */
+/**
+ * How far apart **two adult** body centres must stay. Two discs of {@link BODY_RADIUS}, touching.
+ *
+ * Kept as a constant now that it is one rung rather than the rule, because it is still the number the
+ * world was tuned against and the one every other figure here is quoted against: `MELEE_STATION` is
+ * `TILE_SIZE` and `32 − 20 = 12`, and a room's tile centres are 32px apart. {@link bodyClearance} is
+ * the rule; this is that rule evaluated for the pair it was originally written for.
+ */
 export const BODY_SEPARATION = BODY_RADIUS * 2;
 
-/** Squared, because every comparison in here is against a squared distance and `hypot` is not free. */
-const SEPARATION_SQ = BODY_SEPARATION * BODY_SEPARATION;
+/** How wide this body is, in pixels. The one multiplication, so nothing has to remember to do it. */
+export function bodyRadius(body: BodyPoint): number {
+  return BODY_RADIUS * (body.scale ?? 1);
+}
+
+/**
+ * **The pair rule** — how far apart these two centres must stay, and the replacement for the single
+ * `SEPARATION_SQ` every test in this module used to compare against.
+ *
+ * Two discs touching, which is the same sentence {@link BODY_SEPARATION} always was; the only change
+ * is that the two discs are now allowed to be different sizes. Written as one function rather than
+ * inlined four times because the four places that ask it — {@link bodiesAllow}, {@link sidestep},
+ * {@link vacant} and `station.ts`'s reach — are exactly the places that must never disagree.
+ */
+export function bodyClearance(a: BodyPoint, b: BodyPoint): number {
+  return bodyRadius(a) + bodyRadius(b);
+}
+
+/**
+ * The largest a body can ever be, as a multiple of an adult — **4 today**, and derived rather than
+ * written down as four.
+ *
+ * Two sources, because {@link bodySizeOf} has two branches that can grow. A body drawn on the human
+ * mesh is scaled by `SIZE_SCALE`, whose top rung is a gargantuan at 4; a body with a **mesh of its
+ * own** skips that ladder entirely and is as big as the mesh was authored — the Troll model is 2.709 m
+ * against an adult's 1.81, which is 1.497 and would silently exceed a cap taken from `SIZE_SCALE`
+ * alone the day somebody authors a dragon. Reading both tables means the cap follows the art.
+ *
+ * Its one job is to bound `sim.BODY_QUERY_REACH`: a broad-phase box that does not cover the largest
+ * pair in the world is a giant that another body walks through because the query never offered it.
+ */
+export const MAX_BODY_SIZE = Math.max(
+  ...SIZE_SCALE,
+  ...Object.values(MODEL_HEIGHT).map((height) => height / ADULT_HEIGHT),
+);
+
+/** The widest any body can be — 40px, a gargantuan. The far end of {@link bodyRadius}'s range. */
+export const MAX_BODY_RADIUS = BODY_RADIUS * MAX_BODY_SIZE;
+
+/**
+ * **How big a body is for collision** — its drawn height as a multiple of an adult human's, and
+ * deliberately *not* `Appearance.scale`.
+ *
+ * The distinction is the same one `MODEL_HEIGHT`'s docblock draws for corpses, and it is load-bearing
+ * here for the same reason: **`scale` is relative to a body's own mesh, and the meshes are not the same
+ * size.** A troll rides a 2.709 m mesh at `scale: undefined`; reading `scale` alone would give the
+ * world's 96 troll templates a 1.81 m person's radius, which is precisely the bug this slice exists to
+ * remove, one rung further down the ladder. A kobold rides a 0.756 m mesh at the same `scale: 1` and
+ * would get the same wrong answer in the other direction.
+ *
+ * So the question asked is *how tall is this body actually drawn*, which `drawnHeightOf` already
+ * answers, over `ADULT_HEIGHT`, which is already the denominator a corpse is sized against. No second
+ * table, and no second classification pass: this is `appearanceOf`'s own verdict read in metres.
+ *
+ * ## Height standing in for width is a judgement, and here is its size
+ *
+ * It is exact for the case that matters — a giant is the human mesh scaled uniformly by 2.75, so it is
+ * 2.75x as tall *and* 2.75x as broad. It is a judgement across different meshes: the female base body
+ * is 43 mm shorter than the male and therefore gets a 2.4% smaller disc (9.76px against 10), which is
+ * a consequence of the rule rather than a decision about women, and is small enough to leave. The
+ * alternative was a second table of authored footprints that nobody has measured.
+ *
+ * Pure, total, and free of dice — the same contract every other function in `appearance.ts` keeps, so
+ * two servers with one seed size the same body identically (`CLAUDE.md` rule 3).
+ */
+export function bodySizeOf(subject: AppearanceSubject): number {
+  const look = appearanceOf(subject);
+  // A ground object has no body and no appearance. Nothing in the simulation asks, since only actors
+  // are ever solid, but a total function is cheaper than a caller that has to know that.
+  if (!look) return 1;
+  return drawnHeightOf(look.model, look.scale) / ADULT_HEIGHT;
+}
 
 /**
  * Fraction of a requested step that has to land along the intent before {@link stepBody} accepts it
@@ -140,10 +250,23 @@ const ORTHOGONAL: readonly (readonly [number, number])[] = [
  *    is exactly the moment you want two bodies to be able to pass.
  *
  * 2. **A room tile at the mouth of a narrow gate is not solid either.** A gate is
- *    {@link CONNECTOR_WIDTH} — three tiles, 96px. Body centres sit on tile centres 32px apart and need
- *    20px of clearance, so a mover cannot thread between two bodies on adjacent tiles: three bodies on
- *    the three mouth tiles is a sealed door, and three *sentinels* there is a permanently sealed door.
- *    Exempting the mouth removes the arrangement instead of hoping the dice miss it.
+ *    {@link CONNECTOR_WIDTH} — three tiles, 96px — and body centres sit on tile centres 32px apart.
+ *
+ *    This used to be one subtraction. Every body needed 20px of clearance, a mover threading between
+ *    two of them on adjacent tiles needed 20 + 20 against 32, so it could not: three bodies across the
+ *    mouth was a shut door and three *sentinels* was a shut door for ever. Since 2026-08-14 the
+ *    subtraction is **a statement about the pair**, and the pair changes the answer both ways — a
+ *    person threading between two kobolds needs (10 + 4.18) twice, 28.4 of the 32px, and **gets
+ *    through**; two hill giants on adjacent mouth tiles need 55px and are already inside each other
+ *    before anybody tries.
+ *
+ *    That the arithmetic no longer decides the rule is the strengthening rather than the weakening it
+ *    reads as. The exemption has to hold for the **worst** pair the world can produce, the worst pair
+ *    is now 2.75x worse than the one it was derived from, and a rule tuned to the arithmetic would
+ *    have to be re-derived every time the size ladder moved. Exempting the *ground* removes the
+ *    arrangement for every pair at once — which is exactly what lets `shared/bodies.test.ts`'s
+ *    no-wedge proof stay exhaustive over **cells** and say nothing at all about how many bodies of
+ *    what sizes stand on them.
  *
  * 3. **Everywhere else a body is solid**, which is most of a nine-tile room and all of the open
  *    ground that outdoor rooms merge into.
@@ -226,11 +349,17 @@ function obstructing(grid: TileGrid, self: BodyPoint, others: Iterable<BodyPoint
  *   good. So an overlapping mover may take any step that does not push *further in*.
  *
  * That last test is on the step's direction rather than on the distance it ends at, and the difference
- * is not pedantry: one tick is 15px and the separation is 20, so "ended up further away" would happily
+ * is not pedantry: one tick is 15px and two adults need 20, so "ended up further away" would happily
  * license walking clean through somebody and out the other side. Judging the direction cannot, and it
  * still guarantees a way out, because the half-plane pointing away from the blocker is never empty.
+ * **Per-body radii made that argument stronger at both ends**: two kobold youths need 6.02px against
+ * the same 15px tick, so a distance test would let them swap places without ever being refused.
+ *
+ * The one number this reads is {@link bodyClearance}, per blocker, because the mover's own size is half
+ * of every answer here.
  */
 function bodiesAllow(
+  self: BodyPoint,
   solid: readonly BodyPoint[],
   fromX: number,
   fromY: number,
@@ -238,11 +367,13 @@ function bodiesAllow(
   toY: number,
 ): boolean {
   for (const other of solid) {
+    const clear = bodyClearance(self, other);
+    const clearSq = clear * clear;
     const toSq = (toX - other.x) ** 2 + (toY - other.y) ** 2;
-    if (toSq >= SEPARATION_SQ) continue;
+    if (toSq >= clearSq) continue;
     const awayX = fromX - other.x;
     const awayY = fromY - other.y;
-    if (awayX * awayX + awayY * awayY >= SEPARATION_SQ) return false;
+    if (awayX * awayX + awayY * awayY >= clearSq) return false;
     if ((toX - fromX) * awayX + (toY - fromY) * awayY >= 0) continue;
     return false;
   }
@@ -276,11 +407,11 @@ function slide(
 
   const stepX = (): void => {
     const tryX = nx + intentX * distance;
-    if (canStand(grid, tryX, ny) && bodiesAllow(solid, nx, ny, tryX, ny)) nx = tryX;
+    if (canStand(grid, tryX, ny) && bodiesAllow(self, solid, nx, ny, tryX, ny)) nx = tryX;
   };
   const stepY = (): void => {
     const tryY = ny + intentY * distance;
-    if (canStand(grid, nx, tryY) && bodiesAllow(solid, nx, ny, nx, tryY)) ny = tryY;
+    if (canStand(grid, nx, tryY) && bodiesAllow(self, solid, nx, ny, nx, tryY)) ny = tryY;
   };
 
   if (major && Math.abs(intentY) > Math.abs(intentX)) {
@@ -370,12 +501,17 @@ export function stepBody(
  * The ways round, best first: **sideways, sideways-and-back, then back.**
  *
  * More than one candidate because a mover that reached the obstacle *at an angle* can wedge itself
- * somewhere pure sideways cannot leave. Two bodies on adjacent tiles are 32px apart and each wants
- * {@link BODY_SEPARATION}, so the pocket between them admits a mover to 12px of the line joining their
- * centres and then holds it: the way out needs 20px of clearance it no longer has, and every forward and
- * sideways step is refused. A goal *behind the middle of a wall* aims a walker straight into one of
- * these, which is exactly what a mob strolling at a doorway does — the far side of the wall is where it
- * wants to be, so it cuts in as soon as it has any room, and cuts in too early.
+ * somewhere pure sideways cannot leave. Two bodies on adjacent tiles are 32px apart, so a mover aiming
+ * at the midpoint gets to `sqrt(clearance² − 16²)` of the line joining their centres and is then held:
+ * the way out needs a clearance it no longer has, and every forward and sideways step is refused. **How
+ * deep the pocket is now depends on all three bodies**, and the spread is the whole reason this is no
+ * longer one number — a person between two people reaches 12px in (the figure this note was written
+ * with), a person between two hill giants is stopped 33.9px out, and a person between two kobold youths
+ * meets no pocket at all, because 13.01px of clearance does not reach the 16px midline.
+ *
+ * A goal *behind the middle of a wall* aims a walker straight into one of these, which is exactly what
+ * a mob strolling at a doorway does — the far side of the wall is where it wants to be, so it cuts in as
+ * soon as it has any room, and cuts in too early.
  *
  * The way out of a pocket is the way in, so the later candidates bend **away from the nearest body**:
  * first blended with the tangent, which backs out *and* round in one step and is what anyone would
@@ -455,40 +591,70 @@ function tangent(
 ): { x: number; y: number } | undefined {
   // The mover's right hand, and the sideways offset of every body it is facing. The one behind you is
   // not why you stopped, and that is the only body dropped here.
+  //
+  // **A centre test, and at the top of the size ladder that is an approximation** — a gargantuan whose
+  // centre is a pixel behind you still has 40px of itself beside you. It is left as a centre test
+  // because this function only picks a *hand*: `slide` does the real per-pair test on the step that
+  // follows, and `stepBody` judges the detour on the ground it gains, so a hand chosen against a body
+  // this drops costs one refused step and the next candidate in {@link detours}, not a wedge.
   const px = -intentY;
   const py = intentX;
-  const sides: number[] = [];
+  const sides: Shoulder[] = [];
   for (const other of solid) {
     const dx = other.x - self.x;
     const dy = other.y - self.y;
     if (dx * intentX + dy * intentY <= 0) continue;
-    sides.push(dx * px + dy * py);
+    sides.push({ at: dx * px + dy * py, clear: bodyClearance(self, other) });
   }
   if (sides.length === 0) return undefined;
 
   return sidestep(sides, 1) <= sidestep(sides, -1) ? { x: px, y: py } : { x: -px, y: -py };
 }
 
+/** One blocking body, as {@link sidestep} sees it: how far to the side, and how wide a berth it wants. */
+interface Shoulder {
+  /** Its centre's offset along the mover's right hand, in pixels. Negative is to the left. */
+  readonly at: number;
+  /** {@link bodyClearance} for this body and the mover — half the answer belongs to each of them. */
+  readonly clear: number;
+}
+
 /**
  * How far the mover must displace along `hand` before it clears every body in the group — the length of
  * the detour, in pixels.
  *
- * A sweep outward from the mover's own line. Bodies fully behind it on this side cannot obstruct and
- * are skipped; each remaining one either leaves a gap wide enough to slip through (and the sweep stops,
- * because the mover is out) or pushes the answer past its own far shoulder. Reaching the end of the
- * group is the same answer as finding a gap: there is nothing further out to be blocked by.
+ * Each body forbids the mover an **interval** of displacements: it may not stand within `clear` of that
+ * body's own offset, so `(at − clear, at + clear)` is out. The answer is the smallest displacement from
+ * zero that no interval covers, and the sweep below computes it exactly rather than approximately.
  *
- * A gap counts when consecutive centres are {@link BODY_SEPARATION} apart *from the displaced mover*,
- * which is what makes two bodies on adjacent tiles impassable — 32px of centre spacing against 20px of
- * clearance each side — and keeps this arithmetic honest with {@link bodiesAllow}.
+ * ## The proof this used to be, and the one line of it that had to change
+ *
+ * It used to sweep the *centres* in order, because with one clearance for every body sorting by centre
+ * and sorting by near shoulder are the same order — so "the first body that leaves a gap" was also the
+ * last body that could block, and stopping there was sound. **With per-pair clearances they are two
+ * different orders**, and the failure is concrete: a kobold 50px out leaves a person a gap at
+ * displacement 0, while a gargantuan 60px out — further along the hand, and therefore later in the old
+ * ordering — reaches 50px back and covers it. The old sweep would have stopped at the kobold and
+ * reported a detour of nothing.
+ *
+ * So the sweep is ordered by **near shoulder** (`at − clear`) and stops at the first interval that
+ * starts at or beyond where the mover already stands, which is sound again for the reason the old one
+ * was: every remaining interval starts no earlier, so none of them can cover that point. For a group of
+ * equal-sized bodies it is the same walk over the same numbers and returns the same answer, which is
+ * what keeps the wall cases in `shared/bodies.test.ts` measuring what they measured.
+ *
+ * Bodies fully behind the mover on this side are skipped by the same `hi <= out` test as before, and
+ * reaching the end of the group is the same answer as finding a gap: nothing further out to be blocked
+ * by. The clearance is {@link bodyClearance}, so this arithmetic and {@link bodiesAllow} cannot drift.
  */
-function sidestep(sides: readonly number[], hand: 1 | -1): number {
-  const ordered = sides.map((side) => side * hand).sort((a, b) => a - b);
+function sidestep(sides: readonly Shoulder[], hand: 1 | -1): number {
+  const spans = sides
+    .map(({ at, clear }) => ({ lo: at * hand - clear, hi: at * hand + clear }))
+    .sort((a, b) => a.lo - b.lo);
   let out = 0;
-  for (const at of ordered) {
-    if (at + BODY_SEPARATION <= out) continue;
-    if (at - out >= BODY_SEPARATION) break;
-    out = at + BODY_SEPARATION;
+  for (const span of spans) {
+    if (span.lo >= out) break;
+    if (span.hi > out) out = span.hi;
   }
   return out;
 }
@@ -537,6 +703,16 @@ export interface Landing {
  *   it is the artefact the owner actually photographed.
  * - **Blocked at all is the last resort**, and means the room has no floor left. It is reported, not
  *   hidden, so a zone that manages it shows up as a number instead of as a body in a wall.
+ *
+ * ## `scale` is what makes "two giants must not load on top of each other" true
+ *
+ * A tile is 32px and two adults want 20, so before 2026-08-14 *any* free tile satisfied the mover and
+ * the occupancy scan only ever had to reject the tile somebody was standing on. **Two hill giants want
+ * 55px**, which no pair of adjacent tiles offers and no diagonal pair offers either (45.25px): the
+ * nearest tile that will take a second giant is two cells away, 64px. The Chebyshev ring search finds
+ * it without knowing that — it asks {@link vacant}, which asks {@link bodyClearance} — and the world
+ * has 30 rooms holding two giant-sized bodies, nine holding three and one holding six, so this is a
+ * case the shipped reset tables actually reach rather than a hypothetical.
  */
 export function placeBody(
   grid: TileGrid,
@@ -544,11 +720,13 @@ export function placeBody(
   origin: { readonly tx: number; readonly ty: number },
   prefer: { readonly tx: number; readonly ty: number },
   occupied: Iterable<BodyPoint>,
+  scale = 1,
 ): Landing {
   // Copied once: the scan below reads it up to ROOM_TILES² times and the caller may hand a generator.
   const bodies = [...occupied];
+  const mine = BODY_RADIUS * scale;
 
-  if (standable(grid, roomId, prefer.tx, prefer.ty) && vacant(bodies, prefer.tx, prefer.ty)) {
+  if (standable(grid, roomId, prefer.tx, prefer.ty) && vacant(bodies, mine, prefer.tx, prefer.ty)) {
     return { tx: prefer.tx, ty: prefer.ty, stacked: false, blocked: false };
   }
 
@@ -569,7 +747,7 @@ export function placeBody(
         fallbackRange = range;
         fallback = { tx, ty };
       }
-      if (!vacant(bodies, tx, ty)) continue;
+      if (!vacant(bodies, mine, tx, ty)) continue;
       if (range < bestRange) {
         bestRange = range;
         best = { tx, ty };
@@ -589,18 +767,30 @@ export function placeBody(
  * centre the two agree exactly, since `PLAYER_RADIUS` is 10 and a tile is 32, so the whole box lies
  * inside the one cell. Using the mover's own authority means a tile placement accepts is a tile
  * movement will not immediately eject a body from.
+ *
+ * **It takes no `scale`, and that is the terrain box standing still** — see {@link BODY_RADIUS}. A
+ * giant's 55px collision disc does not fit in a 32px cell, so a `standable` that scaled would refuse a
+ * giant every tile within one cell of a wall and hand most rooms back as `blocked`. The whole of
+ * per-body size lives in {@link vacant}, which is a question about bodies.
  */
 function standable(grid: TileGrid, roomId: RoomId, tx: number, ty: number): boolean {
   if (roomAtTile(grid, tx, ty) !== roomId) return false;
   return canStand(grid, tileCentre(tx), tileCentre(ty));
 }
 
-/** Whether this tile's centre is clear of every body by at least {@link BODY_SEPARATION}. */
-function vacant(bodies: readonly BodyPoint[], tx: number, ty: number): boolean {
+/**
+ * Whether this tile's centre is far enough from every body for one of radius `mine` to stand on it.
+ *
+ * The same {@link bodyClearance} the mover uses, evaluated against a body that does not exist yet —
+ * which is why it takes a radius rather than a {@link BodyPoint}. That agreement is the point: a room
+ * filled by a reset must never start the next tick with a body already refusing to move.
+ */
+function vacant(bodies: readonly BodyPoint[], mine: number, tx: number, ty: number): boolean {
   const x = tileCentre(tx);
   const y = tileCentre(ty);
   for (const body of bodies) {
-    if ((x - body.x) ** 2 + (y - body.y) ** 2 < SEPARATION_SQ) return false;
+    const clear = mine + bodyRadius(body);
+    if ((x - body.x) ** 2 + (y - body.y) ** 2 < clear * clear) return false;
   }
   return true;
 }

@@ -31,7 +31,9 @@
  */
 
 import {
+  BODY_SEPARATION,
   TILE_SIZE,
+  bodyClearance,
   normaliseIntent,
   roomAtTile,
   samePlace,
@@ -42,18 +44,66 @@ import { isMob, type Actor, type Mob, type Simulation } from './sim.ts';
 import type { GameWorld } from './world.ts';
 
 /**
- * How close a mob tries to get, in world units — **one tile**, centre to centre.
+ * How close **two adults** stand to fight, in world units — **one tile**, centre to centre.
  *
  * The default reach, and deliberately the only one until Phase 16. The owner's spec is per weapon —
  * fists against the body, a sword a tile off, a bow across the room — and that needs weapons to be
  * items with properties, which is Phase 15/16's job. One number now beats a table of numbers nothing
  * can populate.
  *
- * A tile is also the smallest distance that keeps two bodies visibly apart: `PLAYER_RADIUS` is 10 and
- * a tile is 32, so there are 12 units of daylight between the collision boxes. Standing *on* the
- * player reads as a rendering fault however correct the arithmetic is.
+ * A tile is also the smallest distance that keeps two bodies visibly apart: `BODY_RADIUS` is 10 and a
+ * tile is 32, so there are 12 units of daylight between the collision discs. Standing *on* the player
+ * reads as a rendering fault however correct the arithmetic is.
+ *
+ * **This is now the reference value rather than the rule** — see {@link stationFor}, which is what
+ * every line below actually calls. It is still exported, still `TILE_SIZE`, and still exactly what
+ * {@link stationFor} answers for two adult bodies, which is what keeps this file's tests measuring the
+ * number they were written against.
  */
 export const MELEE_STATION = TILE_SIZE;
+
+/**
+ * The daylight a fighter leaves between the two collision discs at station — **12px**, and the whole
+ * of what survives of `32 − 20 = 12`.
+ *
+ * That subtraction was this file's reconciliation with `bodies.ts` and it stopped being a statement
+ * about the world on 2026-08-14, when a body's radius became a property of the body. Run it for a
+ * player closing on a hill giant and it is `32 − (10 + 27.5) = −5.5`: **the station is inside the
+ * giant**, so `stepActor` refuses the last 5.5px for ever, `atStation` never returns true, and a mob
+ * that has arrived reads as one still walking. The bug is not subtle; it is 195 spawned bodies wide.
+ *
+ * So the reach scales with the pair and the daylight does not. That split is a **judgement, not a
+ * measurement**, and here is the argument for it: the reason for the 12 was never physics, it was
+ * *reading* — the docblock above says so, "standing on the player reads as a rendering fault". Twelve
+ * pixels is 0.375 m of visible ground between two silhouettes, and 0.375 m of ground reads as a gap at
+ * any body size, whereas a proportional rule would put a hill giant 60px out (1.9 m of daylight) and a
+ * pair of kobold youths 9.6px out, which is under a third of a tile and would look like contact.
+ */
+export const MELEE_DAYLIGHT = MELEE_STATION - BODY_SEPARATION;
+
+/**
+ * How close **these two** stand to fight: their own clearance, plus {@link MELEE_DAYLIGHT}.
+ *
+ * The one arithmetic, so the closer, the settle test and anything that later asks "is it on me" cannot
+ * come to three answers. Measured against the ladder the world stands on:
+ *
+ * ```
+ *   two adults              10.0 + 10.0 + 12 = 32.0px   TILE_SIZE, unchanged
+ *   a person and a troll    10.0 + 15.0 + 12 = 37.0px
+ *   a person and a giant    10.0 + 27.5 + 12 = 49.5px   was −5.5px of daylight; now 12
+ *   two giants              27.5 + 27.5 + 12 = 67.0px
+ *   two kobold youths        3.0 +  3.0 + 12 = 18.0px
+ * ```
+ *
+ * **A bigger defender admits more attackers, and that falls out rather than being arranged.** Bodies
+ * of radius `r` ringing a defender at station `s` need `2·s·sin(θ/2) ≥ 2r`, so people round a person
+ * need 36.4° each and nine fit — the number this file has always claimed — while people round a hill
+ * giant need 23.3° and **fifteen** fit, and giants round a person need 67.5° and only five do. That is
+ * the right answer in both directions and no code anywhere had to be told it.
+ */
+export function stationFor(a: Actor, b: Actor): number {
+  return bodyClearance(a, b) + MELEE_DAYLIGHT;
+}
 
 /**
  * How fast it closes — a hunter's own pace, not a walker's.
@@ -118,7 +168,7 @@ export function advanceStations(sim: Simulation, world: GameWorld, elapsedMs: nu
     // player still. When `bash` arrives in Phase 19 it will need no code here.
     if (!sim.canMove(actor)) continue;
 
-    const gap = Math.hypot(target.x - actor.x, target.y - actor.y) - MELEE_STATION;
+    const gap = Math.hypot(target.x - actor.x, target.y - actor.y) - stationFor(actor, target);
     if (gap <= SETTLED) continue;
 
     const grid = world.grid(actor.place);
@@ -127,12 +177,13 @@ export function advanceStations(sim: Simulation, world: GameWorld, elapsedMs: nu
     // Clamped to the gap, never past it. Overshooting is what makes a follower orbit its target —
     // the same clamp click-to-move applies to its waypoints, and for the same reason.
     //
-    // **The numbers reconcile, and it is worth stating why this pass is safe.** Bodies keep
-    // `BODY_SEPARATION` — 20px — between their centres, and {@link MELEE_STATION} is `TILE_SIZE`, 32.
-    // A fighter therefore stops 12px *outside* the radius that would refuse it, so solid bodies can
-    // never leave one jittering against its opponent while the round timer fires. Several mobs on one
-    // target still fit: two points 32px from the same centre need only 36.4° between them to keep 20px
-    // apart, so nine can ring a player before the last one has to stand off.
+    // **The numbers reconcile, and it is worth stating why this pass is safe.** `bodiesAllow` refuses
+    // a step that closes inside `bodyClearance(actor, target)`, and {@link stationFor} is that same
+    // clearance plus {@link MELEE_DAYLIGHT} — so a fighter stops 12px *outside* the radius that would
+    // refuse it whatever the two of them are, and solid bodies can never leave one jittering against
+    // its opponent while the round timer fires. **The reconciliation is now identical by construction
+    // rather than by two constants agreeing**, which is the whole reason it is one function call: the
+    // old form spelled the clearance out as 20 and would have gone negative against a giant.
     const next = sim.stepActor(actor, grid, heading.x, heading.y, Math.min(reach, gap));
 
     // A step that would leave the room is refused outright, which cannot normally happen — the target
@@ -152,5 +203,5 @@ export function advanceStations(sim: Simulation, world: GameWorld, elapsedMs: nu
 
 /** Whether this mob is at its station — for tests, and for anything that wants to say "it is on you". */
 export function atStation(mob: Mob, target: Actor): boolean {
-  return Math.hypot(target.x - mob.x, target.y - mob.y) - MELEE_STATION <= SETTLED;
+  return Math.hypot(target.x - mob.x, target.y - mob.y) - stationFor(mob, target) <= SETTLED;
 }
