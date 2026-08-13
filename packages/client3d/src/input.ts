@@ -90,6 +90,19 @@ const TRAVEL: Readonly<Record<string, readonly [dir: Direction, needsShift: bool
 };
 
 /**
+ * Every code the world's own movement claims — {@link STEER} and {@link TRAVEL}, unioned.
+ *
+ * **The one exception to `keys.ts`'s "a bare key types" rule, and it is derived rather than
+ * restated.** A key added to either table above stops typing on the same commit; a hand-kept second
+ * list is how the two would come to disagree, and a disagreement here reads as either "W opened the
+ * chat box" or "the letter I typed walked me into a wall".
+ */
+export const MOVEMENT_CODES: ReadonlySet<string> = new Set([
+  ...Object.keys(STEER),
+  ...Object.keys(TRAVEL),
+]);
+
+/**
  * Exported because `main.ts`'s debug keys have to make the same refusal.
  *
  * Two listeners on one window that disagree about what counts as typing is `CLAUDE.md` gotcha 5a

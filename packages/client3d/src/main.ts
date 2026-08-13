@@ -78,7 +78,8 @@ import { EntityLayer } from './entities.ts';
 import { FollowCamera, OrbitControl } from './orbit.ts';
 import { PlateSet } from './plates.ts';
 import { metresOfPixel, pixelOfMetres } from './frame.ts';
-import { cameraRelative, Input, intoFormControl, suspendsFollow } from './input.ts';
+import { cameraRelative, Input, suspendsFollow } from './input.ts';
+import { CONTROLS, KeyRouter } from './keys.ts';
 import { LogPanel } from './log.ts';
 import { LoginGate } from './login.ts';
 import { Marker } from './marker.ts';
@@ -123,6 +124,8 @@ const characters = new CharacterSet();
 const plates = new PlateSet(world.scene);
 const entities = new EntityLayer(world.scene, world.pool, characters, plates);
 const input = new Input();
+/** The other half of the keyboard: the view controls behind Alt, and every bare letter to the log. */
+const keys = new KeyRouter();
 const marker = new Marker(world.scene, world.pool);
 const pointer = new PointerControl();
 const dolly = new Dolly();
@@ -286,6 +289,9 @@ const applyTyping = (): void => {
   dolly.typing = input.typing;
   // Four now. M8's orbit is a fourth listener on the canvas and it reads the same answer.
   orbit.typing = input.typing;
+  // Five. `keys.ts` is the second listener on the *window*, which is the pair gotcha 5a is actually
+  // about — the one that did not check would eat a letter out of the command line.
+  keys.typing = input.typing;
 };
 login.onVisibility = (visible) => {
   gateUp = visible;
@@ -1669,13 +1675,30 @@ const debug = {
 (window as unknown as { __debug3d: typeof debug }).__debug3d = debug;
 
 /* -------------------------------------------------------------------------- */
-/* The look keys                                                               */
+/* The look keys — all of them behind Alt since 2026-08-13                     */
 /* -------------------------------------------------------------------------- */
 
 /**
- * **T** cycles the tone mapping, **R** toggles the weather, **B** toggles the bloom, **F** the wind,
- * M5c's **V** the domain warp, M6's **C** puts the camera back on its authored pose — and M5b's **G**
- * flips day against night, with **[** and **]** sweeping the hour an hour at a time.
+ * **Alt+T** cycles the tone mapping, **Alt+R** toggles the weather, **Alt+B** the bloom, **Alt+F** the
+ * wind, M5c's **Alt+V** the domain warp, M6's **Alt+C** puts the camera back on its authored pose —
+ * and M5b's **Alt+G** flips day against night, with **Alt+[** and **Alt+]** sweeping the hour.
+ *
+ * ## Every one of these was a bare letter until the owner tried to open a door
+ *
+ * *"I only found the toggle as I went to open a door and I wasn't in the chat box."* — 2026-08-13. The
+ * nine letters this block bound are nine MUD verbs, the mitigation only ever covered the case where
+ * the caret was **already** in the command line, and the owner's case is the other one. `keys.ts`
+ * carries the whole argument: why Alt and not Ctrl or Shift, why movement is the one bare exception,
+ * and how the first character of a typed command survives the focus. What is left here is the eleven
+ * bodies, reached through `KeyRouter.onView` with the code and the shift state the router read off
+ * the press.
+ *
+ * **The brackets moved under Alt with the rest**, which the brief did not ask for. The reason is the
+ * rule rather than the key: "any bare printable character starts a command" is only a promise the
+ * player can trust if it has no exceptions beyond the movement keys, and `[` left bare is a printable
+ * character that silently jumps the sky instead of typing — the reported bug, in the one place the
+ * fix would have left it. The gesture is untouched: `Alt+]` held still sweeps, because `keys.ts`
+ * refuses `repeat` for the nine letters and allows it for these two.
  *
  * ## Since the world clock: the same keys, as *overrides*
  *
@@ -1684,13 +1707,13 @@ const debug = {
  * no key. So touching any of them **detaches** the hour from the live clock and pins it (`SkyClock`'s
  * `override`), and `__debug3d.sky.live` goes false so the state is readable rather than guessed at.
  *
- * **Shift+G hands it back.** Not a double-tap and not a hold: a chord is one gesture with no timing
- * window to miss, it is read off `event.shiftKey` at the moment of the press — which is `CLAUDE.md`
- * gotcha 5b's own prescription, and the trap that gotcha describes is precisely a modifier tested
- * after the edge was consumed — and it binds no new letter, which matters because every letter bound
- * here is a letter that can go missing out of the command line. **Shift+R** is its twin for the rain,
- * for the same reason and by the same rule: the bare letter takes manual control, the shifted one
- * gives it back to the world.
+ * **Alt+Shift+G hands it back.** Not a double-tap and not a hold: a chord is one gesture with no
+ * timing window to miss, it is read off `event.shiftKey` at the moment of the press — which is
+ * `CLAUDE.md` gotcha 5b's own prescription, and the trap that gotcha describes is precisely a modifier
+ * tested after the edge was consumed. **Alt+Shift+R** is its twin for the rain, for the same reason
+ * and by the same rule: the plain chord takes manual control, the shifted one gives it back to the
+ * world. (Alt+Shift is Windows' layout-switch hotkey, which — like the menu bar on Alt — is a property
+ * of pressing and releasing the pair *alone*, not of a chord with a letter in it.)
  *
  * **R stays a hard override in both modes.** Pressing it flips whatever is currently falling and
  * pins that, whether the hour is live or held; the weather and the clock are separate wheels and
@@ -1705,14 +1728,14 @@ const debug = {
  * the chord or the precedence moved.
  *
  * M6 adds no other letter on purpose: its two controls are the wheel and Shift+wheel (`dolly.ts`),
- * because a hunt for a frame wants a dial and because every letter bound here is a letter that can
- * go missing out of the command line.
+ * because a hunt for a frame wants a dial. That accounting — *every letter bound here is a letter
+ * that can go missing out of the command line* — was right about the cost and wrong about the
+ * remedy, which was rationing rather than a modifier. Alt buys the whole alphabet back.
  *
- * **M8 adds exactly one, O**, and for the same accounting: its two real controls are a drag and a
- * drag (`orbit.ts`), and the only thing that genuinely needs a key is a *mode* — you cannot toggle a
- * boolean with a gesture that is already the boolean's opposite. The letter is O because everything
- * else this file binds is taken and W/A/S/D/Q/E belong to movement, which leaves the vowel that
- * starts the word.
+ * **M8 adds exactly one, O**, and it is the one that cost the owner the door: its two real controls
+ * are a drag and a drag (`orbit.ts`), and the only thing that genuinely needs a key is a *mode* — you
+ * cannot toggle a boolean with a gesture that is already the boolean's opposite. The letter is still
+ * O, because behind Alt the mnemonic is free.
  *
  * **V** is M5c's own version of what **F** does for trap 1: the warp is applied in two places, in a
  * vertex shader for the continuous surfaces and on the CPU for everything that is an object, and the
@@ -1729,29 +1752,27 @@ const debug = {
  *
  * `[` and `]` are `BracketLeft`/`BracketRight` by **code**, not by key, so they are the same two
  * physical keys on every layout — the sweep is a gesture (hold and step) and a gesture wants a
- * position, not a character.
+ * position, not a character. Every code below is read the same way, which is also what makes the Alt
+ * chord layout-proof: with Alt held on a Mac, `event.key` for Option+O is `ø` and `code` is `KeyO`.
  *
- * Both of `CLAUDE.md`'s input traps apply and both are answered the way `input.ts` answers them. The
- * gate is checked *and* `intoFormControl` is asked, so a **t** typed into the command line reaches the
- * command line — the letter-eating failure in gotcha 5a arrived through exactly this door, from a
- * listener that read a key it had no business reading. Nothing here calls `preventDefault`, and the
- * decision is taken on the `keydown` event with `event.repeat` refused rather than polled, which is
- * gotcha 5b. **The bracket keys deliberately do not refuse `repeat`**: a sweep is the one case where
- * auto-repeat is the feature, and they are read off the event rather than polled either way.
+ * Both of `CLAUDE.md`'s input traps are answered in `keys.ts` now, which is the only listener that
+ * decides anything: the gate is checked *and* `intoFormControl` is asked, and every decision is taken
+ * on the `keydown` event with `event.repeat` refused for the toggles and allowed for the two
+ * brackets. What changed is that `preventDefault` is now *called* on these chords rather than
+ * carefully avoided — Chrome's own Alt+F menu mnemonic is only kept out of the wind toggle by the
+ * page consuming the press, and the one route that must never be prevented (a typed character on its
+ * way to the command line) is named in `keys.consumesDefault` rather than left implicit.
  */
-window.addEventListener('keydown', (event: KeyboardEvent) => {
-  if (input.typing || intoFormControl(event.target)) return;
-  if (event.ctrlKey || event.metaKey || event.altKey) return;
-  if (event.code === 'BracketLeft' || event.code === 'BracketRight') {
+keys.onView = (code: string, shift: boolean): void => {
+  if (code === 'BracketLeft' || code === 'BracketRight') {
     // Stepped from whatever the frame is *showing* rather than from whatever was last pinned, so the
     // first press off a live clock lands an hour from now and not an hour from midnight.
     const from = sky.hourAt(performance.now()) ?? gameHour;
-    applySky(sky.override(from + (event.code === 'BracketRight' ? 1 : -1)));
-    log.write('system', `time: ${clockOf(gameHour)} (${world.night.sky?.name ?? 'night'}) — held, shift+G to release`);
+    applySky(sky.override(from + (code === 'BracketRight' ? 1 : -1)));
+    log.write('system', `time: ${clockOf(gameHour)} (${world.night.sky?.name ?? 'night'}) — held, alt+shift+G to release`);
     return;
   }
-  if (event.repeat) return;
-  switch (event.code) {
+  switch (code) {
     case 'KeyT': {
       const at = TONE_MAPPINGS.indexOf(grade.toneMapping);
       const next = TONE_MAPPINGS[(at + 1) % TONE_MAPPINGS.length] ?? TONE_MAPPINGS[0]!;
@@ -1760,7 +1781,7 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
       return;
     }
     case 'KeyR':
-      if (event.shiftKey) {
+      if (shift) {
         // Back to the world's weather. Says what it went back *to*, because "released" on its own
         // leaves the owner unable to tell a dry sky from a broken toggle.
         rainOverride = undefined;
@@ -1780,8 +1801,8 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
       log.write(
         'system',
         rainOverride
-          ? `weather: ${precipWanted()} on (held, shift+R to release)`
-          : 'weather: off (held, shift+R to release)',
+          ? `weather: ${precipWanted()} on (held, alt+shift+R to release)`
+          : 'weather: off (held, alt+shift+R to release)',
       );
       return;
     case 'KeyB':
@@ -1815,16 +1836,15 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
       // shipped off was that W was world-north, and `input.cameraRelative` retired it; the key is now
       // the way *out* of the mode as much as the way in. `dolly.FOLLOW_ON_FRESH` has the history.
       //
-      // **O**, because every other letter this client binds is taken (T/R/B/F/G/V/K/C and the two
-      // brackets) and Q/E/W/A/S/D belong to movement. Through the same `input.typing` /
-      // `intoFormControl` gate as the rest — `CLAUDE.md` gotcha 5a: it is a letter, and every letter
-      // bound here is a letter that can go missing out of the command line.
+      // **Alt+O.** The bare letter is what the owner pressed reaching for `open`, and it is the press
+      // that produced this whole scheme — `keys.ts` has the account. O keeps the mnemonic because
+      // behind Alt it costs the command line nothing.
       applyCameraPose({ ...cameraPose(), follow: !followCamera.enabled });
       log.write(
         'system',
         followCamera.enabled
-          ? 'camera: behind you — it swings round as you turn; shift+drag or O takes it back'
-          : `camera: free — held at ${cardinalOf(rig.yaw)}; O puts it behind you again`,
+          ? 'camera: behind you — it swings round as you turn; shift+drag or alt+O takes it back'
+          : `camera: free — held at ${cardinalOf(rig.yaw)}; alt+O puts it behind you again`,
       );
       return;
     }
@@ -1839,7 +1859,7 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
       );
       return;
     case 'KeyG': {
-      if (event.shiftKey) {
+      if (shift) {
         // Back to the world's clock. `resume` is false when there is no clock to go back to — an old
         // server, or a `welcome` still in flight — and the hour then stays where it was pinned,
         // because there is nothing truer to return it to. Saying so beats silently doing nothing.
@@ -1862,24 +1882,40 @@ window.addEventListener('keydown', (event: KeyboardEvent) => {
       applySky(sky.override(hourOf(day ? NIGHT_SKY : DAY_SKY)));
       log.write(
         'system',
-        `time: ${clockOf(gameHour)} — ${day ? NIGHT_SKY.name : DAY_SKY.name} (held, shift+G to release)`,
+        `time: ${clockOf(gameHour)} — ${day ? NIGHT_SKY.name : DAY_SKY.name} (held, alt+shift+G to release)`,
       );
       return;
     }
     default:
       return;
   }
-});
+};
 
+/**
+ * The other two routes: the command line takes the keyboard, and F1 says how.
+ *
+ * `onLine` is raised for **Enter** and for **any bare printable character** — the second is the whole
+ * fix. `LogPanel.focusInput` opens the pane if it was collapsed and puts the caret at the end, and
+ * `keys.ts` has deliberately *not* prevented the keydown, so the browser's own default action drops
+ * the character into the input that focus just moved to. That is why `open door` typed from the world
+ * arrives as `open door` and not as `pen door`.
+ *
+ * Nothing has to be undone on the way in: focusing the input fires `log.onFocusChange`, which runs
+ * `applyTyping`, which raises the same one boolean every listener reads — so the glide stops on the
+ * same tick the caret arrives.
+ */
+keys.onLine = () => log.focusInput();
+keys.onHelp = () => log.write('system', CONTROLS);
+keys.attach();
+
+log.write('system', CONTROLS);
 log.write(
   'system',
-  'M8 — shift+drag: side to side orbits, up and down tilts (45-64°)   wheel: zoom (24-96 m)   ' +
-    'O: camera behind you (on)   C: camera home, facing north   K: roof cull.  ' +
-    'T: tone mapping   R: weather   B: bloom   F: wind   V: warp   G: day/night   [ ]: sweep the hour.  ' +
+  'M8 — the sky follows the world clock: alt+G and alt+[ ] hold it, alt+shift+G gives it back, ' +
+    'alt+shift+R the weather.  Rain and snow are two fields and the world picks; alt+R forces ' +
+    'whichever this place would have.  ' +
     'The compass in the corner is which way the frame points, and W walks that way — but shift+W is ' +
     'still the exit named north, whatever the compass says.  ' +
-    'The sky follows the world clock: G and [ ] hold it, shift+G gives it back, shift+R the weather.  ' +
-    'Rain and snow are two fields and the world picks; R forces whichever this place would have.  ' +
     'Read the frame you like off window.__debug3d.camera, the interior off .interior, the clock and ' +
     'the weather off .sky, the two fields off .precip.',
 );

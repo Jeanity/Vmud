@@ -302,7 +302,13 @@
           <div id="log-lines"></div>
           <div id="log-status">connecting</div>
           <form id="log-entry" autocomplete="off">
-            <input id="log-input" type="text" placeholder="say hello" />
+            <!--
+              The placeholder is the second half of the controls' discoverability, and it is where
+              the eye already is. Any bare letter now opens this box and lands in it, so the box
+              itself is the right place to say that F1 lists the rest — the owner found the follow
+              camera by pressing O at a door and had nowhere to look it up.
+            -->
+            <input id="log-input" type="text" placeholder="say hello  ·  F1: controls" />
           </form>
         </div>
       </aside>
