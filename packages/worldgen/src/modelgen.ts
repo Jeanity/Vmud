@@ -1571,6 +1571,368 @@ export function creatureDir(): string {
   return explicit ? resolve(explicit) : join(REPO_ROOT, 'assets', 'creatures');
 }
 
+/* -------------------------------------------------------------------------- */
+/* The in-house objects — the creatures' static sibling                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `assets/props/` — in-house **static** models, riding the furniture manifest.
+ *
+ * {@link buildCreature}'s twin, and the symmetry is the point: an in-house *body* joins the pack of
+ * bodies, an in-house *prop* joins the pack of props, and neither gets a tree of its own. What differs
+ * is everything that follows from a bone pile not being a person — no rig, no clips, and, the one that
+ * actually shapes this function, **no texture at all**.
+ *
+ * ## Colour without an atlas, and why it is the cheap answer rather than the lazy one
+ *
+ * The pile carries four materials — `sand`, `bone`, `aged`, `dark` — each a flat `baseColorFactor`
+ * with no image and no `TEXCOORD_0`. Every material family in this renderer samples a map, so the
+ * options were a new untextured program (a real cost — `pool.programKeys()` is asserted) or putting
+ * the colour somewhere a textured material already looks. It already looks at `COLOR_0`: the props
+ * family is `map x vertexColour`, which is exactly `white x colour` when the map is white.
+ *
+ * So the four flat colours are **baked into a vertex-colour attribute** here and the model ships with
+ * a 1x1 white PNG. One draw call, the authored colours exact, and no new program.
+ *
+ * **That bake is only sound because the primitives are disjoint**, and it is checked rather than
+ * assumed: four primitives sharing one `POSITION` accessor reference 107 + 864 + 553 + 58 = 1,582
+ * vertices with **no vertex in two of them**, so every vertex has exactly one material and one colour.
+ * A model that failed that check would need its vertices split per material, and rather than do that
+ * silently — which would double a buffer and quietly change what "2,800 triangles" costs — this
+ * refuses the import and says so.
+ *
+ * ## The rig is dropped, deliberately
+ *
+ * The pile arrives with 21 joints and **zero clips**, which makes the skin an artefact of the tool
+ * that authored it rather than a fact about the object. Kept, it would cost a `Skeleton` and a bone
+ * texture per corpse in the world, for a hierarchy nothing will ever move. Dropped, the bind-pose
+ * positions *are* the model — which is what `bboxMin.y = 0` already says — and it loads as a plain
+ * `Mesh`. `JOINTS_0`/`WEIGHTS_0` go with it.
+ */
+export interface ObjectImport {
+  readonly models: readonly KitModel[];
+  readonly textures: readonly KitTexture[];
+  readonly gltfs: ReadonlyMap<string, string>;
+  readonly images: ReadonlyMap<string, Buffer>;
+}
+
+/**
+ * A 1x1 opaque white PNG, 68 bytes — the map that lets a vertex-coloured model wear a textured
+ * material. Literal rather than generated so the bytes are reviewable and the import stays pure.
+ */
+const WHITE_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+/**
+ * Little-endian typed reads off a glTF buffer — the four component types this importer meets.
+ *
+ * The accessor and view shapes are declared **here** rather than widened onto {@link Gltf}, because
+ * that interface is deliberately *"narrowed to what this file reads"* and every other importer in it
+ * reads accessors as metadata (`count`, `min`, `max`) without ever touching the bytes. Widening it
+ * would advertise a capability three profiles do not have.
+ */
+interface BinaryAccessor {
+  readonly type: string;
+  readonly count: number;
+  readonly componentType: number;
+  readonly bufferView?: number;
+  readonly byteOffset?: number;
+}
+interface BinaryView {
+  readonly byteOffset?: number;
+  readonly byteLength: number;
+  readonly byteStride?: number;
+}
+
+function readAccessor(gltf: Gltf, buffer: Buffer, index: number): { data: number[]; components: number } {
+  const accessor = gltf.accessors[index]! as unknown as BinaryAccessor;
+  const components = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 }[accessor.type] ?? 1;
+  const view = (gltf.bufferViews as unknown as readonly BinaryView[] | undefined)?.[accessor.bufferView ?? -1];
+  const out: number[] = [];
+  if (!view) return { data: out, components };
+  const width = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 }[accessor.componentType] ?? 4;
+  const base = (view.byteOffset ?? 0) + (accessor.byteOffset ?? 0);
+  const stride = view.byteStride && view.byteStride > 0 ? view.byteStride : components * width;
+  for (let element = 0; element < accessor.count; element++) {
+    for (let component = 0; component < components; component++) {
+      const at = base + element * stride + component * width;
+      out.push(
+        accessor.componentType === 5126
+          ? buffer.readFloatLE(at)
+          : accessor.componentType === 5125
+            ? buffer.readUInt32LE(at)
+            : accessor.componentType === 5123
+              ? buffer.readUInt16LE(at)
+              : accessor.componentType === 5122
+                ? buffer.readInt16LE(at)
+                : buffer.readUInt8(at),
+      );
+    }
+  }
+  return { data: out, components };
+}
+
+/**
+ * One in-house static object, as a pure function of its glTF text.
+ *
+ * Emits a **rebuilt** file rather than a patched one: positions, normals, the baked colour and one
+ * concatenated index run, written into a fresh buffer. Patching would mean appending to the source's
+ * binary and reindexing its accessors around a skin that is being removed in the same pass, which is
+ * more moving parts than simply writing the four arrays this needs.
+ */
+export function buildObject(id: string, text: string): ObjectImport | undefined {
+  let gltf: Gltf;
+  try {
+    gltf = JSON.parse(text) as Gltf;
+  } catch {
+    return undefined;
+  }
+  const source = gltf.buffers?.[0]?.uri;
+  const bytes = source ? decodeDataUri(source) : undefined;
+  const primitives = gltf.meshes?.[0]?.primitives;
+  if (!bytes || !primitives?.length) return undefined;
+
+  const positionAccessor = primitives[0]!.attributes['POSITION'];
+  if (positionAccessor === undefined) return undefined;
+  // Every primitive over one vertex buffer is what makes a single colour attribute meaningful. A model
+  // that split its positions per material would need this written differently, so it is refused rather
+  // than mis-imported.
+  if (!primitives.every((primitive) => primitive.attributes['POSITION'] === positionAccessor)) return undefined;
+
+  const position = readAccessor(gltf, bytes, positionAccessor);
+  const normalAccessor = primitives[0]!.attributes['NORMAL'];
+  const normal = normalAccessor === undefined ? undefined : readAccessor(gltf, bytes, normalAccessor);
+  const vertices = position.data.length / 3;
+
+  // The bake, and the disjointness check in the same pass: a vertex claimed twice is a vertex whose
+  // colour depends on which primitive got there last, which is exactly the silent wrongness the
+  // header refuses.
+  const colour = new Uint8Array(vertices * 4);
+  const claimed = new Uint8Array(vertices);
+  const indices: number[] = [];
+  let triangles = 0;
+  for (const primitive of primitives) {
+    const material = gltf.materials[primitive.material];
+    const shade = material?.pbrMetallicRoughness as { baseColorFactor?: readonly number[] } | undefined;
+    const factor = shade?.baseColorFactor ?? [1, 1, 1, 1];
+    const run = readAccessor(gltf, bytes, primitive.indices);
+    triangles += run.data.length / 3;
+    for (const vertex of run.data) {
+      indices.push(vertex);
+      if (claimed[vertex] === 1) continue;
+      claimed[vertex] = 1;
+      for (let channel = 0; channel < 4; channel++) {
+        // glTF's factors are linear; the renderer's working space is linear too and its atlases are
+        // the only thing that needs the sRGB round trip. Written straight, clamped, as bytes.
+        colour[vertex * 4 + channel] = Math.max(0, Math.min(255, Math.round((factor[channel] ?? 1) * 255)));
+      }
+    }
+  }
+  // Every vertex claimed exactly once, which is the disjointness the header refuses to assume. A model
+  // that shares vertices across materials leaves some unclaimed or overwrites a colour, and either way
+  // this count disagrees.
+  if (claimed.reduce((n, c) => n + c, 0) !== vertices) return undefined;
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let maxZ = -Infinity;
+  for (let v = 0; v < vertices; v++) {
+    minX = Math.min(minX, position.data[v * 3]!);
+    minY = Math.min(minY, position.data[v * 3 + 1]!);
+    minZ = Math.min(minZ, position.data[v * 3 + 2]!);
+    maxX = Math.max(maxX, position.data[v * 3]!);
+    maxY = Math.max(maxY, position.data[v * 3 + 1]!);
+    maxZ = Math.max(maxZ, position.data[v * 3 + 2]!);
+  }
+
+  const out = writeObjectGltf(id, {
+    position: Float32Array.from(position.data),
+    normal: normal ? Float32Array.from(normal.data) : undefined,
+    colour,
+    indices: Uint32Array.from(indices),
+    min: [minX, minY, minZ],
+    max: [maxX, maxY, maxZ],
+  });
+  const width = round(maxX - minX);
+  const depth = round(maxZ - minZ);
+
+  return {
+    models: [
+      {
+        id,
+        family: id,
+        url: `models/${PROPS_PROFILE.id}/${id}/model.gltf`,
+        bytes: Buffer.byteLength(out, 'utf8'),
+        triangles,
+        width,
+        depth,
+        height: round(maxY - minY),
+        minY: round(minY),
+        // A corpse is walked over, not around. `bodies.ts` already refuses the tile a body died on for
+        // as long as the body is there; a second, smaller refusal for the pile it leaves would make
+        // loot unreachable, which `index.ts:2728` calls *"a character permanently disarmed"*.
+        blocks: false,
+        blockRadius: 0,
+        parts: [
+          {
+            material: gltf.materials.map((m) => m.name).join('+'),
+            role: 'solid',
+            texture: id,
+            triangles,
+            vertices,
+            alphaTest: 0,
+            vertexColours: true,
+          },
+        ],
+      },
+    ],
+    textures: [
+      {
+        id,
+        url: `models/${PROPS_PROFILE.id}/textures/${id}.png`,
+        bytes: WHITE_PNG.length,
+        width: 1,
+        height: 1,
+        used: 1,
+      },
+    ],
+    gltfs: new Map([[id, out]]),
+    images: new Map([[id, WHITE_PNG]]),
+  };
+}
+
+/** The rebuilt file: one mesh, one primitive, one material, and a buffer this function owns. */
+function writeObjectGltf(
+  id: string,
+  data: {
+    position: Float32Array;
+    normal: Float32Array | undefined;
+    colour: Uint8Array;
+    indices: Uint32Array;
+    min: readonly number[];
+    max: readonly number[];
+  },
+): string {
+  const chunks: { bytes: Buffer; target: number }[] = [];
+  const positionBytes = Buffer.from(data.position.buffer, data.position.byteOffset, data.position.byteLength);
+  chunks.push({ bytes: positionBytes, target: 34962 });
+  if (data.normal) {
+    chunks.push({
+      bytes: Buffer.from(data.normal.buffer, data.normal.byteOffset, data.normal.byteLength),
+      target: 34962,
+    });
+  }
+  chunks.push({ bytes: Buffer.from(data.colour.buffer, data.colour.byteOffset, data.colour.byteLength), target: 34962 });
+  chunks.push({
+    bytes: Buffer.from(data.indices.buffer, data.indices.byteOffset, data.indices.byteLength),
+    target: 34963,
+  });
+
+  const views: { buffer: number; byteOffset: number; byteLength: number; target: number }[] = [];
+  const parts: Buffer[] = [];
+  let offset = 0;
+  for (const chunk of chunks) {
+    // Four-byte alignment, which every accessor here needs and glTF requires of `byteOffset`.
+    const pad = (4 - (offset % 4)) % 4;
+    if (pad > 0) {
+      parts.push(Buffer.alloc(pad));
+      offset += pad;
+    }
+    views.push({ buffer: 0, byteOffset: offset, byteLength: chunk.bytes.length, target: chunk.target });
+    parts.push(chunk.bytes);
+    offset += chunk.bytes.length;
+  }
+  const binary = Buffer.concat(parts);
+
+  const count = data.position.length / 3;
+  let view = 0;
+  const accessors: Record<string, unknown>[] = [
+    { bufferView: view++, componentType: 5126, count, type: 'VEC3', min: [...data.min], max: [...data.max] },
+  ];
+  const attributes: Record<string, number> = { POSITION: 0 };
+  if (data.normal) {
+    attributes['NORMAL'] = accessors.length;
+    accessors.push({ bufferView: view++, componentType: 5126, count, type: 'VEC3' });
+  }
+  attributes['COLOR_0'] = accessors.length;
+  accessors.push({ bufferView: view++, componentType: 5121, normalized: true, count, type: 'VEC4' });
+  const indexAccessor = accessors.length;
+  accessors.push({ bufferView: view++, componentType: 5125, count: data.indices.length, type: 'SCALAR' });
+
+  return `${JSON.stringify(
+    {
+      asset: { version: '2.0', generator: 'modelgen.ts buildObject — colours baked, skin dropped' },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ name: id, mesh: 0 }],
+      meshes: [{ name: id, primitives: [{ attributes, indices: indexAccessor, material: 0 }] }],
+      materials: [
+        {
+          name: id,
+          doubleSided: false,
+          pbrMetallicRoughness: {
+            baseColorFactor: [1, 1, 1, 1],
+            baseColorTexture: { index: 0 },
+            metallicFactor: 0,
+            roughnessFactor: 1,
+          },
+        },
+      ],
+      textures: [{ sampler: 0, source: 0 }],
+      images: [{ mimeType: 'image/png', name: id, uri: `../textures/${id}.png` }],
+      samplers: [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }],
+      accessors,
+      bufferViews: views,
+      buffers: [{ byteLength: binary.length, uri: `data:application/octet-stream;base64,${binary.toString('base64')}` }],
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+/**
+ * **Every `.gltf` in every subdirectory**, by its own file stem — not one model per folder.
+ *
+ * `importCreatures` takes `<name>/<name>.gltf` because a creature is a body and a body is a thing with
+ * a name. An object is not: the bone pile ships as `bonepile.gltf` *and* `bonepile_looted.gltf` in one
+ * folder, because they are two states of one prop and share a source. Keying on the folder would have
+ * imported the first and silently dropped the second, which is the kind of miss that shows up as
+ * "looted corpses look untouched" three days later.
+ */
+export function importObjects(dir: string): ObjectImport {
+  const models: KitModel[] = [];
+  const textures: KitTexture[] = [];
+  const gltfs = new Map<string, string>();
+  const images = new Map<string, Buffer>();
+  if (!existsSync(dir)) return { models, textures, gltfs, images };
+  for (const folder of readdirSync(dir).sort()) {
+    const inside = join(dir, folder);
+    if (!existsSync(inside) || !statSync(inside).isDirectory()) continue;
+    for (const file of readdirSync(inside).sort()) {
+      if (!file.endsWith('.gltf')) continue;
+      const id = file.slice(0, -'.gltf'.length);
+      const built = buildObject(id, readFileSync(join(inside, file), 'utf8'));
+      if (!built) continue;
+      models.push(...built.models);
+      textures.push(...built.textures);
+      for (const [key, value] of built.gltfs) gltfs.set(key, value);
+      for (const [key, value] of built.images) images.set(key, value);
+    }
+  }
+  return { models, textures, gltfs, images };
+}
+
+/** `--objects`, else `$GAME_OBJECTS_DIR`, else the repo's own. {@link creatureDir}'s rule. */
+export function objectDir(): string {
+  const explicit = flag('objects') ?? process.env['GAME_OBJECTS_DIR'];
+  return explicit ? resolve(explicit) : join(REPO_ROOT, 'assets', 'props');
+}
+
 function main(): void {
   const profile = process.argv.includes('--characters')
     ? CHARACTERS_PROFILE
@@ -1606,12 +1968,16 @@ function main(): void {
   // here rather than imported as a fifth profile, and sorted so the manifest's order is a property of
   // the ids rather than of two `readdir`s in sequence.
   const creatures = profile === CHARACTERS_PROFILE ? importCreatures(creatureDir()) : undefined;
+  // The same arrangement one profile over: an in-house *prop* joins the pack of props, exactly as an
+  // in-house *body* joins the pack of bodies. See `ObjectImport`.
+  const objects = profile === PROPS_PROFILE ? importObjects(objectDir()) : undefined;
+  const inHouse = creatures ?? objects;
   const manifest: KitManifest = {
     ...built.manifest,
-    ...(creatures && creatures.models.length > 0
+    ...(inHouse && inHouse.models.length > 0
       ? {
-          models: [...built.manifest.models, ...creatures.models].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
-          textures: [...built.manifest.textures, ...creatures.textures].sort((a, b) =>
+          models: [...built.manifest.models, ...inHouse.models].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
+          textures: [...built.manifest.textures, ...inHouse.textures].sort((a, b) =>
             a.id < b.id ? -1 : a.id > b.id ? 1 : 0,
           ),
         }
@@ -1657,7 +2023,7 @@ function main(): void {
   }
   // Lifted out of the model's own `images[0]` rather than copied off disk — the authored folder's
   // `<id>_tex.png` is a sibling for inspection and is not the bytes the glTF was compiled against.
-  for (const [id, png] of [...(creatures?.images ?? new Map())].sort()) {
+  for (const [id, png] of [...(inHouse?.images ?? new Map())].sort()) {
     writeFileSync(join(outDir, 'textures', `${id}.png`), png);
   }
   if (animationFiles.size > 0) {
@@ -1671,9 +2037,9 @@ function main(): void {
     mkdirSync(dir, { recursive: true });
     // A creature is self-contained — its buffer is a data URI, so there is no sibling `.bin` to copy
     // and no `sources` row to find it by. See `CreatureImport`.
-    const creature = creatures?.gltfs.get(model.id);
-    if (creature !== undefined) {
-      writeFileSync(join(dir, 'model.gltf'), creature, 'utf8');
+    const authored = inHouse?.gltfs.get(model.id);
+    if (authored !== undefined) {
+      writeFileSync(join(dir, 'model.gltf'), authored, 'utf8');
       continue;
     }
     writeFileSync(join(dir, 'model.gltf'), gltfs.get(model.id) ?? '', 'utf8');
