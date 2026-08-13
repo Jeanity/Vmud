@@ -83,6 +83,21 @@ export interface BodyPoint {
  * already claimed *"there are 12 units of daylight between the collision boxes"* at station; with this
  * constant that sentence stops being an observation about the art and becomes the collision rule:
  * 32 − 20 = 12, so a fighter closing to station is never refused by the body it is closing on.
+ *
+ * ## It is one number for every body, and since the scale slice that is a known lie
+ *
+ * `appearance.BODY_SCALE` draws the world's 86 `child` and 44 `teen` templates at 0.72 and 0.88 of
+ * adult height, and `EntityView.scale` puts that on the wire — but **nothing here reads it**. A kobold
+ * youth is drawn 1.30 m tall and collides as a 1.81 m man: it needs the same 20 px of clearance, it
+ * seals the same three-tile gate, and two of them cannot stand as close together as they look like
+ * they could.
+ *
+ * That is deliberate, and it is a slice rather than an oversight. Making the radius a property of the
+ * body would move three separate proofs at once — the no-wedge argument in {@link bodySolidAt} (which
+ * counts 32 px tile centres against a *constant* 20 px of clearance), {@link sidestep}'s gap
+ * arithmetic, and `station.ts`'s 32 − 20 = 12 — and every one of them would become a statement about
+ * the *pair* of bodies involved rather than about the world. Half of the work is already done: the
+ * scale is now on the wire, so the day it is worth doing, both sides can read the same number.
  */
 export const BODY_RADIUS = PLAYER_RADIUS;
 

@@ -31,10 +31,22 @@
  * ## Nothing here is random, and that is the determinism contract
  *
  * `CLAUDE.md` rule 3 bans `Math.random()` in simulation code, and the usual answer is a seeded RNG.
- * This module needs neither: it is a **pure function of the sprite key and the worn kit**, so the
- * same template is the same body on every server start, in every process, without a seed to keep in
- * step. A hash-based roll was considered for outfit variety and rejected — the pack ships exactly two
- * cuts (see {@link OUTFIT_STYLES}), so a coin toss would only ever dress some guards as farmers.
+ * This module needs neither: it is a **pure function of the sprite key, the worn kit and the
+ * character's own identity**, so the same template is the same body on every server start, in every
+ * process, without a seed to keep in step. A hash-based roll was considered for outfit variety and
+ * rejected — the pack ships exactly two cuts (see {@link OUTFIT_STYLES}), so a coin toss would only
+ * ever dress some guards as farmers. **Hair is where that argument turns over**: the pack ships five
+ * distinguishable styles, a room full of identically-shorn kobolds reads as a cloning vat, and
+ * {@link defaultHairFor} hashes the body's own identity rather than rolling — same body, same hair,
+ * for ever, with no stored seed and no shared stream.
+ *
+ * ## One field the simulation *owns*
+ *
+ * Everything else here is derived: the outfit from worn gear, the mesh from the sprite key, the hands
+ * from what is wielded. `hair` is the first that is **chosen** — a player types `hair long` and the
+ * decision is persisted on their character record. It arrives here as {@link AppearanceSubject.hair},
+ * an already-validated style id, because this module still knows no store and no catalogue; what it
+ * owns is the mapping from a style to the two meshes that fit the two skulls.
  *
  * ## Every id names a file that exists
  *
@@ -98,6 +110,180 @@ export const BASE_BODY_MODELS = ['Superhero_Female_FullBody', 'Superhero_Male_Fu
 
 /** Which base mesh a body uses. The pack offers exactly these two and no third. */
 export type BodySex = 'female' | 'male';
+
+/* -------------------------------------------------------------------------- */
+/* Hair — the one thing on a body the simulation chooses                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Namespace for a mesh from *Universal Base Characters*' own `Hairstyles/` line.
+ *
+ * A fifth namespace rather than a sixth `outfit:` slot, for {@link PROP_PREFIX}'s reason one costume
+ * over: hair is not a garment. It replaces no region of the body (the base bodies are bald — their
+ * only head primitives are eyes and eyebrows), it hangs off a single joint, and it is the **only**
+ * thing here chosen from a stored decision rather than derived from what a body is or wears.
+ */
+export const HAIR_PREFIX = 'hair:';
+
+/**
+ * The six hairstyle meshes staged into the character source, by their own file stems.
+ *
+ * Six of the pack's eight, and the two missing ones are a measurement rather than an oversight:
+ * `Eyebrows_Regular` and `Eyebrows_Female` are already *inside* the base bodies — identical indices,
+ * UVs, joints and weights, positions agreeing to 4.9e-7 m — so importing them would draw the same
+ * 984 and 1,480 triangles twice on every character in the world. See `modelgen.characterKind`.
+ */
+export const HAIR_MODELS = [
+  'Hair_Beard',
+  'Hair_Buns',
+  'Hair_Buzzed',
+  'Hair_BuzzedFemale',
+  'Hair_Long',
+  'Hair_SimpleParted',
+] as const;
+
+export type HairModel = (typeof HAIR_MODELS)[number];
+
+/**
+ * One hairstyle as a player names it, and which mesh each body wears for it.
+ *
+ * **Two meshes per row where the vendor authored two**, and that is the whole reason this is a table
+ * rather than a list of stems. Every hairstyle is weighted 100% to the `Head` joint, and the two base
+ * rigs put that joint in different places (male `y = 1.5986, z = -0.0637`; female `1.5491, -0.0389`),
+ * so a mesh authored against one skull sits ~50 mm out of place on the other. The vendor shipped the
+ * buzz cut twice for exactly that reason — `Hair_Buzzed` and `Hair_BuzzedFemale` are the same 830
+ * triangles refitted — and where they did, the fitted mesh is used and nothing is corrected.
+ *
+ * Where they did not, `client3d/src/body.ts` re-fits by binding the mesh with
+ * `IBM_body(Head)⁻¹ · IBM_hair(Head)`, which is exact in the bone frame and measures within 8 mm of
+ * the vendor's own refit of the style they did ship twice. So **every style is offered to every
+ * body**, which matters more than it sounds: `mobpick.BODY_WORDS` has no `female` row that any player
+ * hits, so a sex-split catalogue would have shown the owner three choices.
+ */
+export interface HairStyle {
+  /** What a player types. Lower case, one word — the command matches on it. */
+  readonly id: string;
+  /** How it reads in prose: *"You tie your hair back into buns."* */
+  readonly label: string;
+  /** The mesh a female body wears. */
+  readonly female: HairModel;
+  /** The mesh a male body wears. */
+  readonly male: HairModel;
+}
+
+/**
+ * The catalogue, in the order `hair` lists it — **and the order is the numbering**, so it may be
+ * appended to but not reshuffled: `hair 3` means the third row here.
+ *
+ * `bald` is not in it. Having no hair is the absence of a row rather than a row of its own, so
+ * nothing has to invent an id for "no mesh" — see {@link BALD}.
+ */
+export const HAIR_STYLES: readonly HairStyle[] = [
+  // The one row where the two halves differ, because it is the one style the vendor fitted twice.
+  { id: 'buzzed', label: 'cropped short', female: 'Hair_BuzzedFemale', male: 'Hair_Buzzed' },
+  { id: 'parted', label: 'parted at the side', female: 'Hair_SimpleParted', male: 'Hair_SimpleParted' },
+  { id: 'long', label: 'worn long', female: 'Hair_Long', male: 'Hair_Long' },
+  { id: 'buns', label: 'tied back into buns', female: 'Hair_Buns', male: 'Hair_Buns' },
+  { id: 'beard', label: 'a beard and a bare scalp', female: 'Hair_Beard', male: 'Hair_Beard' },
+];
+
+/**
+ * The style id that means **no hair mesh at all**, and the one id in the vocabulary that names no
+ * file. A player may choose it; nothing rolls it.
+ */
+export const BALD = 'bald';
+
+const HAIR_BY_ID: ReadonlyMap<string, HairStyle> = new Map(HAIR_STYLES.map((style) => [style.id, style]));
+
+/** Every id `hair` accepts, in list order, with {@link BALD} last. */
+export function hairStyleIds(): readonly string[] {
+  return [...HAIR_STYLES.map((style) => style.id), BALD];
+}
+
+/** Whether a string is a hairstyle this build knows — the gate a stored save passes through. */
+export function isHairStyle(id: string): boolean {
+  return id === BALD || HAIR_BY_ID.has(id);
+}
+
+/** The catalogue row for an id, or nothing for {@link BALD} and for anything unrecognised. */
+export function hairStyle(id: string): HairStyle | undefined {
+  return HAIR_BY_ID.get(id);
+}
+
+/**
+ * A 32-bit hash of a string. `fmix32` over the bytes — the same avalanche `roomScene.ts` uses, kept
+ * local because `appearance.ts` imports nothing that does I/O or geometry.
+ */
+function hashOf(text: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
+  }
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xc2b2ae35);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+/**
+ * The hairstyle a body has when nobody chose one — **a pure function of who it is, and never
+ * {@link BALD}**.
+ *
+ * The owner's two requirements, and they pull in opposite directions: *nobody is bald*, and *two
+ * guards in a room do not match*. A constant default satisfies the first and fails the second; a roll
+ * satisfies the second and breaks `CLAUDE.md` rule 3. A hash of the body's own identity satisfies
+ * both, and costs no seed to keep in step across processes — the same argument this module already
+ * makes for every other field it derives.
+ *
+ * **What the seed is differs between a player and a mob, and it has to.** A player's is their
+ * character name: it never changes, so the default they see on their first login is the default they
+ * see for ever, which is what makes it *their* look rather than a lottery they can reroll by
+ * reconnecting. A mob has no such identity — a hundred kobold youths share one name — so its seed is
+ * the entity id, which is what puts five different heads of hair in the Cubs Den. `Simulation.viewOf`
+ * picks the seed; this function only hashes it.
+ *
+ * The result is a style id and never a mesh, so the command, the save and the default all speak one
+ * vocabulary.
+ */
+export function defaultHairFor(seed: string): string {
+  return HAIR_STYLES[hashOf(seed) % HAIR_STYLES.length]!.id;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Scale — a child is not a short adult, but it is a smaller one                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How tall a body stands, as a multiple of the base mesh — the owner's ask, 2026-08-13: *"can we
+ * scale down the size of the mobs when they are labeled as youth or child etc?"*
+ *
+ * `mobpick.BODY_WORDS` has answered *"is this a child"* for the whole population since the mob sweep
+ * and the renderer has ignored it, so every one of the world's 86 `child` and 44 `teen` templates has
+ * been drawn at a grown man's 1.81 m. The two numbers are heights rather than tastes: a human child
+ * of eight or nine is about 1.30 m and a fourteen-year-old about 1.60 m, which against the male base
+ * body's 1.81 m is 0.72 and 0.88.
+ *
+ * ## `muscular` is deliberately **1**, and this is the trap
+ *
+ * The obvious other half of the feature — make giants giant — cannot be written from this table,
+ * because `BODY_WORDS.muscular` conflates *size* with *role*: its trigger list is `giant, ogre, troll,
+ * brute, huge, massive, hulking, warrior, guard, champion`. Scaling that row up would inflate every
+ * town guard in the world into an ogre. It is the same conflation the female-body fix walked into, and
+ * the fix is the same shape: **split the row in `mobpick.ts` and re-run the sweep** before any number
+ * but 1 goes here. Recorded as a gap rather than guessed at.
+ *
+ * `skeleton` and `zombie` are 1 for a plainer reason: they are adult bodies that have died.
+ */
+export const BODY_SCALE: Readonly<Record<string, number>> = {
+  child: 0.72,
+  teen: 0.88,
+};
+
+/** The multiple a `mobpick` body word draws at. 1 for every word without a row — including `muscular`. */
+export function bodyScaleFor(bodyWord: string): number {
+  return BODY_SCALE[bodyWord] ?? 1;
+}
 
 const BASE_BODY_FOR: Readonly<Record<BodySex, string>> = {
   female: 'Superhero_Female_FullBody',
@@ -506,6 +692,23 @@ export interface Appearance {
   /** Visible garments, at most one per {@link GearSlot}. Absent when nothing is drawn. */
   readonly gear?: readonly GearPart[];
   /**
+   * The hairstyle mesh, as a {@link HAIR_PREFIX} id. Absent for a bald body and for a `creature:` one.
+   *
+   * Beside `gear` rather than inside it, for the reason {@link Appearance.hands} is: a garment
+   * replaces a region of the naked mesh and hair replaces nothing, so the renderer's cull
+   * (`skin.hiddenMaskFor`) must never see it. A `hair` entry in the gear list would be one
+   * `HIDDEN_BY_SLOT` row away from taking a character's face off.
+   */
+  readonly hair?: string;
+  /**
+   * How tall this body stands as a multiple of the base mesh — **absent when 1**, which is 2,761 of
+   * the world's 2,891 bodies, so the field costs nothing on the wire for almost everybody.
+   *
+   * A pure function of the `mobpick` body word; see {@link BODY_SCALE} for the two rows and for why
+   * `muscular` is not one of them.
+   */
+  readonly scale?: number;
+  /**
    * What is held, as {@link PROP_PREFIX} ids — M7b. Absent when both hands are empty or unmapped.
    *
    * Beside `gear` rather than inside it for the same reason `GEAR_SLOTS` is not `EQUIP_SLOTS`: a
@@ -540,6 +743,24 @@ export interface AppearanceSubject {
    * executing the zone tables' `E` commands. An armed guard now holds what the builder gave it.
    */
   readonly holding?: { readonly main?: HeldView; readonly off?: HeldView };
+  /**
+   * The **stored** hairstyle id, when this body has one — the first appearance field the simulation
+   * owns rather than derives.
+   *
+   * Filled from `PlayerRecord.hair` for a player and never for a mob, which has nowhere to keep a
+   * choice. Absent, or naming a style this build does not know, both fall through to
+   * {@link defaultHairFor} — so an old save loads and a renamed style degrades to the default instead
+   * of to a bald character.
+   */
+  readonly hair?: string;
+  /**
+   * What {@link defaultHairFor} hashes when {@link hair} says nothing — a character name for a player,
+   * an entity id for a mob. See that function for why the two differ.
+   *
+   * Empty means *no default at all*: the body is drawn bald. Nothing in the simulation passes empty;
+   * it is what keeps `appearanceOf` a total function for a caller that has no identity to offer.
+   */
+  readonly hairSeed?: string;
 }
 
 /**
@@ -557,6 +778,12 @@ export function appearanceOf(subject: AppearanceSubject): Appearance | undefined
 
   const { body, head } = readSprite(subject.sprite);
 
+  // Read before the animal branch, deliberately: a `child/wolf` is a wolf **cub**, and the placeholder
+  // capsule `entities.ts` draws for it should be the smaller one. Scale is a fact about the body word
+  // and the body word is on every sprite, mesh or no mesh.
+  const scale = bodyScaleFor(body);
+  const scaled = scale === 1 ? {} : { scale };
+
   // An animal, and we have no animal meshes. The class is the head shape the 2D sweep chose, so this
   // is a rename away from being a real model id the day one exists.
   //
@@ -567,7 +794,9 @@ export function appearanceOf(subject: AppearanceSubject): Appearance | undefined
   // would emit `creature:wolff`, an id nothing has ever staged, and turn one guard into a 404. So an
   // unrecognised word falls through to the person below, exactly as an unrecognised body does.
   if (ANIMAL_HEADS.has(head)) {
-    return { model: `${CREATURE_PREFIX}${head}` };
+    // No rig, so no gear, no hands and — the reason this is stated rather than assumed — no hair: a
+    // wolf's placeholder is a tinted capsule and a hairstyle would have nothing to hang off.
+    return { model: `${CREATURE_PREFIX}${head}`, ...scaled };
   }
 
   const sex = SEX_FOR_BODY_WORD[body] ?? 'male';
@@ -601,11 +830,42 @@ export function appearanceOf(subject: AppearanceSubject): Appearance | undefined
       ? { ...(main ? { main: `${PROP_PREFIX}${main}` } : {}), ...(off ? { off: `${PROP_PREFIX}${off}` } : {}) }
       : undefined;
 
+  const hair = hairFor(sex, subject, gear);
+
   return {
     model,
     ...(gear.length > 0 ? { gear } : {}),
+    ...(hair ? { hair } : {}),
     ...(hands ? { hands } : {}),
+    ...scaled,
   };
+}
+
+/**
+ * Which hair mesh goes on this body, or nothing.
+ *
+ * Three answers in order, and the first is the one worth reading:
+ *
+ * 1. **A hood hides hair.** The pack's only headwear is the ranger hood, and it is a closed mesh that
+ *    wraps a skull — long hair drawn under it comes out through the cloth. So a body wearing anything
+ *    in the `head` gear slot goes bare-headed under it, which is the same *empty beats wrong* rule
+ *    `WEAPON_ART` states for the bow and `GEAR_ART` for gloves. Note that this can only fire for a
+ *    **player**: `mobGear` deliberately never fills `head`.
+ * 2. **A stored choice wins**, including {@link BALD} — which is the whole point of a stored choice,
+ *    and the one way a character is bald on purpose.
+ * 3. **Otherwise the identity's own default**, so nobody is accidentally bald.
+ *
+ * An id the catalogue does not recognise is treated as absent rather than as bald: a save written
+ * against a style this build has since renamed should put *some* hair on the head.
+ */
+function hairFor(sex: BodySex, subject: AppearanceSubject, gear: readonly GearPart[]): string | undefined {
+  if (gear.some((part) => part.slot === 'head')) return undefined;
+  const chosen = subject.hair !== undefined && isHairStyle(subject.hair) ? subject.hair : undefined;
+  if (chosen === BALD) return undefined;
+  const id = chosen ?? (subject.hairSeed ? defaultHairFor(subject.hairSeed) : undefined);
+  if (id === undefined) return undefined;
+  const style = hairStyle(id);
+  return style ? `${HAIR_PREFIX}${sex === 'female' ? style.female : style.male}` : undefined;
 }
 
 /**
@@ -690,4 +950,20 @@ export function everyGearPartId(): readonly string[] {
 /** Every id it can emit for a **hand** — M7b, and the staging list for the props kit. */
 export function everyWeaponId(): readonly string[] {
   return WEAPON_MODELS.map((stem) => `${PROP_PREFIX}${stem}`);
+}
+
+/**
+ * Every id it can emit for **hair**, and the staging list for the six hairstyle meshes.
+ *
+ * Derived from {@link HAIR_STYLES} rather than from {@link HAIR_MODELS}, so a mesh that is staged but
+ * that no style reaches shows up here as an absence — which is what `characters.test.ts` checks, and
+ * the only way "we imported a hairstyle nobody can wear" is visible without opening the manifest.
+ */
+export function everyHairId(): readonly string[] {
+  const out = new Set<string>();
+  for (const style of HAIR_STYLES) {
+    out.add(`${HAIR_PREFIX}${style.female}`);
+    out.add(`${HAIR_PREFIX}${style.male}`);
+  }
+  return [...out].sort();
 }

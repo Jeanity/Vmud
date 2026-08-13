@@ -27,6 +27,7 @@ import {
   appearanceOf,
   boundsOf,
   everyGearPartId,
+  everyHairId,
   everyModelId,
   makeRng,
   yawOf,
@@ -43,6 +44,7 @@ import { SPAWNS_DIR } from './spawns.ts';
 import { GameWorld } from './world.ts';
 
 const MANIFEST: ReadonlySet<string> = new Set([...everyModelId(), ...everyGearPartId()]);
+const HAIR_MANIFEST: ReadonlySet<string> = new Set(everyHairId());
 
 const room = (id: number): Room => ({
   id: id as RoomId,
@@ -101,15 +103,19 @@ describe('the 3D fields on an entity view', () => {
     assert.equal(sim.viewOf(player).sprite, player.sprite);
   });
 
-  it('adds four keys and disturbs nothing else', () => {
+  it('adds six keys and disturbs nothing else', () => {
     // **The unknown-field safety test, the shape the `sky` message set.** A client that has never
-    // heard of `model`, `gear`, `yaw` or — M7b — `hands` must see the message it saw yesterday, and
-    // the honest way to check that is to delete the new keys and compare the whole rest of the
-    // payload, not to read the fields one at a time and trust the eye.
+    // heard of `model`, `gear`, `yaw`, `hands` — or, since the hair slice, `hair` and `scale` — must
+    // see the message it saw yesterday, and the honest way to check that is to delete the new keys and
+    // compare the whole rest of the payload, not to read the fields one at a time and trust the eye.
     const { sim, player } = makeSim();
     const view = sim.viewOf(player);
-    const { model, gear, yaw, hands, ...asThe2dClientSeesIt } = view;
+    const { model, gear, yaw, hands, hair, scale, ...asThe2dClientSeesIt } = view;
     assert.ok(model !== undefined && yaw !== undefined, 'the new fields must actually be present');
+    // `scale` is absent on a player, who is always adult — the field only appears where it says
+    // something, which is the whole reason it is optional.
+    assert.equal(scale, undefined);
+    void hair;
     // A fresh character's starter kit always rolls a main-hand weapon, and three of the four roll a
     // blade or an axe — so this is present far more often than not, and its absence would mean the
     // hand read never happened rather than that the roll came up a club.
@@ -293,7 +299,81 @@ describe('a kit change reaches the body', () => {
     assert.notDeepEqual(first.gear, second.gear);
     assert.equal(second.gear?.find((g) => g.slot === 'head')?.part, 'outfit:Male_Ranger_Head_Hood');
   });
+
+  it('carries a changed hairstyle out on the very same rebuild', () => {
+    // The resync, and the reason the command calls `afterKitChange` rather than inventing a path: the
+    // payload is a function of the player, so *any* caller that re-sends the view after a change sends
+    // the change. The send itself is `index.ts`'s and is unreachable from this package — see the
+    // describe block's note; what is reachable is that the view follows the field, both ways.
+    const { sim, player } = makeSim();
+    player.equipped = {};
+    const before = sim.viewOf(player).hair;
+    assert.ok(before, 'a character with no stored choice still has hair');
+    player.hair = 'long';
+    assert.equal(sim.viewOf(player).hair, 'hair:Hair_Long');
+    player.hair = 'bald';
+    assert.equal(sim.viewOf(player).hair, undefined, 'bald is a decision the wire respects');
+    player.hair = undefined;
+    assert.equal(sim.viewOf(player).hair, before, 'and clearing it returns the deterministic default');
+  });
 });
+
+/* -------------------------------------------------------------------------- */
+/* Hair and scale, on the wire                                                  */
+/* -------------------------------------------------------------------------- */
+
+describe('what the server chooses about a body', () => {
+  it('seeds a player’s default from their name, so a reconnect is not a reroll', () => {
+    // The identity half of `defaultHairFor`'s contract. Two bodies with **different entity ids and the
+    // same name** — which is exactly what a reconnect produces — because the failure this guards is a
+    // seed taken from anything that moves, and a mob's seed *is* the entity id one test down.
+    const { sim, player } = makeSim();
+    const again = sim.spawn('Mannequin', makeRng(9));
+    assert.notEqual(player.id, again.id, 'two different bodies');
+    assert.equal(sim3dHair(sim, player), sim3dHair(sim, again));
+    assert.equal(player.hair, undefined, 'and neither of them chose it');
+
+    // …and it is a *name* rather than a constant: enough different characters reach more than one
+    // style, or every player in the world would be shorn alike.
+    const styles = new Set(
+      ['Azder', 'Bryn', 'Corwin', 'Dain', 'Elowen', 'Fenn', 'Gwyn', 'Haldir'].map((name) =>
+        sim3dHair(sim, sim.spawn(name, makeRng(3))),
+      ),
+    );
+    assert.ok(styles.size >= 3, `eight names produced ${styles.size} hairstyles`);
+  });
+
+  it('seeds a mob’s from its entity id, so a den is not a cloning vat', () => {
+    // The owner's *"two guards in a room do not match"*. Five sentries of one template, spawned into
+    // one room the way `reset.ts` does — a name-seeded default would give all five the same head.
+    const { sim } = makeSim();
+    const styles = new Set<string | undefined>();
+    for (let i = 0; i < 8; i++) {
+      const mob = sim.spawnMob(sentry(), 90001 as RoomId, makeRng(7 + i))!;
+      styles.add(sim.viewOf(mob).hair);
+    }
+    assert.ok(styles.size >= 2, `eight sentries produced ${styles.size} hairstyles`);
+    for (const style of styles) assert.ok(style?.startsWith('hair:'), `${style} is not a hair id`);
+  });
+
+  it('scales the world’s youths and leaves its guards alone', () => {
+    const { sim } = makeSim();
+    const scaleOf = (sprite: string): number | undefined =>
+      sim.viewOf(sim.spawnMob({ ...sentry(), sprite }, 90001 as RoomId, makeRng(7))!).scale;
+    assert.equal(scaleOf('child/human'), 0.72);
+    assert.equal(scaleOf('teen/human'), 0.88);
+    // The trap, on the wire this time: `muscular` is `giant, ogre, troll … warrior, guard, champion`,
+    // so scaling it would inflate every town guard in the world into an ogre.
+    assert.equal(scaleOf('muscular/human'), undefined);
+    assert.equal(scaleOf('male/human'), undefined);
+  });
+});
+
+/** A player's drawn hairstyle, through the wire's own function. */
+function sim3dHair(sim: Simulation, player: Parameters<Simulation['viewOf']>[0]): string | undefined {
+  player.equipped = {};
+  return sim.viewOf(player).hair;
+}
 
 /* -------------------------------------------------------------------------- */
 /* The sweep, in the shipped world                                              */
@@ -376,6 +456,44 @@ describe('every body in the shipped world', { skip: HAVE_SPAWNS ? false : 'data/
       const look = appearanceOf({ kind: 'mob', sprite: t.sprite });
       if (!look || look.model.startsWith(CREATURE_PREFIX)) continue;
       assert.equal((look.gear ?? []).length, 4, `${t.vnum} ${t.name} is underdressed`);
+    }
+  });
+
+  it('gives every humanoid in it a head of hair, and an id the pack has', () => {
+    // The other half of *"nobody is bald"*, over the real population rather than a fixture: a template
+    // whose seed happened to miss would be one mob in one zone with a shaved head and no error.
+    const bald: string[] = [];
+    for (const t of shippedTemplates()) {
+      const look = appearanceOf({ kind: 'mob', sprite: t.sprite, hairSeed: `mob:${t.vnum}` });
+      if (!look || look.model.startsWith(CREATURE_PREFIX)) continue;
+      if (!look.hair) bald.push(`${t.vnum} ${t.name}`);
+      else assert.ok(HAIR_MANIFEST.has(look.hair), `${t.vnum} ${t.name} -> ${look.hair}`);
+    }
+    assert.deepEqual(bald.slice(0, 5), [], `${bald.length} templates came out bald`);
+  });
+
+  it('scales exactly the bodies the sweep called young, and counts them', () => {
+    // **The whole-world sweep the slice owes.** Measured 2026-08-13 over the shipped harvest with
+    // `mobs.json` applied: **1,503 templates, 90 `child` and 45 `teen`** — 9% of the world drawn
+    // smaller. (`mobs.json` itself holds 86 and 44; the extra five are templates whose *harvested*
+    // sprite already carried a youth word and that the sweep therefore never needed to override, which
+    // is exactly why this counts the merged population rather than the override file.) Asserted rather
+    // than described, so a re-run of `mobsweep` that moves them is visible rather than silent.
+    const byScale = new Map<number, string[]>();
+    for (const t of shippedTemplates()) {
+      const scale = appearanceOf({ kind: 'mob', sprite: t.sprite })?.scale ?? 1;
+      (byScale.get(scale) ?? byScale.set(scale, []).get(scale)!).push(`${t.vnum} ${t.name}`);
+    }
+    const counts = [...byScale].sort(([a], [b]) => a - b).map(([scale, rows]) => [scale, rows.length]);
+    // Three buckets and no fourth: the table has two rows and everything else draws at 1.
+    assert.deepEqual(counts, [[0.72, 90], [0.88, 45], [1, 1368]]);
+
+    // And the one the brief warns about, checked against the population rather than the table: every
+    // `muscular` body — 283 of them, including every town guard in the world — draws at adult height.
+    const muscular = shippedTemplates().filter((t) => t.sprite.startsWith('muscular/'));
+    assert.ok(muscular.length > 100, `expected the martial row to be populous, got ${muscular.length}`);
+    for (const t of muscular) {
+      assert.equal(appearanceOf({ kind: 'mob', sprite: t.sprite })?.scale, undefined, `${t.vnum} ${t.name}`);
     }
   });
 });

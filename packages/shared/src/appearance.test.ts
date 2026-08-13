@@ -20,10 +20,14 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  BALD,
   BASE_PREFIX,
   CREATURE_PREFIX,
   GEAR_ART,
   GEAR_SLOTS,
+  HAIR_MODELS,
+  HAIR_PREFIX,
+  HAIR_STYLES,
   HELD_ART,
   HUMANOID_HEADS,
   OUTFIT_PARTS,
@@ -33,9 +37,14 @@ import {
   WEAPON_ART,
   WEAPON_MODELS,
   appearanceOf,
+  bodyScaleFor,
+  defaultHairFor,
   everyGearPartId,
+  everyHairId,
   everyModelId,
   everyWeaponId,
+  hairStyleIds,
+  isHairStyle,
   type AppearanceSubject,
 } from './appearance.ts';
 import { BODY_SHAPES, HEAD_SHAPES } from './creature-art.ts';
@@ -44,13 +53,14 @@ import { EQUIP_SLOTS } from './equipment.ts';
 const MANIFEST: ReadonlySet<string> = new Set([
   ...everyModelId(),
   ...everyGearPartId(),
+  ...everyHairId(),
 ]);
 
-/** Every id in one appearance, model and parts together — what a manifest check has to cover. */
+/** Every id in one appearance — model, parts and hair together — what a manifest check has to cover. */
 function idsIn(subject: AppearanceSubject): readonly string[] {
   const look = appearanceOf(subject);
   if (!look) return [];
-  return [look.model, ...(look.gear ?? []).map((g) => g.part)];
+  return [look.model, ...(look.gear ?? []).map((g) => g.part), ...(look.hair ? [look.hair] : [])];
 }
 
 describe('the manifest', () => {
@@ -79,7 +89,10 @@ describe('the manifest', () => {
   it('says which pack every id came from', () => {
     for (const id of MANIFEST) {
       const prefixed =
-        id.startsWith(BASE_PREFIX) || id.startsWith(OUTFIT_PREFIX) || id.startsWith(CREATURE_PREFIX);
+        id.startsWith(BASE_PREFIX) ||
+        id.startsWith(OUTFIT_PREFIX) ||
+        id.startsWith(HAIR_PREFIX) ||
+        id.startsWith(CREATURE_PREFIX);
       assert.ok(prefixed, `${id} carries no pack prefix`);
     }
   });
@@ -103,8 +116,23 @@ describe('the emit surface', () => {
 
   it('never emits an id outside the manifest, for any mob in the vocabulary', () => {
     for (const sprite of everySprite) {
-      for (const id of idsIn({ kind: 'mob', sprite })) {
+      // Seeded, so the hair branch is exercised too: an unseeded subject draws bald and would let a
+      // bad hair id through this sweep unseen.
+      for (const id of idsIn({ kind: 'mob', sprite, hairSeed: `mob:${sprite}` })) {
         assert.ok(MANIFEST.has(id), `mob ${JSON.stringify(sprite)} emitted ${id}, which is not staged`);
+      }
+    }
+  });
+
+  it('never emits an id outside the manifest, for any hairstyle on either body', () => {
+    // Every style crossed with both base bodies, plus the two words that are not styles. Exhaustive
+    // rather than sampled for `OUTFIT_PARTS`' own reason: a stem here is *plausible* rather than real,
+    // and the vendor's `Hair_BuzzedFemale` is exactly the kind of name a hand would get wrong.
+    for (const hair of [...hairStyleIds(), 'mohawk', '']) {
+      for (const sprite of ['male/human', 'female/human']) {
+        for (const id of idsIn({ kind: 'player', sprite, hair, hairSeed: 'Azder' })) {
+          assert.ok(MANIFEST.has(id), `hair ${JSON.stringify(hair)} on ${sprite} emitted ${id}`);
+        }
       }
     }
   });
@@ -212,6 +240,143 @@ describe('determinism', () => {
     assert.equal(male, `${BASE_PREFIX}Superhero_Male_FullBody`);
     assert.equal(female, `${BASE_PREFIX}Superhero_Female_FullBody`);
     assert.notEqual(male, female);
+  });
+});
+
+describe('hair', () => {
+  const hairOf = (subject: AppearanceSubject): string | undefined => appearanceOf(subject)?.hair;
+
+  it('names a mesh the pack ships for every style, on both bodies', () => {
+    const staged: ReadonlySet<string> = new Set(HAIR_MODELS);
+    for (const style of HAIR_STYLES) {
+      assert.ok(staged.has(style.female), `${style.id} names ${style.female}, which is not staged`);
+      assert.ok(staged.has(style.male), `${style.id} names ${style.male}, which is not staged`);
+    }
+    // Every staged mesh is reachable, in the other direction: an import nobody can wear is payload.
+    const named = new Set(HAIR_STYLES.flatMap((style) => [style.female, style.male]));
+    assert.deepEqual([...named].sort(), [...HAIR_MODELS].sort());
+  });
+
+  it('gives every style a distinct id, and `bald` is not one of them', () => {
+    const ids = HAIR_STYLES.map((style) => style.id);
+    assert.equal(new Set(ids).size, ids.length, 'two styles share an id');
+    assert.ok(!ids.includes(BALD), 'bald is the absence of a row, not a row');
+    assert.deepEqual(hairStyleIds(), [...ids, BALD]);
+    for (const id of hairStyleIds()) assert.ok(isHairStyle(id), id);
+    assert.ok(!isHairStyle('mohawk'));
+  });
+
+  it('uses the vendor’s own fitted mesh where there is one, and one mesh where there is not', () => {
+    // The buzz cut is the only style the pack shipped twice, and it is the only row whose two halves
+    // differ. Everything else is cross-fitted at bind time — see `characters.HairTemplate`.
+    const split = HAIR_STYLES.filter((style) => style.female !== style.male);
+    assert.deepEqual(split.map((style) => style.id), ['buzzed']);
+    assert.equal(hairOf({ kind: 'player', sprite: 'female/human', hair: 'buzzed' }), `${HAIR_PREFIX}Hair_BuzzedFemale`);
+    assert.equal(hairOf({ kind: 'player', sprite: 'male/human', hair: 'buzzed' }), `${HAIR_PREFIX}Hair_Buzzed`);
+  });
+
+  it('gives one character the same hair for ever, without a seed to keep in step', () => {
+    // The determinism contract, for the one field that now varies between two bodies of one template.
+    // Two *constructions* rather than two calls, so a module-level cache would not hide a hash seeded
+    // from something that moves.
+    const azder = (): AppearanceSubject => ({ kind: 'player', sprite: 'human', hairSeed: 'Azder' });
+    assert.equal(hairOf(azder()), hairOf(azder()));
+    assert.equal(defaultHairFor('Azder'), defaultHairFor('Azder'));
+    assert.ok(hairOf(azder()), 'nobody is bald by accident');
+  });
+
+  it('varies it across characters, which is the whole reason it is a hash', () => {
+    // The owner's other half: *two guards in a room do not match*. Over the ids `viewOf` really hands
+    // it — `mob:<entity id>` — a run of consecutive spawns has to reach more than one style, or a den
+    // of kobold youths is a cloning vat.
+    const den = Array.from({ length: 24 }, (_, i) => defaultHairFor(`mob:${1000 + i}`));
+    assert.ok(new Set(den).size >= 3, `24 consecutive spawns produced ${new Set(den).size} styles`);
+    // And every style is reachable at all, so no row is dead weight in the catalogue.
+    const wide = new Set(Array.from({ length: 400 }, (_, i) => defaultHairFor(`mob:${i}`)));
+    assert.deepEqual([...wide].sort(), HAIR_STYLES.map((style) => style.id).sort());
+    // Never bald, at any seed: `bald` is a decision, not an outcome.
+    for (const id of wide) assert.notEqual(id, BALD);
+  });
+
+  it('lets a character be bald on purpose and never by accident', () => {
+    assert.equal(hairOf({ kind: 'player', sprite: 'human', hair: BALD, hairSeed: 'Azder' }), undefined);
+    // No stored choice is *not* bald — it is "take the default", which is what makes an old save with
+    // no `hair` key load into a character with hair.
+    assert.ok(hairOf({ kind: 'player', sprite: 'human', hairSeed: 'Azder' }));
+    // A style this build no longer knows degrades to the default rather than to a shaved head.
+    assert.equal(
+      hairOf({ kind: 'player', sprite: 'human', hair: 'mohawk', hairSeed: 'Azder' }),
+      hairOf({ kind: 'player', sprite: 'human', hairSeed: 'Azder' }),
+    );
+    // And a subject with neither a choice nor a seed simply has no hair — the total-function case.
+    assert.equal(hairOf({ kind: 'player', sprite: 'human' }), undefined);
+  });
+
+  it('takes the hair off under a hood, because the hood is a closed mesh', () => {
+    const hooded = appearanceOf({
+      kind: 'player',
+      sprite: 'human',
+      hair: 'long',
+      hairSeed: 'Azder',
+      wearing: { head: 'cloth_hood' },
+    });
+    assert.ok(hooded?.gear?.some((part) => part.slot === 'head'), 'the hood should be drawn');
+    assert.equal(hooded?.hair, undefined, 'long hair would come out through the cloth');
+    // Taking it off puts the hair back — the choice was never lost, only covered.
+    assert.equal(appearanceOf({ kind: 'player', sprite: 'human', hair: 'long', hairSeed: 'Azder' })?.hair, `${HAIR_PREFIX}Hair_Long`);
+  });
+
+  it('gives a mob hair too, and never gives an animal any', () => {
+    // A mob has no stored choice, so its seed is all there is — and it is what stops the world's
+    // 1,238 classified templates all being shorn the same way.
+    assert.ok(appearanceOf({ kind: 'mob', sprite: 'child/lizard', hairSeed: 'mob:41' })?.hair);
+    // A wolf has no rig, so there is nothing to hang a hairstyle off.
+    assert.equal(appearanceOf({ kind: 'mob', sprite: 'male/wolf', hairSeed: 'mob:41' })?.hair, undefined);
+  });
+});
+
+describe('a body’s scale', () => {
+  const scaleOf = (sprite: string): number | undefined => appearanceOf({ kind: 'mob', sprite })?.scale;
+
+  it('draws a child and a teen smaller, at the two heights the words mean', () => {
+    // The owner's ask, 2026-08-13. 0.72 and 0.88 of a 1.81 m base body are 1.30 m and 1.59 m, which
+    // are a child of eight or nine and a fourteen-year-old.
+    assert.equal(bodyScaleFor('child'), 0.72);
+    assert.equal(bodyScaleFor('teen'), 0.88);
+    assert.equal(scaleOf('child/human'), 0.72);
+    assert.equal(scaleOf('teen/human'), 0.88);
+  });
+
+  it('does NOT scale the muscular row, which conflates size with role', () => {
+    // The trap, asserted rather than described: `BODY_WORDS.muscular` is `giant, ogre, troll, brute,
+    // huge, massive, hulking, warrior, guard, champion`, so scaling it would turn every town guard
+    // into an ogre. Making giants giant needs that row split in `mobpick.ts` first.
+    assert.equal(bodyScaleFor('muscular'), 1);
+    assert.equal(scaleOf('muscular/human'), undefined, 'a scale of 1 must not reach the wire at all');
+  });
+
+  it('leaves every other body word at 1, and says nothing on the wire when it is', () => {
+    for (const word of ['male', 'female', 'skeleton', 'zombie', 'pregnant', '', 'nonsense']) {
+      assert.equal(bodyScaleFor(word), 1, word);
+      assert.equal(scaleOf(`${word}/human`), undefined, word);
+    }
+  });
+
+  it('shrinks the animal placeholder too, so a cub is a cub', () => {
+    // Read before the head-shape branch, deliberately: `child/wolf` is a wolf cub and the capsule
+    // `entities.ts` draws for it should be the smaller one.
+    const cub = appearanceOf({ kind: 'mob', sprite: 'child/wolf' });
+    assert.equal(cub?.model, `${CREATURE_PREFIX}wolf`);
+    assert.equal(cub?.scale, 0.72);
+  });
+
+  it('changes nothing else about a scaled body', () => {
+    // A child wears the same peasant cut it always did; only the number is new. Worth pinning,
+    // because the cheap way to write this feature would have been a second body word table.
+    const child = appearanceOf({ kind: 'mob', sprite: 'child/human' });
+    const adult = appearanceOf({ kind: 'mob', sprite: 'male/human' });
+    assert.equal(child?.model, adult?.model);
+    assert.deepEqual(child?.gear, adult?.gear);
   });
 });
 

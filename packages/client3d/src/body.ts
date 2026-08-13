@@ -26,6 +26,13 @@
  *    matrices with ones derived from the current pose — and the current pose, one frame into a walk
  *    cycle, is not the bind pose. The result is a body that melts. Every part's own bind matrix is
  *    identity (asserted in `characters.test.ts`), so {@link IDENTITY} is what goes in.
+ *
+ *    **One exception, and it is the hair slice's whole mechanism**: a hairstyle authored on the other
+ *    sex's skull is bound with `IBM_body(Head)⁻¹ · IBM_hair(Head)` instead. `bindMatrix` is a shader
+ *    uniform that multiplies the vertex *before* the bone matrices, and in `AttachedBindMode` its
+ *    partner `bindMatrixInverse` is recomputed each frame from the mesh's own world matrix and never
+ *    from `bindMatrix` — so a non-identity value there is a clean pre-transform rather than a thing
+ *    that cancels. See `characters.HairTemplate.headInverse` for the derivation and the measurement.
  * 2. **`frustumCulled` is off on every body mesh.** A skinned mesh's bounding sphere is the *bind
  *    pose's*, and a sword swing reaches well outside it, so a character at the edge of the frame
  *    vanishes for the half-second it is doing the most interesting thing it does. At a cap of 24
@@ -156,9 +163,15 @@ export const CREATURE_LOOK: Readonly<Record<string, CreatureLook>> = {
 export const CREATURE_DEFAULT: CreatureLook = { colour: 0x7a6f60, height: 0.8, radius: 0.35 };
 
 /** What is currently hung on a rig, as one string, so a re-dress is one comparison. */
-function dressKey(model: string, gear: readonly { readonly slot: string; readonly part: string }[] | undefined, main: string | undefined, off: string | undefined): string {
+function dressKey(
+  model: string,
+  gear: readonly { readonly slot: string; readonly part: string }[] | undefined,
+  main: string | undefined,
+  off: string | undefined,
+  hair: string | undefined,
+): string {
   const worn = gear ? gear.map((entry) => `${entry.slot}=${entry.part}`).join(',') : '';
-  return `${model}|${worn}|${main ?? ''}|${off ?? ''}`;
+  return `${model}|${worn}|${main ?? ''}|${off ?? ''}|${hair ?? ''}`;
 }
 
 /**
@@ -220,8 +233,9 @@ export class BodyRig implements PooledRig {
     gear: readonly { readonly slot: string; readonly part: string }[] | undefined,
     main: string | undefined,
     off: string | undefined,
+    hair?: string | undefined,
   ): void {
-    const key = dressKey(model, gear, main, off);
+    const key = dressKey(model, gear, main, off, hair);
     if (key === this.worn) return;
     this.worn = key;
     this.clearMeshes();
@@ -240,13 +254,36 @@ export class BodyRig implements PooledRig {
       for (const primitive of part.primitives) this.addPrimitive(primitive);
     }
 
+    // **Hair goes through the same composition path as a garment, with one matrix of difference.**
+    // It is not in the gear list — a garment replaces a region of the naked mesh and hair replaces
+    // nothing, so `hiddenMaskFor` above must never see it — but from here down it is a primitive on
+    // the same skeleton like any other. The bind matrix is the whole of the refit: see
+    // `characters.HairTemplate.headInverse` for why it is a uniform rather than a geometry copy, and
+    // note it is the *identity* whenever the style named the mesh authored for this body's sex.
+    if (hair) {
+      const style = this.set.hair(stemOf(hair));
+      if (style) {
+        const refit = new Matrix4().copy(this.template.headInverse).invert().multiply(style.headInverse);
+        for (const primitive of style.primitives) this.addPrimitive(primitive, refit);
+      }
+    }
+
     this.hold(MAIN_HAND_BONE, main);
     this.hold(OFF_HAND_BONE, off);
   }
 
-  /** Place the rig in the world. `y` is the ground; the base bodies' feet are at their own origin. */
-  place(x: number, y: number, z: number): void {
+  /**
+   * Place the rig in the world. `y` is the ground; the base bodies' feet are at their own origin.
+   *
+   * `scale` is `EntityView.scale`, and it is applied to the **group** rather than to any mesh, which
+   * is the only place it can go: a `SkinnedMesh` in `AttachedBindMode` cancels its own world matrix
+   * out of the skinning product, so scaling one does nothing at all. Scaling the group scales the
+   * bones with it — they are its children — so the whole rig, its clothes, its hair and whatever is in
+   * its hands come down together. A child's sword is a child-sized sword, which is right.
+   */
+  place(x: number, y: number, z: number, scale = 1): void {
     this.group.position.set(x, y, z);
+    this.group.scale.setScalar(scale);
   }
 
   /**
@@ -318,19 +355,20 @@ export class BodyRig implements PooledRig {
     this.held.push(holder);
   }
 
-  private addPrimitive(primitive: PartPrimitive): void {
+  private addPrimitive(primitive: PartPrimitive, bindMatrix?: Matrix4): void {
     // Both halves gated: a geometry the pool never took is a part that failed to load, and a material
     // it has no key for is a pack that grew an atlas. Either is one mesh not drawn, never a throw
     // inside a frame — see `ScenePool.hasMaterial`.
     if (!this.pool.hasGeometry(primitive.geometry) || !this.pool.hasMaterial(primitive.material)) return;
-    this.add(this.pool.geometry(primitive.geometry), primitive.material);
+    this.add(this.pool.geometry(primitive.geometry), primitive.material, bindMatrix);
   }
 
-  private add(geometry: BufferGeometry, material: string): void {
+  private add(geometry: BufferGeometry, material: string, bindMatrix?: Matrix4): void {
     if (!this.pool.hasMaterial(material)) return;
     const mesh = new SkinnedMesh(geometry, this.pool.material(material));
-    // Note 1: an explicit identity, never the no-argument form. See the header.
-    mesh.bind(this.skeleton, IDENTITY);
+    // Note 1: an explicit matrix, never the no-argument form. See the header. Identity for everything
+    // but a hairstyle authored on the other sex's skull, whose refit *is* this argument.
+    mesh.bind(this.skeleton, bindMatrix ?? IDENTITY);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     // Note 2: a bind-pose bounding sphere cannot contain a sword swing.

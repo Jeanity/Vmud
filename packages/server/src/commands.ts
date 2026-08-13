@@ -210,6 +210,11 @@ export const COMMANDS = [
   // logout, so `lock` needs all four letters and `unl` reaches its opposite.
   'unlock',
   'lock',
+  // The hair slice, and the first cosmetic verb in the table. `h` and `he` are `help`, which sits
+  // near the top of the inherited block, so `ha` is the shortest thing that reaches this and not one
+  // existing abbreviation moves. Duris has no equivalent — character appearance there is a creation
+  // question and never a command — so this is ours, appended where ours belong.
+  'hair',
 ] as const;
 
 export type Command = (typeof COMMANDS)[number];
@@ -488,6 +493,16 @@ export const COMMAND_REQUIREMENTS: Readonly<Record<Command, Requirement>> = {
   unlock: { status: 'resting', posture: 'sitting' },
   lock: { status: 'resting', posture: 'sitting' },
   logout: { status: 'resting', posture: 'prone', inCombat: false },
+  // The hair slice. No source row to transcribe, so it is reasoned to — and it lands beside `practice`
+  // rather than beside `affects`, because it is an **act** and not a readout. `prone` and `resting`,
+  // because you can decide what your hair looks like lying down and cannot do it in your sleep; and
+  // `inCombat: false`, because restyling your hair with something swinging at you is the same
+  // several-motions absurdity `wear` is refused for.
+  //
+  // The listing form (`hair` with no argument) is refused by the same row, and that is accepted
+  // rather than special-cased: the table gates the *verb*, and one command with two gates would be
+  // the sort of thing nobody finds again. Reading the list mid-fight is not a thing anybody needs.
+  hair: { status: 'resting', posture: 'prone', inCombat: false },
 };
 
 /* -------------------------------------------------------------------------- */

@@ -26,6 +26,8 @@ import {
   STARTING_CAPACITY,
   UNLIMITED_DURATION,
   boundsOf,
+  defaultHairFor,
+  isHairStyle,
   newAffect,
   roomCentre,
   secondWindAffects,
@@ -34,6 +36,7 @@ import {
   type Inventory,
   type Item,
   type Room,
+  type RoomId,
   type Zone,
 } from '@mygame/shared';
 import { bitsetHas } from '@mygame/shared/vision.ts';
@@ -603,6 +606,68 @@ describe('the skills on disk — Phase 19', () => {
     const record = new PlayerStore({ dir }).load('Cheater');
     // The ceiling holds, a negative is dropped rather than stored, and a string is not a percentage.
     assert.deepEqual([...(record.skills ?? [])], [['slashing-1h', 95]]);
+  });
+});
+
+describe('the hairstyle on disk', () => {
+  it('round-trips the one thing a player chose about their own body', () => {
+    const { store, dir } = makeStore();
+    const record = store.load('Azder');
+    assert.equal(record.hair, undefined, 'a new character has chosen nothing');
+    store.setHair(record, 'long');
+    store.flush(record);
+    assert.equal(readSaved(dir, 'azder')['hair'], 'long');
+    assert.equal(new PlayerStore({ dir }).load('Azder').hair, 'long');
+  });
+
+  it('stores `bald` as a real choice, because it is one', () => {
+    // The one case where absent and present-but-empty genuinely differ: no key means *take the
+    // default*, and `bald` means *I decided not to have any*. Collapsing them would make a shaved head
+    // impossible to keep.
+    const { store, dir } = makeStore();
+    const record = store.load('Monk');
+    store.setHair(record, 'bald');
+    store.flush(record);
+    assert.equal(readSaved(dir, 'monk')['hair'], 'bald');
+    assert.equal(new PlayerStore({ dir }).load('Monk').hair, 'bald');
+  });
+
+  it('writes no key at all for a character who never typed the command', () => {
+    const { store, dir } = makeStore();
+    const record = store.load('Shaggy');
+    store.setLastRoom(record, 1 as RoomId);
+    store.flush(record);
+    assert.equal('hair' in readSaved(dir, 'shaggy'), false);
+  });
+
+  it('loads a save written before the slice, and gives it hair rather than failing', () => {
+    // **The migration, and there is none** — which is the claim worth pinning. Every existing save on
+    // disk looks exactly like this one: a full record with no `hair` key. It must load, and the
+    // character must come back with hair rather than shaved or refused.
+    const { dir } = makeStore();
+    writeFileSync(
+      join(dir, 'oldtimer.json'),
+      JSON.stringify({ name: 'Oldtimer', level: 30, experience: 400000, lastRoom: 3001, savedAt: '2026-01-01T00:00:00Z' }),
+    );
+    const record = new PlayerStore({ dir }).load('Oldtimer');
+    assert.equal(record.hair, undefined, 'no choice was ever made');
+    assert.equal(record.progress?.level, 30, 'and everything else still loads');
+    // `undefined` is not bald: `appearanceOf` hashes the name instead, and the answer is a real style.
+    assert.ok(defaultHairFor(record.name));
+    assert.ok(isHairStyle(defaultHairFor(record.name)));
+  });
+
+  it('drops a style this build does not know rather than refusing the login', () => {
+    // The `skills` treatment, for the same reason: these files are hand-editable and a renamed
+    // hairstyle must put the default back, not lock somebody out or scalp them.
+    const { dir } = makeStore();
+    writeFileSync(join(dir, 'punk.json'), JSON.stringify({ name: 'Punk', hair: 'mohawk' }));
+    assert.equal(new PlayerStore({ dir }).load('Punk').hair, undefined);
+    // …and the setter refuses the same value, so a bad id cannot be written in the first place.
+    const { store } = makeStore();
+    const record = store.load('Punk2');
+    store.setHair(record, 'mohawk');
+    assert.equal(record.hair, undefined);
   });
 });
 

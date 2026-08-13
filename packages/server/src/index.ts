@@ -210,6 +210,8 @@ import {
   shortfall,
   canonicalCharacterName,
   characterNameProblem,
+  BALD,
+  defaultHairFor,
   type Ability,
   type AbilityScores,
   type AdjacentRoomView,
@@ -271,6 +273,7 @@ import {
   type Command,
   type CommandBudget,
 } from './commands.ts';
+import { hairCommand } from './hair.ts';
 import { wordsForItem, wordsForMob } from './keywords.ts';
 import { legacyRoomReveal } from './legacy-fog.ts';
 import {
@@ -1923,6 +1926,10 @@ function rememberProgress(player: Player): void {
   // Phase 19, and the floor is passed rather than the level because the *store* has no business
   // deriving one: only values above it are worth a row, which is what keeps the file sparse.
   store.setSkills(record, player.skills, skillFloor(player.level));
+  // The hair slice, and it rides here rather than at the command for the reason every other line in
+  // this function does: `afterKitChange` is the one seam a change of any kind passes through, so a
+  // second save call at the command would be a second thing to remember.
+  store.setHair(record, player.hair);
 }
 
 /**
@@ -1944,6 +1951,11 @@ function restoreProgress(player: Player, record: PlayerRecord): void {
   // folds the strength and dexterity modifiers, so the identity has to be on the player before that
   // one rebuild runs — the same before-the-derivation ordering the kit gets one line down.
   player.identity = record.identity;
+  // And what they look like. `undefined` here is a save written before the hair slice *and* a
+  // character who has simply never typed the command — one case, on purpose, and `appearanceOf` reads
+  // it as "hash my name for a default" rather than as "bald". Nothing derives from it, so it may sit
+  // anywhere in this function; it sits beside the identity because that is what it is.
+  player.hair = record.hair;
   // **The kit comes back before anything derived from it.** A stored character keeps what they were
   // wearing; only a genuinely new one rolls a fresh kit, which is what stops a reconnect being a
   // reroll. `combat` is rebuilt from it below rather than stored, because armour class is a
@@ -7528,6 +7540,8 @@ function runCommand(player: Player, line: string): void {
     // One line in the source: reading is looking at an extra description. Room, worn, bag, ground.
     case 'read': return doRead(player, rest);
     case 'practice': return doPractice(player, rest);
+    // The one command in the table that changes nothing but how you look. Bare lists, argument sets.
+    case 'hair': return doHair(player, rest);
     // Never destroys on this pass: an unconfirmed junk arms the question and returns.
     case 'junk': return junkFromBag(player, rest, false);
     case 'wear': return wearFromBag(player, rest);
@@ -8380,6 +8394,54 @@ function listSpells(player: Player): void {
         ]
     ).join('\n'),
   });
+}
+
+/* -------------------------------------------------------------------------- */
+/* `hair` — the one command that changes only how you look                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `hair` — read the list; `hair <style|number>` — choose one. The owner's ask, and the first
+ * appearance field a player owns rather than derives.
+ *
+ * The decision, the numbering and every word of the prose are `hair.ts`'s and are pure; what is here
+ * is the three things that need this file — the character's *drawn* hair (only `viewOf` knows whether
+ * a hood is covering it), the resync, and the room.
+ *
+ * **The resync is the `wear` path, deliberately, and not a second one.** `afterKitChange` is the seam
+ * every kit change already passes through: it re-derives, re-sends the character sheet, publishes
+ * `syncEntityState` to the wearer *and* every watcher, and hands the record to `rememberProgress`
+ * (which is what persists the choice). A hair change needs the last two and gets the rest for nothing;
+ * a narrower path would be a second thing to keep in step with the first.
+ */
+function doHair(player: Player, rest: string): void {
+  const current = player.hair ?? defaultHairFor(player.name);
+  // **The one fact the pure half cannot know.** Every starter kit fills the `head` slot — a cap or a
+  // hood, both of which resolve to the pack's single hood mesh — and hair is drawn *under* a hood,
+  // which is a closed mesh. Without saying so, a fresh character typing `hair long` watches nothing at
+  // all happen and concludes the command is broken. Read off `viewOf`, the authority on what is drawn.
+  const covered = (id: string): boolean => id !== BALD && sim.viewOf(player).hair === undefined;
+
+  const outcome = hairCommand(rest, current, covered(current));
+  if (outcome.t === 'list') {
+    send(player.id, { t: 'log', channel: 'system', text: outcome.text });
+    return;
+  }
+  if (outcome.t === 'refuse') {
+    send(player.id, { t: 'log', channel: 'error', text: outcome.text });
+    return;
+  }
+
+  player.hair = outcome.id;
+  send(player.id, {
+    t: 'log',
+    channel: 'system',
+    text: outcome.you + (covered(outcome.id) ? ' &+LYour headgear covers it — remove it to be seen.&N' : ''),
+  });
+  afterKitChange(player);
+  // Seen by the room as well as by the mirror, which is what makes it worth typing in company — and
+  // through `actToRoom`, so an observer standing in the dark reads "someone" rather than your name.
+  actToRoom(player, 'system', outcome.room);
 }
 
 /**

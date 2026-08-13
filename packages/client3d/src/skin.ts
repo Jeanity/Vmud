@@ -164,6 +164,11 @@ export function regionMask(regions: Iterable<BodyRegion>): number {
  * are eyes and eyebrows, 984 and 768 triangles, with no hair mesh at all), and the pauldrons are an
  * accessory strapped over a sleeve. Hiding anything for either would take a face off.
  *
+ * **Hair is not a slot here and must never become one.** Since the hair slice a body can carry a
+ * hairstyle mesh, but it arrives as `Appearance.hair` rather than as a gear entry precisely so that
+ * this table never sees it: the bodies are still bald, hair replaces no region of them, and a `hair`
+ * row in here would be the one line that scalps every character in the world.
+ *
  * `legs` claims the hips as well — see this file's header, rule 2.
  */
 export const HIDDEN_BY_SLOT: Readonly<Record<string, readonly BodyRegion[]>> = {

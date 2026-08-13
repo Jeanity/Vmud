@@ -457,6 +457,20 @@ export interface Player extends Actor {
    */
   identity: PlayerIdentity | undefined;
   /**
+   * The hairstyle this character chose — `appearance.HAIR_STYLES`' own id, or `bald`.
+   *
+   * **The first thing about a body that is a stored decision rather than a derivation**, and it is on
+   * `Player` rather than on `Actor` because that is exactly the distinction: a mob has nowhere to keep
+   * a choice and nobody to make one, so `viewOf` hashes its entity id instead. Restored from the
+   * record on entry and `undefined` for a character who has never typed `hair` — which is not "bald",
+   * it is "take the default", and `appearanceOf` reads the two apart.
+   *
+   * Character creation still lives in the 2D client and has no way to ask (which is why M7b skipped
+   * hair altogether), so the deterministic default is what stands in for the missing creation step
+   * and the command is how a player overrides it.
+   */
+  hair: string | undefined;
+  /**
    * Castings spent, by circle — Phase 21 slice 2. Debited when a cast *completes* (the source's
    * pay-then-fizzle order), refilled by memorization while resting, persisted so a relog is not a
    * free refill.
@@ -1048,6 +1062,9 @@ export class Simulation {
       experience: 0,
       // Nobody until the record says so — set by `restoreProgress`, minted by creation. Phase 21.
       identity: undefined,
+      // Likewise: `undefined` means *nothing chosen*, which `appearanceOf` reads as "hash my name for
+      // a default" and not as "bald". Only `hair bald` produces a bald character.
+      hair: undefined,
       spentSlots: new Map(),
       memorizeMs: 0,
       quests: new Map(),
@@ -2377,11 +2394,19 @@ export class Simulation {
     // takes is the three fields a mesh can be chosen from. `wearing.mainHand` is already on the wire
     // and is not enough: for 98% of the catalogue's weapons it is `obj:1234`. See `WEAPON_ART`.
     const holding = handsOf(actor.equipped, wearing);
+    // **The hair slice, and the only place the two halves of the rule meet.** A player's hairstyle is a
+    // stored decision and their seed is their *name* — it never changes, so the default they meet on
+    // their first login is theirs for good and a reconnect is not a reroll. A mob has no such identity
+    // (a hundred templates share the name "a kobold youth"), so its seed is the entity id, which is
+    // what puts five different heads of hair in one den. `appearanceOf` only hashes what it is given.
+    const player = isPlayer(actor);
     const look = appearanceOf({
       kind: actor.kind,
       sprite: actor.sprite,
       ...(wearing ? { wearing } : {}),
       ...(holding ? { holding } : {}),
+      ...(player && actor.hair !== undefined ? { hair: actor.hair } : {}),
+      hairSeed: player ? actor.name : `mob:${actor.id}`,
     });
     return {
       id: actor.id,
@@ -2423,6 +2448,11 @@ export class Simulation {
       // M7b, and it rides exactly the same resync path: `afterKitChange` -> `syncEntityState` ->
       // `viewOf` -> `entityUpdate`, so a `wield` reaches the hand without a line anywhere else.
       ...(look?.hands ? { hands: look.hands } : {}),
+      // The hair slice. `hair` rides that same seam and nothing new was built for it: the command
+      // calls `afterKitChange`, which is what already re-publishes a wearer's view to themselves and
+      // to every watcher. `scale` is absent for the ~95% of bodies that draw at adult height.
+      ...(look?.hair ? { hair: look.hair } : {}),
+      ...(look?.scale === undefined ? {} : { scale: look.scale }),
       // Derived rather than stored: the simulation holds four headings, so a yaw field of its own
       // would be a second copy of `facing` to keep in step. `space.ts` owns the axis argument.
       yaw: yawOf(actor.facing),

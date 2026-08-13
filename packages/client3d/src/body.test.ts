@@ -113,6 +113,9 @@ const STEMS = [
   'Male_Peasant_Arms',
   'Male_Peasant_Legs',
   'Male_Peasant_Feet',
+  'Male_Ranger_Head_Hood',
+  'Hair_Long',
+  'Hair_Buzzed',
   'Sword_Bronze',
   'Shield_Wooden',
 ];
@@ -256,6 +259,82 @@ describe('assembling a body', () => {
     const { pool, set } = setUp();
     assert.equal(acquireRig(set, pool, 'creature:wolf'), undefined);
     assert.equal(acquireRig(set, pool, 'base:Nobody_Here'), undefined);
+    pool.dispose();
+  });
+
+  it('hangs hair on the same skeleton as the garments, and never in the gear list', () => {
+    // The hair slice, and the claim is *"through the existing part-composition path"*: a hairstyle is
+    // one more `SkinnedMesh` bound to the one skeleton, not a child object with a transform of its own.
+    const { pool, set } = setUp();
+    const rig = acquireRig(set, pool, 'base:Superhero_Male_FullBody')!;
+    const gear = [{ slot: 'torso', part: 'outfit:Male_Peasant_Body' }];
+
+    rig.dress('base:Superhero_Male_FullBody', gear, undefined, undefined, undefined);
+    const bald = skinnedOf(rig).length;
+
+    rig.dress('base:Superhero_Male_FullBody', gear, undefined, undefined, 'hair:Hair_Long');
+    const dressed = skinnedOf(rig);
+    assert.equal(dressed.length, bald + 1, 'the hairstyle is one more drawn primitive');
+    const skeleton = dressed[0]!.skeleton;
+    for (const mesh of dressed) assert.equal(mesh.skeleton, skeleton, 'hair on its own skeleton would not follow the head');
+    // And it is not a bone child, which is what a prop is — see `heldOf`.
+    assert.deepEqual(heldOf(rig), []);
+    pool.dispose();
+  });
+
+  it('re-dresses when only the hair changed, and not when it did not', () => {
+    // `dressKey` guards a rebuild with one string comparison, and the hair slice had to be added to
+    // that string: without it, `hair long` would set the field, resync the wire, and change nothing on
+    // screen — the most confusing possible outcome, because everything else would look like it worked.
+    const { pool, set } = setUp();
+    const rig = acquireRig(set, pool, 'base:Superhero_Male_FullBody')!;
+    rig.dress('base:Superhero_Male_FullBody', undefined, undefined, undefined, 'hair:Hair_Long');
+    const first = skinnedOf(rig);
+    rig.dress('base:Superhero_Male_FullBody', undefined, undefined, undefined, 'hair:Hair_Long');
+    assert.deepEqual(skinnedOf(rig), first, 'an identical dressing must not rebuild');
+    rig.dress('base:Superhero_Male_FullBody', undefined, undefined, undefined, 'hair:Hair_Buzzed');
+    assert.notDeepEqual(skinnedOf(rig), first, 'a different hairstyle must');
+    rig.dress('base:Superhero_Male_FullBody', undefined, undefined, undefined, undefined);
+    assert.equal(skinnedOf(rig).length, first.length - 1, 'and going bald drops it again');
+    pool.dispose();
+  });
+
+  it('draws no hair the pack has no mesh for, rather than throwing in a frame', () => {
+    const { pool, set } = setUp();
+    const rig = acquireRig(set, pool, 'base:Superhero_Male_FullBody')!;
+    rig.dress('base:Superhero_Male_FullBody', undefined, undefined, undefined, 'hair:Hair_Mohawk');
+    assert.equal(skinnedOf(rig).length, 1, 'the base body alone');
+    pool.dispose();
+  });
+
+  it('scales the whole rig, bones and all, from one number', () => {
+    // The owner's youths. It goes on the *group* and nowhere else: a `SkinnedMesh` in
+    // `AttachedBindMode` cancels its own world matrix out of the skinning product, so scaling one
+    // does nothing at all — and scaling the group takes the bones (its children) with it, which is
+    // what makes a child's sword a child-sized sword.
+    const { pool, set } = setUp();
+    const rig = acquireRig(set, pool, 'base:Superhero_Male_FullBody')!;
+    rig.dress('base:Superhero_Male_FullBody', undefined, 'prop:Sword_Bronze', undefined, 'hair:Hair_Long');
+
+    rig.place(3, 1, 4);
+    assert.deepEqual(rig.group.scale.toArray(), [1, 1, 1], 'the default is an adult');
+
+    rig.place(3, 1, 4, 0.72);
+    assert.deepEqual(rig.group.scale.toArray(), [0.72, 0.72, 0.72]);
+    assert.deepEqual(rig.group.position.toArray(), [3, 1, 4], 'a scaled body still stands on the ground');
+    rig.group.updateMatrixWorld(true);
+    // Everything hung on the rig is inside that scale — the hair, the garment meshes and the sword.
+    for (const mesh of skinnedOf(rig)) {
+      assert.ok(Math.abs(mesh.matrixWorld.elements[0]! - 0.72) < 1e-6, 'a drawn mesh escaped the scale');
+    }
+    for (const { mesh } of heldOf(rig)) {
+      mesh.updateMatrixWorld(true);
+      assert.ok(Math.abs(mesh.matrixWorld.elements[0]! - 0.72) < 1e-6, 'the sword escaped the scale');
+    }
+
+    // And it comes back: a rig is pooled, so a child's scale must not follow it onto the next body.
+    rig.place(0, 0, 0, 1);
+    assert.deepEqual(rig.group.scale.toArray(), [1, 1, 1]);
     pool.dispose();
   });
 });
@@ -440,6 +519,50 @@ describe('a body that arrived before its pack did', () => {
       assert.ok(view, 'the body should still be held');
       assert.equal(view.yaw, yawOf(view.facing), `${facing} disagreed with its own yaw`);
     }
+    pool.dispose();
+  });
+
+  it('carries the wire’s scale all the way to the rig, and its hair with it', () => {
+    // End to end for the owner's ask: `appearanceOf` reads `mobpick`'s body word, `viewOf` puts it on
+    // the wire, and this is where it has to arrive. One kobold youth, drawn at 0.72.
+    const pool = new ScenePool();
+    const set = new CharacterSet();
+    set.standIn(pool, JOINTS, STEMS);
+    const layer = new EntityLayer(new Scene(), pool, set);
+    const youth = {
+      id: 11,
+      kind: 'mob' as const,
+      name: 'a kobold youth',
+      sprite: 'child/lizard',
+      x: 64,
+      y: 64,
+      facing: 'south' as const,
+      model: 'base:Superhero_Male_FullBody',
+      yaw: Math.PI,
+      hair: 'hair:Hair_Long',
+      scale: 0.72,
+    };
+    layer.upsert(youth);
+    layer.render(1 / 60, () => 0);
+    const rig = layer.body(11)?.rig;
+    assert.ok(rig, 'the youth should have a rig');
+    assert.deepEqual(rig.group.scale.toArray(), [0.72, 0.72, 0.72]);
+    assert.equal(skinnedOf(rig).length, 2, 'the base body and one hairstyle');
+
+    // An adult beside it is untouched — the field is *absent* on the wire, which is what the server
+    // sends for the 95% of bodies that draw at 1, and it defaults to adult here.
+    const { scale: _scale, hair: _hair, ...grown } = youth;
+    layer.upsert({ ...grown, id: 12, name: 'a kobold guard' });
+    layer.render(1 / 60, () => 0);
+    const adult = layer.body(12)?.rig;
+    assert.deepEqual(adult?.group.scale.toArray(), [1, 1, 1]);
+    assert.equal(skinnedOf(adult!).length, 1, 'and no hair, because the wire said none');
+
+    // Growing up is a resync away, and the same rig follows it — a pooled rig that kept a child's
+    // scale would shrink whoever picked it up next.
+    layer.upsert({ ...grown, id: 11, hair: 'hair:Hair_Long' });
+    layer.render(1 / 60, () => 0);
+    assert.deepEqual(layer.body(11)?.rig?.group.scale.toArray(), [1, 1, 1]);
     pool.dispose();
   });
 

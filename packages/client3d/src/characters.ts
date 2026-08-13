@@ -96,7 +96,7 @@ export interface CharacterPartEntry {
 
 export interface CharacterModelEntry {
   readonly id: string;
-  readonly kind: 'body' | 'outfit' | 'weapon';
+  readonly kind: 'body' | 'outfit' | 'hair' | 'weapon';
   /** The vendor's own stem — the join key to `appearance.ts`'s `base:` / `outfit:` / `prop:` ids. */
   readonly stem: string;
   readonly url: string;
@@ -140,8 +140,15 @@ export interface CharacterManifest {
   readonly animations?: readonly CharacterLibraryEntry[];
 }
 
-/** Bumped in lockstep with `modelgen.ts`. A stale import fails loudly here rather than oddly later. */
-export const CHARACTER_MANIFEST_VERSION = 1;
+/**
+ * Bumped in lockstep with `modelgen.ts`. A stale import fails loudly here rather than oddly later.
+ *
+ * **2 since the hair slice.** A v1 manifest has no `hair` models, and — worse in the other direction —
+ * a v1 *reader* meeting one would take the body branch below, because a hairstyle is skinned and
+ * nothing would throw. Six hairstyles registering as base bodies nobody asks for is precisely the kind
+ * of quiet wrongness this number exists to turn into a sentence.
+ */
+export const CHARACTER_MANIFEST_VERSION = 2;
 
 /** The one path this package knows. Relative, so a base-pathed deployment still resolves it. */
 export const CHARACTER_MANIFEST_PATH = 'models/characters/manifest.json';
@@ -152,6 +159,15 @@ export const JOINT_COUNT = 65;
 /** Right hand main, left hand off — `space.ts`'s frame: a body faces `-Z`, so its left is `+X`. */
 export const MAIN_HAND_BONE = 'hand_r';
 export const OFF_HAND_BONE = 'hand_l';
+
+/**
+ * The one joint a hairstyle is weighted to — **measured, all six meshes, 100% of every vertex**.
+ *
+ * That single fact is what makes hair cheap here. It rides the head through every clip with no
+ * attachment code at all (unlike a prop, which hangs off a bone as a rigid child), and the *whole* of
+ * a cross-sex refit is one rigid transform of this joint's frame — see {@link HairTemplate.headInverse}.
+ */
+export const HEAD_BONE = 'Head';
 
 /* -------------------------------------------------------------------------- */
 /* Templates                                                                   */
@@ -186,6 +202,40 @@ export interface BodyTemplate {
   /** Eyes and eyebrows: always drawn, never culled. */
   readonly extras: readonly PartPrimitive[];
   readonly height: number;
+  /** This rig's own inverse-bind matrix for {@link HEAD_BONE}. See {@link HairTemplate.headInverse}. */
+  readonly headInverse: Matrix4;
+}
+
+/**
+ * A hairstyle: the primitive, and the skull it was authored on.
+ *
+ * ## The one number that is not the same as an outfit part's
+ *
+ * `headInverse` is this mesh's own inverse-bind matrix for {@link HEAD_BONE}, and it is kept because
+ * the two base rigs put that joint in different places — the male's at `y = 1.5986, z = -0.0637`, the
+ * female's at `1.5491, -0.0389`, with a degree of tilt between them. Every other part in this pack is
+ * bound with the base body's inverses and its own discarded (see the file header, §2): at rest that
+ * draws a garment exactly where it was authored, which is right, because a garment authored on a body
+ * and a body are the same size.
+ *
+ * A hairstyle is not. It is authored around **one** skull, and the vendor shipped five of the six
+ * around one sex or the other — so drawn "exactly where it was authored" a female bun sits 50 mm
+ * inside a male scalp. The fix is one matrix and no geometry: because hair is weighted 100% to the
+ * head, `IBM_body(Head)⁻¹ · IBM_hair(Head)` is exactly the rigid transform that carries this mesh's
+ * bind-pose head onto that body's, and `SkinnedMesh.bind(skeleton, m)` applies it as a **uniform** —
+ * `AttachedBindMode` recomputes `bindMatrixInverse` from the mesh's own world matrix each frame and
+ * never from `bindMatrix`, so the shader's product comes out as `boneWorld · IBM_body · m · v`, which
+ * is `boneWorld · IBM_hair · v`. Correct at rest and correct through every animation.
+ *
+ * Measured against the vendor's own answer, on the one style they fitted twice: transforming
+ * `Hair_BuzzedFemale` onto the male rig this way lands within **8 mm** of `Hair_Buzzed`, against ~50 mm
+ * for doing nothing. Where a fitted variant exists `appearance.HAIR_STYLES` names it and the matrix is
+ * the identity anyway.
+ */
+export interface HairTemplate {
+  readonly stem: string;
+  readonly primitives: readonly PartPrimitive[];
+  readonly headInverse: Matrix4;
 }
 
 /** A held prop: one geometry, one material, and the node transform already baked in. */
@@ -204,6 +254,7 @@ const STAND_IN_TEXTURE = CHARACTER_TEXTURES[0];
 export class CharacterSet {
   private readonly bodies = new Map<string, BodyTemplate>();
   private readonly parts = new Map<string, PartTemplate>();
+  private readonly hairs = new Map<string, HairTemplate>();
   private readonly weapons = new Map<string, WeaponTemplate>();
   private readonly clipsByName = new Map<string, AnimationClip>();
   /**
@@ -275,6 +326,15 @@ export class CharacterSet {
 
   part(stem: string): PartTemplate | undefined {
     return this.parts.get(stem);
+  }
+
+  hair(stem: string): HairTemplate | undefined {
+    return this.hairs.get(stem);
+  }
+
+  /** How many hairstyles are registered. `__debug3d`, and the number a test joins on. */
+  get hairCount(): number {
+    return this.hairs.size;
   }
 
   weapon(stem: string): WeaponTemplate | undefined {
@@ -401,7 +461,8 @@ export class CharacterSet {
       const primitive: PartPrimitive = { geometry: geometryKey, material: characterMaterialKey(STAND_IN_TEXTURE) };
       // The same partition `modelgen.characterKind` draws, and it has to be: a stand-in that filed a
       // sword under `parts` would let the hand test pass with the weapon hung off the *body* instead
-      // of off a bone, which is the exact bug the test exists to catch.
+      // of off a bone, which is the exact bug the test exists to catch. Four branches since the hair
+      // slice, in the same order and on the same stems.
       if (stem.startsWith('Superhero_')) {
         const bones = standInBones(jointNames);
         this.bodies.set(stem, {
@@ -412,9 +473,14 @@ export class CharacterSet {
           skin: { primitive, regions: standInRegions(jointNames) },
           extras: [],
           height: 1.8,
+          // Identity, so a stand-in's refit matrix is the identity too and a headless test measures
+          // the *plumbing* rather than the vendor's skulls.
+          headInverse: new Matrix4(),
         });
       } else if (/^(Female|Male)_(Peasant|Ranger)_/.test(stem)) {
         this.parts.set(stem, { stem, primitives: [primitive] });
+      } else if (stem.startsWith('Hair_')) {
+        this.hairs.set(stem, { stem, primitives: [primitive], headInverse: new Matrix4() });
       } else {
         this.weapons.set(stem, { stem, primitives: [primitive] });
       }
@@ -477,6 +543,15 @@ export class CharacterSet {
       this.parts.set(model.stem, { stem: model.stem, primitives });
       return;
     }
+    if (model.kind === 'hair') {
+      // The one thing a hairstyle carries that a garment does not — the skull it was authored on.
+      // Dropped silently if the file arrives unrigged, which would make it undrawable rather than
+      // wrongly drawn: see `HairTemplate.headInverse`.
+      const rig = meshes.find((entry) => entry.skinned)?.mesh as SkinnedMesh | undefined;
+      const headInverse = rig?.skeleton ? headInverseOf(rig) : undefined;
+      if (headInverse) this.hairs.set(model.stem, { stem: model.stem, primitives, headInverse });
+      return;
+    }
 
     // A base body. Find the skinned mesh that carries the *skin* — the biggest one, which is also the
     // only one whose material is not the eye or the eyebrow atlas — and label its vertices.
@@ -516,8 +591,22 @@ export class CharacterSet {
       ...(skin ? { skin } : {}),
       extras,
       height: model.height,
+      headInverse: headInverseOf(skinned) ?? new Matrix4(),
     });
   }
+}
+
+/**
+ * A skinned mesh's own inverse-bind matrix for {@link HEAD_BONE}, or nothing when the rig has no such
+ * joint.
+ *
+ * Read by **name** rather than by index, which is the discipline `skin.regionOfJoint` already states
+ * for the same reason: the name is the thing all four packs agree on, and an index-based read would be
+ * one vendor re-export away from fitting a hairstyle to somebody's pelvis.
+ */
+function headInverseOf(mesh: SkinnedMesh): Matrix4 | undefined {
+  const at = mesh.skeleton.bones.findIndex((bone) => bone.name === HEAD_BONE);
+  return at < 0 ? undefined : mesh.skeleton.boneInverses[at];
 }
 
 /* -------------------------------------------------------------------------- */

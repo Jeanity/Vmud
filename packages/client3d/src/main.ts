@@ -1177,6 +1177,9 @@ const debug = {
       models: characters.loaded,
       clips: characters.clipCount,
       maskedBodies: characters.maskedGeometries,
+      // Six when the hair slice's import has run and zero against a pre-slice `public/models` — the
+      // one number that tells a bald-looking world apart from a stale one.
+      hairstyles: characters.hairCount,
       available: characters.available,
     };
   },

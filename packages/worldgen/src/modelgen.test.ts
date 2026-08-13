@@ -22,6 +22,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { HAIR_MODELS } from '@mygame/shared';
+
 import {
   CHARACTERS_PROFILE,
   CHARACTER_CLIPS,
@@ -392,7 +394,7 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const SHIPPED_UAL1 = join(REPO, 'packages', 'client3d', 'public', 'models', 'characters', 'animations', 'ual1.glb');
 
 describe('the characters profile', () => {
-  it('classifies a stem by its own shape, and the three kinds are total over the packs', () => {
+  it('classifies a stem by its own shape, and the four kinds are total over the packs', () => {
     assert.equal(characterKind('Superhero_Male_FullBody'), 'body');
     assert.equal(characterKind('Superhero_Female_FullBody'), 'body');
     assert.equal(characterKind('Male_Ranger_Feet_Boots'), 'outfit');
@@ -400,6 +402,12 @@ describe('the characters profile', () => {
     assert.equal(characterKind('Male_Peasant_Body'), 'outfit');
     assert.equal(characterKind('Sword_Bronze'), 'weapon');
     assert.equal(characterKind('Shield_Wooden'), 'weapon');
+    // The hair slice's fourth answer, and every stem `appearance.HAIR_MODELS` names has to reach it —
+    // a hairstyle that fell through to `weapon` would be staged as something a hand can hold.
+    for (const stem of HAIR_MODELS) assert.equal(characterKind(stem), 'hair', stem);
+    // `Hair_BuzzedFemale` is the trap in that list: it contains `Female`, and the outfit test is
+    // anchored at the start of the stem rather than searching, which is what keeps it hair.
+    assert.equal(characterKind('Hair_BuzzedFemale'), 'hair');
   });
 
   it('undoes the base pack’s own texture asymmetry without collapsing the two skins', () => {
@@ -431,6 +439,8 @@ describe('the characters profile', () => {
     assert.equal(characterFamily('male-ranger-feet-boots'), 'male-ranger');
     assert.equal(characterFamily('superhero-female-full-body'), 'superhero-female');
     assert.equal(characterFamily('sword-bronze'), 'sword');
+    assert.equal(characterFamily('hair-simple-parted'), 'hair');
+    assert.equal(characterFamily('hair-buzzed-female'), 'hair');
     assert.equal(characterFamily('nothing-like-this'), 'unknown');
   });
 });
@@ -466,13 +476,38 @@ function riggedSource(file: string, joints: number): Parameters<typeof buildCata
 }
 
 describe('the character import', () => {
-  const sources = [riggedSource('Male_Peasant_Body.gltf', 65), riggedSource('Superhero_Male_FullBody.gltf', 65)];
+  const sources = [
+    riggedSource('Male_Peasant_Body.gltf', 65),
+    riggedSource('Superhero_Male_FullBody.gltf', 65),
+    riggedSource('Hair_Long.gltf', 65),
+  ];
   const textures = new Map<string, Buffer>();
 
   it('is a pure function of its input, twice over', () => {
     assert.equal(
       sha1(buildCatalogue(sources, textures, CHARACTERS_PROFILE)),
       sha1(buildCatalogue(sources, textures, CHARACTERS_PROFILE)),
+    );
+  });
+
+  it('imports a hairstyle as its own kind, deterministically, in a fixed order', () => {
+    // The determinism bar the brief sets for the hair import, and it is asserted over the *emitted
+    // bytes* rather than over the manifest alone — `sha1` above hashes every glTF too. Run twice,
+    // and once more with the sources shuffled, because the sort that makes the order a property of
+    // the kit rather than of `readdir` is the thing most likely to rot.
+    const straight = buildCatalogue(sources, textures, CHARACTERS_PROFILE);
+    const shuffled = buildCatalogue([...sources].reverse(), textures, CHARACTERS_PROFILE);
+    assert.equal(sha1(straight), sha1(shuffled), 'the import depends on the order files were read in');
+    const hair = straight.manifest.models.find((model) => model.stem === 'Hair_Long');
+    assert.ok(hair, 'no hairstyle in the catalogue');
+    assert.equal(hair.kind, 'hair');
+    assert.equal(hair.id, 'hair-long');
+    assert.equal(hair.joints, 65);
+    assert.equal(hair.url, 'models/characters/hair-long/model.gltf');
+    // Sorted by id, so `hair-long` sits between the two others rather than where it was passed in.
+    assert.deepEqual(
+      straight.manifest.models.map((model) => model.id),
+      ['hair-long', 'male-peasant-body', 'superhero-male-full-body'],
     );
   });
 

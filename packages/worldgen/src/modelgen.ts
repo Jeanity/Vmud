@@ -75,7 +75,8 @@
  * worktree, point it at the main checkout — `--source D:/MyGame/assets/quaternius/nature`.
  *
  * The characters source is **assembled rather than downloaded**: three itch packs are unpacked into
- * one `characters/glTF` (the two base bodies, the twenty modular parts, four props) with the two
+ * one `characters/glTF` (the two base bodies, six hairstyles from the base pack's own
+ * `Hairstyles/Rigged to Head Bone/` line, the twenty modular parts, four props) with the two
  * animation GLBs in a sibling `characters/animations`. That is a hand step, it is recorded in
  * `assets/quaternius/PROVENANCE.md`, and it is why this profile's `pack` line names four packs.
  *
@@ -153,8 +154,16 @@ export const KIT_MANIFEST_VERSION = 1;
 /** The same, for `client3d/src/village.ts`'s `VILLAGE_MANIFEST_VERSION`. Its own number, its own kit. */
 export const VILLAGE_MANIFEST_VERSION = 1;
 
-/** The same, for `client3d/src/characters.ts`'s `CHARACTER_MANIFEST_VERSION`. M7b. */
-export const CHARACTER_MANIFEST_VERSION = 1;
+/**
+ * The same, for `client3d/src/characters.ts`'s `CHARACTER_MANIFEST_VERSION`. M7b.
+ *
+ * **2 since the hair slice.** {@link characterKind} grew a fourth answer, and a v1 reader meeting a
+ * `hair` model would take the *body* branch — the meshes are skinned, so nothing would throw and six
+ * hairstyles would quietly register as base bodies nothing ever asks for. That is exactly the silent
+ * disagreement the version number exists to make loud: a stale `public/models/characters` now says
+ * *"re-run modelgen --characters"* at boot instead of being subtly wrong for ever.
+ */
+export const CHARACTER_MANIFEST_VERSION = 2;
 
 /** The same, for `client3d/src/props.ts`'s `PROPS_MANIFEST_VERSION`. M9's furniture. */
 export const PROPS_MANIFEST_VERSION = 1;
@@ -459,19 +468,33 @@ export const VILLAGE_PROFILE: KitProfile = {
 /**
  * What a character file *is*, from its own stem — and the join key `client3d` routes on.
  *
- * Three answers and no fourth, because three packs are read into one directory: a **body** is one of
- * the two rigs in *Universal Base Characters*, an **outfit** is one of the twenty modular parts in
- * *Modular Character Outfits — Fantasy*, and a **weapon** is one of the four props `appearance.ts`'s
- * `WEAPON_ART` can name. The test asserts the partition is total over what is actually on disk, so a
- * fifth file dropped into the source directory fails here rather than arriving as an unclassified
- * model the renderer silently never draws.
+ * Four answers and no fifth, because four packs are read into one directory: a **body** is one of the
+ * two rigs in *Universal Base Characters*, an **outfit** is one of the twenty modular parts in
+ * *Modular Character Outfits — Fantasy*, **hair** is one of that first pack's `Hairstyles/` meshes, and
+ * a **weapon** is one of the four props `appearance.ts`'s `WEAPON_ART` can name. The test asserts the
+ * partition is total over what is actually on disk, so a fifth file dropped into the source directory
+ * fails here rather than arriving as an unclassified model the renderer silently never draws.
  *
  * Keyed on the stem's own shape rather than on a list, because the vendor's naming is regular in
- * exactly the way that matters: a body is `Superhero_*`, an outfit part is `<Sex>_<Style>_*`.
+ * exactly the way that matters: a body is `Superhero_*`, an outfit part is `<Sex>_<Style>_*`, a
+ * hairstyle is `Hair_*`.
+ *
+ * **`hair` is a kind rather than a fifth `outfit` slot**, and the reason is what the renderer does
+ * with it: a garment *replaces* a region of the naked body (`skin.HIDDEN_BY_SLOT`) and hair replaces
+ * nothing — the base bodies are bald. It also carries a fact no outfit part needs, its own head
+ * inverse-bind matrix, which is what lets a hairstyle authored on one sex sit correctly on the other.
+ * Filing it under `outfit` would make the renderer ask "is this one of the hair ones" at every use.
+ *
+ * **The two `Eyebrows_*` meshes in the same source directory are deliberately not staged**, and it is
+ * a measurement rather than an omission: they are already *inside* the base bodies. `Eyebrows_Regular`
+ * is the male body's own `Face` primitive and `Eyebrows_Female` is the female's `Eyebrows` — identical
+ * index, UV, joint and weight buffers, and positions agreeing to 4.9e-7 m. Importing them would draw
+ * the same 984 and 1,480 triangles twice, in the same place, on every character in the world.
  */
-export function characterKind(stem: string): 'body' | 'outfit' | 'weapon' {
+export function characterKind(stem: string): 'body' | 'outfit' | 'hair' | 'weapon' {
   if (stem.startsWith('Superhero_')) return 'body';
   if (/^(Female|Male)_(Peasant|Ranger)_/.test(stem)) return 'outfit';
+  if (stem.startsWith('Hair_')) return 'hair';
   return 'weapon';
 }
 
@@ -485,6 +508,9 @@ export const CHARACTER_FAMILIES = [
   'axe',
   'female-peasant',
   'female-ranger',
+  // One shelf for all six hairstyles: `hair-beard`, `hair-buns`, `hair-buzzed`, `hair-buzzed-female`,
+  // `hair-long`, `hair-simple-parted`. Coarser than `characterKind`, as every row here is.
+  'hair',
   'male-peasant',
   'male-ranger',
   'shield',
@@ -527,12 +553,20 @@ export const CHARACTERS_PROFILE: KitProfile = {
   // simulation's own coordinates. The same empty set the village profile carries, for the same reason.
   blocking: new Set(),
   pack:
-    '**Quaternius — Universal Base Characters**, **Modular Character Outfits — Fantasy**, ' +
+    '**Quaternius — Universal Base Characters** (the two rigs and six of its eight `Hairstyles/` ' +
+    'meshes, in the *Rigged to Head Bone* line), **Modular Character Outfits — Fantasy**, ' +
     '**Fantasy Props MegaKit** (four props) and **Universal Animation Library 1 & 2**, ' +
     'textured glTF / GLB lines, Standard tier.',
   changes: [
     '- Normal, roughness and ORM maps dropped: `client3d` is Lambert throughout and samples none of',
     '  them. That is 71.4 MB of the packs’ 91.8 MB of PNG.',
+    '- The two `Eyebrows_*` hairstyle meshes are **not** staged: they are already inside the base',
+    '  bodies (`Eyebrows_Regular` is the male body’s own `Face` primitive, `Eyebrows_Female` the',
+    '  female’s `Eyebrows`) — same indices, UVs, joints and weights, positions agreeing to 4.9e-7 m.',
+    '  Importing them would draw the same triangles twice on every character in the world.',
+    '- The six hairstyles come from *Rigged to Head Bone* rather than *Origin at 0*: that line binds',
+    '  the same 65 joints as everything else here, weighted 100% to `Head`, so a hairstyle rides the',
+    '  head through every animation with no attachment code at all.',
     '- `images`/`textures` rebuilt and reindexed; image URIs pointed at the shared `textures/` directory.',
     '- `skins` and their inverse-bind-matrix accessors are **kept**, untouched: they are the rig.',
     '- Geometry, accessors and buffer views are the upstream bytes, unmodified. Nothing is rescaled on',
@@ -640,8 +674,8 @@ export interface KitModel {
   readonly family: string;
   /**
    * What the renderer branches on — M7b, and present only for a profile with a
-   * {@link KitProfile.kind}. `body` / `outfit` / `weapon` for the character packs, absent for both
-   * prop kits.
+   * {@link KitProfile.kind}. `body` / `outfit` / `hair` / `weapon` for the character packs, absent for
+   * both prop kits.
    */
   readonly kind?: string;
   /**

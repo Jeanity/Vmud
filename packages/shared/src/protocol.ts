@@ -308,6 +308,14 @@ import type { Direction, Room, RoomId, Sector, Zone, ZoneId } from './world.ts';
  * *Fantasy Props MegaKit* meshes, the 2D client neither reads it nor needs to, and character creation
  * still lives only there. One field, no bump, `sprite` and `facing` untouched.
  *
+ * **Still 31 a third time — hair, and the size of a child.** `EntityView` gains `hair` and `scale`,
+ * two more optional fields on the same argument, and one of them is a genuine first: `hair` is the
+ * only thing on a body the server *stores a decision about* rather than derives. It rides the wire
+ * beside the derived fields anyway, because from a renderer's point of view they are the same kind of
+ * fact — *what this body looks like* — and the resync that carries a changed tunic carries a changed
+ * haircut for free. `scale` answers the owner's *"scale down the size of the mobs when they are
+ * labeled as youth or child"*; it is absent for the 95% of bodies that draw at 1.
+ *
  * Is 31: **the world gains furniture.** `Room` gains `scenery` — a list of props standing on the
  * floor, each a catalogue name and a tile offset inside the room's own block. It rides on the
  * `zone` message, which already carries whole rooms, so nothing new is sent and nothing is sent
@@ -660,6 +668,40 @@ export interface EntityView {
    * `Sword_Bronze`. Absent for every ground object, since a dropped sword is not holding anything.
    */
   readonly hands?: { readonly main?: string; readonly off?: string };
+  /**
+   * The hairstyle mesh on this body's head — a `hair:` id from `appearance.ts`, still protocol 31.
+   *
+   * **The first appearance field on this view that the server *chose* rather than derived.** `model`
+   * comes from the race, `gear` from what is worn, `hands` from what is wielded, `sprite` from the
+   * mob sweep — every one of them is a fact about the body restated in the renderer's vocabulary. A
+   * player's hair is a decision they typed (`hair long`), stored on their character record, and
+   * re-sent through the same `afterKitChange` seam a `wear` uses. A mob's is hashed from its entity
+   * id, so five kobold youths in one den are five different heads.
+   *
+   * Absent for a bald body — a player who typed `hair bald`, a `creature:` placeholder with no rig to
+   * hang one on, and a character wearing the ranger hood, which is a closed mesh that long hair would
+   * come out through.
+   *
+   * **Not a version bump**, on M7a's and M7b's argument unchanged: one more optional field a client
+   * may ignore, and the 2D client — which still owns character creation — compiles against this file
+   * without a line changed.
+   */
+  readonly hair?: string;
+  /**
+   * How tall this body stands, as a multiple of the base mesh — **absent when 1**, which it is for
+   * 2,761 of the world's 2,891 bodies.
+   *
+   * The owner's ask of 2026-08-13: *"can we scale down the size of the mobs when they are labeled as
+   * youth or child etc?"* `mobpick.BODY_WORDS` has tagged 86 `child` and 44 `teen` templates since the
+   * mob sweep and the renderer drew every one of them at a grown man's height. See
+   * `appearance.BODY_SCALE` for the two factors and for why `muscular` is not a third.
+   *
+   * **The renderer honours it; collision does not.** `bodies.BODY_RADIUS` is one number for every
+   * body in the world, so a 0.72-scale child still needs an adult's 20 px of clearance and still
+   * blocks a doorway like one. That is a knowingly-shipped visual lie, and putting *this* field on the
+   * wire is the half of the fix that had to come first — see `BODY_RADIUS` for the rest.
+   */
+  readonly scale?: number;
   /**
    * Which way this body is turned, as a **renderer yaw in radians** — M7a, §6-M7's second item.
    *

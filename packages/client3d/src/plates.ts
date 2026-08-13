@@ -47,8 +47,27 @@ const PLATE_HEIGHT = 64;
 /** World metres a plate spans at full size. A 1.8 m body with a 1.6 m plate reads at 40 m. */
 const PLATE_METRES = 1.6;
 
-/** How far above the body's own feet a nameplate floats. Just clear of a 1.81 m head. */
+/**
+ * How far above the body's own feet a nameplate floats, **at adult scale**. Just clear of a 1.81 m
+ * head.
+ *
+ * Multiplied by `EntityView.scale` at every use — see {@link liftFor}. A constant was right while
+ * every body in the world was 1.81 m tall and stopped being right the day the world's 86 `child` and
+ * 44 `teen` templates started drawing at 0.72 and 0.88: a name floating at 2.1 m over a 1.30 m kobold
+ * youth is not that youth's name, it is a label hanging in the air near it.
+ */
 export const NAMEPLATE_LIFT = 2.1;
+
+/**
+ * Where the text over a body of this scale belongs, in metres above its feet.
+ *
+ * A function rather than a multiplication at each call site because there are two call sites — the
+ * nameplate and the damage number — and they must agree: a number rising from a different height than
+ * the name it rises past reads as two different bodies.
+ */
+export function liftFor(scale: number): number {
+  return NAMEPLATE_LIFT * scale;
+}
 
 /** Metres at which a nameplate is fully opaque, and at which it has gone. */
 export const PLATE_NEAR = 18;
@@ -168,7 +187,17 @@ export class PlateSet {
    * changes, which for a name is once per entity — so the steady-state cost is a position, a
    * quaternion copy and an opacity write.
    */
-  showName(id: number, text: string, x: number, y: number, z: number, metres: number, camera: Camera): void {
+  showName(
+    id: number,
+    text: string,
+    x: number,
+    y: number,
+    z: number,
+    metres: number,
+    camera: Camera,
+    /** The body's `EntityView.scale`. Defaults to adult, which is what every caller sent before. */
+    scale = 1,
+  ): void {
     let plate = this.claimed.get(id);
     if (!plate) {
       plate = this.names.find((candidate) => !candidate.live);
@@ -182,7 +211,7 @@ export class PlateSet {
     const opacity = plateOpacity(metres);
     plate.material.opacity = opacity;
     plate.sprite.visible = opacity > 0.02;
-    plate.sprite.position.set(x, y + NAMEPLATE_LIFT, z);
+    plate.sprite.position.set(x, y + liftFor(scale), z);
     plate.sprite.quaternion.copy(camera.quaternion);
   }
 
@@ -203,7 +232,16 @@ export class PlateSet {
    * number instead of dropping the newest: in a fight the number you have not read yet is the one that
    * just landed.
    */
-  showDamage(amount: number, critical: boolean, hit: boolean, x: number, y: number, z: number): void {
+  showDamage(
+    amount: number,
+    critical: boolean,
+    hit: boolean,
+    x: number,
+    y: number,
+    z: number,
+    /** The struck body's `EntityView.scale`, so the number starts off *its* head. */
+    scale = 1,
+  ): void {
     const plate = this.numbers[this.nextNumber % this.numbers.length];
     this.nextNumber += 1;
     if (!plate) return;
@@ -213,12 +251,12 @@ export class PlateSet {
     plate.age = 0;
     plate.live = true;
     plate.sprite.visible = true;
-    plate.sprite.position.set(x, y + NAMEPLATE_LIFT, z);
+    plate.sprite.position.set(x, y + liftFor(scale), z);
     // **Recorded here and nowhere else.** The rise is a function of the age, not an integration, so a
     // dropped frame does not leave one number half a metre behind the others — but that only works if
     // the origin is re-read on every firing. Latching it lazily inside `advance` would make a recycled
     // plate climb from wherever the *last* blow put it, which in a fight is somebody else's head.
-    plate.baseY = y + NAMEPLATE_LIFT;
+    plate.baseY = y + liftFor(scale);
   }
 
   /** Age every number in flight. One call a frame, after the bodies have been placed. */

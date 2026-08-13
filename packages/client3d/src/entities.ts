@@ -280,6 +280,9 @@ export class EntityLayer {
       metresOfPixel(victim.x),
       groundAt(victim.x, victim.y),
       metresOfPixel(victim.y),
+      // Off the head that was actually hit. A number that started at adult height over a kobold youth
+      // would look like somebody else had been struck.
+      victim.view.scale ?? 1,
     );
   }
 
@@ -382,6 +385,10 @@ export class EntityLayer {
       const worldZ = z + this.warp.z;
       const ground = groundAt(body.x, body.y);
 
+      // **The owner's youths, and the one number every drawn part of a body has to agree on.**
+      // Absent means adult, which is 95% of the world — see `appearance.BODY_SCALE`.
+      const scale = body.view.scale ?? 1;
+
       if (body.rig) {
         // How far the body actually moved on screen since the last frame, in metres. The first frame
         // has no previous position and therefore no speed, which is right: a body that has just
@@ -392,24 +399,32 @@ export class EntityLayer {
             : Math.hypot(worldX - body.lastX, worldZ - body.lastZ);
         body.lastX = worldX;
         body.lastZ = worldZ;
-        body.rig.place(worldX, ground, worldZ);
+        body.rig.place(worldX, ground, worldZ, scale);
         body.rig.update(seconds, body.view.yaw ?? 0, moved, subjectOf(body.view));
         if (this.plates && camera && body.view.name) {
           const distance = camera.position.distanceTo(body.rig.group.position);
-          this.plates.showName(id, body.view.name, worldX, ground, worldZ, distance, camera);
+          // The plate follows the head, not a constant: a 0.72-scale child whose name floated at an
+          // adult's 2.1 m would have it hanging three quarters of a metre above them.
+          this.plates.showName(id, body.view.name, worldX, ground, worldZ, distance, camera, scale);
         }
         continue;
       }
 
       const creature = creatureLook(body.view.model);
-      const height = creature?.height ?? DIMENSIONS.bodyHeight;
-      const radius = creature?.radius ?? DIMENSIONS.bodyRadius;
+      // A `child/wolf` is a wolf cub. The placeholder capsule takes the same scale the rig would have,
+      // which is why `appearanceOf` reads the body word *before* it branches on the head shape.
+      const height = (creature?.height ?? DIMENSIONS.bodyHeight) * scale;
+      const radius = (creature?.radius ?? DIMENSIONS.bodyRadius) * scale;
       const mesh = creature ? this.creatureMesh : mine ? this.selfMesh : this.otherMesh;
       const index = creature ? creatureCount : mine ? selfCount : otherCount;
       if (index >= WRAPPER_CAPACITY) continue;
       this.scratch.position.set(worldX, ground + height / 2, worldZ);
       this.scratch.rotation.set(0, 0, 0);
-      this.scratch.scale.set(creature ? radius * 2 : diameter, creature ? height / 2 : heightScale, creature ? radius * 2 : diameter);
+      this.scratch.scale.set(
+        creature ? radius * 2 : diameter * scale,
+        creature ? height / 2 : heightScale * scale,
+        creature ? radius * 2 : diameter * scale,
+      );
       this.scratch.updateMatrix();
       mesh.setMatrixAt(index, this.scratch.matrix);
       if (creature) {
@@ -459,7 +474,13 @@ export class EntityLayer {
       this.equip(body);
       return;
     }
-    body.rig.dress(body.view.model ?? '', body.view.gear, body.view.hands?.main, body.view.hands?.off);
+    body.rig.dress(
+      body.view.model ?? '',
+      body.view.gear,
+      body.view.hands?.main,
+      body.view.hands?.off,
+      body.view.hair,
+    );
   }
 
   private unequip(body: Body): void {

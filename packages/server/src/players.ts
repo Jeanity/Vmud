@@ -31,6 +31,7 @@ import {
   APPLY_LOCATIONS,
   ceilingFor,
   isClassId,
+  isHairStyle,
   isRaceId,
   isSkillId,
   readScores,
@@ -177,6 +178,20 @@ export interface PlayerRecord {
    */
   identity: PlayerIdentity | undefined;
   /**
+   * The hairstyle this character chose, by `appearance.HAIR_STYLES` id — or `bald`.
+   *
+   * **The first *cosmetic* fact this file has ever stored**, and it is stored for the same reason
+   * `equipped` is: a choice that evaporated on logout would not be a choice. `undefined` is a
+   * character who has never typed `hair`, which is not the same as bald — it means *take the
+   * deterministic default*, and every save written before this slice reads exactly that way with no
+   * migration at all.
+   *
+   * A style id this build does not recognise is dropped on load, the treatment `affects` and `skills`
+   * get and for the same reason: these files are hand-editable, and a renamed hairstyle must put the
+   * default back rather than stop a login or scalp the character.
+   */
+  hair: string | undefined;
+  /**
    * Castings spent, by circle — Phase 21 slice 2. The deficit, like `missing`: what has been used,
    * not what remains, so a level-up that raises the slot ceiling owes no migration. Empty for the
    * rested, the mundane, and every save from before the phase.
@@ -273,6 +288,12 @@ interface StoredRecord {
   class?: string;
   /** The six rolled scores. Absent before Phase 21. */
   scores?: unknown;
+  /**
+   * The chosen hairstyle id. Absent before the hair slice and for anyone who has never typed `hair`,
+   * and those two are the same case on purpose: no field means the deterministic default, so an old
+   * save needs no migration and gets a full head of hair.
+   */
+  hair?: string;
   /** Castings spent by circle. Absent for the rested and everything before slice 2. */
   spentSlots?: Record<string, number>;
   /** Quest progress by id. Absent for the questless and everything before slice 7. */
@@ -436,6 +457,7 @@ export class PlayerStore {
       missing: undefined,
       progress: undefined,
       identity: undefined,
+      hair: undefined,
       spentSlots: new Map(),
       quests: new Map(),
       equipped: undefined,
@@ -455,6 +477,7 @@ export class PlayerStore {
           missing: decodeMissing(stored.missing),
           progress: decodeProgress(stored.level, stored.experience, stored.maxHp, stored.damageBonus),
           identity: decodeIdentity(stored.race, stored.class, stored.scores),
+          hair: decodeHair(stored.hair),
           spentSlots: decodeSpentSlots(stored.spentSlots),
           quests: decodeQuests(stored.quests),
         equipped: readEquipped(stored.equipped),
@@ -594,6 +617,21 @@ export class PlayerStore {
       return;
     }
     record.progress = value;
+    this.touch(record);
+  }
+
+  /**
+   * Records the chosen hairstyle. See {@link PlayerRecord.hair}.
+   *
+   * Validated here as well as at the command, the same belt-and-braces every other setter in this
+   * file wears: a store that would write `"hair": "mohawk"` is a store that would read it back and
+   * hand a character a style nothing can draw. `undefined` clears the choice back to the default,
+   * which is what an admin editing a save by hand would expect deleting the key to do.
+   */
+  setHair(record: PlayerRecord, hair: string | undefined): void {
+    const value = hair !== undefined && isHairStyle(hair) ? hair : undefined;
+    if (record.hair === value) return;
+    record.hair = value;
     this.touch(record);
   }
 
@@ -807,6 +845,9 @@ export class PlayerStore {
       ...(record.identity === undefined
         ? {}
         : { race: record.identity.race, class: record.identity.class, scores: record.identity.scores }),
+      // Absent for a character who has never typed `hair`, which is every save written before this
+      // slice — and absence means "take the default", so there is nothing to migrate.
+      ...(record.hair === undefined ? {} : { hair: record.hair }),
       ...(record.spentSlots.size === 0
         ? {}
         : { spentSlots: Object.fromEntries([...record.spentSlots].map(([c, n]) => [String(c), n])) }),
@@ -910,6 +951,7 @@ export class PlayerStore {
         missing: decodeMissing(stored.missing),
         progress: decodeProgress(stored.level, stored.experience, stored.maxHp, stored.damageBonus),
         identity: decodeIdentity(stored.race, stored.class, stored.scores),
+        hair: decodeHair(stored.hair),
         spentSlots: decodeSpentSlots(stored.spentSlots),
         quests: decodeQuests(stored.quests),
         equipped: readEquipped(stored.equipped),
@@ -1244,6 +1286,19 @@ function decodeIdentity(
   const cleanScores = readScores(scores);
   if (!cleanScores) return undefined;
   return { race, class: charClass, scores: cleanScores };
+}
+
+/**
+ * The stored hairstyle, checked against the catalogue this build actually ships.
+ *
+ * Absent, malformed and unrecognised all read as the same thing — **nothing chosen** — and that is
+ * the whole of the migration: a save written before this slice has no `hair` key, loads without a
+ * murmur, and takes the deterministic default. A style that has since been renamed degrades the same
+ * way, which is the honest failure: a character with the wrong hair is better than one with none, and
+ * far better than a login that refuses.
+ */
+function decodeHair(stored: unknown): string | undefined {
+  return typeof stored === 'string' && isHairStyle(stored) ? stored : undefined;
 }
 
 /** Circle → spent, cleaned: a circle is a small positive integer and a count is one or more. */

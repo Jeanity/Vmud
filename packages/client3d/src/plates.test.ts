@@ -12,6 +12,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
+import { BODY_SCALE } from '@mygame/shared';
+
 import {
   DAMAGE_RISE,
   DAMAGE_SECONDS,
@@ -21,10 +23,14 @@ import {
   PLATE_NEAR,
   damageOpacity,
   damageRise,
+  liftFor,
   plateOpacity,
   plateSize,
 } from './plates.ts';
 import { BODY_POOL_SIZE } from './pool.ts';
+
+/** Every scale a body can actually be drawn at, off the server's own table rather than a sample. */
+const BODY_SCALE_FACTORS: readonly number[] = Object.values(BODY_SCALE);
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -55,6 +61,32 @@ describe('a nameplate’s distance fade', () => {
   it('floats clear of a 1.81 m head', () => {
     assert.ok(NAMEPLATE_LIFT > 1.81, 'a plate through the top of a skull is worse than no plate');
     assert.ok(NAMEPLATE_LIFT < 2.6, 'and one at ceiling height reads as belonging to the room');
+  });
+
+  it('comes down with a body that is drawn smaller', () => {
+    // The owner's youths, and the half of the feature that would have been forgotten: a body is
+    // scaled on the group and the plates are not children of it, so without this a kobold youth's
+    // name would hang three quarters of a metre above their head.
+    assert.equal(liftFor(1), NAMEPLATE_LIFT, 'an adult is unchanged, to the byte');
+    for (const scale of BODY_SCALE_FACTORS) {
+      const lift = liftFor(scale);
+      const head = 1.81 * scale;
+      assert.ok(lift > head, `a ${scale} body is ${head.toFixed(2)} m and its plate sits at ${lift.toFixed(2)} m`);
+      // Still the same *proportion* of clearance, which is what makes it read as the same design at
+      // every size rather than as a plate that happens to miss.
+      assert.ok(Math.abs(lift / head - NAMEPLATE_LIFT / 1.81) < 1e-9);
+    }
+    // A child's plate is genuinely lower than an adult's, which is the whole point.
+    assert.ok(liftFor(0.72) < liftFor(1));
+  });
+
+  it('gives a damage number the same origin as the name it rises past', () => {
+    // Two call sites, one function — see `liftFor`. A number starting from a different height than
+    // the name above it reads as two different bodies being hit.
+    for (const scale of [1, ...BODY_SCALE_FACTORS]) {
+      assert.equal(liftFor(scale) + damageRise(0), liftFor(scale));
+      assert.ok(liftFor(scale) + damageRise(DAMAGE_SECONDS) > liftFor(scale));
+    }
   });
 });
 

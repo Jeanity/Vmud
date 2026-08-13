@@ -23,11 +23,29 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
-import { BASE_BODY_MODELS, OUTFIT_PARTS, WEAPON_MODELS, everyGearPartId, everyModelId, everyWeaponId } from '@mygame/shared';
+import { Matrix4, Vector3 } from 'three';
+
+import {
+  BASE_BODY_MODELS,
+  HAIR_MODELS,
+  OUTFIT_PARTS,
+  WEAPON_MODELS,
+  everyGearPartId,
+  everyHairId,
+  everyModelId,
+  everyWeaponId,
+} from '@mygame/shared';
 
 import { CLIPS } from './anim.ts';
 import { CREATURE_LOOK, GRIP, stemOf } from './body.ts';
-import { CHARACTER_MANIFEST_VERSION, JOINT_COUNT, MAIN_HAND_BONE, OFF_HAND_BONE, type CharacterManifest } from './characters.ts';
+import {
+  CHARACTER_MANIFEST_VERSION,
+  HEAD_BONE,
+  JOINT_COUNT,
+  MAIN_HAND_BONE,
+  OFF_HAND_BONE,
+  type CharacterManifest,
+} from './characters.ts';
 import { CHARACTER_PROP_TEXTURES, CHARACTER_TEXTURES } from './prototypes.ts';
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -44,6 +62,83 @@ const CHARACTERS_DIR = join(PACKAGE_ROOT, 'public', 'models', 'characters');
  * character atlases are the first candidates, ahead of the nature kit's.
  */
 const CHARACTER_BUDGET = 45 * 1024 * 1024;
+
+/** Just enough of a glTF for the two joint checks below. Nothing here is a general reader. */
+interface EmittedGltf {
+  readonly accessors: { componentType: number; count: number; type: string; bufferView: number; byteOffset?: number }[];
+  readonly bufferViews: { byteOffset?: number; byteLength: number; byteStride?: number }[];
+  readonly meshes: { primitives: { attributes: Record<string, number> }[] }[];
+  readonly nodes: { name?: string }[];
+  readonly skins?: { joints: number[]; inverseBindMatrices?: number }[];
+}
+
+function emitted(id: string): EmittedGltf {
+  return JSON.parse(readFileSync(join(CHARACTERS_DIR, id, 'model.gltf'), 'utf8')) as EmittedGltf;
+}
+
+/** The armature a model binds, by name, in skeleton order — the join every rigged pack has to share. */
+function jointNamesOf(id: string): string[] {
+  const gltf = emitted(id);
+  return (gltf.skins?.[0]?.joints ?? []).map((node) => gltf.nodes[node]?.name ?? '?');
+}
+
+/** A model's own inverse-bind matrix for `HEAD_BONE` — the number `HairTemplate.headInverse` keeps. */
+function headInverseOf(id: string): Matrix4 {
+  const gltf = emitted(id);
+  const bin = readFileSync(join(CHARACTERS_DIR, id, 'model.bin'));
+  const at = jointNamesOf(id).indexOf(HEAD_BONE);
+  const accessor = gltf.accessors[gltf.skins![0]!.inverseBindMatrices!]!;
+  const view = gltf.bufferViews[accessor.bufferView]!;
+  const start = (view.byteOffset ?? 0) + (accessor.byteOffset ?? 0) + at * 64;
+  const elements = Array.from({ length: 16 }, (_, i) => bin.readFloatLE(start + i * 4));
+  return new Matrix4().fromArray(elements);
+}
+
+/** The axis-aligned bounds of a model's first primitive, optionally transformed. */
+function boundsOf(id: string, transform?: Matrix4): { readonly min: Vector3; readonly max: Vector3 } {
+  const gltf = emitted(id);
+  const bin = readFileSync(join(CHARACTERS_DIR, id, 'model.bin'));
+  const accessor = gltf.accessors[gltf.meshes[0]!.primitives[0]!.attributes['POSITION']!]!;
+  const view = gltf.bufferViews[accessor.bufferView]!;
+  const start = (view.byteOffset ?? 0) + (accessor.byteOffset ?? 0);
+  const min = new Vector3(Infinity, Infinity, Infinity);
+  const max = new Vector3(-Infinity, -Infinity, -Infinity);
+  const point = new Vector3();
+  for (let i = 0; i < accessor.count; i++) {
+    point.set(bin.readFloatLE(start + i * 12), bin.readFloatLE(start + i * 12 + 4), bin.readFloatLE(start + i * 12 + 8));
+    if (transform) point.applyMatrix4(transform);
+    min.min(point);
+    max.max(point);
+  }
+  return { min, max };
+}
+
+/**
+ * `[jointIndex, weight]` for every influence on a model's first primitive.
+ *
+ * Reads the accessor through its buffer view honestly, stride and all, because a `JOINTS_0` is a
+ * `Uint8Array` and a `WEIGHTS_0` a `Float32Array` and mixing them up would make this pass on nonsense.
+ */
+function weightsOf(id: string): [number, number][] {
+  const gltf = emitted(id);
+  const bin = readFileSync(join(CHARACTERS_DIR, id, 'model.bin'));
+  const primitive = gltf.meshes[0]!.primitives[0]!;
+  const read = (accessorIndex: number): number[] => {
+    const accessor = gltf.accessors[accessorIndex]!;
+    const view = gltf.bufferViews[accessor.bufferView]!;
+    const at = (view.byteOffset ?? 0) + (accessor.byteOffset ?? 0);
+    const out: number[] = [];
+    for (let i = 0; i < accessor.count * 4; i++) {
+      if (accessor.componentType === 5126) out.push(bin.readFloatLE(at + i * 4));
+      else if (accessor.componentType === 5123) out.push(bin.readUInt16LE(at + i * 2));
+      else out.push(bin.readUInt8(at + i));
+    }
+    return out;
+  };
+  const joints = read(primitive.attributes['JOINTS_0']!);
+  const weights = read(primitive.attributes['WEIGHTS_0']!);
+  return joints.map((joint, i) => [joint, weights[i] ?? 0]);
+}
 
 describe('the character key set', () => {
   it('gives the pool one material per atlas and no more', () => {
@@ -108,22 +203,63 @@ describe('the imported characters', () => {
     // Join 1, and the reason `stem` is in the manifest at all: the vendor's naming is inconsistent in
     // exactly two places (`Male_Ranger_Feet_Boots` where hers is `Feet`, his `Acc_Pauldron` where hers
     // is plural), so a renderer that re-derived the name would 404 on two of twenty.
-    for (const id of [...everyGearPartId(), ...everyWeaponId()]) {
+    for (const id of [...everyGearPartId(), ...everyWeaponId(), ...everyHairId()]) {
       assert.ok(byStem.has(stemOf(id)), `nothing staged for ${id}`);
     }
     for (const stem of BASE_BODY_MODELS) assert.ok(byStem.has(stem), `no base body ${stem}`);
-    assert.equal(manifest.models.length, BASE_BODY_MODELS.length + OUTFIT_PARTS.length + WEAPON_MODELS.length);
-    assert.equal(manifest.models.length, 26);
+    assert.equal(
+      manifest.models.length,
+      BASE_BODY_MODELS.length + OUTFIT_PARTS.length + WEAPON_MODELS.length + HAIR_MODELS.length,
+    );
+    assert.equal(manifest.models.length, 32);
   });
 
-  it('classifies every model, and the three kinds partition it', () => {
+  it('classifies every model, and the four kinds partition it', () => {
     const kinds = new Map<string, number>();
     for (const model of manifest.models) kinds.set(model.kind, (kinds.get(model.kind) ?? 0) + 1);
     assert.deepEqual([...kinds].sort(), [
       ['body', 2],
+      ['hair', 6],
       ['outfit', 20],
       ['weapon', 4],
     ]);
+  });
+
+  it('staged no hairstyle nothing can wear, and wears none it did not stage', () => {
+    // Both directions, because the two lists are written by hand in two packages. `HAIR_STYLES` names
+    // meshes and the import stages files; a style naming a mesh nobody imported is a bald character,
+    // and a mesh no style names is payload the player downloads to never see.
+    const staged = manifest.models.filter((model) => model.kind === 'hair').map((model) => model.stem).sort();
+    assert.deepEqual(staged, [...HAIR_MODELS].sort());
+    assert.deepEqual(everyHairId().map((id) => stemOf(id)).sort(), staged);
+  });
+
+  it('leaves the eyebrows where they already are — inside the base bodies', () => {
+    // The measurement that decided what *not* to import. `Eyebrows_Regular` and `Eyebrows_Female` are
+    // the male and female bodies' own eyebrow primitives to within 4.9e-7 m, so staging them would
+    // draw the same triangles twice on every character in the world. Asserted as an absence, because
+    // the only way that decision survives is if somebody trying to "complete" the pack trips over it.
+    for (const stem of ['Eyebrows_Regular', 'Eyebrows_Female']) {
+      assert.ok(!byStem.has(stem), `${stem} was staged — it is already inside the base bodies`);
+    }
+    // And the eyebrows really are still drawn: each base body wears a hair atlas of its own.
+    for (const stem of BASE_BODY_MODELS) {
+      const textures = byStem.get(stem)!.parts.map((part) => part.texture);
+      assert.ok(
+        textures.some((texture) => texture.startsWith('hair-')),
+        `${stem} has no eyebrow primitive`,
+      );
+    }
+  });
+
+  it('sits every hairstyle on a head rather than on the floor', () => {
+    // A hairstyle is authored in the body's own space, not at the origin — the *Rigged to Head Bone*
+    // line rather than *Origin at 0* — which is what lets `body.ts` hang it with one matrix and no
+    // attachment code. The tell is `minY`: a scalp starts about a metre and a half up.
+    for (const model of manifest.models.filter((entry) => entry.kind === 'hair')) {
+      assert.ok(model.minY > 1.4 && model.minY < 1.7, `${model.stem} starts at y=${model.minY}`);
+      assert.ok(model.height < 0.35, `${model.stem} is ${model.height} m of hair`);
+    }
   });
 
   it('binds one armature: 65 joints on every rigged file and none on a prop', () => {
@@ -195,6 +331,69 @@ describe('the imported characters', () => {
     };
     const names = body.skins[0]!.joints.map((node) => body.nodes[node]!.name);
     for (const bone of [MAIN_HAND_BONE, OFF_HAND_BONE]) assert.ok(names.includes(bone), `no ${bone} in the rig`);
+  });
+
+  it('binds every hairstyle to the base bodies’ own armature, name for name and in order', () => {
+    // The claim M7b's armature note makes about the outfit parts, checked for the fourth pack: the
+    // hairstyles are not merely 65-jointed, they are *the same* 65 joints in the same order, which is
+    // what lets a hair mesh bind to a body's skeleton at all. Read off the emitted files rather than
+    // the manifest, because the manifest only counts.
+    const reference = jointNamesOf('superhero-male-full-body');
+    assert.equal(reference.length, JOINT_COUNT);
+    assert.deepEqual(jointNamesOf('superhero-female-full-body'), reference, 'the two bodies disagree');
+    for (const model of manifest.models.filter((entry) => entry.kind === 'hair')) {
+      assert.deepEqual(jointNamesOf(model.id), reference, `${model.stem} binds a different armature`);
+    }
+  });
+
+  it('weights every hairstyle wholly to the head, which is what the refit rests on', () => {
+    // `HairTemplate.headInverse`'s premise. A hairstyle with any weight on the neck or the spine would
+    // make `IBM_body(Head)⁻¹ · IBM_hair(Head)` a partial correction rather than an exact one, and the
+    // error would show up as hair sliding off during a walk cycle rather than at rest.
+    const head = jointNamesOf('superhero-male-full-body').indexOf(HEAD_BONE);
+    assert.ok(head >= 0, 'no Head joint in the rig');
+    for (const model of manifest.models.filter((entry) => entry.kind === 'hair')) {
+      for (const [joint, weight] of weightsOf(model.id)) {
+        if (weight <= 0.001) continue;
+        assert.equal(joint, head, `${model.stem} puts weight on joint ${joint}, not the head`);
+      }
+    }
+  });
+
+  it('re-fits a hairstyle onto the other sex’s skull to within a centimetre', () => {
+    // **The measurement the whole hair design rests on**, and the reason it is a test rather than a
+    // sentence in a docblock. `body.ts` binds a cross-sex hairstyle with `IBM_body(Head)⁻¹ ·
+    // IBM_hair(Head)`; the only way to know that is *right* is to run it against the one style the
+    // vendor themselves fitted twice and see how close it lands to their answer.
+    const male = headInverseOf('superhero-male-full-body');
+    const female = headInverseOf('superhero-female-full-body');
+    // The two skulls really are in different places, or none of this would be necessary.
+    const apart = new Vector3().setFromMatrixPosition(male).sub(new Vector3().setFromMatrixPosition(female)).length();
+    assert.ok(apart > 0.04, `the two rigs put Head ${apart.toFixed(3)} m apart — the refit would be pointless`);
+
+    const refit = new Matrix4().copy(male).invert().multiply(female);
+    const fitted = boundsOf('hair-buzzed');
+    const carried = boundsOf('hair-buzzed-female', refit);
+    const centre = (b: { min: Vector3; max: Vector3 }): Vector3 =>
+      new Vector3().addVectors(b.min, b.max).multiplyScalar(0.5);
+    const error = centre(carried).distanceTo(centre(fitted));
+    assert.ok(error < 0.012, `the refit lands ${(error * 1000).toFixed(0)} mm from the vendor's own`);
+
+    // …and doing nothing would not: this is the number the refit exists to remove.
+    const naive = centre(boundsOf('hair-buzzed-female')).distanceTo(centre(fitted));
+    assert.ok(naive > 0.03, `an unfitted mesh is only ${(naive * 1000).toFixed(0)} mm out`);
+    assert.ok(error < naive / 3, 'the refit must be a large improvement, not a rounding one');
+
+    // The native case is exact by construction, and that is what makes the common path free: a male
+    // hairstyle's own head inverse is *byte-identical* to the male body's, so the refit is the
+    // identity and the mesh is drawn exactly where the vendor put it.
+    const own = headInverseOf('hair-buzzed');
+    assert.deepEqual(own.elements, male.elements, 'a natively-fitted hairstyle must need no correction');
+    // …to within the general matrix inverse's own noise once it has been through the same arithmetic.
+    const identity = new Matrix4().copy(male).invert().multiply(own).elements;
+    for (const [i, value] of identity.entries()) {
+      assert.ok(Math.abs(value - new Matrix4().elements[i]!) < 1e-6, `element ${i} drifted to ${value}`);
+    }
   });
 
   it('keeps the skin in the emitted glTF, which is the thing the rewrite used to drop', () => {
