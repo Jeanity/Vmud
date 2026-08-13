@@ -16,8 +16,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { Scene } from 'three';
+import { Object3D, PerspectiveCamera, Scene, type Camera } from 'three';
 
+import { INSIDE_SKY } from './indoors.ts';
+import { SELF_LAYER, WORLD_LAYER } from './lights.ts';
 import {
   MOON_FROM,
   NightRig,
@@ -32,6 +34,13 @@ import {
 } from './night.ts';
 
 const HALF = { width: SHADOW_HALF_WIDTH, height: SHADOW_HALF_HEIGHT, depth: SHADOW_HALF_DEPTH };
+
+/** A camera restricted to one layer — one of the composer's two scene passes. `lights.SELF_LAYER`. */
+function cameraOn(layer: number): Camera {
+  const camera = new PerspectiveCamera();
+  camera.layers.set(layer);
+  return camera;
+}
 
 function dot(a: Point3, b: Point3): number {
   return a.x * b.x + a.y * b.y + a.z * b.z;
@@ -246,6 +255,69 @@ describe('the night rig', () => {
     const far = Math.exp(-Math.pow(rig.fogDensity * 43, 2));
     assert.ok(near > 0.6, `the foreground keeps only ${near.toFixed(2)} of itself — the frame is a fog bank`);
     assert.ok(far < near - 0.1, 'there is no depth cue across the frame at this density');
+    rig.dispose();
+  });
+});
+
+describe('the sky rig lights the player’s own body too', () => {
+  /** A body mesh, as the composer's second pass sees it. See `lights.SELF_LAYER`. */
+  function bodyMesh(): Object3D {
+    const object = new Object3D();
+    object.layers.set(SELF_LAYER);
+    return object;
+  }
+
+  it('gives the hemisphere and the moon both layers, or the player is a cut-out', () => {
+    // The failure this pins is the one that would be *reported* rather than crash: the composer draws
+    // the player's body with a camera restricted to `SELF_LAYER`, and `WebGLRenderer.projectObject`
+    // collects a light for a pass only if the light tests against that camera. A hemisphere left on
+    // the default layer alone leaves the player a black silhouette in a lit street; a moon left on it
+    // takes their key light and their shadow-receiving with it. Indoors, where M6's interior key *is*
+    // this same directional (`indoors.ts` — "nothing here touches a light object"), it is the whole
+    // of the light in the room.
+    const scene = new Scene();
+    const rig = new NightRig(scene);
+    const world = cameraOn(WORLD_LAYER);
+    const body = cameraOn(SELF_LAYER);
+    for (const [name, light] of [['hemisphere', rig.hemisphere], ['moon', rig.moon]] as const) {
+      assert.ok(light.layers.test(world.layers), `the ${name} left the world's layer`);
+      assert.ok(light.layers.test(body.layers), `the ${name} does not reach the player's own body`);
+    }
+    // And the counts match across the two passes, which is what keeps them one shader permutation.
+    const lit = (camera: Camera): number =>
+      scene.children.filter((child) => (child as { isLight?: boolean }).isLight === true && child.layers.test(camera.layers)).length;
+    assert.equal(lit(body), lit(world), 'the two passes must collect the same lights');
+    rig.dispose();
+  });
+
+  it('keeps the player casting a shadow, which is the trap layers set', () => {
+    // `WebGLShadowMap` decides what casts with `object.layers.test(shadowCamera.layers)` — the shadow
+    // camera's own mask, not the light's, and it is an ordinary `Object3D` that nobody thinks to
+    // touch. Miss this line and the player's shadow silently disappears, which `indoors.ts` already
+    // calls the worse artefact: *"a character with no shadow floats however good the terrain looks"*.
+    const scene = new Scene();
+    const rig = new NightRig(scene);
+    const shadow = rig.moon.shadow.camera;
+    assert.ok(bodyMesh().layers.test(shadow.layers), 'the player stopped casting a shadow');
+    assert.ok(new Object3D().layers.test(shadow.layers), 'and everything else must still cast one');
+    rig.dispose();
+  });
+
+  it('re-fits the shadow volume without ever narrowing what casts into it', () => {
+    // The refit runs every frame and turns with the camera (M8). None of that may touch the mask.
+    const scene = new Scene();
+    const rig = new NightRig(scene);
+    const mask = rig.moon.shadow.camera.layers.mask;
+    rig.refit(120, 3, -80);
+    rig.setExtents(31, 19, Math.PI / 3);
+    rig.sky = INSIDE_SKY;
+    rig.refit(121, 3, -80);
+    assert.equal(rig.moon.shadow.camera.layers.mask, mask, 'a refit changed which objects cast');
+    assert.ok(bodyMesh().layers.test(rig.moon.shadow.camera.layers));
+    // And indoors the key light still reaches the body — the interior recipe is a colour and a
+    // direction, and must never become a layer.
+    assert.ok(rig.moon.layers.test(cameraOn(SELF_LAYER).layers), 'the interior key stopped reaching the player');
+    assert.ok(rig.hemisphere.layers.test(cameraOn(SELF_LAYER).layers));
     rig.dispose();
   });
 });

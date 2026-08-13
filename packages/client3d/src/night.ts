@@ -68,6 +68,7 @@
 import { Color, DirectionalLight, FogExp2, HemisphereLight, PCFSoftShadowMap, Scene } from 'three';
 
 import type { SkyRecipe } from './daylight.ts';
+import { SELF_LAYER } from './lights.ts';
 import type { GroundFrame } from './rig.ts';
 
 /* -------------------------------------------------------------------------- */
@@ -380,10 +381,26 @@ export class NightRig {
     scene.background = new Color(NIGHT_COLOUR);
 
     this.hemisphere = new HemisphereLight(SKY_COLOUR, GROUND_COLOUR, HEMISPHERE_INTENSITY);
+    // **Both layers, for both of them.** `post.BodyPass` draws the player's own body with a camera
+    // restricted to `lights.SELF_LAYER`, and a light that is not on that layer is not collected for
+    // that pass at all — so a hemisphere left on the default layer would leave the player a black
+    // silhouette in a lit street, and a moon left on it would take their key light and their fill
+    // with it. The one light that is *meant* to skip the body is slot 0 of the pool, and it skips it
+    // by being muted for the length of the pass rather than by being left off this layer. See
+    // `lights.SELF_LAYER`, and `indoors.ts` for the interior recipe both of these carry.
+    this.hemisphere.layers.enable(SELF_LAYER);
     scene.add(this.hemisphere);
 
     this.moon = new DirectionalLight(MOON_COLOUR, MOON_INTENSITY);
+    this.moon.layers.enable(SELF_LAYER);
     this.moon.castShadow = true;
+    // **And the shadow camera separately, which is the trap.** `WebGLShadowMap` decides what casts
+    // by `object.layers.test(shadowCamera.layers)`, and a shadow camera is an ordinary `Object3D`
+    // whose mask is the default one. Without this line the player's body — the only thing in the
+    // world on `SELF_LAYER` — silently stops casting, and *"a character with no shadow floats however
+    // good the terrain looks"* (`prototypes.ts`, quoted again by `indoors.ts`) is a worse artefact
+    // than the collar of light this whole arrangement exists to remove.
+    this.moon.shadow.camera.layers.enable(SELF_LAYER);
     this.moon.shadow.mapSize.set(this.mapSize, this.mapSize);
     // Depth bias against a 2 cm texel. `normalBias` does the work — it offsets along the surface
     // normal, which is what peter-panning avoids paying for — and the constant bias only cleans up

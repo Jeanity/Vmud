@@ -59,6 +59,7 @@ import {
 import { acquireRig, stemOf, CREATURE_DEFAULT, CREATURE_LOOK, type BodyRig, type CreatureLook } from './body.ts';
 import type { CharacterSet } from './characters.ts';
 import { metresOfPixel } from './frame.ts';
+import { SELF_LAYER, WORLD_LAYER } from './lights.ts';
 import type { PlateSet } from './plates.ts';
 import { DIMENSIONS } from './prototypes.ts';
 import { WRAPPER_CAPACITY, type ScenePool } from './pool.ts';
@@ -120,9 +121,35 @@ export class EntityLayer {
    */
   private readonly creatureMesh: InstancedMesh;
 
-  selfId: EntityId | undefined;
+  /**
+   * Which of these bodies is the player's own — and, since the lighting fix, a small piece of state
+   * rather than a plain field.
+   *
+   * The player's body is drawn on `lights.SELF_LAYER` so that `post.BodyPass` can draw it without the
+   * light it is carrying, and it arrives on the wire (`welcome.you`) at a moment that has no fixed
+   * relationship to when the body itself does — a resync can bring the body first, and the pack that
+   * turns it from a capsule into a rig lands a second later again. So the layer is applied from all
+   * three directions: here when the id changes, in {@link equip} when the rig is taken, and inside
+   * `BodyRig.add`/`hold` for everything minted after that.
+   */
+  private mine: EntityId | undefined;
   /** Set for one frame when the last correction was a whole room. Read by `__debug3d`. */
   teleported = false;
+
+  get selfId(): EntityId | undefined {
+    return this.mine;
+  }
+
+  set selfId(id: EntityId | undefined) {
+    if (id === this.mine) return;
+    // The body that *was* mine goes back to the world's layer before the new one takes the exemption,
+    // so a `welcome` after a reconnect cannot leave a stranger's body drawn in the body pass.
+    const was = this.mine === undefined ? undefined : this.bodies.get(this.mine);
+    this.mine = id;
+    was?.rig?.setLayer(WORLD_LAYER);
+    const now = id === undefined ? undefined : this.bodies.get(id);
+    now?.rig?.setLayer(SELF_LAYER);
+  }
 
   private readonly pool: ScenePool;
   private readonly characters: CharacterSet;
@@ -148,6 +175,12 @@ export class EntityLayer {
     // call: nothing repaints these two, ever. The creature wrapper is repainted per *class*, which is
     // identity rather than fog — see its own note.
     scene.add(this.selfMesh, this.otherMesh, this.creatureMesh);
+    // **The capsule half of the lighting rule, and it is one line because the wrapper is already
+    // split.** `selfMesh` holds the player's own body and nothing else, so it goes on the body pass's
+    // layer for good — no per-frame work, and it covers both of the capsule's remaining jobs: the
+    // second before the 35 MB character pack lands, and a room so crowded the player is past
+    // `pool.BODY_POOL_SIZE`. See `lights.SELF_LAYER`.
+    this.selfMesh.layers.set(SELF_LAYER);
   }
 
   get count(): number {
@@ -171,7 +204,7 @@ export class EntityLayer {
   }
 
   self(): Body | undefined {
-    return this.selfId === undefined ? undefined : this.bodies.get(this.selfId);
+    return this.mine === undefined ? undefined : this.bodies.get(this.mine);
   }
 
   upsert(view: EntityView): void {
@@ -241,7 +274,7 @@ export class EntityLayer {
    */
   clear(keepSelf: boolean): void {
     for (const [id, body] of [...this.bodies]) {
-      if (keepSelf && id === this.selfId) continue;
+      if (keepSelf && id === this.mine) continue;
       this.unequip(body);
       this.plates?.release(id);
       this.bodies.delete(id);
@@ -312,7 +345,7 @@ export class EntityLayer {
     const followRate = ease(EASE_FOLLOW, seconds);
 
     for (const [id, body] of this.bodies) {
-      if (id === this.selfId) {
+      if (id === this.mine) {
         if (predicting && grid) {
           const next = stepMovement(grid, body.x, body.y, intent.x, intent.y, PLAYER_SPEED * seconds);
           body.x = next.x;
@@ -375,7 +408,7 @@ export class EntityLayer {
     const heightScale = DIMENSIONS.bodyHeight / 2;
 
     for (const [id, body] of this.bodies) {
-      const mine = id === this.selfId;
+      const mine = id === this.mine;
       const x = metresOfPixel(body.x);
       const z = metresOfPixel(body.y);
       this.warp.x = 0;
@@ -415,8 +448,16 @@ export class EntityLayer {
       // which is why `appearanceOf` reads the body word *before* it branches on the head shape.
       const height = (creature?.height ?? DIMENSIONS.bodyHeight) * scale;
       const radius = (creature?.radius ?? DIMENSIONS.bodyRadius) * scale;
-      const mesh = creature ? this.creatureMesh : mine ? this.selfMesh : this.otherMesh;
-      const index = creature ? creatureCount : mine ? selfCount : otherCount;
+      // **`mine` is read before `creature`, and the order is the lighting rule.** `creatureMesh` is
+      // shared by every animal in the room, so a player who landed in it would be un-excludable from
+      // their own lamp without splitting a fourth wrapper off the ledger. Reading `mine` first costs
+      // a self creature its per-class *material* and nothing else — the tint follows below — and it
+      // is not reachable today in any case: `appearance.appearanceOf` only takes the `creature:`
+      // branch for a sprite whose head is in `ANIMAL_HEADS`, and no playable race has one. Handled
+      // anyway, because the failure mode is the player being the one thing in the world still wearing
+      // the collar of light this was all built to remove.
+      const mesh = mine ? this.selfMesh : creature ? this.creatureMesh : this.otherMesh;
+      const index = mine ? selfCount : creature ? creatureCount : otherCount;
       if (index >= WRAPPER_CAPACITY) continue;
       this.scratch.position.set(worldX, ground + height / 2, worldZ);
       this.scratch.rotation.set(0, 0, 0);
@@ -427,14 +468,20 @@ export class EntityLayer {
       );
       this.scratch.updateMatrix();
       mesh.setMatrixAt(index, this.scratch.matrix);
-      if (creature) {
+      // The tint follows the *body*, not the wrapper it landed in. A creature is painted its class
+      // colour wherever it is drawn; the self wrapper is painted back to white when it is not one, so
+      // a body that stopped being a creature cannot keep a stale grey. `otherMesh` is still never
+      // written at all, which is the half of the rule that matters — see the constructor.
+      if (creature || mine) {
         const colours = mesh.instanceColor;
         if (colours) {
-          colours.setXYZ(index, ((creature.colour >> 16) & 0xff) / 255, ((creature.colour >> 8) & 0xff) / 255, (creature.colour & 0xff) / 255);
+          const tint = creature?.colour ?? 0xffffff;
+          colours.setXYZ(index, ((tint >> 16) & 0xff) / 255, ((tint >> 8) & 0xff) / 255, (tint & 0xff) / 255);
           colours.needsUpdate = true;
         }
-        creatureCount += 1;
-      } else if (mine) selfCount += 1;
+      }
+      if (mine) selfCount += 1;
+      else if (creature) creatureCount += 1;
       else otherCount += 1;
     }
 
@@ -462,6 +509,10 @@ export class EntityLayer {
     const rig = acquireRig(this.characters, this.pool, model);
     if (!rig) return;
     body.rig = rig;
+    // Before `dress`, so the first set of meshes is minted straight onto the right layer rather than
+    // built on the world's and moved. A rig out of the free list arrives on `WORLD_LAYER` (`park`
+    // puts it back), so this is the only place a body becomes the player's.
+    rig.setLayer(body.view.id === this.mine ? SELF_LAYER : WORLD_LAYER);
     this.scene.add(rig.group);
     this.dress(body);
   }

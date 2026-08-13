@@ -14,7 +14,7 @@ import { dirname, join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { Scene, type Bone, type Mesh, type SkinnedMesh } from 'three';
+import { PerspectiveCamera, Scene, Sprite, type Bone, type Mesh, type SkinnedMesh } from 'three';
 
 import { yawOf } from '@mygame/shared';
 
@@ -22,6 +22,7 @@ import { EntityLayer } from './entities.ts';
 
 import { acquireRig, type BodyRig } from './body.ts';
 import { CharacterSet } from './characters.ts';
+import { SELF_LAYER, WORLD_LAYER } from './lights.ts';
 import { BODY_POOL_SIZE, BODY_RIG_BYTES, ScenePool } from './pool.ts';
 import { MODEL_FORWARD_OFFSET } from './body.ts';
 
@@ -616,5 +617,210 @@ describe('a body that arrived before its pack did', () => {
     layer.clear(false);
     assert.equal(pool.snapshot().rigsLive, 0);
     pool.dispose();
+  });
+});
+
+describe('the player’s own body, and the light it is carrying', () => {
+  /**
+   * The owner, 2026-08-13: *"when the player moves he lights up like the light source is around his
+   * neck … the player doesn't need to light up at all. just his surroundings depending on his light
+   * source."*
+   *
+   * The answer is a second render pass and a layer, because three's WebGL renderer assembles one
+   * light list per `render` call and lights everything in that call with all of it — see
+   * `lights.SELF_LAYER`. What is testable here is the half that decides *which body* the exemption
+   * lands on, and it is the half with all the ways to be quietly wrong: the layer is not inherited
+   * down a scene graph, a rig rebuilds its meshes on every change of clothes, props hang off bones
+   * rather than off the group, and a rig comes back out of the free list wearing whatever the last
+   * tenant left on it.
+   */
+  const bodyOf = (id: number, model = 'base:Superhero_Male_FullBody', kind: 'player' | 'mob' = 'player') => ({
+    id,
+    kind,
+    name: `body ${id}`,
+    sprite: 'human',
+    x: 0,
+    y: 0,
+    facing: 'north' as const,
+    model,
+    yaw: 0,
+  });
+
+  /** Every layer mask actually drawn — skinned meshes, props, and nothing else. */
+  function masksOf(rig: BodyRig): Set<number> {
+    const masks = new Set<number>();
+    for (const mesh of skinnedOf(rig)) masks.add(mesh.layers.mask);
+    for (const { mesh } of heldOf(rig)) masks.add(mesh.layers.mask);
+    return masks;
+  }
+
+  const only = (layer: number): Set<number> => new Set([1 << layer]);
+
+  it('moves the body, its garments, its hair and both its props onto one layer', () => {
+    // `Object3D.layers` is not inherited: three tests each object's own mask, and `projectObject`
+    // recurses into a group's children whether or not the group passed. A `setLayer` that stopped at
+    // the group would move nothing at all, and the sword — a plain `Mesh` two levels down, parented
+    // to a hand *bone* rather than to the group — is the part most likely to be missed.
+    const { pool, set } = setUp();
+    const rig = acquireRig(set, pool, 'base:Superhero_Male_FullBody')!;
+    rig.dress(
+      'base:Superhero_Male_FullBody',
+      [{ slot: 'torso', part: 'outfit:Male_Peasant_Body' }],
+      'prop:Sword_Bronze',
+      'prop:Shield_Wooden',
+      'hair:Hair_Long',
+    );
+    assert.ok(skinnedOf(rig).length >= 3, 'the fixture should have dressed a body, a garment and hair');
+    assert.equal(heldOf(rig).length, 2, 'and put something in both hands');
+    assert.deepEqual(masksOf(rig), only(WORLD_LAYER), 'a rig starts as everybody else');
+
+    rig.setLayer(SELF_LAYER);
+    assert.equal(rig.drawnLayer, SELF_LAYER);
+    assert.deepEqual(masksOf(rig), only(SELF_LAYER), 'something the player is wearing was left behind');
+    assert.equal(rig.group.layers.mask, 1 << SELF_LAYER);
+    pool.dispose();
+  });
+
+  it('keeps the layer across a change of clothes, a haircut and a drawn sword', () => {
+    // The failure this pins arrives minutes into a session rather than at boot: `dress` throws every
+    // mesh away and builds new ones, and `hold` mints a fresh holder per hand. A layer applied once
+    // from outside would survive until the player equipped something, and then their new hat would be
+    // the one thing in the frame still wearing the collar of light.
+    const { pool, set } = setUp();
+    const rig = acquireRig(set, pool, 'base:Superhero_Male_FullBody')!;
+    rig.dress('base:Superhero_Male_FullBody', [], undefined, undefined);
+    rig.setLayer(SELF_LAYER);
+
+    rig.dress('base:Superhero_Male_FullBody', [{ slot: 'torso', part: 'outfit:Male_Peasant_Body' }], undefined, undefined);
+    assert.deepEqual(masksOf(rig), only(SELF_LAYER), 'a garment put on after the fact was left behind');
+    rig.dress('base:Superhero_Male_FullBody', [], 'prop:Sword_Bronze', 'prop:Shield_Wooden');
+    assert.equal(heldOf(rig).length, 2);
+    assert.deepEqual(masksOf(rig), only(SELF_LAYER), 'a drawn weapon was left behind');
+    rig.dress('base:Superhero_Male_FullBody', [], 'prop:Sword_Bronze', undefined, 'hair:Hair_Buzzed');
+    assert.deepEqual(masksOf(rig), only(SELF_LAYER), 'a haircut was left behind');
+    pool.dispose();
+  });
+
+  it('hands a recycled rig back to the world, so the next tenant is not exempt too', () => {
+    // A rig is pooled. If `park` did not reset the layer, the kobold that took the player's old rig
+    // would be drawn in the body pass: unlit by the torch it is standing in, and invisible to the
+    // camera every other player in the room is looking through.
+    const { pool, set } = setUp();
+    const rig = acquireRig(set, pool, 'base:Superhero_Male_FullBody')!;
+    rig.dress('base:Superhero_Male_FullBody', [], 'prop:Sword_Bronze', undefined);
+    rig.setLayer(SELF_LAYER);
+    rig.park();
+    assert.equal(rig.drawnLayer, WORLD_LAYER);
+    rig.dress('base:Superhero_Male_FullBody', [], 'prop:Sword_Bronze', undefined);
+    assert.deepEqual(masksOf(rig), only(WORLD_LAYER), 'a recycled rig kept the player’s exemption');
+    pool.dispose();
+  });
+
+  it('exempts my body and nobody else’s — a mob in my lamplight is surroundings', () => {
+    // Check one of the owner's list, and the one whose failure would be stranger than the bug: *"a
+    // world where your torch lights everything except the creature in front of you"*.
+    const pool = new ScenePool();
+    const set = new CharacterSet();
+    set.standIn(pool, JOINTS, STEMS);
+    const layer = new EntityLayer(new Scene(), pool, set);
+    layer.selfId = 1;
+    layer.upsert(bodyOf(1));
+    layer.upsert(bodyOf(2, 'base:Superhero_Female_FullBody', 'mob'));
+    layer.upsert(bodyOf(3, 'base:Superhero_Male_FullBody', 'mob'));
+
+    assert.equal(layer.body(1)?.rig?.drawnLayer, SELF_LAYER);
+    for (const id of [2, 3]) {
+      assert.equal(layer.body(id)?.rig?.drawnLayer, WORLD_LAYER, `body ${id} took the player’s exemption`);
+      assert.deepEqual(masksOf(layer.body(id)!.rig!), only(WORLD_LAYER));
+    }
+    pool.dispose();
+  });
+
+  it('does not care whether the id or the body arrives first, and gives it back on a reconnect', () => {
+    // `welcome.you` and `entityEnter` have no fixed order — a resync can bring the body first, and
+    // the 35 MB pack that turns it from a capsule into a rig lands a second after either. So the
+    // layer is applied from three directions and all three have to agree.
+    const pool = new ScenePool();
+    const set = new CharacterSet();
+    set.standIn(pool, JOINTS, STEMS);
+    const layer = new EntityLayer(new Scene(), pool, set);
+
+    // Body first, id second.
+    layer.upsert(bodyOf(9));
+    assert.equal(layer.body(9)?.rig?.drawnLayer, WORLD_LAYER);
+    layer.selfId = 9;
+    assert.equal(layer.body(9)?.rig?.drawnLayer, SELF_LAYER, 'a late `welcome` never reached the body');
+
+    // And a reconnect that names somebody else must take it back off the first.
+    layer.upsert(bodyOf(10));
+    layer.selfId = 10;
+    assert.equal(layer.body(9)?.rig?.drawnLayer, WORLD_LAYER, 'a stranger kept the player’s exemption');
+    assert.equal(layer.body(10)?.rig?.drawnLayer, SELF_LAYER);
+    pool.dispose();
+  });
+
+  it('carries the rule onto the capsule, which is what the player is for the first second', () => {
+    // The pack is not awaited, so a session genuinely starts with the player as a grey pill; past
+    // `BODY_POOL_SIZE` bodies in one room they are one again. Both go through `selfMesh`, which is
+    // the player's alone — so this is a constructor line rather than per-frame work.
+    const pool = new ScenePool();
+    const set = new CharacterSet();
+    const scene = new Scene();
+    const layer = new EntityLayer(scene, pool, set);
+    layer.selfId = 1;
+    layer.upsert(bodyOf(1));
+    layer.upsert(bodyOf(2, 'creature:wolf', 'mob'));
+    layer.render(1 / 60, () => 0);
+    assert.equal(layer.rigged, 0, 'the pack has not landed, so both are capsules');
+
+    const wrappers = scene.children.filter((child) => (child as { isInstancedMesh?: boolean }).isInstancedMesh === true);
+    assert.equal(wrappers.length, 3, 'self, other and creature');
+    const drawn = wrappers.filter((mesh) => (mesh as unknown as { count: number }).count > 0);
+    assert.equal(drawn.length, 2, 'the player and the wolf');
+    const masks = drawn.map((mesh) => mesh.layers.mask).sort();
+    assert.deepEqual(masks, [1 << WORLD_LAYER, 1 << SELF_LAYER].sort(), 'the player’s capsule is not on their own layer');
+    pool.dispose();
+  });
+
+  it('puts a creature-shaped player in the player’s wrapper rather than the shared one', () => {
+    // Not reachable today — `appearanceOf` only emits `creature:` for a sprite whose head is in
+    // `ANIMAL_HEADS`, and no playable race has one — and handled because the wrapper is *shared*, so
+    // a player who landed in it could not be excluded from their own lamp at all.
+    const pool = new ScenePool();
+    const set = new CharacterSet();
+    const scene = new Scene();
+    const layer = new EntityLayer(scene, pool, set);
+    layer.selfId = 4;
+    layer.upsert(bodyOf(4, 'creature:wolf'));
+    layer.upsert(bodyOf(5, 'creature:bear', 'mob'));
+    layer.render(1 / 60, () => 0);
+
+    const wrappers = scene.children.filter(
+      (child) => (child as { isInstancedMesh?: boolean }).isInstancedMesh === true,
+    ) as unknown as { count: number; layers: { mask: number } }[];
+    const self = wrappers.find((mesh) => mesh.layers.mask === 1 << SELF_LAYER);
+    assert.ok(self, 'the self wrapper should still be the one on the body layer');
+    assert.equal(self.count, 1, 'a creature-shaped player must still be drawn in their own wrapper');
+    const shared = wrappers.filter((mesh) => mesh.layers.mask === 1 << WORLD_LAYER);
+    assert.equal(shared.reduce((sum, mesh) => sum + mesh.count, 0), 1, 'only the bear belongs to the world pass');
+    pool.dispose();
+  });
+
+  it('leaves the floating text alone, and on the pass that draws it', () => {
+    // Nameplates and damage numbers are `Sprite`s with a `SpriteMaterial`, which is unlit — no light
+    // in the pool reaches them either way. What *could* have broken is the other half of the layer
+    // test: a sprite moved onto the body's layer would be drawn by a pass that only draws the body,
+    // and every name in the room would vanish. `PlateSet` needs a `document`, so the assertion is on
+    // the file rather than the object: nothing in it touches `layers` at all.
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'plates.ts'), 'utf8');
+    assert.ok(!/\blayers\b/.test(source), 'plates.ts started writing render layers — check the body pass');
+    // And a default sprite is drawn by the world pass and not the body pass, which is the behaviour
+    // that assertion is standing in for.
+    const plate = new Sprite();
+    const world = new PerspectiveCamera();
+    const body = new PerspectiveCamera();
+    body.layers.set(SELF_LAYER);
+    assert.ok(plate.layers.test(world.layers), 'a nameplate stopped being drawn');
+    assert.ok(!plate.layers.test(body.layers), 'a nameplate would be drawn twice');
   });
 });

@@ -143,12 +143,18 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = SHADOW_MAP_TYPE;
 // The composer calls `renderer.render` several times a frame, and `info` resets on each of them. Off,
-// so `__debug3d.drawCalls` counts the *frame* — the world, the shadow map, the depth mask and the
-// full-screen passes — which is the number that matters when the question is why it is slow.
+// so `__debug3d.drawCalls` counts the *frame* — the player's own body, the world, the shadow map, the
+// depth mask and the full-screen passes — which is the number that matters when the question is why
+// it is slow. The body is its own call because it is drawn without the light it is carrying, which in
+// a forward renderer is a second `render` and nothing less: see `post.BodyPass`.
 renderer.info.autoReset = false;
 canvasHost.append(renderer.domElement);
 
-const grade = new Grade(renderer, world.scene, rig.camera);
+// The light pool goes in because the composer now has two scene passes rather than one, and the
+// second of them — the player's own body — is drawn with the carried light muted. See `post.BodyPass`
+// and `lights.SELF_LAYER`; the short version is that three lights every object of a `render` call
+// with the same list, so "not that light, on that body" is a second call and nothing less.
+const grade = new Grade(renderer, world.scene, rig.camera, world.lights);
 world.setGlowSet(grade.glow);
 
 /**
@@ -1417,6 +1423,26 @@ const debug = {
    */
   get lightsInUse(): ReturnType<World3D['lights']['audit']> {
     return world.lights.audit();
+  },
+  /**
+   * Whether the player's own body is actually being drawn by the pass that draws it unlit.
+   *
+   * The live check that the wiring reached the body, in the same spirit as `bloomSelected` — because
+   * every way this can be wrong is a way that renders perfectly. `drawn` false with a rig on screen
+   * means the body is on the world's layer and the collar of light is back; `drawn` true with
+   * nothing visible means the body pass has the layer and the main camera has stopped drawing it.
+   * `casting` is the shadow, which is the one thing worth losing sleep over — see `night.ts`.
+   */
+  get bodyPass(): { layer: number; drawn: boolean; casting: boolean; carriedMuted: boolean } {
+    const rig = entities.self()?.rig;
+    const mask = grade.body.camera3d.layers.mask;
+    return {
+      layer: mask,
+      drawn: rig === undefined ? false : rig.group.layers.mask === mask,
+      casting: rig === undefined ? false : world.night.moon.shadow.camera.layers.test(rig.group.layers),
+      // Zero outside a draw, always: the mute spans one pass. True here means one leaked.
+      carriedMuted: world.lights.clearingMuted,
+    };
   },
   /** The orthographic volume the moon's shadow camera was fitted to this frame. */
   get moon(): ShadowFit {

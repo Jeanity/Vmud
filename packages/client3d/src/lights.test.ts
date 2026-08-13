@@ -17,12 +17,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { Scene } from 'three';
+import { PerspectiveCamera, Scene, type Camera, type Object3D } from 'three';
 
 import {
   CLEARING_SLOT,
   LIGHT_POOL_SIZE,
   LightPool,
+  SELF_LAYER,
+  WORLD_LAYER,
   type LightRequest,
 } from './lights.ts';
 
@@ -34,6 +36,24 @@ function fire(x: number, z: number, rank = x * x + z * z): LightRequest {
 function pointLights(scene: Scene): { total: number; visible: number } {
   const lights = scene.children.filter((child) => child.type === 'PointLight');
   return { total: lights.length, visible: lights.filter((light) => light.visible).length };
+}
+
+/** A camera restricted to one layer, which is what each of the composer's two scene passes uses. */
+function cameraOn(layer: number): Camera {
+  const camera = new PerspectiveCamera();
+  camera.layers.set(layer);
+  return camera;
+}
+
+/**
+ * The renderer's own rule, quoted rather than paraphrased.
+ *
+ * `WebGLRenderer.projectObject`: `if (object.isLight) { ... }` inside `if (object.layers.test(camera
+ * .layers))`. A light that fails this is not in the pass's light list at all — which is both how a
+ * light is kept off an object *and* how `NUM_POINT_LIGHTS` changes underneath you.
+ */
+function collectedBy(scene: Scene, camera: Camera): Object3D[] {
+  return scene.children.filter((child) => (child as { isLight?: boolean }).isLight === true && child.layers.test(camera.layers));
 }
 
 describe('the fixed pool of eight point lights', () => {
@@ -136,6 +156,111 @@ describe('the fixed pool of eight point lights', () => {
     pool.scene([fire(1, 1), fire(2, 2), fire(3, 3)]);
     assert.equal(pool.audit().lit, 4);
     pool.darken();
+    assert.deepEqual(pool.audit(), { total: 8, lit: 0, visible: 8, created: 8 });
+    pool.dispose();
+  });
+
+  it('puts every one of the eight on both layers, so the two passes are one permutation', () => {
+    // The whole reason the carried light is excluded by *intensity* rather than by leaving slot 0 off
+    // `SELF_LAYER`. A light that fails the body camera's test is not collected for that pass, so a
+    // seven-light body pass and an eight-light world pass would be two values of `NUM_POINT_LIGHTS`
+    // and therefore two compiled programs for every material a character is made of — which is the
+    // exact cost this file's header spends its first page refusing to pay.
+    const scene = new Scene();
+    const pool = new LightPool(scene);
+    const world = cameraOn(WORLD_LAYER);
+    const body = cameraOn(SELF_LAYER);
+    assert.equal(collectedBy(scene, world).length, LIGHT_POOL_SIZE);
+    assert.equal(collectedBy(scene, body).length, LIGHT_POOL_SIZE, 'the body pass must see the same eight');
+    for (let slot = 0; slot < LIGHT_POOL_SIZE; slot++) {
+      const light = pool.at(slot);
+      assert.ok(light);
+      assert.ok(light.layers.test(world.layers), `slot ${slot} left the world's layer`);
+      assert.ok(light.layers.test(body.layers), `slot ${slot} is not on the body's layer`);
+    }
+    pool.dispose();
+  });
+
+  it('mutes the carried light for the body pass and gives back exactly what it took', () => {
+    // The owner's report, as an assertion: *"the player doesn't need to light up at all. just his
+    // surroundings depending on his light source."* The surroundings are the world pass, where slot 0
+    // burns; the body is the pass where it does not.
+    const scene = new Scene();
+    const pool = new LightPool(scene);
+    pool.clearing(4, 1.5, -2, 7);
+    const lit = pool.at(CLEARING_SLOT)!.intensity;
+    assert.ok(lit > 0, 'a seven-metre clearing light should be burning');
+
+    pool.muteClearing();
+    assert.equal(pool.clearingMuted, true);
+    assert.equal(pool.at(CLEARING_SLOT)!.intensity, 0, 'the body must be drawn without it');
+    assert.equal(pool.at(CLEARING_SLOT)!.visible, true, 'muted is intensity 0; invisible is a recompile');
+    assert.equal(pool.at(CLEARING_SLOT)!.parent, scene, 'and removing it from the scene is the same recompile');
+    // The rest of the pool is untouched — a mob standing in your lamplight is *surroundings*, and so
+    // is every campfire in the room.
+    assert.equal(pool.audit().visible, LIGHT_POOL_SIZE);
+
+    pool.unmuteClearing();
+    assert.equal(pool.clearingMuted, false);
+    assert.equal(pool.at(CLEARING_SLOT)!.intensity, lit, 'the world pass got a different light back');
+    pool.dispose();
+  });
+
+  it('mutes slot 0 and never a campfire', () => {
+    const scene = new Scene();
+    const pool = new LightPool(scene);
+    pool.clearing(0, 1.5, 0, 7);
+    pool.scene([fire(1, 1), fire(2, 2), fire(3, 3)]);
+    const fires = [1, 2, 3].map((slot) => pool.at(slot)!.intensity);
+    pool.muteClearing();
+    assert.equal(pool.audit().lit, 3, 'only the carried light comes out of the frame');
+    assert.deepEqual([1, 2, 3].map((slot) => pool.at(slot)!.intensity), fires);
+    pool.unmuteClearing();
+    assert.equal(pool.audit().lit, 4);
+    pool.dispose();
+  });
+
+  it('cannot lose the candela to a second mute, or to an unmute that never had one', () => {
+    // `BodyPass.render` restores from a `finally`, so an exception mid-pass must not be able to leave
+    // the world permanently dark — and a stray second call must not overwrite the saved value with
+    // the zero the first one wrote.
+    const scene = new Scene();
+    const pool = new LightPool(scene);
+    pool.clearing(0, 1.5, 0, 7);
+    const lit = pool.at(CLEARING_SLOT)!.intensity;
+    pool.muteClearing();
+    pool.muteClearing();
+    pool.unmuteClearing();
+    assert.equal(pool.at(CLEARING_SLOT)!.intensity, lit);
+    pool.unmuteClearing();
+    assert.equal(pool.at(CLEARING_SLOT)!.intensity, lit, 'an unmute with nothing saved must do nothing');
+    pool.dispose();
+  });
+
+  it('writes a new clearing radius through the mute rather than around it', () => {
+    // The ordering bug this forecloses: `focus` runs in the frame loop and the mute spans one pass,
+    // so today they never overlap. If they ever did, a write that landed on the live light would be
+    // undone by the restore and the clearing light would be one frame stale for ever after.
+    const scene = new Scene();
+    const pool = new LightPool(scene);
+    pool.clearing(0, 1.5, 0, 4);
+    pool.muteClearing();
+    pool.clearing(0, 1.5, 0, 8);
+    assert.equal(pool.at(CLEARING_SLOT)!.intensity, 0, 'the body pass must still see nothing');
+    pool.unmuteClearing();
+    const wide = pool.at(CLEARING_SLOT)!.intensity;
+    pool.clearing(0, 1.5, 0, 8);
+    assert.equal(pool.at(CLEARING_SLOT)!.intensity, wide, 'the restored value is the one that was written');
+    pool.dispose();
+  });
+
+  it('arrives in a new Place dark even if the mute is still open', () => {
+    const scene = new Scene();
+    const pool = new LightPool(scene);
+    pool.clearing(0, 1.5, 0, 7);
+    pool.muteClearing();
+    pool.darken();
+    pool.unmuteClearing();
     assert.deepEqual(pool.audit(), { total: 8, lit: 0, visible: 8, created: 8 });
     pool.dispose();
   });

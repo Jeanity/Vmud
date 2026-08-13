@@ -61,6 +61,7 @@ import {
 import { BodyAnimator, BodyMotion, turnToward, type MotionSubject } from './anim.ts';
 import type { BodyTemplate, CharacterSet, PartPrimitive } from './characters.ts';
 import { MAIN_HAND_BONE, OFF_HAND_BONE } from './characters.ts';
+import { WORLD_LAYER } from './lights.ts';
 import type { PooledRig, ScenePool } from './pool.ts';
 import { hiddenMaskFor } from './skin.ts';
 
@@ -199,6 +200,16 @@ export class BodyRig implements PooledRig {
   /** Yaw actually drawn, chasing the wire's at `anim.TURN_RATE`. */
   private yaw = 0;
   private yawSeeded = false;
+  /**
+   * Which render layer everything this rig draws belongs to — see {@link setLayer}.
+   *
+   * A field and not just a one-off traversal, because a rig's meshes are **not** the meshes it will
+   * be drawing in a minute: `dress` throws all of them away and builds new ones every time the wearer
+   * changes kit, and `hold` mints a fresh holder for each hand. A layer applied once and not
+   * remembered would survive exactly until the player drew their sword, at which point the sword
+   * would be lit by a lamp the hand holding it is not.
+   */
+  private layer = WORLD_LAYER;
 
   constructor(set: CharacterSet, pool: ScenePool, template: BodyTemplate, clips: ReadonlyMap<string, AnimationClip>) {
     this.set = set;
@@ -219,6 +230,35 @@ export class BodyRig implements PooledRig {
 
   /** The mixer's clip-length lookup, in the shape `BodyMotion` wants. */
   readonly clipSeconds = (clip: Parameters<BodyAnimator['durationOf']>[0]): number => this.animator.durationOf(clip);
+
+  /**
+   * Draw this rig — and everything hanging off it — on one render layer and no other.
+   *
+   * `lights.SELF_LAYER` for the player's own body, `lights.WORLD_LAYER` for everybody else, and the
+   * difference is which of the two render passes draws it. See `lights.SELF_LAYER` for the whole
+   * mechanism and `post.BodyPass` for the pass.
+   *
+   * **`Object3D.layers` is not inherited.** Three tests each object's own mask, so setting the group
+   * and stopping there would move nothing at all — the group is not drawn, and `projectObject`
+   * recurses into a group's children whether or not the group itself passed the test. So this walks
+   * what is actually drawn: the skinned meshes (the naked body, every garment, the hair), and every
+   * prop hanging off a hand bone. {@link add} and {@link hold} then apply {@link layer} to whatever
+   * they mint next, which is what carries the rule across a change of clothes.
+   *
+   * The bones are deliberately left alone. They are `Object3D`s in the graph but nothing draws them,
+   * and walking 65 of them per rig to write a mask no renderer reads would be work for its own sake.
+   */
+  setLayer(layer: number): void {
+    this.layer = layer;
+    this.group.layers.set(layer);
+    for (const mesh of this.drawn) mesh.layers.set(layer);
+    for (const holder of this.held) holder.traverse((object) => object.layers.set(layer));
+  }
+
+  /** Which layer this rig draws on. `__debug3d`, and the test that follows a rig through a re-dress. */
+  get drawnLayer(): number {
+    return this.layer;
+  }
 
   /**
    * (Re)build the meshes for a model, a gear list and two hands — idempotent, and cheap when nothing
@@ -318,6 +358,11 @@ export class BodyRig implements PooledRig {
     this.motion.reset();
     this.worn = '';
     this.yawSeeded = false;
+    // Back to the world's layer, because the next entity to be handed this rig out of the free list
+    // is overwhelmingly likely to be a mob. A rig that kept `SELF_LAYER` from its last tenant would
+    // hand the next one the player's exemption: a kobold drawn in the body pass, unlit by the torch
+    // it is standing in and invisible to every other player in the room.
+    this.setLayer(WORLD_LAYER);
   }
 
   dispose(): void {
@@ -349,8 +394,11 @@ export class BodyRig implements PooledRig {
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.frustumCulled = false;
+      // A sword is drawn by whichever pass draws the hand holding it. See {@link setLayer}.
+      mesh.layers.set(this.layer);
       holder.add(mesh);
     }
+    holder.layers.set(this.layer);
     bone.add(holder);
     this.held.push(holder);
   }
@@ -373,6 +421,9 @@ export class BodyRig implements PooledRig {
     mesh.receiveShadow = true;
     // Note 2: a bind-pose bounding sphere cannot contain a sword swing.
     mesh.frustumCulled = false;
+    // Note 3: a re-dress builds new meshes, so the layer is applied here rather than once from
+    // outside. See {@link setLayer} — the hair a player puts on is drawn by the same pass they are.
+    mesh.layers.set(this.layer);
     this.group.add(mesh);
     this.drawn.push(mesh);
   }
