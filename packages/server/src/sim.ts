@@ -137,15 +137,17 @@ const STEP_PER_TICK = PLAYER_SPEED * (TICK_MS / 1000);
  * **Two tiles plus the widest pair the world can produce**, and the second term is what changed on
  * 2026-08-14. It used to be `BODY_SEPARATION`, 20px, which was two adults touching; a body's radius is
  * now its own, {@link MAX_BODY_RADIUS} is 40px, and the widest pair therefore need **80px** between
- * their centres before either is even allowed to approach. A box of 84px would have offered a
- * gargantuan to the mover four pixels *after* the mover was already inside it — which is not a near
- * miss but a body walked clean through, because a blocker the query never yields is a blocker
- * `stepBody` never hears about.
+ * their centres before either is allowed to approach.
  *
- * The two tiles on top are the closing margin, and they are still generous: the fastest thing in the
- * world is `HUNT_SPEED` at 192px/s, so two of them together cover 38.4px in a 100ms tick against 64px
- * of slack. The cost of the larger box is a subtraction per actor per mover; the cost of a small one
- * is the feature.
+ * The old 84px box does not simply become tight, it becomes **wrong**, and the arithmetic is worth
+ * writing down. A blocker the query does not yield is a blocker `stepBody` never hears about, so the
+ * box has to cover the clearance *plus everything that can be closed between two queries*: one tick is
+ * 100ms and the fastest thing in the world is `HUNT_SPEED` at 192px/s, so two bodies converging cover
+ * 38.4px of it. At 84px there were **4px** of margin against 38.4px of closing — a gargantuan sitting
+ * a pixel outside the box could be 15px inside its own clearance by the next tick, and would be walked
+ * straight through. At 144px the margin is 64px, which is comfortably more than the 38.4 and is the
+ * same kind of deliberate over-provision the old constant made against 20. The cost is one subtraction
+ * per actor per mover; the cost of getting it small is the feature.
  */
 const BODY_QUERY_REACH = TILE_SIZE * 2 + MAX_BODY_RADIUS * 2;
 
@@ -921,6 +923,12 @@ export class Simulation {
    * tallies the degradations on the way past so a crowded den shows up as a number rather than as two
    * kobolds in the same square. `self` is excluded from the occupancy scan: a body being relocated is
    * still standing wherever it was and must not refuse its own destination.
+   *
+   * **`scale` is the body being placed, not the bodies already there**, which is why it is an argument
+   * rather than something read off `self`: `spawnMob` calls this *before* the mob object exists, and it
+   * has to, because where the body lands is one of the fields the object is built from. Two adults want
+   * 20px and any free tile gives 32; two hill giants want 55 and the nearest tile that will take the
+   * second one is two cells away. See `placeBody`.
    */
   private landing(
     grid: TileGrid,
@@ -929,6 +937,7 @@ export class Simulation {
     origin: { readonly tx: number; readonly ty: number },
     prefer: { readonly tx: number; readonly ty: number },
     self?: EntityId,
+    scale = 1,
   ): { x: number; y: number; landing: Landing } {
     const occupied: BodyPoint[] = [];
     for (const other of this.actors.values()) {
@@ -937,7 +946,7 @@ export class Simulation {
       if (!samePlace(other.place, place)) continue;
       occupied.push(other);
     }
-    const landing = placeBody(grid, roomId, origin, prefer, occupied);
+    const landing = placeBody(grid, roomId, origin, prefer, occupied, scale);
     if (landing.stacked) this.crowdingTally.stacked++;
     if (landing.blocked) this.crowdingTally.blocked++;
     return { x: tileCentre(landing.tx), y: tileCentre(landing.ty), landing };
@@ -2271,7 +2280,9 @@ export class Simulation {
     // legal one and walks outward from it when it is not, so the arrival fiction survives and the
     // failures do not.
     const arrival = arrivalTile(origin, lateralHeading(heading), actor.id);
-    const spot = this.landing(grid, target.place, roomId, origin, arrival, actor.id);
+    // Its own size, so a giant walking through a doorway is given the room a giant needs on the far
+    // side rather than the room a person would have needed.
+    const spot = this.landing(grid, target.place, roomId, origin, arrival, actor.id, actor.scale ?? 1);
     actor.place = target.place;
     actor.roomId = roomId;
     // Centre of the tile, not its corner, so the collision box starts clear of walls.
@@ -2540,15 +2551,28 @@ export class Simulation {
     // NaN hit points, which reads as a health bar that never moves. One point is a body; zero is nothing.
     const dice = parseDice(template.hp);
     const maxHp = dice ? Math.max(1, rollDice(rng, dice)) : 1;
+    // **How big this body is, decided before it is placed and stored on it afterwards.** The same
+    // inputs `viewOf` hands `appearanceOf` — the sprite key and the harvested race code — so the number
+    // collision keeps and the number the renderer draws with are one answer to one question. It is
+    // needed *here*, ahead of the roll's landing, because two giants cannot share a tile they were both
+    // put on: `placeBody` has to know how much room this one wants before it picks the tile.
+    const size = bodySizeOf({
+      kind: 'mob',
+      sprite: template.sprite,
+      ...(template.race !== undefined ? { race: template.race } : {}),
+    });
     const tx = origin.tx + Math.floor(rng() * ROOM_TILES);
     const ty = origin.ty + Math.floor(rng() * ROOM_TILES);
-    const spot = this.landing(grid, place, roomId, origin, { tx, ty });
+    const spot = this.landing(grid, place, roomId, origin, { tx, ty }, undefined, size);
 
     const mob: Mob = {
       id: this.nextId++,
       kind: 'mob',
       vnum: template.vnum,
       ...(template.race !== undefined ? { race: template.race } : {}),
+      // Absent when 1, which is `BodyPoint.scale`'s own contract and what 1,090 of the world's 2,016
+      // spawned bodies are. Nothing downstream branches on the absence — `bodyRadius` reads it as 1.
+      ...(size === 1 ? {} : { scale: size }),
       aggro: template.aggro,
       pursuit: template.pursuit,
       wimpyAt: template.wimpyAt,

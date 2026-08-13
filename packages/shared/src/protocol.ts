@@ -696,10 +696,16 @@ export interface EntityView {
    * mob sweep and the renderer drew every one of them at a grown man's height. See
    * `appearance.BODY_SCALE` for the two factors and for why `muscular` is not a third.
    *
-   * **The renderer honours it; collision does not.** `bodies.BODY_RADIUS` is one number for every
-   * body in the world, so a 0.72-scale child still needs an adult's 20 px of clearance and still
-   * blocks a doorway like one. That is a knowingly-shipped visual lie, and putting *this* field on the
-   * wire is the half of the fix that had to come first — see `BODY_RADIUS` for the rest.
+   * **Collision honours it too, since 2026-08-14** — and the half-sentence that used to stand here,
+   * *"the renderer honours it; collision does not"*, is what that slice retired. A body's radius is
+   * now `bodies.BODY_RADIUS × size`, so a hill giant keeps 2.75x the ground a person does and a kobold
+   * youth 0.30x.
+   *
+   * **It is not the same number, though, and the difference is not a bug.** This field is a multiple
+   * of the body's *own mesh*, which is what a renderer needs — a troll rides a 2.709 m mesh and sends
+   * nothing at all. Collision needs an absolute width, which is `appearance.drawnHeightOf` over
+   * `ADULT_HEIGHT`; `bodies.bodySizeOf` is the one derivation and a client that wants the collision
+   * figure can run it on `model` and this, both of which are already here.
    */
   readonly scale?: number;
   /**

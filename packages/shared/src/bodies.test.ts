@@ -15,9 +15,15 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { RACE_SIZE, SIZE_SCALE } from './appearance.ts';
 import {
   BODY_RADIUS,
   BODY_SEPARATION,
+  MAX_BODY_RADIUS,
+  MAX_BODY_SIZE,
+  bodyClearance,
+  bodyRadius,
+  bodySizeOf,
   bodySolidAt,
   placeBody,
   stepBody,
@@ -85,9 +91,24 @@ function originOf(grid: TileGrid, roomId: RoomId): { tx: number; ty: number } {
   return origin;
 }
 
+/**
+ * The three sizes this file walks bodies around at, taken off the real ladder rather than invented.
+ *
+ * Named constants and not `bodySizeOf` calls, deliberately: the collision rules are geometry and must
+ * be testable without the appearance pipeline standing behind them — `bodySizeOf` gets its own case
+ * below, which is where the two are tied together. The numbers are what `appearanceOf` actually
+ * produces for the bodies named beside them, measured 2026-08-14.
+ */
+/** A hill giant — `SIZE_GIANT`, 4.98 m drawn, 27.5px of radius. 192 of the world's spawned bodies. */
+const GIANT = 2.75;
+/** A kobold youth — the smallest body in the world, 0.54 m drawn and 3.01px of radius. */
+const KOBOLD = 0.3007;
+/** A dragon or a titan: the top of `SIZE_SCALE`, 40px of radius, and nothing in the world yet. */
+const GARGANTUAN = 4;
+
 /** A body at the centre of a tile. Ids are arbitrary but must differ from the mover's. */
-function at(id: number, tx: number, ty: number): BodyPoint {
-  return { id, x: tileCentre(tx), y: tileCentre(ty) };
+function at(id: number, tx: number, ty: number, scale?: number): BodyPoint {
+  return { id, x: tileCentre(tx), y: tileCentre(ty), ...(scale === undefined ? {} : { scale }) };
 }
 
 /** Every tile of a room, in row-major order. */
@@ -120,7 +141,9 @@ function walkTo(
     const remaining = Math.hypot(dx, dy);
     if (remaining <= 1) return { arrived: true, x, y, ticks: n };
     const intent = normaliseIntent(dx, dy);
-    const next = stepBody(grid, { id: self.id, x, y }, intent.x, intent.y, Math.min(15, remaining), others);
+    // Spread rather than rebuilt from three fields: the mover's own `scale` is half of every clearance
+    // it is judged by, and dropping it here would have quietly walked every giant as a person.
+    const next = stepBody(grid, { ...self, x, y }, intent.x, intent.y, Math.min(15, remaining), others);
     x = next.x;
     y = next.y;
   }
@@ -516,11 +539,215 @@ describe('stepBody', () => {
     );
   });
 
-  it('keeps the radius the terrain box already uses, so a body fits wherever it fits', () => {
+  it('keeps an adult’s radius the one the terrain box uses, so a person fits wherever they fit', () => {
     assert.equal(BODY_RADIUS, PLAYER_RADIUS);
     assert.equal(BODY_SEPARATION, 2 * PLAYER_RADIUS);
+    assert.equal(bodyRadius({ id: 1, x: 0, y: 0 }), PLAYER_RADIUS, 'an unsized body is a person');
     // The reconciliation `station.ts` depends on: a fighter closes to one tile, which is outside this.
     assert.ok(BODY_SEPARATION < TILE_SIZE, 'a mob could never reach melee station');
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Size, which is now a property of the body                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * **The slice this section is the characterisation of**, 2026-08-14: a body drawn larger than a human
+ * collides larger.
+ *
+ * Every case below is one that says nothing at all when both bodies are scale 1 — which is the trap the
+ * brief for this work named, and which the whole of the file above walks straight into, because a rule
+ * about `rA + rB` evaluated for two adults is arithmetically the old constant. The cases are chosen at
+ * the ends of the ladder the world actually stands on rather than in the middle of it.
+ */
+describe('a body’s radius is its own', () => {
+  it('puts the world’s bodies on the ladder, reading the drawn height and not the mesh scale', () => {
+    // A person is 1 by construction: the base mesh is `ADULT_HEIGHT` and nothing scales it.
+    assert.equal(bodySizeOf({ kind: 'player', sprite: 'human' }), 1);
+    // Race is what makes a giant giant, and it lands whole — 27.5px of radius against a person's 10.
+    assert.equal(bodySizeOf({ kind: 'mob', sprite: 'muscular/human', race: 'G' }), GIANT);
+    assert.equal(BODY_RADIUS * GIANT, 27.5);
+    // Age and race multiply, exactly as `appearanceOf` says they do: a giant's child.
+    assert.equal(bodySizeOf({ kind: 'mob', sprite: 'child/human', race: 'G' }), 0.72 * GIANT);
+    // An unraced template is a person, which is the same answer an unknown race code gets.
+    assert.equal(bodySizeOf({ kind: 'mob', sprite: 'male/human' }), 1);
+    assert.equal(bodySizeOf({ kind: 'mob', sprite: 'male/human', race: 'not-a-race' }), 1);
+    // And the judgement this rule carries, stated rather than hidden: height stands in for width, so
+    // the female base body — 43 mm shorter as authored — gets a 2.4% smaller disc.
+    const female = bodySizeOf({ kind: 'mob', sprite: 'female/human' });
+    assert.ok(female > 0.97 && female < 0.98, `female bodies came out at ${female}`);
+  });
+
+  it('never exceeds the cap the broad-phase query is sized against, over the whole race table', () => {
+    // Exhaustive over the tables rather than sampled, because the failure it guards is silent: a body
+    // wider than `MAX_BODY_RADIUS` is a body `sim.bodiesNear` can fail to offer, and a blocker the
+    // query never yields is a blocker that gets walked through.
+    for (const race of [...Object.keys(RACE_SIZE), 'unknown', undefined]) {
+      for (const word of ['', 'male', 'female', 'muscular', 'child', 'teen', 'skeleton', 'zombie']) {
+        for (const head of ['human', 'kobold', 'wolf', 'orc']) {
+          const sprite = word === '' ? head : `${word}/${head}`;
+          const size = bodySizeOf({ kind: 'mob', sprite, ...(race === undefined ? {} : { race }) });
+          assert.ok(size > 0, `${sprite}/${race} sized ${size}, which is not a body`);
+          assert.ok(
+            size <= MAX_BODY_SIZE,
+            `${sprite} of race ${race} is ${size}x, past the ${MAX_BODY_SIZE}x cap`,
+          );
+        }
+      }
+    }
+    assert.equal(MAX_BODY_SIZE, Math.max(...SIZE_SCALE), 'today the tallest mesh is under the ladder');
+    assert.equal(MAX_BODY_RADIUS, 40);
+  });
+
+  it('holds a person out of a giant at 37.5px, where an adult pair would have closed to 20', () => {
+    const grid = solitary();
+    const origin = originOf(grid, 1);
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    const giant = at(2, origin.tx + 4, midY, GIANT);
+    assert.equal(bodyClearance({ id: 1, x: 0, y: 0 }, giant), 37.5);
+
+    // 45px out, due east. One 15px step lands at 30px — outside two adults' 20 and well inside 37.5.
+    const self = { id: 1, x: giant.x - 45, y: giant.y };
+    const next = stepBody(grid, self, 1, 0, 15, [giant]);
+    assert.ok(
+      Math.hypot(next.x - giant.x, next.y - giant.y) >= 37.5 - 1e-9,
+      `closed to ${Math.hypot(next.x - giant.x, next.y - giant.y)}px of a giant`,
+    );
+    assert.equal(next.x, self.x, 'the forward axis crept toward it instead of stepping round');
+
+    // The same step, against a body of the same shape that is merely a person: allowed, in full. This
+    // is the pair rule doing the work — nothing about the mover, the floor or the step changed.
+    const person = at(2, origin.tx + 4, midY);
+    assert.equal(stepBody(grid, self, 1, 0, 15, [person]).x, self.x + 15);
+  });
+
+  it('keeps two giants 55px apart, which is a tile and three quarters', () => {
+    // The measurement the whole slice came from: two 4.98 m bodies kept 0.625 m between their centres
+    // and stood inside each other. 55px is 1.72 m, which is what their silhouettes want.
+    const grid = solitary();
+    const origin = originOf(grid, 1);
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    const other = at(2, origin.tx + 5, midY, GIANT);
+    const self: BodyPoint = { id: 1, x: tileCentre(origin.tx + 1), y: tileCentre(midY), scale: GIANT };
+    assert.equal(bodyClearance(self, other), 55);
+    assert.ok(bodyClearance(self, other) > TILE_SIZE, 'two giants cannot share adjacent tiles');
+
+    const walk = walkTo(grid, self, { x: other.x, y: other.y }, [other]);
+    const gap = Math.hypot(walk.x - other.x, walk.y - other.y);
+    assert.ok(gap >= 55 - 1e-6, `one giant closed to ${gap}px of the other`);
+    assert.equal(walk.arrived, false, 'a body cannot walk onto another body’s centre');
+  });
+
+  it('lets a kobold stand on the tile beside a giant, where a person cannot', () => {
+    // The two ends of the ladder against the one constant that did not move — 32px, the tile. A person
+    // and a giant want 37.5 and therefore *overlap* on adjacent tiles; a kobold youth and a giant want
+    // 30.5 and fit. That inversion is the whole feature, and it is invisible at scale 1.
+    const grid = solitary();
+    const origin = originOf(grid, 1);
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    const giant = at(2, origin.tx + 4, midY, GIANT);
+    const kobold: BodyPoint = { id: 1, x: tileCentre(origin.tx + 3), y: tileCentre(midY), scale: KOBOLD };
+    const person: BodyPoint = { id: 1, x: kobold.x, y: kobold.y };
+
+    assert.ok(bodyClearance(kobold, giant) < TILE_SIZE, 'the fixture should fit the kobold');
+    assert.ok(bodyClearance(person, giant) > TILE_SIZE, 'and should not fit the person');
+
+    // The kobold is clear, so it may walk on past — north, south, or straight by.
+    assert.equal(stepBody(grid, kobold, 0, 1, 15, [giant]).y, kobold.y + 15);
+    // The person is already inside the giant, and escape valve 1 is what stops that being a weld: it
+    // may take any step that does not push further in, and none that does.
+    assert.equal(stepBody(grid, person, -1, 0, 15, [giant]).x, person.x - 15, 'welded to a giant');
+    assert.equal(stepBody(grid, person, 1, 0, 15, [giant]).x, person.x, 'and shouldered further in');
+  });
+
+  it('does not trap a person in the corner between a giant and a wall', () => {
+    // "A giant against a wall", and it is a case that only exists now. A giant's clearance is 37.5px
+    // and a tile is 32, so a person standing on the tile next to one is *already* inside it — a state
+    // placement refuses to create but stacking and a teleport both can. The wall takes two of the four
+    // ways out, so this is where a weld would actually bite.
+    const grid = solitary();
+    const origin = originOf(grid, 1);
+    const giant = at(2, origin.tx + 1, origin.ty, GIANT);
+    const corner: BodyPoint = { id: 1, x: tileCentre(origin.tx), y: tileCentre(origin.ty) };
+    assert.equal(bodySolidAt(grid, giant.x, giant.y), true, 'the fixture must be solid ground');
+    assert.ok(
+      Math.hypot(corner.x - giant.x, corner.y - giant.y) < bodyClearance(corner, giant),
+      'the fixture should start the person inside the giant',
+    );
+
+    // North and west are the walls, and `canStand` refuses both whatever is standing about.
+    assert.equal(stepBody(grid, corner, 0, -1, 15, [giant]).y, corner.y, 'walked through the wall');
+    // South is open floor and it opens the gap, so it must be allowed — and it must be the way out.
+    const away = stepBody(grid, corner, 0, 1, 15, [giant]);
+    assert.equal(away.y, corner.y + 15);
+    const walk = walkTo(grid, corner, { x: corner.x, y: tileCentre(origin.ty + ROOM_TILES - 1) }, [giant]);
+    assert.equal(walk.arrived, true, `sealed into the corner at ${walk.x},${walk.y}`);
+  });
+
+  it('walks past a wall of mixed sizes without oscillating or clipping any of them', () => {
+    // The heterogeneous sweep, end to end. `sidestep` used to order the group by the *centre* of each
+    // body, which is the same order as by near shoulder only while every body wants the same clearance;
+    // with a giant beside a kobold the two orders differ and the near shoulder is the one that decides
+    // whether a gap is real. This is the observable half of that — the mover has to get past a wall
+    // whose gaps are only wide enough where the small bodies are.
+    const grid = solitary();
+    const origin = originOf(grid, 1);
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    const wall = [
+      at(10, origin.tx + 4, midY - 2, GIANT),
+      at(11, origin.tx + 4, midY - 1, KOBOLD),
+      at(12, origin.tx + 4, midY, GIANT),
+      at(13, origin.tx + 4, midY + 1, KOBOLD),
+      at(14, origin.tx + 4, midY + 2, GIANT),
+    ];
+    const self = { id: 1, x: tileCentre(origin.tx + 1), y: tileCentre(midY) };
+    const goal = { x: tileCentre(origin.tx + ROOM_TILES - 1), y: tileCentre(midY) };
+
+    const seen = new Set<string>();
+    let repeated: string | undefined;
+    let { x, y } = self;
+    let arrived = false;
+    for (let n = 0; n < 400 && !arrived; n++) {
+      const key = `${x.toFixed(2)},${y.toFixed(2)}`;
+      if (seen.has(key) && repeated === undefined) repeated = key;
+      seen.add(key);
+      const dx = goal.x - x;
+      const dy = goal.y - y;
+      const remaining = Math.hypot(dx, dy);
+      if (remaining <= 1) {
+        arrived = true;
+        break;
+      }
+      const intent = normaliseIntent(dx, dy);
+      const next = stepBody(grid, { id: 1, x, y }, intent.x, intent.y, Math.min(15, remaining), wall);
+      x = next.x;
+      y = next.y;
+    }
+
+    assert.equal(repeated, undefined, `stood on ${repeated} twice — the mover is oscillating`);
+    assert.equal(arrived, true, `never got past the mixed wall; stopped at ${x},${y}`);
+    for (const body of wall) {
+      const clear = bodyClearance({ id: 1, x, y }, body);
+      assert.ok(Math.hypot(x - body.x, y - body.y) >= clear - 1e-6, `ended up inside body ${body.id}`);
+    }
+  });
+
+  it('still refuses a gargantuan the ground a gargantuan needs, at the top of the ladder', () => {
+    // Nothing in the world is `SIZE_GARGANTUAN` today — `RACE_SIZE` carries dragons, titans, constructs
+    // and avatars against a harvest that has authored none of them — so this is the rung the world will
+    // meet before anybody re-reads this file. 40px of radius, 80px between two of them: two and a half
+    // tiles, which is more than a quarter of a room.
+    const grid = solitary();
+    const origin = originOf(grid, 1);
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    const other = at(2, origin.tx + 6, midY, GARGANTUAN);
+    const self: BodyPoint = { id: 1, x: tileCentre(origin.tx + 1), y: tileCentre(midY), scale: GARGANTUAN };
+    assert.equal(bodyClearance(self, other), 80);
+    assert.equal(bodyRadius(self), MAX_BODY_RADIUS);
+
+    const walk = walkTo(grid, self, { x: other.x, y: other.y }, [other]);
+    assert.ok(Math.hypot(walk.x - other.x, walk.y - other.y) >= 80 - 1e-6);
   });
 });
 
@@ -654,5 +881,74 @@ describe('placeBody', () => {
         assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= BODY_SEPARATION, 'two bodies placed on top of each other');
       }
     }
+  });
+
+  it('will not load a second giant on the tile beside the first — 55px needs two cells, not one', () => {
+    // The owner's rule at the far end of the ladder: *"never have mobs or players load on top of each
+    // other."* Any free tile satisfies two adults, because 32 > 20. Two giants want 55, so every one of
+    // the eight neighbours fails — 32px orthogonally, 45.25 on the diagonal — and the Chebyshev ring
+    // search has to walk out to the second ring, 64px, to find one. It does, without being told.
+    const grid = solitary();
+    const origin = originOf(grid, 1);
+    const first = { tx: origin.tx + 4, ty: origin.ty + 4 };
+    const standing = [at(2, first.tx, first.ty, GIANT)];
+
+    const landing = placeBody(grid, 1, origin, first, standing, GIANT);
+    assert.equal(landing.stacked, false, 'the room had room and the search did not find it');
+    const apart = Math.hypot(tileCentre(landing.tx) - standing[0]!.x, tileCentre(landing.ty) - standing[0]!.y);
+    assert.ok(apart >= 55 - 1e-9, `two giants loaded ${apart}px apart`);
+    assert.equal(Math.max(Math.abs(landing.tx - first.tx), Math.abs(landing.ty - first.ty)), 2);
+  });
+
+  it('still lets a kobold in beside the giant that just refused a person', () => {
+    // The same tile, the same occupant, a different body asking. Placement reads the pair exactly as
+    // movement does, so the answer moves with who is being placed rather than with the room.
+    const grid = solitary();
+    const origin = originOf(grid, 1);
+    const spot = { tx: origin.tx + 4, ty: origin.ty + 4 };
+    const giant = [at(2, spot.tx, spot.ty, GIANT)];
+    const beside = { tx: spot.tx + 1, ty: spot.ty };
+
+    assert.deepEqual(
+      { tx: placeBody(grid, 1, origin, beside, giant, KOBOLD).tx, ty: placeBody(grid, 1, origin, beside, giant, KOBOLD).ty },
+      beside,
+      'a kobold youth wants 30.5px and the tile offers 32',
+    );
+    assert.notDeepEqual(
+      { tx: placeBody(grid, 1, origin, beside, giant).tx, ty: placeBody(grid, 1, origin, beside, giant).ty },
+      beside,
+      'a person wants 37.5px and must be moved off',
+    );
+  });
+
+  it('fits twenty-four giants in a nine-tile room and stacks the twenty-fifth rather than losing it', () => {
+    // How much headroom the large end of the ladder actually has, measured rather than argued. The
+    // geometric bound is **25** — giants on every other cell of a nine-tile room, 64px apart, which
+    // clears the 55 they want — and the greedy nearest-first search reaches **24** of them before the
+    // room is spent. Losing one slot to greed is the price of a placement rule with no backtracking in
+    // it, and it is a price worth naming: the world's most giant-heavy room holds six (measured
+    // 2026-08-14), so the headroom is fourfold rather than marginal.
+    //
+    // The twenty-fifth is the Cubs Den rule at the other end of the ladder. **A missing mob is worse
+    // than an overlap**, so it lands stacked and says so; what it must never do is be refused.
+    const grid = solitary();
+    const origin = originOf(grid, 1);
+    const placed: BodyPoint[] = [];
+    for (let n = 0; n < 24; n++) {
+      const prefer = { tx: origin.tx + (n % ROOM_TILES), ty: origin.ty + Math.floor(n / ROOM_TILES) };
+      const landing = placeBody(grid, 1, origin, prefer, placed, GIANT);
+      assert.equal(landing.stacked, false, `ran out of floor after ${n} giants`);
+      placed.push(at(100 + n, landing.tx, landing.ty, GIANT));
+    }
+    for (const a of placed) {
+      for (const b of placed) {
+        if (a.id === b.id) continue;
+        assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 55 - 1e-9, `${a.id} and ${b.id} are inside each other`);
+      }
+    }
+
+    const overflow = placeBody(grid, 1, origin, { tx: origin.tx + 4, ty: origin.ty + 4 }, placed, GIANT);
+    assert.equal(overflow.stacked, true, 'the twenty-fifth found floor the first twenty-four did not');
+    assert.equal(overflow.blocked, false, 'and it is standing on floor, which is the point of the ranking');
   });
 });

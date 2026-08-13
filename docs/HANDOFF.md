@@ -528,17 +528,26 @@ which primitive got there last.
 
 **Known, measured, and not fixed** — the honest list:
 
-- **IF THE TREE IS DIRTY WHEN YOU ARRIVE, IT IS THE COLLISION SLICE.** A subagent was working on
-  task #49 when the 13th ended, editing `packages/server/src/sim.ts`,
-  `packages/shared/src/bodies.test.ts` and `packages/shared/src/protocol.ts`. It was told not to
-  commit. **Read the diff, run the suite (baseline 3,057), and either finish it or `git checkout` the
-  three files** — do not build on top of it without reading it first, and do not assume it is
-  complete. Everything else was pushed; `git log` and `git status` together tell you exactly where it
-  stopped.
-- **A body's collision radius is still one constant.** `BODY_RADIUS` is 0.313 m for everything, so
-  since the race scale a troll (0.68 m half-width) and a giant (1.24 m) stand inside each other and
-  inside walls. `bodies.ts`'s own docblock predicted this and names the three proofs a fix must
-  restate. **Task #49.**
+- **One commit in the history has a message that does not describe it, and it is worth knowing which.**
+  `b7869a5` says *"The troll's hair was a mis-read, not a shade"* and contains **none** of that — it
+  holds `shared/bodies.ts`, `server/station.ts` and part of `sim.ts`, i.e. the first half of the
+  collision slice. A `git add -A` ran while a subagent held those files, and the hair change it meant
+  to capture is in `assets/`, which is git-ignored, so the commit swept the only thing it could find.
+  The remainder landed in `9f2e6c1` with an honest message. **Nothing is lost and nothing needs
+  reverting** — but `git log --follow` on `bodies.ts` will point at troll hair, and that is why.
+  *(The hair fix itself is real and on disk in `assets/creatures/troll/troll.wam` and its two baked
+  atlases; like every asset in this project it lives outside git and is reproducible from source.)*
+- **A body's collision radius is its own, as of 2026-08-14 — task #49, done.** `BODY_RADIUS × scale`,
+  and the pair test is `rA + rB` (`bodyClearance`). A hill giant is 27.5px where a person is 10 and a
+  kobold youth 3.01; **926 of the world's 2,016 spawned bodies (45.9%) are not adult-sized.**
+  `station.ts` grew `stationFor(a, b) = clearance + 12px`, because the old `32 − 20 = 12` runs to
+  **−5.5** against a giant — a station inside the defender, which no fighter could ever reach — and
+  `sim.BODY_QUERY_REACH` went 84px → 144px so the broad phase still covers the widest pair.
+  **The terrain box did not move**: `canStand` still tests a fixed 10px half-extent whatever is
+  walking, so a giant still fits through a human's doorway and can stand 17.5px inside a wall. That is
+  the named remainder, and `BODY_RADIUS`'s docblock carries why (a 27.5px box does not fit in a 32px
+  tile, so `placeBody`'s `standable`, the no-wedge proof and the client predictor would all have to be
+  rebuilt in one slice).
 - **123 spawns are taller than their ceiling.** Interiors are 3 m; 115 giants and 8 ogres spawn in
   roofed rooms. The owner's ruling (2026-08-13): **assign zones as giant folk and raise the roof to
   ~6 m**. Eighteen zones qualify, headed by Jotunheim (56 spawns). Six metres is exactly **two courses

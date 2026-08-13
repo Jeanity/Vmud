@@ -33,6 +33,7 @@
 import {
   BODY_SEPARATION,
   TILE_SIZE,
+  type BodyPoint,
   bodyClearance,
   normaliseIntent,
   roomAtTile,
@@ -75,9 +76,12 @@ export const MELEE_STATION = TILE_SIZE;
  * So the reach scales with the pair and the daylight does not. That split is a **judgement, not a
  * measurement**, and here is the argument for it: the reason for the 12 was never physics, it was
  * *reading* — the docblock above says so, "standing on the player reads as a rendering fault". Twelve
- * pixels is 0.375 m of visible ground between two silhouettes, and 0.375 m of ground reads as a gap at
- * any body size, whereas a proportional rule would put a hill giant 60px out (1.9 m of daylight) and a
- * pair of kobold youths 9.6px out, which is under a third of a tile and would look like contact.
+ * pixels is 0.375 m of visible ground between two silhouettes, and 0.375 m reads as a gap at any body
+ * size. The alternative considered was proportional — station = clearance × 32/20, which is also 32
+ * for two adults — and it was rejected on its own numbers: it gives a person closing on a hill giant
+ * 22.5px of daylight (0.70 m, nearly double a person's) and two kobold youths 3.6px (0.11 m), which at
+ * the camera's usual 24 m is contact. The absolute figure is the one that keeps meaning the same thing
+ * up and down the ladder.
  */
 export const MELEE_DAYLIGHT = MELEE_STATION - BODY_SEPARATION;
 
@@ -88,11 +92,11 @@ export const MELEE_DAYLIGHT = MELEE_STATION - BODY_SEPARATION;
  * come to three answers. Measured against the ladder the world stands on:
  *
  * ```
- *   two adults              10.0 + 10.0 + 12 = 32.0px   TILE_SIZE, unchanged
- *   a person and a troll    10.0 + 15.0 + 12 = 37.0px
- *   a person and a giant    10.0 + 27.5 + 12 = 49.5px   was −5.5px of daylight; now 12
- *   two giants              27.5 + 27.5 + 12 = 67.0px
- *   two kobold youths        3.0 +  3.0 + 12 = 18.0px
+ *   two adults              10.00 + 10.00 + 12 = 32.00px   TILE_SIZE, unchanged
+ *   a person and a 1.5x     10.00 + 15.00 + 12 = 37.00px   SIZE_LARGE — a troll, an ettin
+ *   a person and a giant    10.00 + 27.50 + 12 = 49.50px   was −5.5px of daylight; now 12
+ *   two giants              27.50 + 27.50 + 12 = 67.00px
+ *   two kobold youths        3.01 +  3.01 + 12 = 18.01px   the smallest pair in the world
  * ```
  *
  * **A bigger defender admits more attackers, and that falls out rather than being arranged.** Bodies
@@ -100,8 +104,11 @@ export const MELEE_DAYLIGHT = MELEE_STATION - BODY_SEPARATION;
  * need 36.4° each and nine fit — the number this file has always claimed — while people round a hill
  * giant need 23.3° and **fifteen** fit, and giants round a person need 67.5° and only five do. That is
  * the right answer in both directions and no code anywhere had to be told it.
+ *
+ * Takes {@link BodyPoint} rather than `Actor` because that is genuinely all it reads — two radii — and
+ * an `Actor` is one. Anything that can be collided with can be stood beside.
  */
-export function stationFor(a: Actor, b: Actor): number {
+export function stationFor(a: BodyPoint, b: BodyPoint): number {
   return bodyClearance(a, b) + MELEE_DAYLIGHT;
 }
 

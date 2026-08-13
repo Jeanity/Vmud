@@ -22,6 +22,9 @@ import {
   ROOM_TILES,
   TILE_SIZE,
   Tile,
+  bodyClearance,
+  bodyRadius,
+  bodySizeOf,
   bodySolidAt,
   boundsOf,
   canStand,
@@ -30,11 +33,13 @@ import {
   noPursuit,
   parseDice,
   passiveRule,
+  placeBody,
   readCombatStats,
   rollDice,
   roomAtTile,
   setTile,
   tileCentre,
+  type BodyPoint,
   type MobTemplate,
   type Room,
   type RoomId,
@@ -45,10 +50,11 @@ import {
 
 import { engage } from './combat.ts';
 import { advanceHunts, beginDrift, beginWalkTo, type Hunt } from './hunt.ts';
+import { applyMobOverride, loadMobOverrides } from './mob-overrides.ts';
 import { Scheduler } from './scheduler.ts';
 import { Simulation, type Actor, type Mob, type Player } from './sim.ts';
 import { SPAWNS_DIR, indexTemplates, loadZoneSpawns } from './spawns.ts';
-import { MELEE_STATION, advanceStations, atStation } from './station.ts';
+import { MELEE_DAYLIGHT, MELEE_STATION, advanceStations, atStation, stationFor } from './station.ts';
 import { GameWorld, builtZoneFileExists, loadZone, placeOf } from './world.ts';
 
 /* -------------------------------------------------------------------------- */
@@ -103,18 +109,47 @@ function makeFixture(): Fixture {
   return { world, sim, grid, player, origin };
 }
 
+/**
+ * A **giant's** template — `muscular/human` on Duris' `G` race, which is what 105 of the world's mob
+ * templates and 192 of its spawned bodies actually are.
+ *
+ * Not a made-up scale: it goes through `spawnMob` exactly as a harvested giant does, so a test that
+ * uses it is testing the wiring from the harvest through `bodySizeOf` and out into collision, which is
+ * the seam this file exists to hold. 2.75x, and therefore 27.5px of radius.
+ */
+const giantTemplate = (): MobTemplate => template({ sprite: 'muscular/human', race: 'G' });
+
 /** A mob standing exactly on a tile centre, wherever the test wants it. */
-function mobAt(sim: Simulation, tx: number, ty: number, roomId: RoomId = HALL): Mob {
-  const mob = sim.spawnMob(template(), roomId, makeRng(0xb0));
+function mobAt(sim: Simulation, tx: number, ty: number, roomId: RoomId = HALL, over?: MobTemplate): Mob {
+  const mob = sim.spawnMob(over ?? template(), roomId, makeRng(0xb0));
   assert.ok(mob);
   mob.x = tileCentre(tx);
   mob.y = tileCentre(ty);
   return mob;
 }
 
+/** A hill giant standing on a tile centre. 27.5px of radius against an adult's 10. */
+function giantAt(sim: Simulation, tx: number, ty: number, roomId: RoomId = HALL): Mob {
+  const mob = mobAt(sim, tx, ty, roomId, giantTemplate());
+  assert.equal(mob.scale, 2.75, 'the fixture giant is not a giant');
+  return mob;
+}
+
 /** How far apart two bodies are. The one number this whole file is about. */
 function gap(a: Actor, b: Actor): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+/**
+ * How far apart these two must stay — {@link bodyClearance}, and the replacement for the flat
+ * `BODY_SEPARATION` every assertion in this file used to compare against.
+ *
+ * It is the same 20px for two adult bodies, which is every fixture that predates 2026-08-14, so those
+ * cases go on measuring exactly what they measured. It is 37.5 for a person and a giant, which is the
+ * number those cases were silently getting wrong.
+ */
+function clearance(a: Actor, b: Actor): number {
+  return bodyClearance(a, b);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -188,7 +223,7 @@ describe('every pass that moves a body asks the same question', () => {
 
     sim.setIntent(player.id, 1, 0);
     for (let n = 0; n < 40; n++) sim.tick();
-    assert.ok(gap(player, wall) >= BODY_SEPARATION - 1e-6, `walked into it (gap ${gap(player, wall)})`);
+    assert.ok(gap(player, wall) >= clearance(player, wall) - 1e-6, `walked into it (gap ${gap(player, wall)})`);
   });
 
   it('refuses the hunt’s in-room drift', () => {
@@ -200,7 +235,10 @@ describe('every pass that moves a body asks the same question', () => {
     const hunts = new Map<number, Hunt>();
     beginDrift(hunts, walker, { x: tileCentre(origin.tx + 7), y: tileCentre(midY) });
     for (let n = 0; n < 200 && hunts.size > 0; n++) advanceHunts(sim, world, hunts, 100);
-    assert.ok(gap(walker, standing) >= BODY_SEPARATION - 1e-6, `drifted through it (gap ${gap(walker, standing)})`);
+    assert.ok(
+      gap(walker, standing) >= clearance(walker, standing) - 1e-6,
+      `drifted through it (gap ${gap(walker, standing)})`,
+    );
   });
 
   it('refuses the hunt’s room-to-room walk', () => {
@@ -215,8 +253,8 @@ describe('every pass that moves a body asks the same question', () => {
     const hunts = new Map<number, Hunt>();
     beginWalkTo(hunts, walker, ANTE);
     for (let n = 0; n < 200 && hunts.size > 0; n++) advanceHunts(sim, world, hunts, 100);
-    assert.ok(gap(walker, north) >= BODY_SEPARATION - 1e-6, 'walked through the northern one');
-    assert.ok(gap(walker, south) >= BODY_SEPARATION - 1e-6, 'walked through the southern one');
+    assert.ok(gap(walker, north) >= clearance(walker, north) - 1e-6, 'walked through the northern one');
+    assert.ok(gap(walker, south) >= clearance(walker, south) - 1e-6, 'walked through the southern one');
   });
 
   it('stops being solid the moment it stops being a body — corpses are furniture', () => {
@@ -259,7 +297,10 @@ describe('every pass that moves a body asks the same question', () => {
 
     engage(new Scheduler(), closer, player);
     for (let n = 0; n < 60; n++) advanceStations(sim, world, 100);
-    assert.ok(gap(closer, inTheWay) >= BODY_SEPARATION - 1e-6, `shouldered through (gap ${gap(closer, inTheWay)})`);
+    assert.ok(
+      gap(closer, inTheWay) >= clearance(closer, inTheWay) - 1e-6,
+      `shouldered through (gap ${gap(closer, inTheWay)})`,
+    );
   });
 });
 
@@ -370,7 +411,7 @@ describe('a body that cannot get where it is going is released, not held there',
     for (const a of solid) {
       for (const b of solid) {
         if (a.id === b.id) continue;
-        assert.ok(gap(a, b) >= BODY_SEPARATION - 1e-6, `${a.id} and ${b.id} ended up inside each other`);
+        assert.ok(gap(a, b) >= clearance(a, b) - 1e-6, `${a.id} and ${b.id} ended up inside each other`);
       }
     }
   });
@@ -395,7 +436,7 @@ describe('a body that cannot get where it is going is released, not held there',
     assert.ok(player.x > tileCentre(origin.tx + 4), `never got past the line; stopped at ${player.x},${player.y}`);
     // Past, not through, and without shoving anybody: the line is where it was put.
     for (const mob of line) {
-      assert.ok(gap(player, mob) >= BODY_SEPARATION - 1e-6, 'the player ended up inside one of them');
+      assert.ok(gap(player, mob) >= clearance(player, mob) - 1e-6, 'the player ended up inside one of them');
       assert.equal(mob.x, tileCentre(origin.tx + 4), 'a mob was pushed off its tile — bodies are not shovable');
     }
   });
@@ -405,14 +446,82 @@ describe('a body that cannot get where it is going is released, not held there',
 /* Combat must still reach                                                     */
 /* -------------------------------------------------------------------------- */
 
-describe('MELEE_STATION and BODY_SEPARATION reconcile', () => {
-  it('states the two numbers, because a fighter that cannot arrive jitters for ever', () => {
-    // If the separation ever grew past a tile, a mob would be refused *before* reaching station and
-    // would grind against its opponent while the round timer fired. 32 against 20 leaves 12px, which is
-    // the same 12px `MELEE_STATION`'s own docblock has always claimed.
+describe('the melee station and the pair clearance reconcile', () => {
+  it('states the numbers, because a fighter that cannot arrive jitters for ever', () => {
+    // If the clearance ever grew past the station, a mob would be refused *before* reaching it and
+    // would grind against its opponent while the round timer fired. For two adults that is 32 against
+    // 20 and leaves 12px, which is the same 12px `MELEE_STATION`'s docblock has always claimed — and
+    // it is now the *definition* rather than a coincidence of two constants.
+    const person: BodyPoint = { id: 1, x: 0, y: 0 };
+    const giant: BodyPoint = { id: 2, x: 0, y: 0, scale: 2.75 };
     assert.equal(MELEE_STATION, TILE_SIZE);
     assert.equal(BODY_SEPARATION, 20);
-    assert.ok(BODY_SEPARATION < MELEE_STATION, 'a fighter could never reach its station');
+    assert.equal(MELEE_DAYLIGHT, 12);
+    assert.equal(stationFor(person, person), MELEE_STATION, 'two adults must still stand a tile apart');
+
+    // And the arithmetic that made this slice necessary. The old form was `MELEE_STATION − clearance`;
+    // run it for a person closing on a hill giant and the daylight is **negative**, which is a station
+    // inside the defender and a fighter that can never report having arrived.
+    assert.equal(bodyRadius(giant), 27.5);
+    assert.equal(MELEE_STATION - bodyClearance(person, giant), -5.5);
+    assert.equal(stationFor(person, giant), 49.5);
+    for (const [a, b] of [[person, person], [person, giant], [giant, giant]] as const) {
+      assert.equal(stationFor(a, b) - bodyClearance(a, b), MELEE_DAYLIGHT, 'the daylight moved');
+    }
+  });
+
+  it('walks a giant onto a player and lets it arrive, where the fixed tile left it 5.5px short', () => {
+    // The regression the whole third proof is about, run through the real pass. A giant closing on a
+    // player is refused by `bodiesAllow` at 37.5px; the station it is aiming for used to be 32, which
+    // it can never reach, so `atStation` stayed false for ever and the fight read as one body still
+    // walking toward another it was already standing on top of.
+    const { world, sim, player, origin } = makeFixture();
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    player.x = tileCentre(origin.tx + 7);
+    player.y = tileCentre(midY);
+    const giant = giantAt(sim, origin.tx + 1, midY);
+    engage(new Scheduler(), giant, player);
+
+    for (let n = 0; n < 60; n++) advanceStations(sim, world, 100);
+    assert.equal(atStation(giant, player), true, `never arrived (gap ${gap(giant, player)})`);
+    assert.ok(gap(giant, player) >= clearance(giant, player) - 1e-6, 'it arrived by standing inside them');
+    assert.ok(gap(giant, player) > MELEE_STATION, 'a giant that stopped at a tile is inside the player');
+    assert.ok(Math.abs(gap(giant, player) - 49.5) <= 1.5, `stood off at ${gap(giant, player)}`);
+
+    // And holds still once there, which is the half a negative station broke: every tick it re-tried
+    // the last 5.5px, was refused, and moved nothing.
+    const settled = { x: giant.x, y: giant.y };
+    for (let n = 0; n < 20; n++) advanceStations(sim, world, 100);
+    assert.deepEqual({ x: giant.x, y: giant.y }, settled);
+  });
+
+  it('rings a giant with more attackers than it rings a person, which falls out of the arithmetic', () => {
+    // `2·s·sin(θ/2) ≥ 2r`: people round a person need 36.4° each and nine fit, people round a hill
+    // giant need 23.3° and fifteen do. Three is the case that happens; what this checks is that the
+    // three of them get *in* — a station that did not scale would have refused all three at 37.5px and
+    // left them in a ring nobody could close.
+    const { world, sim, origin } = makeFixture();
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    const giant = giantAt(sim, origin.tx + 4, midY);
+    const scheduler = new Scheduler();
+    const pack = [
+      mobAt(sim, origin.tx + 1, midY),
+      mobAt(sim, origin.tx + 8, midY),
+      mobAt(sim, origin.tx + 4, midY + 4),
+    ];
+    for (const mob of pack) engage(scheduler, mob, giant);
+
+    for (let n = 0; n < 80; n++) advanceStations(sim, world, 100);
+    for (const mob of pack) {
+      assert.equal(atStation(mob, giant), true, `${mob.id} never closed (gap ${gap(mob, giant)})`);
+      assert.ok(gap(mob, giant) >= clearance(mob, giant) - 1e-6, `${mob.id} stood inside the giant`);
+    }
+    for (const a of pack) {
+      for (const b of pack) {
+        if (a.id === b.id) continue;
+        assert.ok(gap(a, b) >= clearance(a, b) - 1e-6, 'two of the ring ended up inside each other');
+      }
+    }
   });
 
   it('arrives at station across an empty floor, and stops there rather than jittering', () => {
@@ -455,7 +564,7 @@ describe('MELEE_STATION and BODY_SEPARATION reconcile', () => {
     for (const a of pack) {
       for (const b of pack) {
         if (a.id === b.id) continue;
-        assert.ok(gap(a, b) >= BODY_SEPARATION - 1e-6, 'two of the pack ended up inside each other');
+        assert.ok(gap(a, b) >= clearance(a, b) - 1e-6, 'two of the pack ended up inside each other');
       }
     }
   });
@@ -504,7 +613,7 @@ describe('nothing loads on top of anything', () => {
     for (const a of mobs) {
       for (const b of mobs) {
         if (a.id === b.id) continue;
-        assert.ok(gap(a, b) >= BODY_SEPARATION, `${a.id} and ${b.id} loaded on top of each other`);
+        assert.ok(gap(a, b) >= clearance(a, b), `${a.id} and ${b.id} loaded on top of each other`);
       }
     }
     assert.equal(sim.crowding.stacked, 0);
@@ -565,7 +674,7 @@ describe('nothing loads on top of anything', () => {
       assert.equal(canStand(grid, actor.x, actor.y), true, 'arrived inside geometry');
       for (const other of arrivals) {
         if (other.id === actor.id) continue;
-        assert.ok(gap(actor, other) >= BODY_SEPARATION, 'two arrivals stacked');
+        assert.ok(gap(actor, other) >= clearance(actor, other), 'two arrivals stacked');
       }
     }
   });
@@ -573,7 +682,52 @@ describe('nothing loads on top of anything', () => {
   it('keeps two characters logging in off each other’s tile', () => {
     const { sim, player } = makeFixture();
     const second = sim.spawn('Second', makeRng(2));
-    assert.ok(gap(player, second) >= BODY_SEPARATION, 'the second login landed on the first');
+    assert.ok(gap(player, second) >= clearance(player, second), 'the second login landed on the first');
+  });
+
+  it('gives a room of giants two clear cells each, not one', () => {
+    // *"Never have mobs or players load on top of each other"*, run at the size the rule was written
+    // without. Every free tile satisfies two adults; two giants want 55px and the nearest tile that
+    // offers it is two cells out. Six is what the world's most giant-heavy room actually holds.
+    const { sim } = makeFixture();
+    const rng = makeRng(31);
+    const giants: Mob[] = [];
+    for (let n = 0; n < 6; n++) {
+      const mob = sim.spawnMob(giantTemplate(), HALL, rng);
+      assert.ok(mob);
+      assert.equal(mob.scale, 2.75);
+      giants.push(mob);
+    }
+    for (const a of giants) {
+      for (const b of giants) {
+        if (a.id === b.id) continue;
+        assert.ok(gap(a, b) >= 55 - 1e-9, `two giants loaded ${gap(a, b)}px apart, which is inside each other`);
+      }
+    }
+    assert.equal(sim.crowding.stacked, 0);
+    assert.equal(sim.crowding.blocked, 0);
+  });
+
+  it('lets a kobold in beside a giant that a person would have been moved off', () => {
+    // The same tile and the same occupant, answered differently for two different bodies — which is
+    // the whole of "a property of the body" as placement sees it.
+    const { sim, origin } = makeFixture();
+    const giant = giantAt(sim, origin.tx + 4, origin.ty + 4);
+    const beside = { x: tileCentre(origin.tx + 5), y: tileCentre(origin.ty + 4) };
+    assert.ok(bodyClearance(giant, { id: 0, x: 0, y: 0, scale: 0.3007 }) < TILE_SIZE);
+    assert.ok(bodyClearance(giant, { id: 0, x: 0, y: 0 }) > TILE_SIZE);
+
+    const kobold = sim.spawnMob(template({ sprite: 'child/kobold' }), HALL, makeRng(5));
+    assert.ok(kobold);
+    assert.ok(kobold.scale !== undefined && kobold.scale < 0.5, `a kobold youth came out at ${kobold.scale}x`);
+    kobold.x = beside.x;
+    kobold.y = beside.y;
+    assert.ok(gap(kobold, giant) >= clearance(kobold, giant), 'the fixture should be legal for a kobold');
+
+    // And the person is not: `landing` walks them off it. Aimed at the same tile, through the real path.
+    const person = sim.spawnMob(template(), HALL, makeRng(6));
+    assert.ok(person);
+    assert.ok(gap(person, giant) >= clearance(person, giant), 'a person was loaded inside the giant');
   });
 });
 
@@ -610,12 +764,31 @@ describe('the shipped world, swept', { skip: HAVE_SPAWNS ? false : 'data/world/s
    * commands this sweep needs to see. Every `M` is fired instead, which is the worst case a forced
    * repop can produce.
    */
+  /**
+   * The overlay `index.ts` folds over every template at boot, applied here for the first time.
+   *
+   * **Without it this sweep cannot see a single sized body**, and that is the finding rather than a
+   * detail of the fixture: the mob sweep's classification lives in `data/world/overrides/mobs.json`,
+   * not in the harvest, so a raw template's `sprite` is the bare word `human` and `bodySizeOf` reads
+   * every one of the world's giants, trolls and kobolds as a 1.81 m person. The sweep was measuring a
+   * world that never boots. With the overlay, 926 of the 2,016 spawned bodies — 45.9% — are not
+   * adult-sized (2026-08-14).
+   */
+  const mobOverrides = loadMobOverrides();
+  const asShipped = (t: MobTemplate): MobTemplate => {
+    const override = mobOverrides.get(t.vnum);
+    return override ? applyMobOverride(t, override) : t;
+  };
+
   function sweep(): {
     placed: number;
     overlapping: number;
     unwalkable: number;
     wouldHaveBeenUnwalkable: number;
     wouldHaveOverlapped: number;
+    sized: number;
+    largest: number;
+    wouldHaveOverlappedBySize: number;
     worst: { room: RoomId; bodies: number; tiles: number };
     tightest: { room: RoomId; bodies: number; tiles: number };
   } {
@@ -624,6 +797,9 @@ describe('the shipped world, swept', { skip: HAVE_SPAWNS ? false : 'data/world/s
     let unwalkable = 0;
     let wouldHaveBeenUnwalkable = 0;
     let wouldHaveOverlapped = 0;
+    let sized = 0;
+    let largest = 0;
+    let wouldHaveOverlappedBySize = 0;
     let worst = { room: -1 as RoomId, bodies: 0, tiles: ROOM_TILES * ROOM_TILES };
     let tightest = { room: -1 as RoomId, bodies: 0, tiles: ROOM_TILES * ROOM_TILES };
 
@@ -637,13 +813,15 @@ describe('the shipped world, swept', { skip: HAVE_SPAWNS ? false : 'data/world/s
       const rng = makeRng(spawns.zone);
       /** What a *blind* roll would have produced, for the "before" number the owner asked for. */
       const naive = makeRng(spawns.zone);
-      const byRoom = new Map<RoomId, { x: number; y: number }[]>();
+      const byRoom = new Map<RoomId, { id: number; x: number; y: number; scale?: number }[]>();
       const naiveByRoom = new Map<RoomId, { tx: number; ty: number }[]>();
+      const yesterdayByRoom = new Map<RoomId, { id: number; x: number; y: number; scale?: number }[]>();
 
       for (const command of spawns.resets) {
         if (command.kind !== 'mob' || command.room === undefined) continue;
-        const template = templates.get(command.what);
-        if (!template) continue;
+        const raw = templates.get(command.what);
+        if (!raw) continue;
+        const template = asShipped(raw);
         const located = world.locate(command.room);
         if (!located) continue;
         const grid = world.grid(placeOf(located.room));
@@ -654,6 +832,18 @@ describe('the shipped world, swept', { skip: HAVE_SPAWNS ? false : 'data/world/s
         const mob = sim.spawnMob(template, command.room, rng);
         if (!mob) continue;
         placed++;
+        if (mob.scale !== undefined) sized++;
+        largest = Math.max(largest, mob.scale ?? 1);
+        // **The identity that keeps the two answers one answer.** `viewOf` sizes the mesh from
+        // `appearanceOf`; collision sizes the disc from `bodySizeOf`, which is that same verdict read
+        // in metres. Both read `sprite` and `race`, both are `readonly`, so the only way they could
+        // drift is a second derivation — and this is what would catch one.
+        const expected = bodySizeOf({
+          kind: 'mob',
+          sprite: template.sprite,
+          ...(template.race !== undefined ? { race: template.race } : {}),
+        });
+        assert.equal(mob.scale ?? 1, expected, `${template.name} collides at a size it is not drawn at`);
 
         // **The counterfactual, replayed exactly rather than estimated.** `naive` is a second stream
         // seeded identically and consumed in the same order the old `spawnMob` consumed it — the hit
@@ -671,9 +861,33 @@ describe('the shipped world, swept', { skip: HAVE_SPAWNS ? false : 'data/world/s
         naiveHere.push({ tx: nx, ty: ny });
         naiveByRoom.set(command.room, naiveHere);
 
+        // **Yesterday's placement, replayed exactly.** The counterfactual above is the *blind roll*,
+        // which is the slice before this one; this is the rule that shipped between them — the same
+        // nearest-free-tile search, run with every body 10px wide. Fed the same rolled tile off the
+        // same stream, so these are the positions the world actually stood its giants on, and they are
+        // then judged by the clearance those giants really want.
+        const yesterdayHere = yesterdayByRoom.get(command.room) ?? [];
+        const asAdult = placeBody(grid, command.room, origin, { tx: nx, ty: ny }, yesterdayHere, 1);
+        const stood = {
+          id: mob.id,
+          x: tileCentre(asAdult.tx),
+          y: tileCentre(asAdult.ty),
+          ...(mob.scale === undefined ? {} : { scale: mob.scale }),
+        };
+        if (yesterdayHere.some((b) => Math.hypot(b.x - stood.x, b.y - stood.y) < bodyClearance(b, stood))) {
+          wouldHaveOverlappedBySize++;
+        }
+        yesterdayHere.push(stood);
+        yesterdayByRoom.set(command.room, yesterdayHere);
+
         if (!canStand(grid, mob.x, mob.y)) unwalkable++;
-        if (before.some((b) => Math.hypot(b.x - mob.x, b.y - mob.y) < BODY_SEPARATION)) overlapping++;
-        before.push({ x: mob.x, y: mob.y });
+        // The pair rule, over the world. **This is the assertion that would have failed yesterday**:
+        // two hill giants on adjacent tiles are 32px apart and want 55, so a placement that only knew
+        // about 20 put them inside each other and reported nothing wrong.
+        if (before.some((b) => Math.hypot(b.x - mob.x, b.y - mob.y) < bodyClearance(b, mob))) {
+          overlapping++;
+        }
+        before.push({ id: mob.id, x: mob.x, y: mob.y, ...(mob.scale === undefined ? {} : { scale: mob.scale }) });
         byRoom.set(command.room, before);
 
         let standable = 0;
@@ -690,7 +904,18 @@ describe('the shipped world, swept', { skip: HAVE_SPAWNS ? false : 'data/world/s
         }
       }
     }
-    return { placed, overlapping, unwalkable, wouldHaveBeenUnwalkable, wouldHaveOverlapped, worst, tightest };
+    return {
+      placed,
+      overlapping,
+      unwalkable,
+      wouldHaveBeenUnwalkable,
+      wouldHaveOverlapped,
+      sized,
+      largest,
+      wouldHaveOverlappedBySize,
+      worst,
+      tightest,
+    };
   }
 
   const result = sweep();
@@ -718,15 +943,41 @@ describe('the shipped world, swept', { skip: HAVE_SPAWNS ? false : 'data/world/s
     );
   });
 
-  it('never puts two of them on one tile', () => {
+  it('never puts two of them inside each other, at any of their sizes', () => {
     assert.equal(
       result.overlapping,
       0,
-      `${result.overlapping} of ${result.placed} bodies share a tile with somebody already there`,
+      `${result.overlapping} of ${result.placed} bodies stand inside somebody already there`,
     );
     console.log(
       `      stacked before the fix: ${result.wouldHaveOverlapped} ` +
         `(${((result.wouldHaveOverlapped / result.placed) * 100).toFixed(1)}%), after: ${result.overlapping}`,
+    );
+  });
+
+  it('sizes them from the harvest, and places them at the size it sized them', () => {
+    // The world is not one size, and this is the number that says so. Without it every case above is a
+    // rule about pairs evaluated for two adults, which is arithmetically the constant it replaced.
+    assert.ok(
+      result.sized > result.placed / 10,
+      `only ${result.sized} of ${result.placed} bodies carry a size — the sweep is not seeing the overlay`,
+    );
+    assert.ok(result.largest > 2, `the largest body in the world is ${result.largest}x, which is a person`);
+    // And the size of the placement half of the bug, replayed rather than estimated: yesterday's
+    // nearest-free-tile search run with every body 10px wide, judged by the clearance those bodies
+    // really want. Asserted only to be non-zero — the exact count moves with the mob sweep's
+    // classification, and pinning it would make this test a hostage to `overrides/mobs.json`.
+    assert.ok(
+      result.wouldHaveOverlappedBySize > 0,
+      'the counterfactual found nothing, so this sweep is not exercising the size rule',
+    );
+    console.log(
+      `      bodies not adult-sized: ${result.sized} of ${result.placed} ` +
+        `(${((result.sized / result.placed) * 100).toFixed(1)}%); largest ${result.largest}x ` +
+        `= ${bodyRadius({ id: 0, x: 0, y: 0, scale: result.largest }).toFixed(1)}px of radius`,
+    );
+    console.log(
+      `      loaded inside each other under the flat 20px placement: ${result.wouldHaveOverlappedBySize}, after: 0`,
     );
   });
 
