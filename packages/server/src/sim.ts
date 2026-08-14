@@ -195,6 +195,31 @@ const WAYPOINT_RADIUS = 2;
 const STUCK_TICKS = 5;
 
 /**
+ * Consecutive ticks without getting **nearer the waypoint** before a route is abandoned — the other
+ * stall counter, and the one that catches walking in circles.
+ *
+ * {@link STUCK_TICKS} asks *"did the body move?"*, which is the right question for grinding into a
+ * wall and the wrong one for going round something. The owner, on clicking past a creature: *"the
+ * player keeps running around the creature trying to get to the place I clicked."* Every one of those
+ * ticks travels the full requested distance — `stepBody`'s deflection is doing its job — so the motion
+ * test is satisfied forever while the mover orbits.
+ *
+ * This is `hunt.STALL_PROGRESS_PX`'s argument arriving on the player's side of the house, and it is
+ * the same class of bug the kobolds had: *"any local rule that jitters is invisible to a motion test
+ * and obvious to a progress test."* A body genuinely working its way round an obstacle betters its
+ * best within a tick or two; one circling never betters it at all.
+ *
+ * **Two seconds rather than half a second**, deliberately longer than the motion fuse. Rounding a
+ * real corner can spend several ticks moving along a wall before the waypoint gets closer, and
+ * cancelling a legitimate walk is worse than orbiting for one second longer. Orbiting is sustained —
+ * it never betters its best — so a generous window still catches it.
+ */
+const NO_PROGRESS_TICKS = 20;
+
+/** How much nearer the waypoint counts as a new best. `hunt.STALL_PROGRESS_PX`'s number, and its reason. */
+const PROGRESS_PX = 1;
+
+/**
  * Fraction of the requested step that must actually be covered for a tick to count as progress.
  *
  * Measured against what was asked for rather than an absolute distance: sliding along a wall on a
@@ -247,6 +272,14 @@ export interface ActivePath {
   readonly goal: TilePoint;
   /** Consecutive ticks that produced no measurable progress. See {@link STUCK_TICKS}. */
   stalled: number;
+  /**
+   * The nearest this route has ever come to its current waypoint, in pixels — the high-water mark
+   * {@link NO_PROGRESS_TICKS} judges against. Cleared when the waypoint advances, because each leg
+   * is its own approach.
+   */
+  closest?: number;
+  /** Consecutive ticks that failed to better {@link closest}. */
+  idle?: number;
 }
 
 /** Why a route stopped being walked. Either way the client must stop drawing it. */
@@ -1898,7 +1931,7 @@ export class Simulation {
       this.clearPath(player);
       return;
     }
-    player.path = { points: waypoints, goal, stalled: 0 };
+    player.path = { points: waypoints, goal, stalled: 0, idle: 0 };
     player.intentX = 0;
     player.intentY = 0;
   }
@@ -2123,7 +2156,15 @@ export class Simulation {
       if (path) {
         // Consume every waypoint already stood on. A loop rather than an `if`: smoothing can leave
         // two waypoints within one radius of each other.
+        const wasAt = path.points[0];
         while (path.points.length > 0 && reached(player, path.points[0]!)) path.points.shift();
+        // A new leg is a new approach, so the best distance starts over. Without this, arriving at a
+        // near waypoint would leave a best that the *next*, further one can never better, and the
+        // progress counter would end an honest walk the moment it turned a corner.
+        if (path.points[0] !== wasAt) {
+          delete path.closest;
+          path.idle = 0;
+        }
 
         const waypoint = path.points[0];
         if (!waypoint) {
@@ -2218,6 +2259,21 @@ export class Simulation {
           }
         } else {
           path.stalled = 0;
+        }
+        // **And the second counter: moving, but not arriving.** See {@link NO_PROGRESS_TICKS}. Read
+        // after the motion test and against the *waypoint* rather than the goal, because a route
+        // legitimately walks away from its goal to get round a wall and never away from the leg it is
+        // currently on.
+        const waypoint = player.path?.points[0];
+        if (waypoint) {
+          const reach = Math.hypot(tileCentre(waypoint.tx) - player.x, tileCentre(waypoint.ty) - player.y);
+          if (reach <= (path.closest ?? Infinity) - PROGRESS_PX) {
+            path.closest = reach;
+            path.idle = 0;
+          } else if ((path.idle = (path.idle ?? 0) + 1) >= NO_PROGRESS_TICKS) {
+            player.path = undefined;
+            pathsEnded.push({ player, reason: 'stuck', goal: path.goal });
+          }
         }
       }
 

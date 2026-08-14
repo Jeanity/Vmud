@@ -594,6 +594,46 @@ describe('a route past a standing mob', () => {
     assert.equal(ended.reason, 'arrived', 'the mob in the way turned a walk into a stall');
     assert.ok(Math.hypot(player.x - tileCentre(goal.tx), player.y - tileCentre(goal.ty)) <= TILE_SIZE);
   });
+
+  it('gives up rather than orbiting a body standing on the tile you clicked', () => {
+    // The owner, 2026-08-14: *"if I click on a creature and my player moves to it, the player keeps
+    // running around the creature trying to get to the place I clicked. it should stop at obstacles
+    // so a new destination can be clicked."*
+    //
+    // **This is the test above's own mechanism turned against it.** `stepBody`'s deflection is what
+    // stops a mob beside the route from ending an honest walk — and when the mob is standing *on* the
+    // goal, that same deflection walks the player round and round it at full speed forever. Every tick
+    // covers the whole requested distance, so `STUCK_TICKS`, which asks only whether the body moved,
+    // is satisfied in perpetuity. The route overrides steering, so the player cannot walk out of it.
+    //
+    // `NO_PROGRESS_TICKS` is the counter that sees it: circling never betters the best distance to the
+    // waypoint. Two seconds, so the sibling test above — which spends a few ticks going round
+    // something before closing again — is untouched.
+    const { sim, player, origin } = makeFixture();
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    player.x = tileCentre(origin.tx + 1);
+    player.y = tileCentre(midY);
+
+    const goal = { tx: origin.tx + 6, ty: midY };
+    // Standing exactly where the click landed, which is what clicking a creature does.
+    mobAt(sim, goal.tx, goal.ty);
+    sim.setPath(player, [goal]);
+
+    let ended: { reason: string } | undefined;
+    let ticks = 0;
+    for (; ticks < 400 && !ended; ticks++) ended = sim.tick().pathsEnded[0];
+    assert.ok(ended, 'the walk never ended — the player is still orbiting');
+    assert.equal(ended.reason, 'stuck');
+    // Ended because it stopped getting closer, not because it stopped moving: it has to have crossed
+    // most of the room first, or this is passing for the wrong reason.
+    assert.ok(
+      player.x > tileCentre(origin.tx + 3),
+      `the walker should have reached the body before giving up, stopped at ${player.x}`,
+    );
+    // And it gave up in about the two seconds the constant promises rather than in half a second or
+    // never — 20 ticks of no progress, plus the ticks spent legitimately crossing the room.
+    assert.ok(ticks < 200, `took ${ticks} ticks to notice it was going nowhere`);
+  });
 });
 
 /* -------------------------------------------------------------------------- */
