@@ -551,11 +551,12 @@ added).
 
 **Not done, named plainly:**
 
-- **Nobody has looked at it in a browser.** No Vite dev server was running on 5280 and this session
-  was told not to start one, so the look is *computed* rather than seen: a JS mirror of the vertex
-  program says the plume spans 0.008–0.623 m over a 0.19 m radius, 22.1 of 24 motes are lit at any
-  instant with **no dark frames**, the heights are even floor-to-top, and a peak mote lifts the pixel
-  behind it by (127, 103, 46) of 255. Those are the numbers a first eyes-on should be checking against.
+- ~~Nobody has looked at it in a browser.~~ **Confirmed by the owner, 2026-08-15: *"particles work
+  very well."*** The look had been *computed* rather than seen — a JS mirror of the vertex program
+  put the plume at 0.008–0.623 m over a 0.19 m radius, 22.1 of 24 motes lit at any instant with no
+  dark frames, a peak mote lifting the pixel behind it by (127, 103, 46) of 255. Those numbers were
+  the prediction and the eye agreed with them, which is worth knowing the next time this file argues
+  from a shader mirror instead of a screenshot.
 - **A corpse's glint never dims.** `corpseViewOf` sends no `remainingMs`/`warnAtMs` — corpses have
   their own decay clock and their own two meshes — so an unlooted body glints at full strength until
   it is looted (model swap) or decays (`entityLeave`). Deliberate, and the same rule the wire's own
