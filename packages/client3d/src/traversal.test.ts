@@ -103,7 +103,7 @@ import { planChunk, type Placement } from './chunkPlan.ts';
 import { EntityLayer } from './entities.ts';
 import { ROOM_METRES, cellOriginTiles, metresOfTile, placeFrame } from './frame.ts';
 import { occludingSides, planInterior, roleOfPlacement } from './interior.ts';
-import { BODY_POOL_SIZE, BODY_RIG_BYTES } from './pool.ts';
+import { BODY_POOL_SIZE, BODY_RIG_BYTES, SPARKLE_POOL_SIZE, SPARKLE_RIG_BYTES } from './pool.ts';
 import { VILLAGE_METRICS, groundTextureOf } from './prototypes.ts';
 import { treelineFor } from './scatter.ts';
 import { MAX_WINDOW_CHUNKS } from './streamer.ts';
@@ -142,6 +142,8 @@ const BASELINE_ROOM = 100;
  *
  * | corpses | 59,641,286 | **+1,680 B: two geometries, zero wrappers, zero programs.** The owner authored a generic corpse and a looted twin, and 840 B each is `PropsSet.standIn`'s box — the headless proxy, exactly as the nineteen village boxes are. In a browser the term is 2,800 + 2,520 triangles of real pile. **No wrapper here, and that is the surprising half**: `entities.ts` mints one `InstancedMesh` per object model, so two more wrappers exist in a *session* — but they are taken lazily, in `render`, on the frame the props manifest first has their geometry, and this walk uses stand-ins and never reaches that branch. The honest reading is that the ledger sees the geometry and not the two wrappers; `pool.wrappersCreated` is still flat across the walk, which is the property this file actually asserts. |
  *
+ * | loot sparkle | 59,647,360 | **+6,074 B: one geometry, four rigs, zero wrappers, zero materials on the byte ledger, zero programs.** The last of the orange pills — a thing lying on a floor drew as an `other`-archetype capsule until now. `+186` is geometry: `props.standInGeometry`'s one skinned triangle, byte-identical to the kobold's row above and arrived at the same way (`position` 36 + `normal` 36 + `uv` 24 + `color` 12 + `skinIndex` 24 + `skinWeight` 48 + `index` 6); in a browser the term is the merged sparkle's own 420 triangles over 1,497 vertices. `+5,888` is **four sparkle rigs at 1,472 B**, the high-water of the `FLOOR_CYCLE` churn this walk now runs. That per-rig figure is 13.9% of a body's 10,560 B and the whole of the difference is the joint count: seven against sixty-five, so `7 x 16` floats of `boneMatrices` = 448 B, and three sizes the bone texture at `ceil(sqrt(7 x 4) / 4) x 4 = 8`, so 8 x 8 RGBA float = 1,024 B. Like the bodies they cannot be pre-warmed — there are no bones to clone until a manifest lands — and unlike the bodies they have a cap of their own, `pool.SPARKLE_POOL_SIZE = 41`, because a floor is the only place in this renderer that can hold forty skeletons and a body cap shared with it would turn a room of loot into a room of grey pills. **Zero wrappers, and for a different reason from the corpses' row above**: a bone pile is instanced and merely taken lazily, where a sparkle cannot be instanced *at all* — skinning reads a per-mesh bone texture, so two instances of one skinned mesh are one pose drawn twice, and five glint bones on independent 25-key paths are the entire effect. **Zero programs, and that is the part that had to be checked rather than assumed**: `USE_SKINNING` is an **object**-level define in three, so the eight fade materials left on the `props|` recipe would have compiled a tenth program; they are built on the *character* recipe instead (Lambert, mapped, vertex-coloured, single-sided, no wetness patch, skinned) and land on the program every body in the world already compiled. The fade is a **colour** ladder and not an opacity one for exactly that budget — `material.color` is the `diffuse` uniform and splits nothing, while `material.transparent` is `parameters.opaque` in `WebGLPrograms.getProgramCacheKey` and `#define OPAQUE` in `WebGLProgram.js:776`, which would have cost back the program the recipe had just saved. The eight materials themselves are not in this delta because `LedgerSnapshot.bytes` counts geometry, instance buffer and rigs; they show up as `materials` going 320 → 328. |
+ *
  * The camera delta was `+2,789,504` B, all of it instance buffer and all of it a consequence of one
  * decision: the dolly's clamp reaches 48 m at 45°, `streamer.ts` derives the ring from that pose, and
  * `pool.ts` derives its pre-warm from the ring. Nothing there was chosen; the clamp was.
@@ -166,7 +168,7 @@ const BASELINE_ROOM = 100;
  * are the dressed **scenery**, which lands on outdoor chunks and therefore has to be summed with the
  * understory rather than maxed against it.
  */
-const LEDGER_BYTES = 59_641_286;
+const LEDGER_BYTES = 59_647_360;
 
 /**
  * The stand-in armature and cast the body churn runs on — M7b.
@@ -176,6 +178,20 @@ const LEDGER_BYTES = 59_641_286;
  * `skin.test.ts` asserts the cull against the real vertices. Here a rig only has to be a rig.
  */
 const CHURN_JOINTS = ['root', 'pelvis', 'spine_01', 'Head', 'hand_r', 'hand_l', 'thigh_r', 'foot_r'];
+/**
+ * Things on the floor, per room, cycling `0..4` — the sparkle churn.
+ *
+ * A different cycle from the bodies' `0..7` on purpose: the two per-entity families have different
+ * caps and different free lists, and a walk that moved them in lockstep could not tell a pool that
+ * recycled both from one that recycled neither. Four is well inside
+ * {@link pool.SPARKLE_POOL_SIZE} — the point of this walk is that the ledger goes *flat*, not that the
+ * cap is reached, and the cap's own behaviour is exercised directly in `props.test.ts`.
+ */
+const FLOOR_CYCLE = 5;
+
+/** Where `ground.ts`'s own ids start. Used unchanged so `sparkle.phaseOf` is fed its real input. */
+const GROUND_ID_BASE = -2_000_000;
+
 const CHURN_STEMS = [
   'Superhero_Male_FullBody',
   'Superhero_Female_FullBody',
@@ -256,8 +272,15 @@ describe('M3: streaming a real world with a flat ledger', () => {
     // the same acquire/release seam `entityEnter`/`entityLeave` drive.
     const characters = new CharacterSet();
     characters.standIn(world.pool, CHURN_JOINTS, CHURN_STEMS);
-    const entities = new EntityLayer(world.scene, world.pool, characters);
+    // **And the floor.** `world.props.standIn` above registered the loot sparkle's rigged stand-in
+    // alongside the furniture boxes; handing the set over is what lets `EntityLayer` spend the pool's
+    // *second* per-entity family. A flat ledger measured with the floor switched off would be a
+    // statement about a renderer that draws people and terrain, and the sparkle is the only thing in
+    // this renderer that can put forty skeletons in one room.
+    const entities = new EntityLayer(world.scene, world.pool, characters, undefined, world.props);
     let nextEntity = 1;
+    let nextGroundId = GROUND_ID_BASE;
+    let floorHigh = 0;
     let bodyHigh = 0;
     let visited = 0;
     let places = 0;
@@ -317,6 +340,24 @@ describe('M3: streaming a real world with a flat ledger', () => {
             yaw: 0,
           });
         }
+        // The room's floor, dropped and picked up. Half of them carry a rot clock past their warning
+        // threshold, so the fade ladder is actually climbed rather than merely reachable — a walk that
+        // only ever drew step 0 would leave seven of the eight materials unexercised.
+        const floor = visited % FLOOR_CYCLE;
+        for (let i = 0; i < floor; i++) {
+          const rotting = (visited + i) % 2 === 0;
+          entities.upsert({
+            id: nextGroundId--,
+            kind: 'item',
+            name: 'a dropped thing',
+            sprite: 'item_weapon',
+            x: (origin.tx + ROOM_TILES / 2) * TILE_SIZE,
+            y: (origin.ty + ROOM_TILES / 2) * TILE_SIZE,
+            facing: 'south',
+            ...(rotting ? { remainingMs: 12_000 * (i + 1), warnAtMs: 60_000 } : {}),
+          });
+        }
+        floorHigh = Math.max(floorHigh, floor);
         bodyHigh = Math.max(bodyHigh, entities.rigged);
         entities.render(1 / 60, (px, py) => world.groundAt(px, py));
         for (const id of entities.ids()) entities.remove(id);
@@ -344,6 +385,9 @@ describe('M3: streaming a real world with a flat ledger', () => {
         `village modules high-water ${villageHigh}\n` +
         `  bodies        rigs created ${end.rigsCreated}  high-water ${end.rigHighWater} of ${BODY_POOL_SIZE}  ` +
         `refused ${end.rigsRefused}  drawn high-water ${bodyHigh}  ${end.rigBytes} B\n` +
+        `  floor         sparkles created ${end.sparklesCreated}  high-water ${end.sparkleHighWater} ` +
+        `of ${SPARKLE_POOL_SIZE}  refused ${end.sparklesRefused}  items high-water ${floorHigh}  ` +
+        `${end.sparkleBytes} B\n` +
         `  bytes         at room ${BASELINE_ROOM}: ${baseline.bytes}   at room ${visited}: ${end.bytes}\n` +
         `                geometry ${end.geometryBytes} + instance ${end.instanceBytes}` +
         `  textures ${end.textureBytes}`,
@@ -375,6 +419,21 @@ describe('M3: streaming a real world with a flat ledger', () => {
     assert.ok(end.rigsCreated <= BODY_POOL_SIZE, `${end.rigsCreated} rigs, over the cap`);
     assert.ok(bodyHigh >= 7, `only ${bodyHigh} bodies were ever drawn — the churn is not exercising the pool`);
     assert.equal(end.rigBytes, end.rigsCreated * BODY_RIG_BYTES);
+    // **The same property for the second per-entity family**, and it is asserted separately rather
+    // than folded in because the two have separate caps and separate free lists: a bug that returned
+    // sparkles to the *body* list would leave both totals flat and both families quietly wrong.
+    assert.equal(end.sparklesCreated, baseline.sparklesCreated, 'sparkles were still being minted after room 100');
+    assert.equal(end.sparklesLive, 0, 'an item was picked up and kept its skeleton');
+    assert.equal(end.sparklesLive + end.sparklesFree, end.sparklesCreated, 'the sparkle free list lost one');
+    assert.equal(end.sparklesRefused, 0, `the sparkle cap was hit ${end.sparklesRefused} times on a real walk`);
+    assert.ok(end.sparklesCreated <= SPARKLE_POOL_SIZE, `${end.sparklesCreated} sparkles, over the cap`);
+    assert.equal(end.sparklesCreated, FLOOR_CYCLE - 1, 'the floor churn did not reach its own high-water');
+    assert.equal(floorHigh, FLOOR_CYCLE - 1, `only ${floorHigh} things were ever on a floor`);
+    assert.equal(end.sparkleBytes, end.sparklesCreated * SPARKLE_RIG_BYTES);
+    // The two families cost different amounts per rig, which is the whole reason they are two: seven
+    // joints against sixty-five. Pinned so a re-rig has to move a number somebody reads.
+    assert.equal(SPARKLE_RIG_BYTES, 1_472);
+    assert.equal(BODY_RIG_BYTES, 10_560);
     // M5a: the walk actually grew things. Without this the flat ledger above would be a statement
     // about a renderer with the trees switched off. Three programs and one depth program, fixed at
     // boot and unmoved by a thousand rooms of streaming.

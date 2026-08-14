@@ -89,7 +89,8 @@ import { LoginGate } from './login.ts';
 import { Marker } from './marker.ts';
 import { Net } from './net.ts';
 import { SHADOW_MAP_TYPE, type ShadowFit } from './night.ts';
-import { BODY_POOL_SIZE } from './pool.ts';
+import { BODY_POOL_SIZE, SPARKLE_POOL_SIZE } from './pool.ts';
+import { LOOT_SPARKLE } from './prototypes.ts';
 import { Grade, TONE_MAPPINGS, type ToneMapping } from './post.ts';
 import { PointerControl, type PointerTarget } from './pointer.ts';
 import { Rain } from './rain.ts';
@@ -126,7 +127,9 @@ const rig = new CameraRig();
 /** M7b: the character packs, and the pooled text that floats over what they draw. */
 const characters = new CharacterSet();
 const plates = new PlateSet(world.scene);
-const entities = new EntityLayer(world.scene, world.pool, characters, plates);
+// The props set is handed over for one thing: the loot sparkle's template, which is the only rigged
+// model in that manifest and the only thing on a floor that is not an `InstancedMesh`. See `props.ts`.
+const entities = new EntityLayer(world.scene, world.pool, characters, plates, world.props);
 const input = new Input();
 /** The other half of the keyboard: the view controls behind Alt, and every bare letter to the log. */
 const keys = new KeyRouter();
@@ -1215,6 +1218,28 @@ const debug = {
       // one number that tells a bald-looking world apart from a stale one.
       hairstyles: characters.hairCount,
       available: characters.available,
+    };
+  },
+  /**
+   * The floor — the sparkles standing over things lying on it, and why one of them is a capsule.
+   *
+   * Its own reading rather than a row inside `bodies`, because the two per-entity families have their
+   * own caps and their own free lists and the whole point of splitting them is that a crowded floor
+   * must not push the people standing over it back to pills. `refused` climbing means the floor is
+   * past `pool.SPARKLE_POOL_SIZE`; `template` false means the props manifest has not landed (or was
+   * never generated), which is the other reason a dropped sword can still be a capsule.
+   */
+  get floor(): Record<string, number | boolean> {
+    const ledger = world.ledger();
+    return {
+      sparklesCreated: ledger.sparklesCreated,
+      sparklesLive: ledger.sparklesLive,
+      sparklesFree: ledger.sparklesFree,
+      sparkleHighWater: ledger.sparkleHighWater,
+      refused: ledger.sparklesRefused,
+      sparkleBytes: ledger.sparkleBytes,
+      cap: SPARKLE_POOL_SIZE,
+      template: world.props.animated(LOOT_SPARKLE) !== undefined,
     };
   },
   /** What the local body is currently playing, and which way it is actually turned. */

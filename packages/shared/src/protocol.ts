@@ -751,6 +751,37 @@ export interface EntityView {
    * which is also exactly when the room hears the strike or the fizzle. Mobs and players alike.
    */
   readonly casting?: true;
+  /**
+   * How long this thing has left before it rots away, in milliseconds — **ground objects only**.
+   *
+   * A pair with {@link warnAtMs}, and neither is meaningful without the other. `ground.GroundItem`
+   * holds both: `remainingMs` counts down from `GROUND_DECAY_MS` (ten minutes) and `warnAtMs` is the
+   * threshold below which the item is *starting to go*, which is `min(GROUND_WARN_MS, decayMs / 2)`
+   * and therefore **per item rather than a constant** — a dev server running `GAME_DEV_DECAY_MS=4000`
+   * warns at two seconds. That is precisely why both travel: a client that assumed sixty would draw
+   * every item on such a server at full strength right up to the moment it vanished.
+   *
+   * **Why the wire and not a derivation.** The 3D client draws a loot sparkle over every ground object
+   * and dims it across the warning window, so *"it is starting to fall apart"* — a line the text log
+   * has said since Phase 15b — is legible on the floor as well as in the scrollback. Nothing on the
+   * client can work the number out: the clock is server state, it restarts on a pickup-and-drop, and
+   * `advanceGround` is the only thing that moves it.
+   *
+   * **A snapshot, not a subscription.** A ground object is sent on `entityEnter` and not re-sent per
+   * tick, so a client counts down locally from whatever it was told; the server sends one
+   * `entityUpdate` when `advanceGround` latches the item's `warned` flag, which is the correction that
+   * keeps a client who has been standing there and one who just walked in agreeing.
+   *
+   * Absent for everything that does not rot on a clock, which is every body, every corpse (a corpse has
+   * its own decay and its own two meshes) and the deterministic scatter pickups, which never decay at
+   * all. A sparkle with no clock simply never dims.
+   *
+   * **Not a version bump**, on `model`'s, `hands`' and `hair`'s standing argument: two more optional
+   * fields a client may ignore, and the 2D client compiles against this file without a line changed.
+   */
+  readonly remainingMs?: number;
+  /** The threshold {@link remainingMs} is read against. Always sent with it, never without. */
+  readonly warnAtMs?: number;
 }
 
 /** The one-line summary a client gets about a room it can see into but is not standing in. */

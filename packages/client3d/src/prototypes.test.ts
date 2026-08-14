@@ -25,6 +25,8 @@ import { SECTORS } from '@mygame/shared';
 import {
   ARCHETYPES,
   ARCHETYPE_GEOMETRY,
+  ANIMATED_GEOMETRY_KEYS,
+  ANIMATED_MODELS,
   BIOME_ARCHETYPES,
   GEOMETRY_KEYS,
   GROUND_TEXTURES,
@@ -42,6 +44,12 @@ import {
   PROPS_PART_TEXTURES,
   PROPS_TEXTURES,
   SHAPE_KEYS,
+  SPARKLE_FADE_FLOOR,
+  SPARKLE_FADE_STEPS,
+  sparkleFadeColour,
+  sparkleFadeOf,
+  sparkleFadeStep,
+  sparkleMaterialKey,
   TREE_GEOMETRY_KEYS,
   TREE_LODS,
   TREE_PARTS,
@@ -137,7 +145,12 @@ describe('the pool key set', () => {
     }
     // `+ 51` rather than `+ 49`: the two in-house objects carry a geometry key each, on the same
     // `(model, texture)` shape as a barrel — see `OBJECT_MODELS`.
-    assert.equal(GEOMETRY_KEYS.length, 7 + 153 + 48 + 19 + 51);
+    // `+ 1` again for the loot sparkle, which takes the same key shape and stays out of `PROPS_PARTS`
+    // for the reason `ANIMATED_GEOMETRY_KEYS` gives: that list drives a stand-in box and a `dressKit`
+    // per row, and a sparkle wants a rigged stand-in and eight dress calls.
+    assert.equal(ANIMATED_MODELS.length, 1);
+    assert.equal(ANIMATED_GEOMETRY_KEYS.length, 1);
+    assert.equal(GEOMETRY_KEYS.length, 7 + 153 + 48 + 19 + 51 + 1);
   });
 
   it('gives every kit part a role, and the two roles a family each', () => {
@@ -189,7 +202,7 @@ describe('the pool key set', () => {
     assert.ok(MATERIAL_KEYS.includes(treeMaterialKey('trunk', 'dead-tree-1' as never)));
   });
 
-  it('has exactly 320 materials, and the arithmetic is legible', () => {
+  it('has exactly 328 materials, and the arithmetic is legible', () => {
     // Terrain: 5 biome archetypes x 16 sectors = 80, of which `grass` never fades, so
     // 4 x 16 = 64 with twins (128) plus 16 without = 144.
     // Trees: 51 real parts across 28 variants, none of which fade.
@@ -205,7 +218,14 @@ describe('the pool key set', () => {
     //   and none has an open twin: the near-wall fade is a *wall* thing.
     // Objects: 2 — the corpse and its looted twin, keyed like a furniture atlas because that is what
     //   a 1x1 white PNG is to `propsMaterialKey`. Neither fades and neither adds a program.
-    // 144 + 51 + 19 + 48 + 38 + 14 + 4 + 2 = 320.
+    // Animated objects: 8 — the loot sparkle's fade ladder, one material a rung. **One model, eight
+    //   materials**, which is the only place in this table the ratio runs that way, and the reason is
+    //   that a `SkinnedMesh` has no per-instance channel: an `InstancedMesh` fades through
+    //   `instanceColor` and a skinned one can only be handed a different material. Colour and not
+    //   opacity, because `material.color` is the `diffuse` uniform and `material.transparent` is
+    //   `#define OPAQUE` — so the ladder costs no program where an opacity twin would have cost one.
+    //   See `SPARKLE_FADE_STEPS`.
+    // 144 + 51 + 19 + 48 + 38 + 14 + 4 + 2 + 8 = 328.
     //
     // 110 at M3. M4 added `glow` and its twin — the stairwell marker — the *whole* of M4's growth,
     // because the emissive ring is a uniform on an existing material and the three-state fog of war is
@@ -234,7 +254,7 @@ describe('the pool key set', () => {
     assert.equal(terrain, 64);
     assert.equal(trees, 51);
     assert.equal(objects, 12);
-    assert.equal(MATERIAL_KEYS.length, 320);
+    assert.equal(MATERIAL_KEYS.length, 328);
     // The `- 5` is `self`, `other`, `marker`, `water` and `puddle` — the object archetypes with no
     // faded twin. Literals rather than `NEVER_FADED.size` on purpose, the same reasoning the file
     // header gives for the whole test: recomputing the exclusion from the table under test would let
@@ -252,7 +272,9 @@ describe('the pool key set', () => {
         PROPS_TEXTURES.length +
         // The objects, summed apart from `PROPS_TEXTURES` because they are not atlases — the
         // separation `PropsAtlasId` draws in the types, restated where it is counted.
-        OBJECT_MODELS.length,
+        OBJECT_MODELS.length +
+        // And the animated objects, which are not one material each but one *ladder* each.
+        ANIMATED_MODELS.length * SPARKLE_FADE_STEPS,
     );
   });
 
@@ -306,6 +328,55 @@ describe('the pool key set', () => {
     for (const texture of PROPS_TEXTURES) {
       assert.ok(known.has(propsMaterialKey(texture)), `props/${texture}`);
     }
+    // …and every rung the sparkle can ask for. `sparkleFadeStep` is clamped to the ladder, so this is
+    // the whole of what `SparkleRig.fade` can name.
+    for (let step = 0; step < SPARKLE_FADE_STEPS; step++) {
+      assert.ok(known.has(sparkleMaterialKey(step)), `sparkle/${step}`);
+      assert.equal(sparkleFadeOf(sparkleMaterialKey(step)), step);
+    }
+    assert.equal(sparkleFadeOf(propsMaterialKey('trim-metal')), undefined);
+    assert.equal(sparkleFadeOf(sparkleMaterialKey(SPARKLE_FADE_STEPS)), undefined);
+  });
+
+  it('darkens the sparkle down its ladder and never past the floor', () => {
+    // The fade the rot warning is drawn with — and the numbers, because a ladder whose rungs were not
+    // monotone would read as a flicker rather than as a thing going out.
+    let last = Number.POSITIVE_INFINITY;
+    for (let step = 0; step < SPARKLE_FADE_STEPS; step++) {
+      const grey = sparkleFadeColour(step) & 0xff;
+      assert.ok(grey < last, `step ${step} is not darker than the one before it`);
+      last = grey;
+    }
+    assert.equal(sparkleFadeColour(0), 0xffffff, 'a thing nowhere near going should glint at full');
+    // 0.30 of 255 is 76.5, and `darken` rounds — 77, or `0x4d4d4d`. The floor is not zero on purpose:
+    // the item can still be picked up right up to the moment the server deletes it, so a sparkle that
+    // reached black would be a lie about a thing you can walk over and `get`. See `SPARKLE_FADE_FLOOR`.
+    assert.equal(sparkleFadeColour(SPARKLE_FADE_STEPS - 1) & 0xff, Math.round(0xff * SPARKLE_FADE_FLOOR));
+    assert.equal(sparkleFadeColour(SPARKLE_FADE_STEPS - 1), 0x4d4d4d);
+    // Clamped rather than extrapolated, both ends.
+    assert.equal(sparkleFadeColour(-3), sparkleFadeColour(0));
+    assert.equal(sparkleFadeColour(99), sparkleFadeColour(SPARKLE_FADE_STEPS - 1));
+  });
+
+  it('reads the rot clock the wire carries, and the item’s own threshold rather than a constant', () => {
+    // Nothing to read: a scatter pickup never decays and a body has no clock at all. Full strength.
+    assert.equal(sparkleFadeStep(undefined, undefined), 0);
+    assert.equal(sparkleFadeStep(120_000, undefined), 0);
+    assert.equal(sparkleFadeStep(undefined, 60_000), 0);
+    // The shipped clock: ten minutes of life, the last minute of it dimming.
+    assert.equal(sparkleFadeStep(600_000, 60_000), 0);
+    assert.equal(sparkleFadeStep(60_000, 60_000), 0, 'the warning starts *at* the threshold, not before');
+    assert.equal(sparkleFadeStep(59_999, 60_000), 0);
+    assert.equal(sparkleFadeStep(30_000, 60_000), SPARKLE_FADE_STEPS / 2);
+    assert.equal(sparkleFadeStep(1, 60_000), SPARKLE_FADE_STEPS - 1);
+    // Past zero — the client's local countdown outran the server's `entityLeave` by a frame or two.
+    // Clamped to the last rung rather than falling off the ladder into a key nothing registered.
+    assert.equal(sparkleFadeStep(-5_000, 60_000), SPARKLE_FADE_STEPS - 1);
+    // **The threshold is the item's own**, which is the whole reason it is on the wire beside the
+    // remaining time: `GAME_DEV_DECAY_MS=4000` gives `warnAtMs = min(60_000, 2_000) = 2_000`, and a
+    // client that assumed the shipped minute would draw this at full strength until it vanished.
+    assert.equal(sparkleFadeStep(1_000, 2_000), SPARKLE_FADE_STEPS / 2);
+    assert.equal(sparkleFadeStep(0, 0), 0, 'a zero window must not divide');
   });
 
   it('gives every archetype a shape the pool can hold', () => {
@@ -435,9 +506,12 @@ describe('the pool key set', () => {
     pool.dispose();
   });
 
-  it('costs nine programs for 312 materials, plus two for the foliage shadows', () => {
+  it('costs nine programs for all 328 materials, plus two for the foliage shadows', () => {
     const pool = new ScenePool();
     const keys = pool.programKeys();
+    // The count in the title, asserted rather than remembered — it had drifted by eight before this
+    // line existed. Every key in the table is built; none collapses into another on the way in.
+    assert.equal(pool.snapshot().materials, MATERIAL_KEYS.length);
     assert.equal(
       keys.size,
       9,
@@ -467,6 +541,26 @@ describe('the pool key set', () => {
     assert.equal(character.length, 2, character.join(', '));
     assert.equal(character.filter((key) => key.endsWith(':skin')).length, 1, 'nine skinned atlases');
     assert.equal(character.filter((key) => key.endsWith(':rigid')).length, 1, 'three prop atlases');
+    // **And the loot sparkle rides the first of those two, which is the whole of its program budget.**
+    //
+    // It is a `SkinnedMesh` with a `props|` key, so left on the furniture recipe it would have been a
+    // tenth program — `USE_SKINNING` is an object define and no furniture is skinned. `buildMaterial`
+    // gives its eight rungs the character recipe instead, byte for byte: Lambert, mapped, vertex
+    // coloured, single sided, no wetness patch, skinned. Same defines, same source, same program.
+    //
+    // Asserted by *identity of the key*, not by the count staying nine, because a count can stay nine
+    // while the wrong two things merge.
+    for (let step = 0; step < SPARKLE_FADE_STEPS; step++) {
+      const material = pool.material(sparkleMaterialKey(step));
+      assert.ok(material.map, 'a sparkle rung has no texture slot to swap the white into');
+      assert.equal(material.vertexColors, true);
+      assert.equal(material.transparent, false, 'a transparent rung would be `#define OPAQUE` and a tenth program');
+      assert.equal(material.userData['skinned'], true);
+      assert.equal(material.customProgramCacheKey?.(), 'character');
+    }
+    // Every rung is one of the nine, and specifically the skinned character one.
+    const skinned = character.find((key) => key.endsWith(':skin'));
+    assert.ok(skinned?.includes(':map:') && skinned.includes(':vcol:'), skinned);
     // Only foliage clips: a kit solid is bark and rock, opaque however the glTF's `MASK` flag reads.
     assert.equal([...keys].filter((key) => key.includes(':clip:')).length, 2);
     // `foliage.ts`'s trap 1: one depth material per foliage program, and no more.

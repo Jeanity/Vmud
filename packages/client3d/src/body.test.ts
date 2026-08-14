@@ -16,14 +16,15 @@ import { fileURLToPath } from 'node:url';
 
 import { PerspectiveCamera, Scene, Sprite, type Bone, type Mesh, type SkinnedMesh } from 'three';
 
-import { yawOf } from '@mygame/shared';
+import { yawOf, type EntityView } from '@mygame/shared';
 
 import { EntityLayer } from './entities.ts';
 
 import { acquireRig, type BodyRig } from './body.ts';
 import { CharacterSet } from './characters.ts';
 import { SELF_LAYER, WORLD_LAYER } from './lights.ts';
-import { BODY_POOL_SIZE, BODY_RIG_BYTES, ScenePool } from './pool.ts';
+import { BODY_POOL_SIZE, BODY_RIG_BYTES, SPARKLE_POOL_SIZE, ScenePool } from './pool.ts';
+import { PropsSet } from './props.ts';
 import { MODEL_FORWARD_OFFSET } from './body.ts';
 
 const MODELS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'models', 'characters');
@@ -616,6 +617,146 @@ describe('a body that arrived before its pack did', () => {
     // A Place change takes everyone with it.
     layer.clear(false);
     assert.equal(pool.snapshot().rigsLive, 0);
+    pool.dispose();
+  });
+});
+
+describe('a thing lying on the floor', () => {
+  /** Just enough of a ground object for `EntityLayer` — `ground.groundViewOf`'s shape, trimmed. */
+  const dropped = (id: number, rot?: { remainingMs: number; warnAtMs: number }): EntityView => ({
+    id,
+    kind: 'item',
+    name: 'a rusty dagger',
+    sprite: 'item_weapon',
+    x: 0,
+    y: 0,
+    facing: 'south',
+    ...(rot ?? {}),
+  });
+
+  it('draws a sparkle over an item and never over a corpse', () => {
+    // The branch order in `render`, which is the one thing here that could be quietly wrong: a corpse
+    // is `kind: 'item'` too — `corpses.ts` and `ground.ts` share the tag deliberately — and it already
+    // draws a bone pile out of an `InstancedMesh`. A sparkle standing in a rib cage would be the
+    // renderer disagreeing with itself about what a body is.
+    const pool = new ScenePool();
+    const props = new PropsSet();
+    props.standIn(pool);
+    const layer = new EntityLayer(new Scene(), pool, new CharacterSet(), undefined, props);
+
+    layer.upsert(dropped(-2_000_001));
+    layer.upsert({ ...dropped(-1_000_001), name: 'the corpse of a kobold', model: 'object:bonepile' });
+    layer.render(1 / 60, () => 0);
+
+    assert.equal(pool.snapshot().sparklesLive, 1, 'one item on the floor should be one sparkle');
+    assert.equal(pool.snapshot().sparklesCreated, 1);
+    pool.dispose();
+  });
+
+  it('gives the sparkle back when the thing is picked up', () => {
+    // The leak this guards is specific: `unequip` used to return early on `!body.rig`, and an item has
+    // no rig — so every dagger ever picked up would have kept a skeleton.
+    const pool = new ScenePool();
+    const props = new PropsSet();
+    props.standIn(pool);
+    const layer = new EntityLayer(new Scene(), pool, new CharacterSet(), undefined, props);
+
+    layer.upsert(dropped(-2_000_002));
+    layer.render(1 / 60, () => 0);
+    assert.equal(pool.snapshot().sparklesLive, 1);
+    layer.remove(-2_000_002);
+    assert.equal(pool.snapshot().sparklesLive, 0);
+    assert.equal(pool.snapshot().sparklesFree, 1);
+
+    // …and off the free list on the next drop, rather than minted again.
+    layer.upsert(dropped(-2_000_003));
+    layer.render(1 / 60, () => 0);
+    assert.equal(pool.snapshot().sparklesCreated, 1, 'the return should have come off the free list');
+    // A Place change takes the floor with it, exactly as it takes the bodies.
+    layer.clear(false);
+    assert.equal(pool.snapshot().sparklesLive, 0);
+    pool.dispose();
+  });
+
+  it('draws the capsule while the props manifest has not landed, and the sparkle the moment it has', () => {
+    // `PropsSet.load` is not awaited (`main.ts`, the same argument the trees, the kit and the
+    // characters make), so an item can be on the wire before there is a template to clone. A beat of
+    // capsule is right; a throw inside a frame is not.
+    const pool = new ScenePool();
+    const props = new PropsSet();
+    const layer = new EntityLayer(new Scene(), pool, new CharacterSet(), undefined, props);
+    layer.upsert(dropped(-2_000_004));
+    layer.render(1 / 60, () => 0);
+    assert.equal(pool.snapshot().sparklesLive, 0, 'nothing is registered yet');
+
+    props.standIn(pool);
+    layer.render(1 / 60, () => 0);
+    assert.equal(pool.snapshot().sparklesLive, 1, 'the pack landed and the capsule did not become a glint');
+    // …and it does not re-acquire every frame after that.
+    layer.render(1 / 60, () => 0);
+    layer.render(1 / 60, () => 0);
+    assert.equal(pool.snapshot().sparklesCreated, 1);
+    pool.dispose();
+  });
+
+  it('counts the rot clock down locally between the two messages the wire sends', () => {
+    // A ground object is sent on `entityEnter` and corrected once, when `advanceGround` latches the
+    // warning. Everything between those is the client's own countdown — without it the sparkle would
+    // hold full strength for the whole minute and then jump, which is a blink rather than a fade.
+    const pool = new ScenePool();
+    const props = new PropsSet();
+    props.standIn(pool);
+    const layer = new EntityLayer(new Scene(), pool, new CharacterSet(), undefined, props);
+
+    layer.upsert(dropped(-2_000_005, { remainingMs: 40_000, warnAtMs: 60_000 }));
+    // Ten seconds of frames. Nothing arrives on the wire; the number moves anyway.
+    for (let i = 0; i < 600; i++) layer.render(1 / 60, () => 0);
+    const drawn = layer.body(-2_000_005);
+    assert.ok(drawn);
+    assert.ok(drawn.rotMs !== undefined && drawn.rotMs < 30_100 && drawn.rotMs > 29_900, `${drawn.rotMs} ms left`);
+
+    // …and the server's own reading wins whenever one arrives. This is the `fading` correction, sent
+    // once, at the moment `advanceGround` latches the item's `warned` flag.
+    layer.upsert(dropped(-2_000_005, { remainingMs: 60_000, warnAtMs: 60_000 }));
+    assert.equal(layer.body(-2_000_005)?.rotMs, 60_000);
+    assert.equal(layer.body(-2_000_005)?.warnMs, 60_000);
+    // A view with no clock does not wipe the one this object already had — an `entityUpdate` for some
+    // other reason must not un-rot a dagger. **Both halves**, which is why the threshold is held on the
+    // body rather than re-read off the view: keeping one and dropping the other would leave the fade
+    // silently at full strength.
+    layer.upsert(dropped(-2_000_005));
+    assert.equal(layer.body(-2_000_005)?.rotMs, 60_000);
+    assert.equal(layer.body(-2_000_005)?.warnMs, 60_000);
+    pool.dispose();
+  });
+
+  it('falls back to the capsule past the sparkle cap rather than drawing nothing', () => {
+    // The owner's floor can hold more than `SPARKLE_POOL_SIZE` things — a decaying container spills
+    // one entry per *unit* it held and nothing refuses it. Past the cap the item goes back to being a
+    // pill, which is a worse-looking floor; drawing nothing would be a *lost sword*, and the server has
+    // already decided this thing is visible. See that constant.
+    const pool = new ScenePool();
+    const props = new PropsSet();
+    props.standIn(pool);
+    const layer = new EntityLayer(new Scene(), pool, new CharacterSet(), undefined, props);
+    for (let i = 0; i <= SPARKLE_POOL_SIZE; i++) layer.upsert(dropped(-2_000_100 - i));
+    layer.render(1 / 60, () => 0);
+    const ledger = pool.snapshot();
+    assert.equal(ledger.sparklesLive, SPARKLE_POOL_SIZE);
+    assert.equal(ledger.sparklesRefused, 1, 'the cap did not hold');
+    assert.equal(layer.count, SPARKLE_POOL_SIZE + 1, 'the refused item must still be a drawn entity');
+    // **Once, not once a frame.** The acquire happens inside `render`, so without the latch a floor
+    // past the cap would add sixty refusals a second and turn the one counter that says "something
+    // went without" into a frame counter. Sixty more frames, same number.
+    for (let i = 0; i < 60; i++) layer.render(1 / 60, () => 0);
+    assert.equal(pool.snapshot().sparklesRefused, 1, 'the refusal counter is counting frames');
+    // …and an update is a reason to try again, which is `equip`'s own rule for a body that arrived
+    // before its pack. Room made by a pickup, then a resync, and the item takes the free rig.
+    layer.remove(-2_000_100);
+    layer.upsert(dropped(-2_000_100 - SPARKLE_POOL_SIZE));
+    layer.render(1 / 60, () => 0);
+    assert.equal(pool.snapshot().sparklesLive, SPARKLE_POOL_SIZE);
+    assert.equal(pool.snapshot().sparklesRefused, 1, 'it should have come off the free list, not asked again');
     pool.dispose();
   });
 });

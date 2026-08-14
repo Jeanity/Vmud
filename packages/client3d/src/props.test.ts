@@ -23,19 +23,24 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
 
-import { ScenePool } from './pool.ts';
-import { PROPS_MANIFEST_VERSION, PropsSet, type PropsManifest } from './props.ts';
+import { ScenePool, SPARKLE_POOL_SIZE, SPARKLE_RIG_BYTES } from './pool.ts';
+import { PROPS_MANIFEST_VERSION, PropsSet, SPARKLE_JOINTS, type PropsManifest } from './props.ts';
 import {
+  ANIMATED_MODELS,
   CHARACTER_PROP_TEXTURES,
+  LOOT_SPARKLE,
   PROPS_METRICS,
   PROPS_MODELS,
   PROPS_PARTS,
   PROPS_PART_TEXTURES,
   PROPS_TEXTURES,
   SCENERY_MODELS,
+  SPARKLE_FADE_STEPS,
   propsGeometryKey,
   propsMaterialKey,
+  sparkleMaterialKey,
 } from './prototypes.ts';
+import { SPARKLE_CLIP, SPARKLE_CLIP_SECONDS, SparkleRig, acquireSparkle, phaseOf } from './sparkle.ts';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const MODELS = join(REPO_ROOT, 'packages', 'client3d', 'public', 'models', 'props');
@@ -99,6 +104,102 @@ describe('the furniture registry', () => {
       pool.dressKit(key, material.map);
     }
     assert.equal(pool.programKeys().size, before, 'dressing the furniture compiled a program');
+    pool.dispose();
+  });
+
+  it('costs the loot sparkle eight materials and still no new program', () => {
+    // The one claim of this slice that could have been quietly false. A sparkle is `map x vertexColour`
+    // drawn single-sided — a barrel to the `#define` — **except that it is skinned**, and
+    // `USE_SKINNING` is an object-level define in three rather than a material one. Left on the props
+    // recipe it would have compiled a tenth program; `pool.buildMaterial` puts its eight rungs on the
+    // *character* recipe instead, which is the program every body in the world already compiled.
+    const pool = new ScenePool();
+    const before = pool.programKeys().size;
+    for (let step = 0; step < SPARKLE_FADE_STEPS; step++) {
+      const material = pool.material(sparkleMaterialKey(step));
+      assert.ok(material.map, 'a sparkle rung has no texture slot to swap the 1x1 white into');
+      pool.dressKit(sparkleMaterialKey(step), material.map);
+    }
+    assert.equal(pool.programKeys().size, before, 'dressing the sparkle compiled a program');
+    assert.equal(before, 9, 'the whole renderer still compiles nine');
+    pool.dispose();
+  });
+
+  it('spreads a floor of sparkles across the clip instead of glinting them in step', () => {
+    // The one variation the owner's uniform-sparkle ruling leaves room for, and it is not about the
+    // item: a room of things all on the same frame reads as machinery. The ids this is fed are
+    // *consecutive* — `ground.ts` counts down from -2,000,000, one per drop — which is exactly the
+    // input a smooth hash fails on, so the spread is asserted rather than assumed.
+    const ids = Array.from({ length: 41 }, (_, i) => -2_000_000 - i);
+    const phases = ids.map((id) => phaseOf(id));
+    for (const phase of phases) assert.ok(phase >= 0 && phase < 1, `${phase} is off the clip`);
+    assert.equal(new Set(phases).size, phases.length, 'two consecutive ids landed on one phase');
+    // Every eighth of the 2.4 s loop has somebody in it. Forty-one items over eight buckets is five
+    // apiece if perfectly spread; the assertion is only that no bucket is *empty*, which a hash that
+    // clustered consecutive ids would fail immediately.
+    const buckets = new Set(phases.map((phase) => Math.floor(phase * 8)));
+    assert.equal(buckets.size, 8, `the floor clustered into ${buckets.size} of 8 buckets`);
+    // Pure and stable: two clients watching one room see the same floor.
+    assert.equal(phaseOf(-2_000_000), phaseOf(-2_000_000));
+  });
+
+  it('caps the sparkles, hands back a capsule past the cap, and never leaks a skeleton', () => {
+    const pool = new ScenePool();
+    const set = new PropsSet();
+    set.standIn(pool);
+    const template = set.animated(LOOT_SPARKLE);
+    assert.ok(template, 'the stand-in path registered no animated template');
+    assert.equal(template.bones.length, SPARKLE_JOINTS.length);
+
+    const held: SparkleRig[] = [];
+    for (let i = 0; i < SPARKLE_POOL_SIZE; i++) {
+      const rig = acquireSparkle(pool, template);
+      assert.ok(rig, `refused at ${i}, under the cap of ${SPARKLE_POOL_SIZE}`);
+      rig.seed(-2_000_000 - i);
+      held.push(rig);
+    }
+    // The 42nd thing on the floor. Refused, counted, and — in `entities.ts` — drawn as the capsule,
+    // which is `pool.SPARKLE_POOL_SIZE`'s stated trade: a performance bound, not a correctness one.
+    assert.equal(acquireSparkle(pool, template), undefined, 'the cap did not hold');
+    const full = pool.snapshot();
+    assert.equal(full.sparklesCreated, SPARKLE_POOL_SIZE);
+    assert.equal(full.sparklesLive, SPARKLE_POOL_SIZE);
+    assert.equal(full.sparklesRefused, 1);
+    assert.equal(full.sparkleBytes, SPARKLE_POOL_SIZE * SPARKLE_RIG_BYTES);
+    // 41 x 1,472 B — a quarter of one percent of the pool's instance buffers, and 13.9% of a body's
+    // per-rig cost. Spelled out so a re-rig with more joints has to move a number somebody reads.
+    assert.equal(SPARKLE_RIG_BYTES, 1_472);
+    assert.equal(full.sparkleBytes, 60_352);
+
+    for (const rig of held) pool.releaseSparkle(rig);
+    const emptied = pool.snapshot();
+    assert.equal(emptied.sparklesLive, 0);
+    assert.equal(emptied.sparklesFree, SPARKLE_POOL_SIZE);
+    assert.equal(emptied.sparklesCreated, SPARKLE_POOL_SIZE, 'a release minted something');
+    // And the free list is actually reused rather than re-minted, which is the whole point of a pool.
+    const again = acquireSparkle(pool, template);
+    assert.ok(again);
+    assert.equal(pool.snapshot().sparklesCreated, SPARKLE_POOL_SIZE);
+    pool.dispose();
+  });
+
+  it('dims a sparkle down the ladder and puts a recycled one back at full strength', () => {
+    const pool = new ScenePool();
+    const set = new PropsSet();
+    set.standIn(pool);
+    const rig = acquireSparkle(pool, set.animated(LOOT_SPARKLE));
+    assert.ok(rig);
+    // A material swap and nothing else — no clone, no new key, no program. The rungs are the pool's.
+    rig.fade(0);
+    rig.fade(SPARKLE_FADE_STEPS - 1);
+    // Parking must clear the rot, or the next thing dropped on this floor inherits the last one's.
+    pool.releaseSparkle(rig);
+    const reused = acquireSparkle(pool, set.animated(LOOT_SPARKLE));
+    assert.equal(reused, rig, 'the free list handed back a different rig');
+    // `fade(0)` on a parked rig is a no-op only if `park` reset the remembered step; if it did not,
+    // the rung would still be the last one and this call would return without swapping.
+    reused.fade(0);
+    reused.update(1 / 60);
     pool.dispose();
   });
 });
@@ -172,6 +273,67 @@ describe('the furniture kit on disk', () => {
       assert.ok(page.bytes > 4_000_000, 'and it is worth not fetching');
     });
 
+    it('carries the loot sparkle as a rigged model, with the rig the renderer clones', () => {
+      // Everything `sparkle.ts` and `pool.SPARKLE_RIG_BYTES` are written against, held to the file on
+      // disk. A re-import that dropped the skin, renamed a bone or baked the motion out would leave
+      // every one of those numbers a lie, and the symptom in a browser is a sparkle standing still —
+      // which reads as a broken animation system rather than as a stale import.
+      const entry = byId.get(LOOT_SPARKLE);
+      assert.ok(entry, 'the loot sparkle is not in the manifest');
+      assert.equal(entry.kind, 'animated', 'without this the loader takes the static branch');
+      assert.equal(entry.joints, SPARKLE_JOINTS.length);
+      assert.equal(entry.triangles, 420);
+      // 0.26 x 0.111 x 0.418 m, base at y = 0.002 — knee-high on a 1.81 m character, which is what a
+      // glint over a dropped sword should be. `entities.ts` stands it on the ground, so `minY` near
+      // zero is what makes that placement right.
+      assert.equal(entry.height, 0.418);
+      assert.ok(Math.abs(entry.minY) < 0.01, `the sparkle sinks ${entry.minY} m below its own origin`);
+      // One clip, and it is the one `SparkleRig` plays. Five channels: one rotation path per glint
+      // bone, each independent — the measured fact that made keeping the rig worth 1,472 B a copy
+      // rather than baking a uniform spin.
+      assert.deepEqual(
+        entry.clips?.map((clip) => clip.name),
+        [SPARKLE_CLIP],
+      );
+      assert.equal(entry.clips?.[0]?.duration, SPARKLE_CLIP_SECONDS);
+      assert.equal(entry.clips?.[0]?.channels, 5);
+      // The manifest reports **one** part — the importer aggregates by material, and both of this
+      // model's primitives carry a material named `loot_sparkle`. Which is exactly the fact that
+      // matters below: the *file* has two primitives on one "atlas", the shape every other model in
+      // this pack is forbidden from having because `registerGeometry` is first-wins and the second
+      // would be silently dropped. Here it is handled rather than avoided, by `props.mergeShared`,
+      // because both reference the *same* accessors. Half a sparkle is 228 triangles of 420 — a glint
+      // with a bite out of it.
+      assert.equal(entry.parts.length, 1);
+      assert.equal(entry.parts[0]!.texture, LOOT_SPARKLE);
+      assert.equal(entry.parts[0]!.triangles, 420);
+      assert.equal(entry.parts[0]!.vertices, 1497);
+      assert.equal(entry.parts[0]!.vertexColours, true, 'the colour is baked into COLOR_0');
+      const gltf = JSON.parse(readFileSync(join(MODELS, LOOT_SPARKLE, 'model.gltf'), 'utf8')) as {
+        meshes: { primitives: { attributes: Record<string, number>; indices: number }[] }[];
+        skins: { joints: number[] }[];
+        nodes: { name?: string }[];
+      };
+      const primitives = gltf.meshes[0]!.primitives;
+      assert.equal(primitives.length, 2);
+      // The property `mergeShared` refuses without: one POSITION, one NORMAL, one JOINTS_0, one
+      // WEIGHTS_0, one COLOR_0, two index buffers.
+      assert.deepEqual(primitives[0]!.attributes, primitives[1]!.attributes);
+      assert.notEqual(primitives[0]!.indices, primitives[1]!.indices);
+      assert.deepEqual(Object.keys(primitives[0]!.attributes).sort(), [
+        'COLOR_0',
+        'JOINTS_0',
+        'NORMAL',
+        'POSITION',
+        'WEIGHTS_0',
+      ]);
+      // The armature, by name and in order — `props.SPARKLE_JOINTS` is this package's statement of it.
+      assert.deepEqual(
+        gltf.skins[0]!.joints.map((node) => gltf.nodes[node]!.name),
+        [...SPARKLE_JOINTS],
+      );
+    });
+
     it('registers into the pool under the keys the placements will ask for', () => {
       // The stand-in path, which is also the headless path the traversal test walks on. What it
       // proves is that the key a placement writes is the key a registration answers.
@@ -185,6 +347,13 @@ describe('the furniture kit on disk', () => {
           pool.hasGeometry(propsGeometryKey(part.model, part.texture)),
           `${part.model}/${part.texture} did not register`,
         );
+      }
+      // The animated objects register too, and they are the only rows that also produce a *template*.
+      // Without this the traversal test would churn zero sparkles and report a flat ledger about a
+      // renderer with the floor switched off.
+      for (const model of ANIMATED_MODELS) {
+        assert.ok(pool.hasGeometry(propsGeometryKey(model, model)), `${model} did not register`);
+        assert.ok(set.animated(model), `${model} registered no template`);
       }
       pool.dispose();
     });

@@ -129,6 +129,32 @@ describe('how it appears and how close you must be', () => {
     assert.deepEqual({ x: view.x, y: view.y }, { x: 12, y: 34 });
   });
 
+  it('puts the rot clock on the wire, so the warning is legible on the floor as well as in the log', () => {
+    // The 3D client draws a loot sparkle over every ground object and dims it across the warning
+    // window. It cannot work the number out for itself: the clock is server state, it restarts on a
+    // pickup-and-drop, and `advanceGround` is the only thing that moves it.
+    const ground: Ground = new Map();
+    resetGroundIds();
+    const dropped = dropItem(ground, item('a', 'a rusty dagger'), at(0, 0));
+    const view = groundViewOf(dropped);
+    assert.equal(view.remainingMs, GROUND_DECAY_MS);
+    assert.equal(view.warnAtMs, GROUND_WARN_MS);
+
+    // **Both, and never just the first.** `warnAtMs` is `min(GROUND_WARN_MS, decayMs / 2)`, so it is
+    // per item rather than a constant — a dev server on `GAME_DEV_DECAY_MS=4000` warns at two seconds,
+    // and a client that assumed the shipped minute would draw everything on it at full strength right
+    // up to the moment it vanished.
+    const brief = dropItem(ground, item('b', 'a dev dagger'), at(0, 0), undefined, 4_000);
+    assert.equal(groundViewOf(brief).remainingMs, 4_000);
+    assert.equal(groundViewOf(brief).warnAtMs, 2_000);
+
+    // …and it is a live read rather than a copy taken at the drop: `advanceGround` mutates the entry,
+    // and the view built afterwards has to say so or the `fading` correction would repeat the old
+    // number back at the client it was sent to correct.
+    advanceGround(ground, 30_000);
+    assert.equal(groundViewOf(dropped).remainingMs, GROUND_DECAY_MS - 30_000);
+  });
+
   it('is reachable from the same three tiles a corpse is', () => {
     const ground: Ground = new Map();
     resetGroundIds();

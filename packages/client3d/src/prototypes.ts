@@ -742,7 +742,7 @@ export const PROPS_TEXTURES = ['trim-cloth', 'trim-furniture', 'trim-metal', 'tr
 export type PropsAtlasId = (typeof PROPS_TEXTURES)[number];
 
 /** What any part in this family may wear: an atlas, or an object's own one-model white. */
-export type PropsTextureId = PropsAtlasId | ObjectId;
+export type PropsTextureId = PropsAtlasId | ObjectId | AnimatedId;
 
 /**
  * The in-house **objects** — models that ride the props manifest without being furniture.
@@ -761,6 +761,44 @@ export type PropsTextureId = PropsAtlasId | ObjectId;
 export const OBJECT_MODELS = ['bonepile', 'bonepile_looted'] as const;
 
 export type ObjectId = (typeof OBJECT_MODELS)[number];
+
+/**
+ * The in-house **animated objects** — the third asset category, and the one that keeps its rig.
+ *
+ * One today, and it is the loot sparkle: the glint that stands over a thing lying on the floor so a
+ * dropped sword reads as a dropped sword rather than as the `other`-archetype capsule it drew as
+ * until now. It is separate from {@link OBJECT_MODELS} for the reason that list is separate from
+ * {@link PROPS_MODELS}, one step further along — the difference is not *what a room may contain* but
+ * **how it is drawn**:
+ *
+ * | list | what it is | how it draws |
+ * | --- | --- | --- |
+ * | {@link PROPS_MODELS} | furniture a room may be dressed with | `InstancedMesh`, per chunk |
+ * | {@link OBJECT_MODELS} | a corpse on the floor | `InstancedMesh`, per entity |
+ * | here | a thing whose rig is doing something | `SkinnedMesh` + `Skeleton` + mixer, **per entity** |
+ *
+ * An animated object cannot ride an `InstancedMesh` at all: skinning reads a **per-mesh** bone
+ * texture, so two instances of one skinned mesh are two copies of the same pose — which is the exact
+ * argument `pool.BODY_POOL_SIZE` makes about bodies, and it is why this list has a pool cap of its own
+ * ({@link pool.SPARKLE_POOL_SIZE}) where the two above have none.
+ *
+ * **Measured off the import** (`modelgen.buildAnimatedObject`, commit `fa1c3d7`): 420 triangles,
+ * 1,497 vertices, two primitives sharing one `POSITION` accessor, 0.26 m wide x 0.111 deep x 0.418
+ * tall, lowest vertex at y = 0.002. Seven joints. One clip, `Idle_Loop`, 2.4 s, five rotation
+ * channels — one per glint bone, each on its own independent 25-key path, which is the whole of the
+ * effect and the reason the rig is kept rather than baked to a spin.
+ *
+ * **Each is its own "texture" as well as its own model**, exactly as an object is: the colour is baked
+ * into `COLOR_0` and the map is a 70-byte 1x1 white, so "the loot_sparkle atlas" is one model's worth
+ * of white. See {@link sparkleMaterialKey} for the one place this family does *not* follow the
+ * objects — its material is built on the **character** recipe, because it is skinned.
+ */
+export const ANIMATED_MODELS = ['loot_sparkle'] as const;
+
+export type AnimatedId = (typeof ANIMATED_MODELS)[number];
+
+/** The one animated object there is. Named so no caller writes the string twice. */
+export const LOOT_SPARKLE: AnimatedId = 'loot_sparkle';
 
 /**
  * Everything a piece of furniture is, in one row — **measured off the pack, not chosen.**
@@ -1139,6 +1177,121 @@ export const PROPS_GEOMETRY_KEYS: readonly GeometryKey[] = PROPS_PARTS.map((part
 );
 
 /**
+ * The animated objects' geometry keys — the same `(model, texture)` shape, kept out of
+ * {@link PROPS_PARTS}.
+ *
+ * Deliberately *not* appended to that list the way {@link OBJECT_MODELS} is, and the reason is what
+ * `props.ts` does with it: `PropsSet.standIn` registers a box for every row and `dressAll` puts an
+ * atlas on `propsMaterialKey(row.texture)` for every row. A sparkle has neither — its material is a
+ * fade ladder under {@link sparkleMaterialKey}, not a single atlas key — so a row here would be a
+ * dress call against a material that does not exist. Its own list, its own registration; see
+ * `props.ts`'s animated branch.
+ */
+export const ANIMATED_GEOMETRY_KEYS: readonly GeometryKey[] = ANIMATED_MODELS.map((model) =>
+  propsGeometryKey(model, model),
+);
+
+/* -------------------------------------------------------------------------- */
+/* The loot sparkle's fade ladder                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How many shared materials the sparkle's rot fade is drawn with — **eight, and it is a ladder rather
+ * than a slider for one reason: a material is the only per-draw channel a `SkinnedMesh` has.**
+ *
+ * An `InstancedMesh` has `instanceColor`, which is how a `creature:` capsule is tinted per class. A
+ * skinned mesh has nothing equivalent: it shares its material with every other sparkle in the room, so
+ * writing an opacity or a colour on that material would fade all of them together. Three's own uniform
+ * cache makes the obvious dodge unusable too — `WebGLRenderer.setProgram` only re-uploads a material's
+ * uniforms when the material's `version` has moved, so mutating `color` in an `onBeforeRender` would
+ * be seen by the *first* sparkle of a run of draws and by none of the rest.
+ *
+ * So the fade is quantised, and the ladder is **colour, not opacity**. That distinction is the whole
+ * of the program budget and it is not a technicality:
+ *
+ * - `material.color` is the `diffuse` uniform. Two Lamberts differing only in it compile to identical
+ *   GLSL — the same fact that lets all 48 ground materials share one program.
+ * - `material.transparent` is **not** a uniform. Three r185 puts `parameters.opaque` in
+ *   `getProgramCacheKey` (`WebGLPrograms.js`) and emits `#define OPAQUE` from it
+ *   (`WebGLProgram.js:776`), so a transparent twin of an opaque material is a genuinely second
+ *   compiled program. An opacity ladder would have cost one; a colour ladder costs none.
+ *
+ * Eight steps over `ground.GROUND_WARN_MS` is 7.5 s a step at the shipped clock, and the multiplier
+ * falls 1.00 → 0.30 in even decrements of 0.10 — see {@link sparkleFadeColour} for why the floor is
+ * 0.30 and not zero.
+ */
+export const SPARKLE_FADE_STEPS = 8;
+
+/**
+ * How dark the last step is. **0.30, and it is not zero on purpose.**
+ *
+ * The item is still there and can still be picked up right up to the moment the server deletes it, so
+ * a sparkle that reached black would be a lie about a thing you could still walk over and `get`. What
+ * the fade has to say is *this is going*, which a third of the brightness says clearly against the
+ * full-strength sparkles beside it, and the disappearance itself is the server's `entityLeave`.
+ */
+export const SPARKLE_FADE_FLOOR = 0.3;
+
+/**
+ * One rung of the ladder, as a `MeshLambertMaterial` colour.
+ *
+ * Step 0 is white — the multiplier a sparkle wears for the nine tenths of its life that are not the
+ * warning — and the rest darken evenly to {@link SPARKLE_FADE_FLOOR}.
+ */
+export function sparkleFadeColour(step: number): number {
+  const span = SPARKLE_FADE_STEPS - 1;
+  const clamped = Math.min(Math.max(step, 0), span);
+  return darken(0xffffff, 1 - ((1 - SPARKLE_FADE_FLOOR) * clamped) / span);
+}
+
+/**
+ * The pool key for one rung — `props|loot_sparkle|fade0`.
+ *
+ * The third segment is `villageMaterialKey`'s `|open` in a second costume, and for the same reason:
+ * one model, two (here eight) render-time appearances that differ only in a uniform, so they are
+ * separate *materials* under separate keys rather than one material somebody mutates. `pool.partsOf`
+ * reads `props|`'s second segment as the variant and ignores anything after it, so this shape needs no
+ * new branch there.
+ */
+export function sparkleMaterialKey(step: number): MaterialKey {
+  return `props|${LOOT_SPARKLE}|fade${step}`;
+}
+
+/** Every rung, in order. */
+export const SPARKLE_MATERIAL_KEYS: readonly MaterialKey[] = Array.from({ length: SPARKLE_FADE_STEPS }, (_, step) =>
+  sparkleMaterialKey(step),
+);
+
+/**
+ * Which rung a key names, or nothing if it is not one — the read `ScenePool.buildMaterial` branches on.
+ *
+ * A parse rather than a set membership test because the pool builds materials from `MATERIAL_KEYS` and
+ * has only the string; the alternative is a second table that can disagree with {@link
+ * sparkleMaterialKey} about what it produces.
+ */
+export function sparkleFadeOf(key: MaterialKey): number | undefined {
+  const prefix = `props|${LOOT_SPARKLE}|fade`;
+  if (!key.startsWith(prefix)) return undefined;
+  const step = Number(key.slice(prefix.length));
+  return Number.isInteger(step) && step >= 0 && step < SPARKLE_FADE_STEPS ? step : undefined;
+}
+
+/**
+ * Which rung a given amount of time left is worth — `0` for a thing that is nowhere near going.
+ *
+ * `warnAtMs` is the *item's* own threshold rather than a constant, because `ground.GroundItem.warnAtMs`
+ * is `min(GROUND_WARN_MS, decayMs / 2)`: a dev server running `GAME_DEV_DECAY_MS=4000` warns at two
+ * seconds, and a client that assumed sixty would draw every item on that server at full brightness
+ * until it vanished. Both numbers are on the wire for exactly this line — see `protocol.EntityView`.
+ */
+export function sparkleFadeStep(remainingMs: number | undefined, warnAtMs: number | undefined): number {
+  if (remainingMs === undefined || warnAtMs === undefined || warnAtMs <= 0) return 0;
+  if (remainingMs >= warnAtMs) return 0;
+  const through = 1 - Math.max(remainingMs, 0) / warnAtMs;
+  return Math.min(SPARKLE_FADE_STEPS - 1, Math.floor(through * SPARKLE_FADE_STEPS));
+}
+
+/**
  * Distinct furniture **models** one room may draw. Two, and it is a pool constant before it is a
  * design one — see `pool.FURNITURE_WRAPPER_CEILING`.
  *
@@ -1291,6 +1444,7 @@ export const GEOMETRY_KEYS: readonly GeometryKey[] = [
   ...KIT_GEOMETRY_KEYS,
   ...VILLAGE_GEOMETRY_KEYS,
   ...PROPS_GEOMETRY_KEYS,
+  ...ANIMATED_GEOMETRY_KEYS,
 ];
 
 /* -------------------------------------------------------------------------- */
@@ -1667,6 +1821,11 @@ export const MATERIAL_KEYS: readonly MaterialKey[] = (() => {
   // a bone pile is `kitSolid`'s recipe with a white picture in it, which is the same free ride the
   // whole props family took.
   for (const object of OBJECT_MODELS) keys.push(propsMaterialKey(object));
+  // The loot sparkle's fade ladder — eight, one per rung. Not `propsMaterialKey(model)` like the two
+  // objects above, because a sparkle has no single appearance: see {@link SPARKLE_FADE_STEPS} for why
+  // the rot fade is eight shared materials rather than one material with a number written on it, and
+  // {@link sparkleMaterialKey} for why that costs no program.
+  keys.push(...SPARKLE_MATERIAL_KEYS);
   return keys;
 })();
 

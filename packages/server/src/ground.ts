@@ -213,12 +213,21 @@ export function visibleItemsIn(ground: Ground, roomId: RoomId): GroundItem[] {
  *
  * `kind: 'item'` puts it down the same path corpses already take — one image, no facing, no health
  * bar — so nothing in the renderer needed a new concept for objects on the floor.
+ *
+ * **The rot clock rides along since the loot sparkle.** {@link GroundItem.remainingMs} and
+ * {@link GroundItem.warnAtMs} are the only two fields on this view that are *state* rather than
+ * identity, and they are here because the 3D client dims the glint it draws over this object across
+ * the warning window — the same fact `advanceGround`'s `fading` event puts in the text log, said on the
+ * floor as well. Both, never one: `warnAtMs` is per item (`min(GROUND_WARN_MS, decayMs / 2)`), so a
+ * client cannot assume the shipped minute. See `protocol.EntityView.remainingMs`.
  */
 export function groundViewOf(entry: GroundItem, durisType?: number, isContainer = false, art?: string): EntityView {
   return {
     id: entry.id,
     kind: 'item',
     name: entry.item.name,
+    remainingMs: entry.remainingMs,
+    warnAtMs: entry.warnAtMs,
     // Injected like the type and the container flag, and for the same reason each of those is: the
     // catalogue is not this file's business.
     sprite: groundSprite(entry.item, durisType, art),

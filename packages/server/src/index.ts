@@ -11522,6 +11522,23 @@ setInterval(() => {
       if (spilled.length > 0) syncEntitiesIn(event.entry.roomId);
       continue;
     }
+    // **The same sentence, said twice: once to the log and once to the renderer.** A ground object is
+    // sent on `entityEnter` and never re-sent per tick, so the 3D client counts its rot clock down from
+    // whatever snapshot it was handed — which is right for a client that walked in ten seconds ago and
+    // drifts for one that has been standing here for nine minutes. This is the correction, and it is
+    // sent at exactly the moment `advanceGround` latches `warned`, so the glint starts to dim on the
+    // frame the log line arrives. `entityUpdate` on an item id is already an established shape — a
+    // looted corpse has used it since Phase 13.
+    // Built exactly as `visibleEntities` builds it — the same three injected facts — because a view
+    // that disagreed with the one the client already holds would swap the item's picture and drop its
+    // *Look inside* row on the way past.
+    const fadingTemplate = templateOf(event.entry.item);
+    const fadingView = groundViewOf(
+      event.entry,
+      fadingTemplate?.type,
+      fadingTemplate?.container !== undefined,
+      fadingTemplate?.art,
+    );
     for (const observer of sim.playersIn(event.entry.roomId)) {
       if (!watching.get(observer.id)?.has(event.entry.id)) continue;
       send(observer.id, {
@@ -11529,6 +11546,7 @@ setInterval(() => {
         channel: 'room',
         text: `${capitalise(stripColour(event.entry.item.name))} is starting to fall apart.`,
       });
+      send(observer.id, { t: 'entityUpdate', entity: fadingView });
     }
   }
 

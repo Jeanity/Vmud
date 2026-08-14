@@ -62,8 +62,10 @@ import type { CharacterSet } from './characters.ts';
 import { metresOfPixel } from './frame.ts';
 import { SELF_LAYER, WORLD_LAYER } from './lights.ts';
 import type { PlateSet } from './plates.ts';
-import { DIMENSIONS, OBJECT_MODELS, propsGeometryKey, propsMaterialKey } from './prototypes.ts';
+import type { PropsSet } from './props.ts';
+import { DIMENSIONS, LOOT_SPARKLE, OBJECT_MODELS, propsGeometryKey, propsMaterialKey, sparkleFadeStep } from './prototypes.ts';
 import { WRAPPER_CAPACITY, type ScenePool } from './pool.ts';
+import { acquireSparkle, type SparkleRig } from './sparkle.ts';
 import type { WarpVec } from './warp.ts';
 
 /** Divergence from the server, in pixels, past which we stop easing and just snap. `scene.ts:213`. */
@@ -99,6 +101,50 @@ export interface Body {
   serverY: number;
   /** M7b: the composed mesh, when one was available. Absent means a capsule — see the header. */
   rig?: BodyRig | undefined;
+  /**
+   * The loot sparkle standing over this thing, when it is a ground object and one was available.
+   *
+   * Mutually exclusive with {@link rig} by construction — a body is never an item — but held in its own
+   * field rather than a union, because the two are released through different pool calls with
+   * different caps.
+   */
+  sparkle?: SparkleRig | undefined;
+  /**
+   * Milliseconds this thing has left before it rots, counted down **locally**.
+   *
+   * Seeded from `EntityView.remainingMs` and decremented in {@link render}, because the wire sends a
+   * ground object once on `entityEnter` and corrects it once when the server latches the warning. A
+   * client that only redrew on a message would hold the sparkle at full strength for the whole minute
+   * and then jump; counting down is what makes the dimming a slope. Absent for anything that does not
+   * rot, which is every body and every scatter pickup.
+   */
+  rotMs?: number | undefined;
+  /**
+   * The threshold {@link rotMs} is read against — `EntityView.warnAtMs`, held rather than re-read.
+   *
+   * Held beside its partner rather than taken off `view` at draw time so the **pair** is sticky: the
+   * protocol says these two travel together or not at all, and a view that arrived without them must
+   * not silently un-rot a dagger that was already dimming. Reading one from the body and the other
+   * from the view would make that failure asymmetric and therefore invisible.
+   */
+  warnMs?: number | undefined;
+  /**
+   * Latched when the sparkle cap turned this item down — so it is asked **once**, not sixty times a
+   * second.
+   *
+   * `equip` gets this for free because it is called on entity events rather than per frame; the
+   * sparkle is acquired inside `render` (the template may land mid-session, which is the same lazy
+   * argument `objectMesh` makes) and would otherwise ask the pool on every frame of every item past
+   * the cap. That is cheap in work and ruinous in *accounting*: `LedgerSnapshot.sparklesRefused` is
+   * meant to be read as "how many things went without", and a floor of sixty daggers would add
+   * nineteen thousand a second to it and say nothing.
+   *
+   * Cleared on the next {@link EntityLayer.upsert}, which is `equip`'s own retry rule — *"gets its rig
+   * on the first update that could give it one, which is every resync"*. The template-not-loaded case
+   * is deliberately **not** latched: that is a map lookup that costs nothing and moves no counter, and
+   * it is the one that resolves on its own a second into the session.
+   */
+  sparkleRefused?: boolean | undefined;
   /** Drawn position in metres, last frame, for the gait's speed. `undefined` on the first frame. */
   lastX?: number | undefined;
   lastZ?: number | undefined;
@@ -155,6 +201,14 @@ export class EntityLayer {
   private readonly pool: ScenePool;
   private readonly characters: CharacterSet;
   private readonly plates: PlateSet | undefined;
+  /**
+   * The props registry, for the one thing in it this class asks for: the loot sparkle's template.
+   *
+   * Optional so a caller that only wants bodies — most of the tests — needs no fourth registry, and
+   * absent simply means every ground object draws the capsule, which is the same graceful nothing the
+   * character pack's absence produces.
+   */
+  private readonly props: PropsSet | undefined;
   private readonly scene: Scene;
   /** Last {@link CharacterSet.generation} acted on — see {@link render}'s re-body pass. */
   private packGeneration = -1;
@@ -170,11 +224,12 @@ export class EntityLayer {
   private readonly objectCounts = new Map<string, number>();
 
   /** Fields are declared rather than written as parameter properties — see `streamer.ts`'s note. */
-  constructor(scene: Scene, pool: ScenePool, characters: CharacterSet, plates?: PlateSet) {
+  constructor(scene: Scene, pool: ScenePool, characters: CharacterSet, plates?: PlateSet, props?: PropsSet) {
     this.pool = pool;
     this.scene = scene;
     this.characters = characters;
     this.plates = plates;
+    this.props = props;
     // Three wrappers, taken once and never given back: a body is not streamed, so it has no unload to
     // return them on. Self and others differ by material and by nothing else.
     this.selfMesh = pool.acquire('capsule', 'self');
@@ -257,10 +312,27 @@ export class EntityLayer {
       held.view = view;
       held.serverX = view.x;
       held.serverY = view.y;
+      // The server's own reading of the rot clock wins over the local countdown whenever one arrives —
+      // which is on entry and on the one `entityUpdate` `advanceGround` sends when it latches the
+      // warning. Guarded, so a view that carries no clock does not wipe one this object already had.
+      if (view.remainingMs !== undefined) {
+        held.rotMs = view.remainingMs;
+        held.warnMs = view.warnAtMs;
+      }
+      // An update is a reason to try again — `equip`'s rule for a body that arrived before its pack,
+      // applied to an item that arrived while the floor was full.
+      held.sparkleRefused = undefined;
       this.dress(held);
       return;
     }
-    const body: Body = { view, x: view.x, y: view.y, serverX: view.x, serverY: view.y };
+    const body: Body = {
+      view,
+      x: view.x,
+      y: view.y,
+      serverX: view.x,
+      serverY: view.y,
+      ...(view.remainingMs !== undefined ? { rotMs: view.remainingMs, warnMs: view.warnAtMs } : {}),
+    };
     this.bodies.set(view.id, body);
     this.equip(body);
   }
@@ -513,6 +585,60 @@ export class EntityLayer {
         continue;
       }
 
+      // **A thing lying on the floor, and the last of the orange pills.** An `item`-kind view with no
+      // `object:` model is a dropped sword, a spilled quiver or the room's own scatter pickup — the
+      // three things `groundViewOf`, `pickupViewOf` and nothing else produce. Every one of them drew as
+      // an `other`-archetype capsule until now, which is the pill this branch exists to retire.
+      //
+      // **Read after the object branch, and that ordering is load-bearing**: a corpse is `kind: 'item'`
+      // too (`corpses.ts` and `ground.ts` share the tag deliberately — one image, no facing, no health
+      // bar), and it already draws a bone pile. The branch above `continue`s on every corpse, including
+      // the beat before the props manifest lands, so nothing reaches here that has a mesh of its own.
+      //
+      // **The sparkle is uniform.** No scale, no tint, no second model — owner's ruling, and the
+      // reasoning is the game's rather than the renderer's: *"a MUD's tension is partly not knowing"*,
+      // so nothing about an item may be legible before it is picked up. The one permitted variation is
+      // how long it has left, which is the fade below, and the one *non*-variation that still had to be
+      // broken up is the clip's phase — a room of items glinting on the same frame reads as machinery
+      // rather than as magic. See `sparkle.phaseOf`.
+      if (body.view.kind === 'item') {
+        // Counted down whether or not there is a sparkle to show it on, so a rig acquired late (the
+        // pack lands, or the floor thins out below the cap) is already at the right rung.
+        if (body.rotMs !== undefined) body.rotMs -= seconds * 1000;
+        // Lazy, exactly as `objectMesh` is lazy and for the same reason: `PropsSet.load` is not
+        // awaited, so an item can be on the wire before its template exists. Answering nothing for a
+        // beat draws the capsule, which is M3's world and already-correct code.
+        //
+        // The template lookup is retried every frame and the *acquire* is not — see
+        // {@link Body.sparkleRefused}. A missing template resolves itself and moves no counter; a full
+        // cap does neither, so asking it again on the next frame is only a way to make the ledger lie.
+        if (!body.sparkle && !body.sparkleRefused) {
+          const template = this.props?.animated(LOOT_SPARKLE);
+          if (template) {
+            const rig = acquireSparkle(this.pool, template);
+            if (rig) {
+              rig.seed(id);
+              this.scene.add(rig.group);
+              body.sparkle = rig;
+            } else {
+              body.sparkleRefused = true;
+            }
+          }
+        }
+        const sparkle = body.sparkle;
+        if (sparkle) {
+          // On the ground rather than centred on it: the import's lowest vertex is at y = 0.002, so its
+          // origin is the floor. The corpse pile's rule, and the opposite of the capsule below.
+          sparkle.place(worldX, ground, worldZ);
+          sparkle.fade(sparkleFadeStep(body.rotMs, body.warnMs));
+          sparkle.update(seconds);
+          continue;
+        }
+        // …and if there was no rig — past `pool.SPARKLE_POOL_SIZE`, or before the import — this falls
+        // through to the capsule deliberately. See that cap for why the fallback is a visible pill
+        // rather than nothing at all.
+      }
+
       const creature = creatureLook(body.view.model);
       // A `child/wolf` is a wolf cub. The placeholder capsule takes the same scale the rig would have,
       // which is why `appearanceOf` reads the body word *before* it branches on the head shape.
@@ -609,6 +735,15 @@ export class EntityLayer {
   }
 
   private unequip(body: Body): void {
+    // The sparkle first and unconditionally: an item has no rig, so a `return` on `!body.rig` above
+    // this line would leak one skeleton per thing ever picked up off a floor.
+    if (body.sparkle) {
+      this.pool.releaseSparkle(body.sparkle);
+      body.sparkle = undefined;
+      body.rotMs = undefined;
+      body.warnMs = undefined;
+    }
+    body.sparkleRefused = undefined;
     if (!body.rig) return;
     this.pool.releaseBody(stemOf(body.view.model ?? ''), body.rig);
     body.rig = undefined;

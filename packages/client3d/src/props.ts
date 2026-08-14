@@ -27,11 +27,20 @@
  *    white one on the way in, which is `village.ts`'s three lines and `kit.ts`'s argument.
  */
 
-import type { BufferGeometry, Mesh, Object3D } from 'three';
-import { BoxGeometry, BufferAttribute, SRGBColorSpace, TextureLoader } from 'three';
+import type { AnimationClip, Mesh, Object3D, SkinnedMesh } from 'three';
+import { Bone, BoxGeometry, BufferAttribute, BufferGeometry, Matrix4, SRGBColorSpace, TextureLoader } from 'three';
 
 import type { ScenePool } from './pool.ts';
-import { OBJECT_MODELS, PROPS_MODELS, PROPS_PARTS, propsGeometryKey, propsMaterialKey } from './prototypes.ts';
+import {
+  ANIMATED_MODELS,
+  OBJECT_MODELS,
+  PROPS_MODELS,
+  PROPS_PARTS,
+  SPARKLE_FADE_STEPS,
+  propsGeometryKey,
+  propsMaterialKey,
+  sparkleMaterialKey,
+} from './prototypes.ts';
 
 /* -------------------------------------------------------------------------- */
 /* The manifest, as the client reads it                                        */
@@ -48,6 +57,12 @@ export interface PropsPartEntry {
   readonly vertexColours: boolean;
 }
 
+export interface PropsClipEntry {
+  readonly name: string;
+  readonly duration: number;
+  readonly channels: number;
+}
+
 export interface PropsModelEntry {
   readonly id: string;
   readonly family: string;
@@ -58,6 +73,21 @@ export interface PropsModelEntry {
   readonly depth: number;
   readonly height: number;
   readonly minY: number;
+  /**
+   * **`'animated'` for a model that keeps its rig** — absent, and therefore static, for the other 96.
+   *
+   * Additive rather than a manifest version bump, on `protocol.EntityView`'s standing argument: a
+   * reader that does not know the word takes the static branch, and the static branch on a rigged
+   * model registers a geometry nothing asks for. See `prototypes.ANIMATED_MODELS` for the three-way
+   * split this field is the wire form of.
+   */
+  readonly kind?: 'animated';
+  /** The vendor-shaped stem, for a model that has one. `Loot_sparkle`. */
+  readonly stem?: string;
+  /** Joints in its skin. Seven for the sparkle, which is what `pool.SPARKLE_RIG_BYTES` is sized from. */
+  readonly joints?: number;
+  /** Its own clips, which travel inside its own file. `characters.CharacterModelEntry.clips`' twin. */
+  readonly clips?: readonly PropsClipEntry[];
   readonly parts: readonly PropsPartEntry[];
 }
 
@@ -84,14 +114,55 @@ export const PROPS_MANIFEST_VERSION = 1;
 export const PROPS_MANIFEST_PATH = 'models/props/manifest.json';
 
 /* -------------------------------------------------------------------------- */
+/* The animated objects' template                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What a rigged object is, once — the thing {@link sparkle.SparkleRig} is cloned from.
+ *
+ * `characters.BodyTemplate`'s small cousin, and short for the reason that one is long: a body template
+ * carries a cullable skin, its per-vertex region labels, a head inverse for refitting hair and a
+ * `composable` flag, because a body is a thing you dress. An animated object is a thing that *plays*.
+ * There is nothing to hang on it, no region to cull, and one clip.
+ *
+ * The bones here are the **import's own**, never added to a scene — every rig clones them, exactly as
+ * `BodyTemplate.bones` are cloned. The geometry and the materials are the pool's.
+ */
+export interface AnimatedTemplate {
+  readonly id: string;
+  /** The source bones, in skeleton order. Seven for the sparkle. */
+  readonly bones: readonly Bone[];
+  readonly boneInverses: readonly Matrix4[];
+  /** The pooled key of the one merged primitive. See {@link mergeShared}. */
+  readonly geometry: string;
+  /** Its own clips, by name — `Idle_Loop`. Never the shared table; there is no shared table here. */
+  readonly clips: ReadonlyMap<string, AnimationClip>;
+  /** Metres, as the manifest measured them. The sparkle is 0.418 m tall over a base at y = 0.002. */
+  readonly height: number;
+}
+
+/* -------------------------------------------------------------------------- */
 /* The set                                                                     */
 /* -------------------------------------------------------------------------- */
 
 export class PropsSet {
   private readonly entries = new Map<string, PropsModelEntry>();
   private readonly ready = new Set<string>();
+  private readonly rigged = new Map<string, AnimatedTemplate>();
   private textureCount = 0;
   private textureBytesOnWire = 0;
+
+  /**
+   * The template for one animated object, or nothing — the accessor `entities.ts` asks before it
+   * spends a skeleton.
+   *
+   * Nothing is the answer for the whole of a session's first second (`PropsSet.load` is not awaited,
+   * the same argument the trees, the kit and the characters make) and for ever if the import was never
+   * run. Both draw the capsule, which is already-correct code.
+   */
+  animated(id: string): AnimatedTemplate | undefined {
+    return this.rigged.get(id);
+  }
 
   get loaded(): number {
     return this.ready.size;
@@ -155,7 +226,7 @@ export class PropsSet {
     // `OBJECT_MODELS` is what may be dropped on its floor. They are separate on purpose — `furnish.ts`
     // must never stand a corpse in a tavern — but they are fetched together, because from here down
     // the two are the same thing: a manifest row with a geometry and a material.
-    const wanted = new Set<string>([...PROPS_MODELS, ...OBJECT_MODELS]);
+    const wanted = new Set<string>([...PROPS_MODELS, ...OBJECT_MODELS, ...ANIMATED_MODELS]);
     const models = manifest.models.filter((model) => wanted.has(model.id));
     for (const model of models) this.entries.set(model.id, model);
 
@@ -195,6 +266,20 @@ export class PropsSet {
       models.map(async (model) => {
         try {
           const loaded = await gltf.loadAsync(`${base}${model.url}`);
+          // **The rigged branch, and it is read first because it is the more specific one.** An
+          // animated object's primitives are `SkinnedMesh`es and its geometry has to keep its
+          // `JOINTS_0`/`WEIGHTS_0`; the static path below would register it perfectly happily and draw
+          // it in its bind pose for ever, which reads as a broken animation system rather than as a
+          // model filed under the wrong word. See `characters.CHARACTER_MANIFEST_VERSION` for the same
+          // failure, one pack over, and the version bump it bought.
+          if (model.kind === 'animated') {
+            const template = registerAnimated(pool, model, loaded.scene, loaded.animations);
+            if (template) {
+              this.rigged.set(model.id, template);
+              this.ready.add(model.id);
+            }
+            return;
+          }
           if (registerModel(pool, model, loaded.scene)) this.ready.add(model.id);
         } catch {
           // One model that will not load is one piece of furniture that is not drawn. The rest of the
@@ -219,6 +304,33 @@ export class PropsSet {
     for (const part of PROPS_PARTS) {
       pool.registerGeometry(propsGeometryKey(part.model, part.texture), new BoxGeometry(1, 1, 1));
       this.ready.add(part.model);
+    }
+    // **And the animated objects, which need a rig rather than a box.** `traversal.test.ts` has to
+    // churn sparkles for the reason it has to churn bodies: the ledger's second per-entity family is
+    // only worth asserting flat if something asked it for skeletons, and a floor is the one thing in
+    // this renderer that can hold forty of them. What a stand-in must be is *registered*, with a real
+    // seven-bone hierarchy under the real joint names — the thing under test is the pool's accounting
+    // and the rig's assembly, not the import's vertices.
+    //
+    // The loop is over the list and the armature is the sparkle's, which is honest while the list has
+    // one entry and is the line to split the day it has two — the same note `pool.sparkleFree` carries
+    // about being one list rather than a map.
+    for (const model of ANIMATED_MODELS) {
+      const key = propsGeometryKey(model, model);
+      pool.registerGeometry(key, standInGeometry());
+      const bones = standInBones(SPARKLE_JOINTS);
+      this.rigged.set(model, {
+        id: model,
+        bones,
+        boneInverses: bones.map(() => new Matrix4()),
+        geometry: key,
+        // Empty, and that is the honest headless shape: there is no `AnimationClip` without a file to
+        // read one out of. `AnimationMixer` with nothing playing still advances, so the churn exercises
+        // every line of `SparkleRig` bar the one that finds a clip.
+        clips: new Map(),
+        height: 0.418,
+      });
+      this.ready.add(model);
     }
   }
 }
@@ -292,4 +404,159 @@ function dressAll(pool: ScenePool): void {
     const texture = pool.texture(part.texture);
     if (texture) pool.dressKit(propsMaterialKey(part.texture), texture);
   }
+  // The animated objects, whose "atlas" is a 70-byte 1x1 white and whose material is not one key but
+  // eight — the fade ladder. Every rung is dressed, because a rung that kept the pool's placeholder
+  // would be the one frame of a ten-minute life where the sparkle changed picture as well as
+  // brightness. See `prototypes.SPARKLE_FADE_STEPS`.
+  for (const model of ANIMATED_MODELS) {
+    const texture = pool.texture(model);
+    if (!texture) continue;
+    for (let step = 0; step < SPARKLE_FADE_STEPS; step++) pool.dressKit(sparkleMaterialKey(step), texture);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* The animated objects                                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The seven joints of the loot sparkle's armature, in skeleton order — **measured off the import**.
+ *
+ * `base` is the root the whole thing hangs from, `shaft` is the still column of light, and `g1`..`g5`
+ * are the glints. Each of those five carries its own independent 25-key rotation path in `Idle_Loop`,
+ * which is the whole of the effect (see `sparkle.ts`).
+ *
+ * Written down here rather than read from the file for `characters.CHURN_JOINTS`' reason: this is the
+ * package's own statement of what the armature is, and `props.test.ts` holds it against the glTF on
+ * disk — so a re-import that renamed a bone fails a test instead of silently drawing a still sparkle.
+ */
+export const SPARKLE_JOINTS = ['base', 'shaft', 'g1', 'g2', 'g3', 'g4', 'g5'] as const;
+
+/**
+ * Pull a rigged object into the pool: one merged geometry, one skeleton, its own clips.
+ *
+ * `registerModel`'s opposite number, and the differences are all consequences of the mesh being
+ * skinned:
+ *
+ * - **The geometry is taken as it is, never rebuilt.** `registerModel` finds a primitive by material
+ *   name and normalises its colour; here the vertices carry `JOINTS_0`/`WEIGHTS_0` and their bind is
+ *   only meaningful against the skeleton in the same file, so anything clever done to them on the way
+ *   in is a chance to break the pose for no gain. That is `modelgen.buildAnimatedObject`'s own
+ *   argument for copying the source buffer wholesale, restated at the other end of the wire.
+ * - **The primitives are merged rather than keyed apart.** Both of the sparkle's wear a material named
+ *   `loot_sparkle`, so the `(model, texture)` key they would each claim is the *same* key and
+ *   `registerGeometry` is first-wins — the exact trap `PROPS_PART_TEXTURES` keeps `Anvil` and
+ *   `Chest_Wood` out of the drawn set to avoid. Half a sparkle is 228 triangles of 420. See
+ *   {@link mergeShared}.
+ * - **The skeleton is the file's own**, `characters.register`'s creature branch exactly: `cloneBones`
+ *   walks whatever array it is given and `new Skeleton` takes as many inverses as there are bones, so
+ *   nothing downstream cares that this is seven joints rather than sixty-five.
+ *
+ * Returns nothing when the file arrived without a skin or without a mergeable geometry — either is one
+ * object that is not drawn, and `entities.ts` falls back to the capsule.
+ */
+function registerAnimated(
+  pool: ScenePool,
+  model: PropsModelEntry,
+  scene: Object3D,
+  animations: readonly AnimationClip[],
+): AnimatedTemplate | undefined {
+  const skinned: SkinnedMesh[] = [];
+  scene.traverse((node) => {
+    const mesh = node as SkinnedMesh;
+    if (mesh.isSkinnedMesh === true) skinned.push(mesh);
+  });
+  const first = skinned[0];
+  if (!first?.skeleton) return undefined;
+
+  const merged = mergeShared(skinned.map((mesh) => mesh.geometry));
+  if (!merged) return undefined;
+  merged.name = `${model.id}:${model.id}`;
+  const key = propsGeometryKey(model.id, model.id);
+  pool.registerGeometry(key, merged);
+
+  return {
+    id: model.id,
+    bones: first.skeleton.bones,
+    boneInverses: first.skeleton.boneInverses,
+    geometry: key,
+    clips: new Map(animations.map((clip) => [clip.name, clip])),
+    height: model.height,
+  };
+}
+
+/**
+ * Concatenate primitives that already **share their vertex buffers** — the sparkle's two, as one draw.
+ *
+ * Not `characters.mergeSame`, and the difference is a measurement. That function copies every
+ * attribute value through `getComponent` and offsets the indices, because the garments it merges are
+ * genuinely separate vertex sets. These are not: `modelgen.buildAnimatedObject` emits two primitives
+ * that reference **one** `POSITION` accessor (0), one `NORMAL` (1), one `JOINTS_0` (2), one `WEIGHTS_0`
+ * (3) and one `COLOR_0` (17), differing only in which triangles they draw — 684 indices and 576, 420
+ * triangles over 1,497 vertices. Three's `GLTFLoader` caches by accessor, so the two `BufferGeometry`s
+ * hold the *same* `BufferAttribute` objects, and the merge is the index arrays end to end with no
+ * offset and no copy at all.
+ *
+ * **Refuses rather than guesses.** Every attribute of every primitive must be the identical object, and
+ * a re-import that broke that sharing gets `undefined` — one object not drawn, loudly, on the capsule
+ * path — rather than a silent half-merge. That is `registerModel`'s all-or-nothing-per-model rule with
+ * a sharper edge, and it is the right edge here because the failure it guards is the one thing about
+ * this model that is unusual.
+ */
+function mergeShared(parts: readonly BufferGeometry[]): BufferGeometry | undefined {
+  const first = parts[0];
+  if (!first) return undefined;
+  if (parts.length === 1) return first;
+
+  const names = Object.keys(first.attributes);
+  for (const part of parts) {
+    if (Object.keys(part.attributes).length !== names.length) return undefined;
+    for (const name of names) {
+      if (part.getAttribute(name) !== first.getAttribute(name)) return undefined;
+    }
+  }
+
+  const indices: number[] = [];
+  for (const part of parts) {
+    const index = part.getIndex();
+    if (!index) return undefined;
+    for (let i = 0; i < index.count; i++) indices.push((index.array as ArrayLike<number>)[i]!);
+  }
+
+  const out = new BufferGeometry();
+  for (const name of names) out.setAttribute(name, first.getAttribute(name));
+  out.setIndex(indices);
+  return out;
+}
+
+/**
+ * A one-triangle skinned primitive — the headless stand-in, `characters.standInGeometry`'s twin.
+ *
+ * Identical in shape and therefore in bytes: `position` 36 + `normal` 36 + `uv` 24 + `color` 12 +
+ * `skinIndex` 24 + `skinWeight` 48 + `index` 6 = **186 B**, which is the whole of this slice's geometry
+ * delta on `traversal.test.ts`'s ledger. Weighted to three different joints so a stand-in binds like a
+ * real one rather than collapsing onto the root.
+ */
+function standInGeometry(): BufferGeometry {
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(new Float32Array([0, 0, 0, 0, 1, 0, 0.2, 0, 0]), 3));
+  geometry.setAttribute('normal', new BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]), 3));
+  geometry.setAttribute('uv', new BufferAttribute(new Float32Array([0, 0, 0, 1, 1, 0]), 2));
+  geometry.setAttribute('color', new BufferAttribute(new Uint8Array(12).fill(255), 4, true));
+  geometry.setAttribute('skinIndex', new BufferAttribute(new Uint16Array([0, 0, 0, 0, 2, 0, 0, 0, 4, 0, 0, 0]), 4));
+  geometry.setAttribute('skinWeight', new BufferAttribute(new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]), 4));
+  geometry.setIndex([0, 1, 2]);
+  return geometry;
+}
+
+/** A flat chain of correctly-named bones. Only the names and the count are load-bearing headless. */
+function standInBones(names: readonly string[]): Bone[] {
+  const out: Bone[] = [];
+  for (const name of names) {
+    const bone = new Bone();
+    bone.name = name;
+    out.push(bone);
+  }
+  for (let i = 1; i < out.length; i++) out[0]!.add(out[i]!);
+  return out;
 }
