@@ -1601,6 +1601,14 @@ export function creatureDir(): string {
  * silently — which would double a buffer and quietly change what "2,800 triangles" costs — this
  * refuses the import and says so.
  *
+ * **What is checked is double-claiming, not coverage**, and the difference is a real file: the loot
+ * sparkle's two primitives are disjoint but reference only 1,260 of its 1,497 vertices — 237 are in
+ * the buffer and in no triangle. An earlier version of this guard demanded every vertex be claimed
+ * and refused that model, which was the guard measuring the wrong property. A vertex nothing draws
+ * has no colour worth arguing about; a vertex two materials draw has two, and only that is fatal.
+ * Unclaimed entries are left **white** rather than zeroed, because a missing colour reading as black
+ * is the exact trap `characters.whiten` exists to catch.
+ *
  * ## The rig is dropped, deliberately
  *
  * The pile arrives with 21 joints and **zero clips**, which makes the skin an artefact of the tool
@@ -1722,11 +1730,12 @@ export function buildObject(id: string, text: string): ObjectImport | undefined 
   // The bake, and the disjointness check in the same pass: a vertex claimed twice is a vertex whose
   // colour depends on which primitive got there last, which is exactly the silent wrongness the
   // header refuses.
-  const colour = new Uint8Array(vertices * 4);
-  const claimed = new Uint8Array(vertices);
+  const colour = new Uint8Array(vertices * 4).fill(255);
+  const claimedBy = new Int32Array(vertices).fill(-1);
   const indices: number[] = [];
   let triangles = 0;
-  for (const primitive of primitives) {
+  let contested = false;
+  primitives.forEach((primitive, at) => {
     const material = gltf.materials[primitive.material];
     const shade = material?.pbrMetallicRoughness as { baseColorFactor?: readonly number[] } | undefined;
     const factor = shade?.baseColorFactor ?? [1, 1, 1, 1];
@@ -1734,19 +1743,24 @@ export function buildObject(id: string, text: string): ObjectImport | undefined 
     triangles += run.data.length / 3;
     for (const vertex of run.data) {
       indices.push(vertex);
-      if (claimed[vertex] === 1) continue;
-      claimed[vertex] = 1;
+      // Claimed by *this* primitive already is just another triangle sharing a corner. Claimed by a
+      // different one is two materials wanting one vertex two colours, which is the fatal case.
+      if (claimedBy[vertex] === at) continue;
+      if (claimedBy[vertex] !== -1) {
+        contested = true;
+        continue;
+      }
+      claimedBy[vertex] = at;
       for (let channel = 0; channel < 4; channel++) {
         // glTF's factors are linear; the renderer's working space is linear too and its atlases are
         // the only thing that needs the sRGB round trip. Written straight, clamped, as bytes.
         colour[vertex * 4 + channel] = Math.max(0, Math.min(255, Math.round((factor[channel] ?? 1) * 255)));
       }
     }
-  }
-  // Every vertex claimed exactly once, which is the disjointness the header refuses to assume. A model
-  // that shares vertices across materials leaves some unclaimed or overwrites a colour, and either way
-  // this count disagrees.
-  if (claimed.reduce((n, c) => n + c, 0) !== vertices) return undefined;
+  });
+  // Refused only for a vertex two materials both draw. See the header: coverage is not the property
+  // that matters, and demanding it turned away a model whose primitives were perfectly disjoint.
+  if (contested) return undefined;
 
   let minX = Infinity;
   let minY = Infinity;
@@ -1806,6 +1820,183 @@ export function buildObject(id: string, text: string): ObjectImport | undefined 
             alphaTest: 0,
             vertexColours: true,
           },
+        ],
+      },
+    ],
+    textures: [
+      {
+        id,
+        url: `models/${PROPS_PROFILE.id}/textures/${id}.png`,
+        bytes: WHITE_PNG.length,
+        width: 1,
+        height: 1,
+        used: 1,
+      },
+    ],
+    gltfs: new Map([[id, out]]),
+    images: new Map([[id, WHITE_PNG]]),
+  };
+}
+
+/**
+ * An in-house object whose **rig is doing something** — the third asset category.
+ *
+ * ```
+ *   creature   rigged body, own clips, composable: false   kobold, troll
+ *   object     static prop, skin dropped                   bone piles
+ *   animated   rigged, own clip, NOT a body                 loot sparkle
+ * ```
+ *
+ * {@link buildObject} drops the skin, which is right for the bone piles — 21 joints and zero clips,
+ * an artefact of the tool that authored them. It is catastrophic here: `loot_sparkle` moves five
+ * glint bones on five independent 25-key paths, and dropping the rig ships a static gold shape. The
+ * guard in `buildObject` refuses such a file rather than ruining it; **this function is what that
+ * guard defers to.**
+ *
+ * ## Patched, not rebuilt — and that inversion is the whole design
+ *
+ * `buildObject` rebuilds the file from four decoded arrays, because a static prop needs three
+ * attributes and one primitive and nothing else survives the trip. A rigged one is the opposite: the
+ * skin, its inverse-bind matrices, the joint hierarchy, every animation sampler and all their
+ * accessors have to arrive **byte-identical**, and rewriting them is a chance to get one wrong for no
+ * benefit.
+ *
+ * So the source buffer is copied **wholesale** and the baked colour appended after it. Every existing
+ * `bufferView.byteOffset` indexes into a prefix of the new buffer and stays valid untouched; the only
+ * edits to the JSON are *additions* — one buffer view, one accessor, one `COLOR_0` per primitive, and
+ * the white map. Nothing that was there is renumbered.
+ *
+ * The colour bake itself is {@link buildObject}'s, including its refusal: a vertex claimed by two
+ * primitives would take whichever colour got there last, so the claim count must come out exact.
+ */
+export function buildAnimatedObject(id: string, text: string): ObjectImport | undefined {
+  let gltf: Gltf & {
+    animations?: { name?: string; samplers: { input: number }[] }[];
+    skins?: { joints: number[] }[];
+  };
+  try {
+    gltf = JSON.parse(text) as typeof gltf;
+  } catch {
+    return undefined;
+  }
+  const source = gltf.buffers?.[0]?.uri;
+  const bytes = source ? decodeDataUri(source) : undefined;
+  const primitives = gltf.meshes?.[0]?.primitives;
+  // Its rig is the reason this function exists; a file without one belongs in `buildObject`.
+  if (!bytes || !primitives?.length || !gltf.animations?.length || !gltf.skins?.length) return undefined;
+
+  const positionAccessor = primitives[0]!.attributes['POSITION'];
+  if (positionAccessor === undefined) return undefined;
+  if (!primitives.every((primitive) => primitive.attributes['POSITION'] === positionAccessor)) return undefined;
+
+  const position = readAccessor(gltf, bytes, positionAccessor);
+  const vertices = position.data.length / 3;
+
+  const colour = new Uint8Array(vertices * 4).fill(255);
+  const claimedBy = new Int32Array(vertices).fill(-1);
+  let triangles = 0;
+  let contested = false;
+  primitives.forEach((primitive, at) => {
+    const material = gltf.materials[primitive.material];
+    const shade = material?.pbrMetallicRoughness as { baseColorFactor?: readonly number[] } | undefined;
+    const factor = shade?.baseColorFactor ?? [1, 1, 1, 1];
+    const run = readAccessor(gltf, bytes, primitive.indices);
+    triangles += run.data.length / 3;
+    for (const vertex of run.data) {
+      if (claimedBy[vertex] === at) continue;
+      if (claimedBy[vertex] !== -1) {
+        contested = true;
+        continue;
+      }
+      claimedBy[vertex] = at;
+      for (let channel = 0; channel < 4; channel++) {
+        colour[vertex * 4 + channel] = Math.max(0, Math.min(255, Math.round((factor[channel] ?? 1) * 255)));
+      }
+    }
+  });
+  if (contested) return undefined;
+
+  // The append. Four-byte aligned, because glTF requires it of every `byteOffset` and the source's
+  // own length is not guaranteed to land on a boundary.
+  const pad = (4 - (bytes.length % 4)) % 4;
+  const combined = Buffer.concat([bytes, Buffer.alloc(pad), Buffer.from(colour.buffer, colour.byteOffset, colour.byteLength)]);
+
+  const views = [...((gltf.bufferViews as unknown as Record<string, unknown>[]) ?? [])];
+  const colourView = views.length;
+  views.push({ buffer: 0, byteOffset: bytes.length + pad, byteLength: colour.byteLength, target: 34962 });
+
+  const accessors = [...(gltf.accessors as unknown as Record<string, unknown>[])];
+  const colourAccessor = accessors.length;
+  accessors.push({ bufferView: colourView, componentType: 5121, normalized: true, count: vertices, type: 'VEC4' });
+
+  const bounds = gltf.accessors[positionAccessor]!;
+  const min = bounds.min ?? [0, 0, 0];
+  const max = bounds.max ?? [0, 0, 0];
+
+  const out = `${JSON.stringify(
+    {
+      ...gltf,
+      asset: { version: '2.0', generator: 'modelgen.ts buildAnimatedObject — colours baked, rig kept' },
+      accessors,
+      bufferViews: views,
+      meshes: gltf.meshes.map((mesh) => ({
+        ...mesh,
+        primitives: mesh.primitives.map((primitive) => ({
+          ...primitive,
+          attributes: { ...primitive.attributes, COLOR_0: colourAccessor },
+        })),
+      })),
+      // One material for the lot: the colour is in the attribute now, so what a material still
+      // carries is the white map — and two of those would be two draw calls for one glint.
+      materials: gltf.materials.map(() => ({
+        name: id,
+        doubleSided: false,
+        pbrMetallicRoughness: {
+          baseColorFactor: [1, 1, 1, 1],
+          baseColorTexture: { index: 0 },
+          metallicFactor: 0,
+          roughnessFactor: 1,
+        },
+      })),
+      textures: [{ sampler: 0, source: 0 }],
+      images: [{ mimeType: 'image/png', name: id, uri: `../textures/${id}.png` }],
+      samplers: [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }],
+      buffers: [
+        { byteLength: combined.length, uri: `data:application/octet-stream;base64,${combined.toString('base64')}` },
+      ],
+    },
+    null,
+    2,
+  )}\n`;
+
+  const clips: AnimationClipEntry[] = gltf.animations.map((animation, index) => ({
+    name: animation.name ?? `clip${index}`,
+    duration: round(
+      animation.samplers.reduce((longest, sampler) => Math.max(longest, gltf.accessors[sampler.input]?.max?.[0] ?? 0), 0),
+    ),
+    channels: animation.samplers.length,
+  }));
+
+  return {
+    models: [
+      {
+        id,
+        family: id,
+        kind: 'animated',
+        stem: creatureStem(id),
+        joints: gltf.skins[0]?.joints.length ?? 0,
+        url: `models/${PROPS_PROFILE.id}/${id}/model.gltf`,
+        bytes: Buffer.byteLength(out, 'utf8'),
+        triangles,
+        width: round((max[0] ?? 0) - (min[0] ?? 0)),
+        depth: round((max[2] ?? 0) - (min[2] ?? 0)),
+        height: round((max[1] ?? 0) - (min[1] ?? 0)),
+        minY: round(min[1] ?? 0),
+        blocks: false,
+        blockRadius: 0,
+        clips,
+        parts: [
+          { material: id, role: 'solid', texture: id, triangles, vertices, alphaTest: 0, vertexColours: true },
         ],
       },
     ],
@@ -1934,7 +2125,10 @@ export function importObjects(dir: string): ObjectImport {
     for (const file of readdirSync(inside).sort()) {
       if (!file.endsWith('.gltf')) continue;
       const id = file.slice(0, -'.gltf'.length);
-      const built = buildObject(id, readFileSync(join(inside, file), 'utf8'));
+      // A rigged one goes the other way. `buildObject` refuses a file with clips rather than
+      // shipping it static, so trying it first and falling through is the whole dispatch.
+      const text = readFileSync(join(inside, file), 'utf8');
+      const built = buildObject(id, text) ?? buildAnimatedObject(id, text);
       if (!built) continue;
       models.push(...built.models);
       textures.push(...built.textures);
