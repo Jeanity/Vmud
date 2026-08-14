@@ -86,11 +86,11 @@ import { cameraRelative, Input, suspendsFollow } from './input.ts';
 import { CONTROLS, KeyRouter } from './keys.ts';
 import { LogPanel } from './log.ts';
 import { LoginGate } from './login.ts';
+import { GlintField, MAX_GLINT_EMITTERS } from './glint.ts';
 import { Marker } from './marker.ts';
 import { Net } from './net.ts';
 import { SHADOW_MAP_TYPE, type ShadowFit } from './night.ts';
-import { BODY_POOL_SIZE, SPARKLE_POOL_SIZE } from './pool.ts';
-import { LOOT_SPARKLE } from './prototypes.ts';
+import { BODY_POOL_SIZE } from './pool.ts';
 import { Grade, TONE_MAPPINGS, type ToneMapping } from './post.ts';
 import { PointerControl, type PointerTarget } from './pointer.ts';
 import { Rain } from './rain.ts';
@@ -127,9 +127,16 @@ const rig = new CameraRig();
 /** M7b: the character packs, and the pooled text that floats over what they draw. */
 const characters = new CharacterSet();
 const plates = new PlateSet(world.scene);
-// The props set is handed over for one thing: the loot sparkle's template, which is the only rigged
-// model in that manifest and the only thing on a floor that is not an `InstancedMesh`. See `props.ts`.
-const entities = new EntityLayer(world.scene, world.pool, characters, plates, world.props);
+/**
+ * The floor's glints — the third particle field, beside the rain and the snow.
+ *
+ * Built here rather than inside `EntityLayer` for the reason the two weather fields are: it is a mesh
+ * in the scene with a clock of its own, and the layer that *fills* it is handed a frame delta rather
+ * than a wall clock. `EntityLayer` owns the emitter list, this owns the buffer. See `glint.ts`.
+ */
+const glint = new GlintField();
+world.scene.add(glint.mesh);
+const entities = new EntityLayer(world.scene, world.pool, characters, plates, glint);
 const input = new Input();
 /** The other half of the keyboard: the view controls behind Alt, and every bare letter to the log. */
 const keys = new KeyRouter();
@@ -986,8 +993,18 @@ function frame(now: number): void {
   // per-material patch — is a real slice rather than a line. **Frost whitening is named here as a
   // future nicety and deliberately not built.**
   world.setWetness(wetness.update(now / 1000, rain.enabled || snow.enabled));
+  // **The floor's field, opened before the layer that fills it.** Wall-clock since boot, exactly as
+  // the rain's and the snow's is and for the same reason — an accumulator drifts with the frame rate,
+  // and a tab that slept would resume every plume mid-air. It is also the clock a rot deadline is
+  // measured against, so a single call keeps the two from ever disagreeing.
+  //
+  // Unlike the weather this is **not** gated on the roof: a thing lying on the floor of a cave still
+  // glints, because it is the thing itself catching the light rather than something falling out of a
+  // sky the ceiling is between you and.
+  glint.update(now / 1000);
   // M7b: the frame's own delta and the camera go in too — the delta drives every mixer and the
   // measured gait, and the camera billboards the nameplates and measures their distance fade.
+  // `entities.render` fills the glint's emitter list and closes it.
   entities.render(seconds, groundAt, warpAt, rig.camera);
 
   world.pool.pulse(now / 1000);
@@ -1221,25 +1238,31 @@ const debug = {
     };
   },
   /**
-   * The floor — the sparkles standing over things lying on it, and why one of them is a capsule.
+   * The floor — the glints rising off things lying on it, and what they cost.
    *
-   * Its own reading rather than a row inside `bodies`, because the two per-entity families have their
-   * own caps and their own free lists and the whole point of splitting them is that a crowded floor
-   * must not push the people standing over it back to pills. `refused` climbing means the floor is
-   * past `pool.SPARKLE_POOL_SIZE`; `template` false means the props manifest has not landed (or was
-   * never generated), which is the other reason a dropped sword can still be a capsule.
+   * Nothing here comes off `world.ledger()` any more, and that is the honest reading rather than an
+   * omission: a glint is not a pooled resource. `glint.ts` allocates one geometry outside the pool in
+   * its constructor and never again, so there is no created/live/free triple to report and nothing
+   * that can leak — the numbers that matter are how many emitters the frame filled and how many
+   * instances that drew, both of which move with the floor and settle the moment it does.
+   *
+   * `emitters` at `cap` is the one thing worth watching: past it an item draws the capsule again. See
+   * `glint.MAX_GLINT_EMITTERS` for the measured floor that number is twice the size of.
    */
   get floor(): Record<string, number | boolean> {
-    const ledger = world.ledger();
     return {
-      sparklesCreated: ledger.sparklesCreated,
-      sparklesLive: ledger.sparklesLive,
-      sparklesFree: ledger.sparklesFree,
-      sparkleHighWater: ledger.sparkleHighWater,
-      refused: ledger.sparklesRefused,
-      sparkleBytes: ledger.sparkleBytes,
-      cap: SPARKLE_POOL_SIZE,
-      template: world.props.animated(LOOT_SPARKLE) !== undefined,
+      emitters: glint.emitters,
+      cap: MAX_GLINT_EMITTERS,
+      motesPerEmitter: glint.motesPerEmitter,
+      drawn: glint.drawn,
+      // One, always — that is the whole point of the field. Named so the claim is readable live.
+      drawCalls: 1,
+      bytes: glint.bytes,
+      // **Watch this one while standing still.** It climbs when something is dropped, taken or
+      // corrected, and must be flat across every frame in between; a field that had lost its
+      // comparison in `emit` would look identical and drive this at the frame rate.
+      uploads: glint.uploads,
+      enabled: glint.enabled,
     };
   },
   /** What the local body is currently playing, and which way it is actually turned. */

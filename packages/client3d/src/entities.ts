@@ -50,6 +50,7 @@ import {
   PLAYER_SPEED,
   ROOM_TILES,
   TILE_SIZE,
+  corpseModelFor,
   stepMovement,
   yawOf,
   type EntityId,
@@ -60,12 +61,11 @@ import {
 import { acquireRig, stemOf, CREATURE_DEFAULT, CREATURE_LOOK, type BodyRig, type CreatureLook } from './body.ts';
 import type { CharacterSet } from './characters.ts';
 import { metresOfPixel } from './frame.ts';
+import { GLINT_PILE_LIFT, type GlintField } from './glint.ts';
 import { SELF_LAYER, WORLD_LAYER } from './lights.ts';
 import type { PlateSet } from './plates.ts';
-import type { PropsSet } from './props.ts';
-import { DIMENSIONS, LOOT_SPARKLE, OBJECT_MODELS, propsGeometryKey, propsMaterialKey, sparkleFadeStep } from './prototypes.ts';
+import { DIMENSIONS, OBJECT_MODELS, propsGeometryKey, propsMaterialKey } from './prototypes.ts';
 import { WRAPPER_CAPACITY, type ScenePool } from './pool.ts';
-import { acquireSparkle, type SparkleRig } from './sparkle.ts';
 import type { WarpVec } from './warp.ts';
 
 /** Divergence from the server, in pixels, past which we stop easing and just snap. `scene.ts:213`. */
@@ -102,21 +102,18 @@ export interface Body {
   /** M7b: the composed mesh, when one was available. Absent means a capsule — see the header. */
   rig?: BodyRig | undefined;
   /**
-   * The loot sparkle standing over this thing, when it is a ground object and one was available.
-   *
-   * Mutually exclusive with {@link rig} by construction — a body is never an item — but held in its own
-   * field rather than a union, because the two are released through different pool calls with
-   * different caps.
-   */
-  sparkle?: SparkleRig | undefined;
-  /**
    * Milliseconds this thing has left before it rots, counted down **locally**.
    *
    * Seeded from `EntityView.remainingMs` and decremented in {@link render}, because the wire sends a
    * ground object once on `entityEnter` and corrects it once when the server latches the warning. A
-   * client that only redrew on a message would hold the sparkle at full strength for the whole minute
+   * client that only redrew on a message would hold the glint at full strength for the whole minute
    * and then jump; counting down is what makes the dimming a slope. Absent for anything that does not
-   * rot, which is every body and every scatter pickup.
+   * rot, which is every body, every corpse and every scatter pickup.
+   *
+   * **The countdown is what makes the glint free.** `GlintField.emit` turns this into an absolute
+   * deadline on the field's own clock, and a deadline derived from a countdown that is keeping time is
+   * a *constant* — so the emitter is written once and then compares equal every frame after. See
+   * `glint.GLINT_CLOCK_SLACK`.
    */
   rotMs?: number | undefined;
   /**
@@ -128,23 +125,6 @@ export interface Body {
    * from the view would make that failure asymmetric and therefore invisible.
    */
   warnMs?: number | undefined;
-  /**
-   * Latched when the sparkle cap turned this item down — so it is asked **once**, not sixty times a
-   * second.
-   *
-   * `equip` gets this for free because it is called on entity events rather than per frame; the
-   * sparkle is acquired inside `render` (the template may land mid-session, which is the same lazy
-   * argument `objectMesh` makes) and would otherwise ask the pool on every frame of every item past
-   * the cap. That is cheap in work and ruinous in *accounting*: `LedgerSnapshot.sparklesRefused` is
-   * meant to be read as "how many things went without", and a floor of sixty daggers would add
-   * nineteen thousand a second to it and say nothing.
-   *
-   * Cleared on the next {@link EntityLayer.upsert}, which is `equip`'s own retry rule — *"gets its rig
-   * on the first update that could give it one, which is every resync"*. The template-not-loaded case
-   * is deliberately **not** latched: that is a map lookup that costs nothing and moves no counter, and
-   * it is the one that resolves on its own a second into the session.
-   */
-  sparkleRefused?: boolean | undefined;
   /** Drawn position in metres, last frame, for the gait's speed. `undefined` on the first frame. */
   lastX?: number | undefined;
   lastZ?: number | undefined;
@@ -202,13 +182,20 @@ export class EntityLayer {
   private readonly characters: CharacterSet;
   private readonly plates: PlateSet | undefined;
   /**
-   * The props registry, for the one thing in it this class asks for: the loot sparkle's template.
+   * The floor's glints — the one draw call every thing lying on the ground shares.
    *
-   * Optional so a caller that only wants bodies — most of the tests — needs no fourth registry, and
-   * absent simply means every ground object draws the capsule, which is the same graceful nothing the
-   * character pack's absence produces.
+   * This class owns the **list** and the field owns the **buffer**, which is the same split
+   * `registerGeometry` makes everywhere else in this renderer: the emitter's slot is its index in the
+   * order this loop walks, so a slot past `GlintField.capacity` is simply refused and the item falls
+   * through to the capsule below. Optional so a caller that only wants bodies — most of the tests —
+   * needs no fourth registry, and absent means every ground object draws the capsule, which is M3's
+   * world and already-correct code.
+   *
+   * **Not `update`d here.** The field's clock is wall-clock since boot and `render` is handed a frame
+   * delta, so `main.ts` opens the frame beside `rain.update` and `snow.update`; this class only fills
+   * the list and closes it.
    */
-  private readonly props: PropsSet | undefined;
+  private readonly glint: GlintField | undefined;
   private readonly scene: Scene;
   /** Last {@link CharacterSet.generation} acted on — see {@link render}'s re-body pass. */
   private packGeneration = -1;
@@ -224,12 +211,12 @@ export class EntityLayer {
   private readonly objectCounts = new Map<string, number>();
 
   /** Fields are declared rather than written as parameter properties — see `streamer.ts`'s note. */
-  constructor(scene: Scene, pool: ScenePool, characters: CharacterSet, plates?: PlateSet, props?: PropsSet) {
+  constructor(scene: Scene, pool: ScenePool, characters: CharacterSet, plates?: PlateSet, glint?: GlintField) {
     this.pool = pool;
     this.scene = scene;
     this.characters = characters;
     this.plates = plates;
-    this.props = props;
+    this.glint = glint;
     // Three wrappers, taken once and never given back: a body is not streamed, so it has no unload to
     // return them on. Self and others differ by material and by nothing else.
     this.selfMesh = pool.acquire('capsule', 'self');
@@ -319,9 +306,6 @@ export class EntityLayer {
         held.rotMs = view.remainingMs;
         held.warnMs = view.warnAtMs;
       }
-      // An update is a reason to try again — `equip`'s rule for a body that arrived before its pack,
-      // applied to an item that arrived while the floor was full.
-      held.sparkleRefused = undefined;
       this.dress(held);
       return;
     }
@@ -582,61 +566,52 @@ export class EntityLayer {
         this.scratch.scale.setScalar(scale);
         this.scratch.updateMatrix();
         mesh.setMatrixAt(index, this.scratch.matrix);
+        // **A body with something still in it glints.** The owner asked for it as an overlay — *"is
+        // there anyway to overlay the sparkle and the bonepile when there is loot in the corpse?"* —
+        // and with particles it is not an overlay at all: the motes simply leave the pile.
+        //
+        // **No new protocol field.** `corpseViewOf` already sends `appearance.corpseModelFor(looted)`,
+        // so the stem *is* the answer: `bonepile` is a body worth searching and `bonepile_looted` is
+        // one picked clean. Derived from that function rather than written as a string, so the two
+        // cannot drift.
+        //
+        // Lifted off the top of the pile rather than emitted from the floor, because the pile would
+        // otherwise swallow the plume: `bonepile` is 0.409 m tall at a human's scale and
+        // `appearance.corpseScaleFor` is unbounded above — a dragon's is metres.
+        //
+        // Inside this branch, so a corpse whose mesh has not landed yet does **not** glint — the
+        // `continue` above already took it. That is a beat of nothing for the second before
+        // `PropsSet.load` resolves, and it is the right beat: a plume rising off empty ground would be
+        // the renderer promising a body it is not drawing.
+        if (object === CORPSE_HOLDING) this.glint?.emit(worldX, ground + GLINT_PILE_LIFT * scale, worldZ);
         continue;
       }
 
       // **A thing lying on the floor, and the last of the orange pills.** An `item`-kind view with no
       // `object:` model is a dropped sword, a spilled quiver or the room's own scatter pickup — the
       // three things `groundViewOf`, `pickupViewOf` and nothing else produce. Every one of them drew as
-      // an `other`-archetype capsule until now, which is the pill this branch exists to retire.
+      // an `other`-archetype capsule at M3, which is the pill this branch exists to retire.
       //
       // **Read after the object branch, and that ordering is load-bearing**: a corpse is `kind: 'item'`
       // too (`corpses.ts` and `ground.ts` share the tag deliberately — one image, no facing, no health
       // bar), and it already draws a bone pile. The branch above `continue`s on every corpse, including
       // the beat before the props manifest lands, so nothing reaches here that has a mesh of its own.
       //
-      // **The sparkle is uniform.** No scale, no tint, no second model — owner's ruling, and the
+      // **The glint is uniform.** No scale, no tint, no second model — owner's ruling, and the
       // reasoning is the game's rather than the renderer's: *"a MUD's tension is partly not knowing"*,
       // so nothing about an item may be legible before it is picked up. The one permitted variation is
-      // how long it has left, which is the fade below, and the one *non*-variation that still had to be
-      // broken up is the clip's phase — a room of items glinting on the same frame reads as machinery
-      // rather than as magic. See `sparkle.phaseOf`.
+      // how long it has left, which is the pair handed to `emit` below.
       if (body.view.kind === 'item') {
-        // Counted down whether or not there is a sparkle to show it on, so a rig acquired late (the
-        // pack lands, or the floor thins out below the cap) is already at the right rung.
+        // Counted down whether or not there is an emitter to spend it on, so an item that gets a slot
+        // late — the floor thins out below the cap — is already at the right brightness. It is also
+        // what makes the emitter *stable*: see {@link Body.rotMs}.
         if (body.rotMs !== undefined) body.rotMs -= seconds * 1000;
-        // Lazy, exactly as `objectMesh` is lazy and for the same reason: `PropsSet.load` is not
-        // awaited, so an item can be on the wire before its template exists. Answering nothing for a
-        // beat draws the capsule, which is M3's world and already-correct code.
-        //
-        // The template lookup is retried every frame and the *acquire* is not — see
-        // {@link Body.sparkleRefused}. A missing template resolves itself and moves no counter; a full
-        // cap does neither, so asking it again on the next frame is only a way to make the ledger lie.
-        if (!body.sparkle && !body.sparkleRefused) {
-          const template = this.props?.animated(LOOT_SPARKLE);
-          if (template) {
-            const rig = acquireSparkle(this.pool, template);
-            if (rig) {
-              rig.seed(id);
-              this.scene.add(rig.group);
-              body.sparkle = rig;
-            } else {
-              body.sparkleRefused = true;
-            }
-          }
-        }
-        const sparkle = body.sparkle;
-        if (sparkle) {
-          // On the ground rather than centred on it: the import's lowest vertex is at y = 0.002, so its
-          // origin is the floor. The corpse pile's rule, and the opposite of the capsule below.
-          sparkle.place(worldX, ground, worldZ);
-          sparkle.fade(sparkleFadeStep(body.rotMs, body.warnMs));
-          sparkle.update(seconds);
-          continue;
-        }
-        // …and if there was no rig — past `pool.SPARKLE_POOL_SIZE`, or before the import — this falls
-        // through to the capsule deliberately. See that cap for why the fallback is a visible pill
-        // rather than nothing at all.
+        // On the ground rather than centred on it: the plume rises out of the floor. `emit` answers
+        // false only past `GlintField.capacity` — 128 things on one floor — and that falls through to
+        // the capsule below deliberately. An orange pill at the back of such a pile is a worse-looking
+        // floor; an invisible sword is a lost sword, and the server has already decided this one is
+        // visible. See `glint.MAX_GLINT_EMITTERS`.
+        if (this.glint?.emit(worldX, ground, worldZ, body.rotMs, body.warnMs)) continue;
       }
 
       const creature = creatureLook(body.view.model);
@@ -691,6 +666,9 @@ export class EntityLayer {
     this.pool.finish(this.selfMesh);
     this.pool.finish(this.otherMesh);
     this.pool.finish(this.creatureMesh);
+    // The floor's one draw call, closed. On a frame where nothing was dropped, taken or corrected this
+    // is an integer comparison and no upload at all — every emitter compared equal on the way in.
+    this.glint?.commit();
     if (camera) this.plates?.advance(seconds, camera);
   }
 
@@ -735,15 +713,15 @@ export class EntityLayer {
   }
 
   private unequip(body: Body): void {
-    // The sparkle first and unconditionally: an item has no rig, so a `return` on `!body.rig` above
-    // this line would leak one skeleton per thing ever picked up off a floor.
-    if (body.sparkle) {
-      this.pool.releaseSparkle(body.sparkle);
-      body.sparkle = undefined;
-      body.rotMs = undefined;
-      body.warnMs = undefined;
-    }
-    body.sparkleRefused = undefined;
+    // The rot clock first and unconditionally: an item has no rig, so a `return` on `!body.rig` above
+    // this line would leave a stale deadline on a `Body` object that a resync could hand back.
+    //
+    // **Nothing is released to a pool here any more, and that is the point of the glint.** An emitter
+    // is not a resource — it is a slot the next `render` either fills or does not — so a thing picked
+    // up off the floor stops glinting because the loop stops offering it, one frame later. There is no
+    // free list, no cap arithmetic and no way to leak one.
+    body.rotMs = undefined;
+    body.warnMs = undefined;
     if (!body.rig) return;
     this.pool.releaseBody(stemOf(body.view.model ?? ''), body.rig);
     body.rig = undefined;
@@ -751,6 +729,16 @@ export class EntityLayer {
     body.lastZ = undefined;
   }
 }
+
+/**
+ * The stem the wire sends for a corpse that **still holds something** — `bonepile`.
+ *
+ * Derived from `appearance.corpseModelFor` rather than written as a string, because that function is
+ * the wire's own authority on the pair and a second copy of `'bonepile'` here would be a thing that
+ * could silently stop matching. Its twin `bonepile_looted` is deliberately not named at all: the only
+ * question this file asks is *does this body still glint*, and the answer is "is it this one".
+ */
+const CORPSE_HOLDING = corpseModelFor(false).slice(OBJECT_PREFIX.length);
 
 /**
  * The stem of an `object:` model, or nothing for anything else.

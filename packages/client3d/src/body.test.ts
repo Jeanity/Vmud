@@ -16,14 +16,15 @@ import { fileURLToPath } from 'node:url';
 
 import { PerspectiveCamera, Scene, Sprite, type Bone, type Mesh, type SkinnedMesh } from 'three';
 
-import { yawOf, type EntityView } from '@mygame/shared';
+import { corpseModelFor, yawOf, type EntityView } from '@mygame/shared';
 
 import { EntityLayer } from './entities.ts';
 
 import { acquireRig, type BodyRig } from './body.ts';
 import { CharacterSet } from './characters.ts';
 import { SELF_LAYER, WORLD_LAYER } from './lights.ts';
-import { BODY_POOL_SIZE, BODY_RIG_BYTES, SPARKLE_POOL_SIZE, ScenePool } from './pool.ts';
+import { GLINT_MOTES, GLINT_PILE_LIFT, GlintField, MAX_GLINT_EMITTERS } from './glint.ts';
+import { BODY_POOL_SIZE, BODY_RIG_BYTES, ScenePool } from './pool.ts';
 import { PropsSet } from './props.ts';
 import { MODEL_FORWARD_OFFSET } from './body.ts';
 
@@ -634,86 +635,146 @@ describe('a thing lying on the floor', () => {
     ...(rot ?? {}),
   });
 
-  it('draws a sparkle over an item and never over a corpse', () => {
-    // The branch order in `render`, which is the one thing here that could be quietly wrong: a corpse
+  /** A corpse as `corpses.corpseViewOf` sends it — the same `kind`, and a model that says which. */
+  const corpse = (id: number, looted: boolean, scale?: number): EntityView => ({
+    id,
+    kind: 'item',
+    name: 'the corpse of a kobold',
+    sprite: looted ? 'corpse_looted' : 'corpse',
+    x: 0,
+    y: 0,
+    facing: 'south',
+    model: corpseModelFor(looted),
+    ...(scale === undefined ? {} : { scale }),
+  });
+
+  /** The three-call frame `main.ts` runs, so a test never forgets to open the field. */
+  function frame(layer: EntityLayer, glint: GlintField, seconds: number): void {
+    glint.update(seconds);
+    layer.render(1 / 60, () => 0);
+  }
+
+  it('glints over an item and over a corpse that still holds something, and not over a picked one', () => {
+    // The branch order in `render`, which is the one thing here that could be quietly wrong. A corpse
     // is `kind: 'item'` too — `corpses.ts` and `ground.ts` share the tag deliberately — and it already
-    // draws a bone pile out of an `InstancedMesh`. A sparkle standing in a rib cage would be the
-    // renderer disagreeing with itself about what a body is.
+    // draws a bone pile out of an `InstancedMesh`, so the object branch has to `continue` before the
+    // item branch and emit on its own terms. The owner asked for both: *"is there anyway to overlay the
+    // sparkle and the bonepile when there is loot in the corpse?"*
     const pool = new ScenePool();
+    const glint = new GlintField();
+    const layer = new EntityLayer(new Scene(), pool, new CharacterSet(), undefined, glint);
     const props = new PropsSet();
     props.standIn(pool);
-    const layer = new EntityLayer(new Scene(), pool, new CharacterSet(), undefined, props);
 
     layer.upsert(dropped(-2_000_001));
-    layer.upsert({ ...dropped(-1_000_001), name: 'the corpse of a kobold', model: 'object:bonepile' });
-    layer.render(1 / 60, () => 0);
+    layer.upsert(corpse(-1_000_001, false));
+    layer.upsert(corpse(-1_000_002, true));
+    frame(layer, glint, 1);
 
-    assert.equal(pool.snapshot().sparklesLive, 1, 'one item on the floor should be one sparkle');
-    assert.equal(pool.snapshot().sparklesCreated, 1);
+    // Two emitters: the dagger and the unlooted body. The looted one is picked clean and says so by
+    // its model, which is the whole of the wire change this needed — none.
+    assert.equal(glint.emitters, 2);
+    assert.equal(glint.drawn, 2 * GLINT_MOTES, 'one draw call, two plumes of motes');
     pool.dispose();
+    glint.dispose();
   });
 
-  it('gives the sparkle back when the thing is picked up', () => {
-    // The leak this guards is specific: `unequip` used to return early on `!body.rig`, and an item has
-    // no rig — so every dagger ever picked up would have kept a skeleton.
+  it('lifts the corpse plume off the top of the pile, scaled to what died', () => {
+    // Emitted from the floor, a glint would be *inside* a bone pile: `bonepile` is 0.409 m tall at a
+    // human's scale and `appearance.corpseScaleFor` is unbounded above, so a dragon's would swallow it
+    // whole. The lift is the authored height times the corpse's own scale — read off the buffer,
+    // because the y is the only thing about an emitter that is not obvious.
     const pool = new ScenePool();
-    const props = new PropsSet();
-    props.standIn(pool);
-    const layer = new EntityLayer(new Scene(), pool, new CharacterSet(), undefined, props);
+    const glint = new GlintField();
+    const layer = new EntityLayer(new Scene(), pool, new CharacterSet(), undefined, glint);
+    // The pile has to be registered, because the corpse emits from inside the branch that draws it —
+    // see `entities.render`. A body whose mesh has not arrived does not glint, which is the beat
+    // before `PropsSet.load` resolves and is right: a plume rising off nothing at all is worse.
+    new PropsSet().standIn(pool);
+
+    layer.upsert(corpse(-1_000_003, false, 2.75));
+    frame(layer, glint, 1);
+    assert.equal(glint.emitters, 1);
+    // 0.409 x 2.75 = 1.12475 m. Compared with a tolerance because the buffer is a `Float32Array` and
+    // the product is not exactly representable in it — the same reason `GLINT_CLOCK_SLACK` exists.
+    assert.ok(
+      Math.abs(glint.originAt(0)[1] - GLINT_PILE_LIFT * 2.75) < 1e-6,
+      `a hill giant should glint above its own ribs, not at ${glint.originAt(0)[1]}`,
+    );
+
+    // A dropped thing has nothing to hide it, so it emits from the floor itself.
+    layer.clear(false);
+    layer.upsert(dropped(-2_000_006));
+    frame(layer, glint, 2);
+    assert.equal(glint.originAt(0)[1], 0);
+    pool.dispose();
+    glint.dispose();
+  });
+
+  it('stops glinting the moment the thing is picked up, with nothing to give back', () => {
+    // The leak this used to guard was specific — `unequip` returned early on `!body.rig`, and an item
+    // has no rig, so every dagger ever picked up kept a skeleton. With the glint there is no resource
+    // at all: the emitter simply stops being offered, and the field's own count follows one frame
+    // later. That is the property, and it is stronger than the one it replaces.
+    const pool = new ScenePool();
+    const glint = new GlintField();
+    const layer = new EntityLayer(new Scene(), pool, new CharacterSet(), undefined, glint);
 
     layer.upsert(dropped(-2_000_002));
-    layer.render(1 / 60, () => 0);
-    assert.equal(pool.snapshot().sparklesLive, 1);
+    frame(layer, glint, 1);
+    assert.equal(glint.emitters, 1);
     layer.remove(-2_000_002);
-    assert.equal(pool.snapshot().sparklesLive, 0);
-    assert.equal(pool.snapshot().sparklesFree, 1);
+    frame(layer, glint, 2);
+    assert.equal(glint.emitters, 0);
+    assert.equal(glint.drawn, 0);
 
-    // …and off the free list on the next drop, rather than minted again.
-    layer.upsert(dropped(-2_000_003));
-    layer.render(1 / 60, () => 0);
-    assert.equal(pool.snapshot().sparklesCreated, 1, 'the return should have come off the free list');
     // A Place change takes the floor with it, exactly as it takes the bodies.
+    layer.upsert(dropped(-2_000_003));
+    frame(layer, glint, 3);
+    assert.equal(glint.emitters, 1);
     layer.clear(false);
-    assert.equal(pool.snapshot().sparklesLive, 0);
+    frame(layer, glint, 4);
+    assert.equal(glint.emitters, 0);
     pool.dispose();
+    glint.dispose();
   });
 
-  it('draws the capsule while the props manifest has not landed, and the sparkle the moment it has', () => {
+  it('glints without waiting for the props manifest, which it no longer reads', () => {
     // `PropsSet.load` is not awaited (`main.ts`, the same argument the trees, the kit and the
-    // characters make), so an item can be on the wire before there is a template to clone. A beat of
-    // capsule is right; a throw inside a frame is not.
+    // characters make), and the retired sparkle drew a capsule for the beat before its template landed.
+    // A particle field has no template: `EntityLayer` was handed the props set for exactly one reason
+    // and no longer takes it at all, so an item glints on the first frame it exists.
     const pool = new ScenePool();
-    const props = new PropsSet();
-    const layer = new EntityLayer(new Scene(), pool, new CharacterSet(), undefined, props);
+    const glint = new GlintField();
+    const layer = new EntityLayer(new Scene(), pool, new CharacterSet(), undefined, glint);
     layer.upsert(dropped(-2_000_004));
-    layer.render(1 / 60, () => 0);
-    assert.equal(pool.snapshot().sparklesLive, 0, 'nothing is registered yet');
-
-    props.standIn(pool);
-    layer.render(1 / 60, () => 0);
-    assert.equal(pool.snapshot().sparklesLive, 1, 'the pack landed and the capsule did not become a glint');
-    // …and it does not re-acquire every frame after that.
-    layer.render(1 / 60, () => 0);
-    layer.render(1 / 60, () => 0);
-    assert.equal(pool.snapshot().sparklesCreated, 1);
+    frame(layer, glint, 1);
+    assert.equal(glint.emitters, 1, 'nothing has to load first');
     pool.dispose();
+    glint.dispose();
   });
 
   it('counts the rot clock down locally between the two messages the wire sends', () => {
     // A ground object is sent on `entityEnter` and corrected once, when `advanceGround` latches the
-    // warning. Everything between those is the client's own countdown — without it the sparkle would
-    // hold full strength for the whole minute and then jump, which is a blink rather than a fade.
+    // warning. Everything between those is the client's own countdown — without it the glint would hold
+    // full strength for the whole minute and then jump, which is a blink rather than a fade.
     const pool = new ScenePool();
-    const props = new PropsSet();
-    props.standIn(pool);
-    const layer = new EntityLayer(new Scene(), pool, new CharacterSet(), undefined, props);
+    const glint = new GlintField();
+    const layer = new EntityLayer(new Scene(), pool, new CharacterSet(), undefined, glint);
 
     layer.upsert(dropped(-2_000_005, { remainingMs: 40_000, warnAtMs: 60_000 }));
     // Ten seconds of frames. Nothing arrives on the wire; the number moves anyway.
-    for (let i = 0; i < 600; i++) layer.render(1 / 60, () => 0);
+    for (let i = 0; i < 600; i++) frame(layer, glint, 1 + i / 60);
     const drawn = layer.body(-2_000_005);
     assert.ok(drawn);
     assert.ok(drawn.rotMs !== undefined && drawn.rotMs < 30_100 && drawn.rotMs > 29_900, `${drawn.rotMs} ms left`);
+
+    // **And the emitter was written once, not six hundred times.** A countdown that keeps time and a
+    // clock that advances with it produce a *constant* absolute deadline, which is what makes a still
+    // floor free — see `glint.GLINT_CLOCK_SLACK`. Read off the buffer: `goneAt` is the field clock at
+    // the drop plus 40 s, and ten seconds of frames later it still is.
+    assert.ok(Math.abs(glint.lifeAt(0)[0] - 41) < 0.2, `the deadline drifted to ${glint.lifeAt(0)[0]}`);
+    assert.equal(glint.lifeAt(0)[1], 60, 'the warning span is the item own threshold, in seconds');
 
     // …and the server's own reading wins whenever one arrives. This is the `fading` correction, sent
     // once, at the moment `advanceGround` latches the item's `warned` flag.
@@ -728,36 +789,33 @@ describe('a thing lying on the floor', () => {
     assert.equal(layer.body(-2_000_005)?.rotMs, 60_000);
     assert.equal(layer.body(-2_000_005)?.warnMs, 60_000);
     pool.dispose();
+    glint.dispose();
   });
 
-  it('falls back to the capsule past the sparkle cap rather than drawing nothing', () => {
-    // The owner's floor can hold more than `SPARKLE_POOL_SIZE` things — a decaying container spills
+  it('falls back to the capsule past the emitter cap rather than drawing nothing', () => {
+    // The owner's floor can hold more than `MAX_GLINT_EMITTERS` things — a decaying container spills
     // one entry per *unit* it held and nothing refuses it. Past the cap the item goes back to being a
     // pill, which is a worse-looking floor; drawing nothing would be a *lost sword*, and the server has
     // already decided this thing is visible. See that constant.
     const pool = new ScenePool();
-    const props = new PropsSet();
-    props.standIn(pool);
-    const layer = new EntityLayer(new Scene(), pool, new CharacterSet(), undefined, props);
-    for (let i = 0; i <= SPARKLE_POOL_SIZE; i++) layer.upsert(dropped(-2_000_100 - i));
-    layer.render(1 / 60, () => 0);
-    const ledger = pool.snapshot();
-    assert.equal(ledger.sparklesLive, SPARKLE_POOL_SIZE);
-    assert.equal(ledger.sparklesRefused, 1, 'the cap did not hold');
-    assert.equal(layer.count, SPARKLE_POOL_SIZE + 1, 'the refused item must still be a drawn entity');
-    // **Once, not once a frame.** The acquire happens inside `render`, so without the latch a floor
-    // past the cap would add sixty refusals a second and turn the one counter that says "something
-    // went without" into a frame counter. Sixty more frames, same number.
-    for (let i = 0; i < 60; i++) layer.render(1 / 60, () => 0);
-    assert.equal(pool.snapshot().sparklesRefused, 1, 'the refusal counter is counting frames');
-    // …and an update is a reason to try again, which is `equip`'s own rule for a body that arrived
-    // before its pack. Room made by a pickup, then a resync, and the item takes the free rig.
+    const glint = new GlintField();
+    const layer = new EntityLayer(new Scene(), pool, new CharacterSet(), undefined, glint);
+    for (let i = 0; i <= MAX_GLINT_EMITTERS; i++) layer.upsert(dropped(-2_000_100 - i));
+    frame(layer, glint, 1);
+    assert.equal(glint.emitters, MAX_GLINT_EMITTERS, 'the cap did not hold');
+    assert.equal(layer.count, MAX_GLINT_EMITTERS + 1, 'the refused item must still be a drawn entity');
+    // **And the refusal costs nothing and latches nothing**, which is the difference from the rig this
+    // replaced: that one had to remember it had been turned down or its refusal counter became a frame
+    // counter. Sixty more frames, same numbers, no state anywhere.
+    for (let i = 0; i < 60; i++) frame(layer, glint, 2 + i / 60);
+    assert.equal(glint.emitters, MAX_GLINT_EMITTERS);
+    // Room made by a pickup, and the next frame simply fills the slot. No retry rule, no resync needed.
     layer.remove(-2_000_100);
-    layer.upsert(dropped(-2_000_100 - SPARKLE_POOL_SIZE));
-    layer.render(1 / 60, () => 0);
-    assert.equal(pool.snapshot().sparklesLive, SPARKLE_POOL_SIZE);
-    assert.equal(pool.snapshot().sparklesRefused, 1, 'it should have come off the free list, not asked again');
+    frame(layer, glint, 3);
+    assert.equal(glint.emitters, MAX_GLINT_EMITTERS, 'the freed slot went to the item that had none');
+    assert.equal(layer.count, MAX_GLINT_EMITTERS);
     pool.dispose();
+    glint.dispose();
   });
 });
 

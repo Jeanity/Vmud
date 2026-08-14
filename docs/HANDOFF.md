@@ -453,6 +453,118 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
+### Start here — 2026-08-14: loot glints, and the mesh sparkle is retired
+
+**Read this block, then stop.** Everything below it is earlier state, kept for the reasoning.
+
+**The owner's idea, and it beat what had shipped the night before:** *"you know how we got rain and
+snow, which means we have particle animation so why couldn't we come up with a sparkly golden
+particle flickering up from the ground for loot?"* Commit `a7708d2` drew a **rigged 420-triangle
+mesh** over every thing on a floor — a 7-joint `Skeleton` and an `AnimationMixer` each, capped at 41,
+past which the item went back to being an orange pill. `packages/client3d/src/glint.ts` replaces it
+with a particle field: **one `InstancedBufferGeometry`, one `ShaderMaterial`, one draw call for every
+glint in the room**, on `rain.ts`'s and `snow.ts`'s terms exactly — buffers allocated in the
+constructor and never reallocated, seeds hashed once through `hashCell`, `frustumCulled` off,
+`matrixAutoUpdate` off, no shadows, `renderOrder` **12** (rain is 10, snow 11). Additive, because a
+glint is light rather than confetti.
+
+**The counts, and the arithmetic.** `MAX_GLINT_EMITTERS = 128`, `GLINT_MOTES = 24`, so 3,072
+instances of `(4 + 3 + 2)` floats — **110,652 B, allocated once**, against the rain's 96 KB and the
+snow's 288 KB. The measured worst floor this world can build is **59**:
+
+```
+  20  the fullest floor in the built world — data/world/spawns/113.json, room 41994
++ 20  one player's whole bag put down on it (inventory.STARTING_CAPACITY, one `drop` per command)
++  1  the room's own deterministic scatter pickup
++ 14  the fullest reset room's whole population, killed and unlooted   <- new: corpses emit now
++  4  a full group of players' own corpses
+= 59
+```
+
+128 is that doubled and rounded to a power of two, and the generosity is free: the field costs the
+same 110,652 B whether one mote is drawn or all of them, so the cap only bounds a buffer — no
+skeleton, no free list, no per-emitter object, no second draw call. It buys headroom for the two
+spill paths the server still has no refusal in front of (a decaying container spills one ground entry
+per *unit* it held; a decaying player corpse spills `loose(inventory)`). **Past 128 an item draws the
+capsule again**, deliberately — an invisible sword is a lost sword.
+
+**A corpse with loot in it glints, and it needed no protocol change at all.** `corpseViewOf` already
+sends `appearance.corpseModelFor(looted)`, so the model stem *is* the answer: `object:bonepile` emits
+and `object:bonepile_looted` does not. The plume is lifted by `GLINT_PILE_LIFT` (0.409 m, the
+authored pile height, held against `manifest.json` by a test) times the corpse's own scale, or a
+dragon's carcass would swallow it whole.
+
+**The rot fade is a slope now, not eight rungs.** `EntityView.remainingMs`/`warnAtMs` become an
+absolute deadline on the field's own clock inside `GlintField.emit`, and the shader ramps `1 -> 0.30`
+across the warning. The 0.30 floor is the retired ladder's number and its argument: the item can still
+be picked up right up to the moment the server deletes it.
+
+**A frame whose floor has not changed does no work at all** — and that is asserted, not hoped for.
+`emit` compares the five floats it is about to write and returns having touched nothing when they
+agree; because `entities.ts` counts the rot clock down locally and the field's clock advances with it,
+the derived deadline is a *constant*, so a hundred frames of a still floor upload nothing.
+`GLINT_CLOCK_SLACK` (0.1 s) absorbs float32 representation at `performance.now()/1000` magnitudes and
+nothing else.
+
+**The one thing weather never needed: an angular floor on the mote size.** Loot is room-only, so it is
+never more than ~12 m from the *character* — but `dolly.DEFAULT_POSE` puts the camera **36 m** back
+and its ceiling is 96, where a 0.016-unit mote is 1.5 px and shimmers into aliasing. `size =
+max(uSize, uMinAngle * depth)`: the two cross at **14.5 m**, and past it a mote holds a constant
+**3.4 px** at 800 px of viewport. Measured across the envelope — 16.3 px at 3 m, 4.1 px at 12 m,
+3.4 px from 24 m out, with the plume itself still shrinking (83 px tall at 12 m, 28 at 36, 10 at 96),
+so a distant glint is a small twinkling cluster rather than a full-size effect stamped on the horizon.
+
+**What was retired**, all of it: `packages/client3d/src/sparkle.ts`; `pool.SPARKLE_POOL_SIZE`,
+`SPARKLE_RIG_BYTES`, `acquireSparkle`/`releaseSparkle`, the sparkle free list and its six ledger
+counters — **bodies are once again the pool's only per-entity family**; the eight-rung fade ladder in
+`prototypes.ts` and its material branch in `pool.ts`; the item branch in `entities.ts`. `EntityLayer`
+no longer takes a `PropsSet` at all (it was handed one for the sparkle template and nothing else) and
+takes a `GlintField` in that slot.
+
+**`prototypes.ANIMATED_MODELS` is now empty and kept.** The animated-object *category* stays whole —
+`modelgen.buildAnimatedObject` is untouched, `props.ts` keeps `AnimatedTemplate`, `registerAnimated`,
+`mergeShared` and `SPARKLE_JOINTS`, and `props.test.ts` still holds the import against the glTF on
+disk, because that is the only proof the category works and the next rigged prop will need it.
+**`assets/props/loot_sparkle/` and `public/models/props/loot_sparkle/` are now unused-but-kept**: the
+client no longer fetches, registers or draws them. Putting a rigged model back is one string in that
+array.
+
+**The ledger went down, and by exactly the amount the sparkle had put on it.** `traversal.test.ts`
+pins **59,641,286** — `-6,074` from 59,647,360, which is the loot-sparkle row reversed: `-186` of
+stand-in geometry and `-5,888` of four churned rigs at 1,472 B. That is the figure the *corpses* row
+left behind, so the renderer is byte-for-byte back where it was before the mesh glint existed. The
+glint's own 110,652 B is **not** on that ledger and should not be: like the rain's and the snow's, its
+geometry is built in a constructor and never registered with the pool. `materials` goes 328 -> 320
+(the eight rungs).
+
+**The program count, honestly.** `pool.programKeys()` still reports **9** and the traversal test still
+asserts 9 — removing the ladder frees nothing, because it rode the *character* recipe precisely so it
+would compile nothing of its own. The glint adds **one real compiled program** in a browser, and
+`programKeys` cannot see it: it enumerates the pool's materials, and a `ShaderMaterial` built outside
+the pool has never been in that count. So the browser is now **one further above the pool's number**
+than it was — the same arithmetic the rain and the snow have always had. (Task #54's separate
+under-report of three is untouched; `programKeys` was not restructured.)
+
+**Suite: 3,109 green, 0 failed, 0 skipped** with all three kit env vars — up 10 from 3,099
+(`glint.test.ts` is 14 new, six sparkle tests retired, one manifest test added, one entity-layer test
+added).
+
+**Not done, named plainly:**
+
+- **Nobody has looked at it in a browser.** No Vite dev server was running on 5280 and this session
+  was told not to start one, so the look is *computed* rather than seen: a JS mirror of the vertex
+  program says the plume spans 0.008–0.623 m over a 0.19 m radius, 22.1 of 24 motes are lit at any
+  instant with **no dark frames**, the heights are even floor-to-top, and a peak mote lifts the pixel
+  behind it by (127, 103, 46) of 255. Those are the numbers a first eyes-on should be checking against.
+- **A corpse's glint never dims.** `corpseViewOf` sends no `remainingMs`/`warnAtMs` — corpses have
+  their own decay clock and their own two meshes — so an unlooted body glints at full strength until
+  it is looted (model swap) or decays (`entityLeave`). Deliberate, and the same rule the wire's own
+  docblock already stated; adding the pair to `corpseViewOf` is the whole fix if it ever reads wrong.
+- **A corpse whose mesh has not loaded does not glint**, because the emit sits inside the branch that
+  draws the pile. One beat, until `PropsSet.load` resolves. A dropped *item* has no such wait.
+- **`look loot`** — the command that names what is glinting — is still unbuilt. It was always the
+  other half of the uniform-glint design.
+
 ### Start here — 2026-08-13, third day: the world stops being one size, and things die properly
 
 **Read this block, then stop.** Everything below it is earlier state, kept for the reasoning.
@@ -554,12 +666,13 @@ which primitive got there last.
   of the same 3.1227 m wall module** — and the module is placed by a single `push` at `y: elevation`
   with `sy: 1`, so stacking is a loop, not a redesign. `roomScene-overrides.ts` looks like the right
   home and is **not**: its own header says nothing reads it yet.
-- **Dropped loot is still a capsule, and the asset for it is already on disk.** The owner's design
-  (ruled 2026-08-13) retires the 16,421-catalogue-rows problem entirely: **one uniform sparkle**, a
-  `look loot` command to name what is glinting, and a fade as it rots. Uniform was ruled explicitly —
-  nothing about an item is legible before it is picked up. Decay is **already built**
-  (`ground.ts`, 10 min with a 60 s warning), so the sparkle has something real to fade against.
-  `assets/props/loot_sparkle/` is authored and measured. **Task #50 carries the whole design.**
+- **Dropped loot glints, as of 2026-08-14 — see the top block.** The owner's design (ruled
+  2026-08-13) retired the 16,421-catalogue-rows problem entirely: **one uniform glint**, a `look loot`
+  command to name what is glinting, and a fade as it rots. Uniform was ruled explicitly — nothing about
+  an item is legible before it is picked up. Decay was **already built** (`ground.ts`, 10 min with a
+  60 s warning), so the fade has something real to work against. Built twice: as a rigged mesh
+  (`a7708d2`) and then, on the owner's better idea, as a particle field (`glint.ts`). **`look loot` is
+  the piece still outstanding.**
 - **There is now a third asset category and it does not exist yet: an *animated object*.**
   `modelgen.buildObject` **drops the skin**, which is right for the bone piles (21 joints, zero clips,
   a tool artefact) and catastrophic for the sparkle, whose five glint bones each tumble on their own

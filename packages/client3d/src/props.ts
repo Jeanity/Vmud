@@ -36,10 +36,8 @@ import {
   OBJECT_MODELS,
   PROPS_MODELS,
   PROPS_PARTS,
-  SPARKLE_FADE_STEPS,
   propsGeometryKey,
   propsMaterialKey,
-  sparkleMaterialKey,
 } from './prototypes.ts';
 
 /* -------------------------------------------------------------------------- */
@@ -82,9 +80,9 @@ export interface PropsModelEntry {
    * split this field is the wire form of.
    */
   readonly kind?: 'animated';
-  /** The vendor-shaped stem, for a model that has one. `Loot_sparkle`. */
+  /** The vendor-shaped stem, for a model that has one. `Loot_sparkle` was the first. */
   readonly stem?: string;
-  /** Joints in its skin. Seven for the sparkle, which is what `pool.SPARKLE_RIG_BYTES` is sized from. */
+  /** Joints in its skin. Seven for the retired loot sparkle. */
   readonly joints?: number;
   /** Its own clips, which travel inside its own file. `characters.CharacterModelEntry.clips`' twin. */
   readonly clips?: readonly PropsClipEntry[];
@@ -118,7 +116,7 @@ export const PROPS_MANIFEST_PATH = 'models/props/manifest.json';
 /* -------------------------------------------------------------------------- */
 
 /**
- * What a rigged object is, once — the thing {@link sparkle.SparkleRig} is cloned from.
+ * What a rigged object is, once — the thing a per-entity rig is cloned from.
  *
  * `characters.BodyTemplate`'s small cousin, and short for the reason that one is long: a body template
  * carries a cullable skin, its per-vertex region labels, a head inverse for refitting hair and a
@@ -305,16 +303,10 @@ export class PropsSet {
       pool.registerGeometry(propsGeometryKey(part.model, part.texture), new BoxGeometry(1, 1, 1));
       this.ready.add(part.model);
     }
-    // **And the animated objects, which need a rig rather than a box.** `traversal.test.ts` has to
-    // churn sparkles for the reason it has to churn bodies: the ledger's second per-entity family is
-    // only worth asserting flat if something asked it for skeletons, and a floor is the one thing in
-    // this renderer that can hold forty of them. What a stand-in must be is *registered*, with a real
-    // seven-bone hierarchy under the real joint names — the thing under test is the pool's accounting
-    // and the rig's assembly, not the import's vertices.
-    //
-    // The loop is over the list and the armature is the sparkle's, which is honest while the list has
-    // one entry and is the line to split the day it has two — the same note `pool.sparkleFree` carries
-    // about being one list rather than a map.
+    // **And the animated objects, which need a rig rather than a box** — a real hierarchy under the
+    // real joint names, because what a stand-in has to be is *bindable*. The loop is over the list and
+    // the armature is {@link SPARKLE_JOINTS}, which is honest while the list is empty or holds the one
+    // model that armature belongs to, and is the line to split the day it holds two.
     for (const model of ANIMATED_MODELS) {
       const key = propsGeometryKey(model, model);
       pool.registerGeometry(key, standInGeometry());
@@ -325,8 +317,7 @@ export class PropsSet {
         boneInverses: bones.map(() => new Matrix4()),
         geometry: key,
         // Empty, and that is the honest headless shape: there is no `AnimationClip` without a file to
-        // read one out of. `AnimationMixer` with nothing playing still advances, so the churn exercises
-        // every line of `SparkleRig` bar the one that finds a clip.
+        // read one out of.
         clips: new Map(),
         height: 0.418,
       });
@@ -404,14 +395,13 @@ function dressAll(pool: ScenePool): void {
     const texture = pool.texture(part.texture);
     if (texture) pool.dressKit(propsMaterialKey(part.texture), texture);
   }
-  // The animated objects, whose "atlas" is a 70-byte 1x1 white and whose material is not one key but
-  // eight — the fade ladder. Every rung is dressed, because a rung that kept the pool's placeholder
-  // would be the one frame of a ten-minute life where the sparkle changed picture as well as
-  // brightness. See `prototypes.SPARKLE_FADE_STEPS`.
+  // The animated objects would be dressed here, on `propsMaterialKey(model)` like the objects above.
+  // {@link ANIMATED_MODELS} is empty, so there is nothing to dress; the loop is kept as the seam the
+  // next rigged prop arrives through, and a model added to that list without a material key of its own
+  // would be a dress call against a material that does not exist.
   for (const model of ANIMATED_MODELS) {
     const texture = pool.texture(model);
-    if (!texture) continue;
-    for (let step = 0; step < SPARKLE_FADE_STEPS; step++) pool.dressKit(sparkleMaterialKey(step), texture);
+    if (texture) pool.dressKit(propsMaterialKey(model), texture);
   }
 }
 
@@ -423,8 +413,12 @@ function dressAll(pool: ScenePool): void {
  * The seven joints of the loot sparkle's armature, in skeleton order — **measured off the import**.
  *
  * `base` is the root the whole thing hangs from, `shaft` is the still column of light, and `g1`..`g5`
- * are the glints. Each of those five carries its own independent 25-key rotation path in `Idle_Loop`,
- * which is the whole of the effect (see `sparkle.ts`).
+ * are the glints. Each of those five carries its own independent 25-key rotation path in `Idle_Loop`.
+ *
+ * **The model is no longer drawn** — `glint.ts` replaced it with a particle field, and
+ * `prototypes.ANIMATED_MODELS` is empty. This constant stays because it is the package's statement of
+ * what the one verified rigged import *is*: `props.test.ts` holds it against the glTF on disk, which
+ * is the check that keeps `modelgen.buildAnimatedObject` honest for the next rigged prop.
  *
  * Written down here rather than read from the file for `characters.CHURN_JOINTS`' reason: this is the
  * package's own statement of what the armature is, and `props.test.ts` holds it against the glTF on

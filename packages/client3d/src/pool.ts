@@ -138,8 +138,6 @@ import {
   kitRoleOf,
   materialFamily,
   materialKey,
-  sparkleFadeColour,
-  sparkleFadeOf,
   villageRoleOf,
   wallTextureOf,
   type Archetype,
@@ -446,64 +444,19 @@ export const BODY_POOL_SIZE = 24;
 export const BODY_RIG_BYTES = 65 * 16 * Float32Array.BYTES_PER_ELEMENT + 20 * 20 * 4 * Float32Array.BYTES_PER_ELEMENT;
 
 /**
- * How many **loot sparkles** may exist at once — the pool's second per-entity family.
+ * There is no second per-entity family, and the reason is worth keeping.
  *
- * ## Why it is a second family rather than more of the first
+ * From `a7708d2` to the glint this file held one: `SPARKLE_POOL_SIZE = 41` skeletons, one per thing
+ * lying on a floor, because the loot sparkle was a rigged 420-triangle mesh and a `SkinnedMesh` cannot
+ * ride an `InstancedMesh` — skinning reads a per-mesh bone texture, so two instances of one skinned
+ * mesh are one pose drawn twice. That made a floor the only place in this renderer that could ask for
+ * forty skeletons, and it needed a cap, a free list, a refusal counter and a capsule fallback.
  *
- * A sparkle is a `SkinnedMesh` for {@link BODY_POOL_SIZE}'s reason exactly — skinning reads a per-mesh
- * bone texture, so two instances of one skinned mesh are two copies of one pose, and five glint bones
- * on independent 25-key paths *are* the effect. But it must not come off the body cap: a floor with
- * thirty things on it would then draw the people standing over them as grey pills, which is the wrong
- * thing to spend a skeleton on and exactly the failure the body cap exists to avoid.
- *
- * ## The number, and the world it was measured against
- *
- * Items are the one entity class interest management keeps **strictly to the observer's own room** —
- * `index.visibleEntities` widens *bodies* one open crossing out and deliberately does not widen the
- * floor (its own header says so). So the question is only "how much can lie on one floor".
- *
- * The server has **no cap on that at all** — no constant, no refusal, no per-room sweep; `dropSpotNear`
- * spaces drops a tile apart for twelve attempts and then gives up and stacks. So this is a measured sum
- * rather than a bound read off the simulation:
- *
- * ```
- *   20  the fullest floor in the built world — data/world/spawns/113.json, room 41994, twenty `O`
- *       resets of vnum 821 (`some nightshade`), every one placed at the room centre
- * + 20  one player's whole bag put down on top of it — `inventory.STARTING_CAPACITY`, and `drop`
- *       takes one item per command, so this is twenty deliberate acts
- * +  1  the room's own deterministic scatter pickup; `pickups.pickupInRoom` returns at most one
- * = 41
- * ```
- *
- * Corpses are **not** in that sum, and it is worth saying why: a corpse is also `kind: 'item'` on the
- * wire, but since `b3e44bb` it draws a bone pile out of an `InstancedMesh` and never asks for a rig.
- * The fourteen bodies of the world's busiest reset room cost this family nothing.
- *
- * ## What is past it, and what happens there
- *
- * Two paths can exceed 41 in a single tick and neither has a refusal in front of it: a decaying
- * container spills one ground entry per *unit* it held (a quiver of twenty arrows becomes twenty), and
- * a decaying player corpse spills `loose(inventory)` — reachable in the hundreds when the bag is full
- * of missiles. **Over the cap an item draws as the capsule again**, which is the same trade
- * {@link BODY_POOL_SIZE} makes and the same reason: a performance bound, not a correctness one.
- *
- * The capsule and not *nothing*, deliberately. The server has already decided this item is visible —
- * it passed the lit-tile gate and the `hidden` filter — and a renderer that answered that by drawing
- * nothing would hide a thing the player can walk over and `get`, which is the one failure the whole
- * `search`/`ITEM_SECRET` split exists to keep the server in charge of. An orange pill at the back of a
- * pile of forty-two is a worse-looking floor; an invisible sword is a lost sword.
- *
- * ## What one costs
- *
- * Seven joints, so `7 x 16` floats of `boneMatrices` = 448 B, and three sizes the bone texture at
- * `ceil(sqrt(7 x 4) / 4) x 4 = 8`, so 8 x 8 RGBA float = 1,024 B. **1,472 B a rig, 60,352 B across the
- * cap** — 13.9% of a body's 10,560 B and a quarter of one percent of the pool's instance buffers.
- * Geometry and materials are shared and already on the ledger.
+ * `glint.ts` retires all of it: the floor is now one `InstancedBufferGeometry` outside this pool, one
+ * draw call for every glint in the room, with the buffers allocated once and never reallocated —
+ * `rain.ts`'s and `snow.ts`'s terms exactly. **Bodies are again the only per-entity allocation
+ * family**, which is what {@link BODY_POOL_SIZE} says and now says alone.
  */
-export const SPARKLE_POOL_SIZE = 41;
-
-/** `7 x 16` floats of `boneMatrices` plus an `8 x 8` RGBA-float bone texture. See {@link SPARKLE_POOL_SIZE}. */
-export const SPARKLE_RIG_BYTES = 7 * 16 * Float32Array.BYTES_PER_ELEMENT + 8 * 8 * 4 * Float32Array.BYTES_PER_ELEMENT;
 
 /**
  * `marker.ts` takes one and never gives it back — the destination ring click-to-move drops under the
@@ -630,22 +583,6 @@ export interface LedgerSnapshot {
   readonly rigsRefused: number;
   /** `rigsCreated x BODY_RIG_BYTES`, folded into {@link bytes}. */
   readonly rigBytes: number;
-  /**
-   * Loot-sparkle rigs minted, ever — **the third leak indicator**, read exactly as {@link rigsCreated}
-   * is: it climbs off zero over the first crowded floor and then stops.
-   *
-   * Its own counters rather than more of the body's, for {@link SPARKLE_POOL_SIZE}'s reason: the two
-   * families have different caps, different costs and different failure modes, and a single number
-   * would let a floor full of daggers push the people standing over it back to capsules.
-   */
-  readonly sparklesCreated: number;
-  readonly sparklesLive: number;
-  readonly sparklesFree: number;
-  readonly sparkleHighWater: number;
-  /** Items handed a capsule because the cap was full. Meant to stay at zero; see the cap. */
-  readonly sparklesRefused: number;
-  /** `sparklesCreated x SPARKLE_RIG_BYTES`, folded into {@link bytes}. */
-  readonly sparkleBytes: number;
 }
 
 interface LedgerState {
@@ -661,10 +598,6 @@ interface LedgerState {
   rigsLive: number;
   rigHighWater: number;
   rigsRefused: number;
-  sparklesCreated: number;
-  sparklesLive: number;
-  sparkleHighWater: number;
-  sparklesRefused: number;
 }
 
 /**
@@ -960,17 +893,6 @@ export class ScenePool {
   private readonly rigFree = new Map<string, PooledRig[]>();
   /** Every rig ever minted, live or free, so teardown reaches the ones on loan. */
   private readonly rigsAll = new Set<PooledRig>();
-  /**
-   * The sparkles' free list — **one list, not a map**, and that is the whole difference from
-   * {@link rigFree}.
-   *
-   * A body's list is keyed by base model because a male rig and a female rig bind different bones. The
-   * animated objects are one model with one armature ({@link prototypes.ANIMATED_MODELS}), so keying
-   * would be a map that never has a second entry. If a second animated object is ever imported this is
-   * the line that becomes a `Map`.
-   */
-  private readonly sparkleFree: PooledRig[] = [];
-  private readonly sparklesAll = new Set<PooledRig>();
   private readonly state: LedgerState = {
     geometries: 0,
     materials: 0,
@@ -984,10 +906,6 @@ export class ScenePool {
     rigsLive: 0,
     rigHighWater: 0,
     rigsRefused: 0,
-    sparklesCreated: 0,
-    sparklesLive: 0,
-    sparkleHighWater: 0,
-    sparklesRefused: 0,
   };
 
   constructor() {
@@ -1090,34 +1008,6 @@ export class ScenePool {
 
     if (family === 'water') return createWaterMaterial(this.wind, this.water, colour, key, this.warp);
     if (family === 'puddle') return createPuddleMaterial(this.wind, this.wet, colour, key);
-
-    // **The loot sparkle's fade ladder, and it is filed under `character` on purpose.**
-    //
-    // Read *before* the archetype branches because its key says `props|` and its recipe does not. A
-    // sparkle is a `SkinnedMesh` (`sparkle.ts`), and `USE_SKINNING` is an **object**-level define in
-    // three — so a props material worn by a skinned mesh would be a tenth compiled program however
-    // identical it looked to the barrel's. What it can share instead is the program the bodies already
-    // compiled: `MeshLambertMaterial` + `map` + `vertexColors` + `FrontSide` + no wetness patch +
-    // skinned, which is byte-identical GLSL. Hence the same `customProgramCacheKey` and the same
-    // `userData.skinned`, and hence **no new program at all** — asserted in `props.test.ts`.
-    //
-    // Not taking the wetness patch is right on its own merits rather than convenient: rain darkening a
-    // boulder is the effect working, and rain darkening a *glint of light* is a wet-look mask on the
-    // one thing in the frame that is not a surface. Same sentence the bodies make, one family over.
-    //
-    // The only thing that varies down the ladder is `color`, which is the `diffuse` uniform — the same
-    // channel that lets all 48 ground materials share one program. See `prototypes.SPARKLE_FADE_STEPS`
-    // for why the fade is a colour ladder and not an opacity one.
-    const sparkle = sparkleFadeOf(key);
-    if (sparkle !== undefined) {
-      const material = new MeshLambertMaterial({ color: sparkleFadeColour(sparkle) });
-      material.map = this.placeholder;
-      material.vertexColors = true;
-      material.side = FrontSide;
-      material.customProgramCacheKey = (): string => 'character';
-      material.userData['skinned'] = true;
-      return material;
-    }
 
     if (kind === 'character') {
       // **A body, a garment or a held prop — M7b, and the one thing in this renderer that does not
@@ -1665,46 +1555,6 @@ export class ScenePool {
     return rig;
   }
 
-  /* --------------------------------------------------------------- the loot sparkle */
-
-  /**
-   * A sparkle rig for one ground item — the body family's twin, with its own cap and its own counters.
-   *
-   * Refuses past {@link SPARKLE_POOL_SIZE} exactly as {@link acquireBody} refuses past the body cap,
-   * and for the same reason: the caller draws the capsule, which is already-correct code and costs the
-   * frame a great deal less than a forty-second skeleton. See the cap for the arithmetic, for the two
-   * spill paths that can exceed it in one tick, and for why the fallback is a capsule rather than
-   * nothing at all.
-   *
-   * `mint` is the caller's for `acquireBody`'s reason: this file counts what it hands out and does not
-   * need to know that a sparkle contains an `AnimationMixer`.
-   */
-  acquireSparkle(mint: () => PooledRig): PooledRig | undefined {
-    const reused = this.sparkleFree.pop();
-    if (!reused && this.state.sparklesLive >= SPARKLE_POOL_SIZE) {
-      this.state.sparklesRefused += 1;
-      return undefined;
-    }
-    let rig = reused;
-    if (!rig) {
-      rig = mint();
-      this.sparklesAll.add(rig);
-      this.state.sparklesCreated += 1;
-    }
-    this.state.sparklesLive += 1;
-    if (this.state.sparklesLive > this.state.sparkleHighWater) {
-      this.state.sparkleHighWater = this.state.sparklesLive;
-    }
-    return rig;
-  }
-
-  /** Hand a sparkle back. Nothing is disposed, for {@link releaseBody}'s reason. */
-  releaseSparkle(rig: PooledRig): void {
-    rig.park();
-    this.state.sparklesLive -= 1;
-    this.sparkleFree.push(rig);
-  }
-
   /** Hand a rig back. Nothing is disposed — that is the free list's whole point, here as everywhere. */
   releaseBody(model: string, rig: PooledRig): void {
     rig.park();
@@ -1859,16 +1709,9 @@ export class ScenePool {
   snapshot(): LedgerSnapshot {
     const instanceBytes = this.state.wrappersCreated * WRAPPER_BYTES;
     const rigBytes = this.state.rigsCreated * BODY_RIG_BYTES;
-    const sparkleBytes = this.state.sparklesCreated * SPARKLE_RIG_BYTES;
     let rigsFree = 0;
     for (const free of this.rigFree.values()) rigsFree += free.length;
     return {
-      sparklesCreated: this.state.sparklesCreated,
-      sparklesLive: this.state.sparklesLive,
-      sparklesFree: this.sparkleFree.length,
-      sparkleHighWater: this.state.sparkleHighWater,
-      sparklesRefused: this.state.sparklesRefused,
-      sparkleBytes,
       rigsCreated: this.state.rigsCreated,
       rigsLive: this.state.rigsLive,
       rigsFree,
@@ -1886,7 +1729,7 @@ export class ScenePool {
       releases: this.state.releases,
       geometryBytes: this.state.geometryBytes,
       instanceBytes,
-      bytes: this.state.geometryBytes + instanceBytes + rigBytes + sparkleBytes,
+      bytes: this.state.geometryBytes + instanceBytes + rigBytes,
       blendWrappers: this.blendWrappers.size,
       programs: this.programKeys().size,
       depthProgramCount: this.depthPrograms().size,
@@ -1909,11 +1752,6 @@ export class ScenePool {
     for (const rig of this.rigsAll) rig.dispose();
     this.rigsAll.clear();
     this.rigFree.clear();
-    // The sparkles own a bone texture each on exactly the same terms, and are walked over `sparklesAll`
-    // for exactly the same reason: a hot reload catches the ones standing over a floor full of loot.
-    for (const rig of this.sparklesAll) rig.dispose();
-    this.sparklesAll.clear();
-    this.sparkleFree.length = 0;
     for (const mesh of this.free) mesh.dispose();
     this.free.length = 0;
     // A blend wrapper owns its geometry, and `InstancedMesh.dispose` only releases `instanceMatrix`
