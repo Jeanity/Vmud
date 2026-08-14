@@ -457,6 +457,50 @@ file stays the answer to *where things stand*.
 
 **Read this block, then stop.** Everything below it is earlier state, kept for the reasoning.
 
+**The day's other four slices, none of which are in the heading:**
+
+| | | |
+| --- | --- | --- |
+| `7aed948` | `npm run dev:3d` — the 3D world starts **without the 2D client** | it was never a runtime dependency; `dev:supervised` was just the only script that started the server |
+| `2b95c8f` | **character generation** in the 3D client | race → calling → roll, reroll, bonus spend, and `charAdopt`. No server code moved |
+| `bdcecab` | **protocol 32**: `checkName` / `nameChecked` | the name is judged at the step that asked for it, not after two more decisions |
+| `26c40f0` | click-to-move **stops circling** what you clicked | the route's only stall counter asked "did the body move?" |
+
+**The bug in `26c40f0` is worth reading even if you never touch pathing**, because it is the third
+time this exact shape has bitten: a stall counter that asks *"did it move?"* is blind to anything
+that moves without arriving. It welded kobolds to a room edge (`hunt.STALL_PROGRESS_PX`), and it made
+a player orbit whatever they clicked on — at full speed, forever, unable to steer out because an
+active route overrides steering. The cure both times is to judge on **new best distance** rather than
+on pixels travelled. If a fourth counter ever appears, ask it which question it is asking.
+
+**Two fixes are in flight in other sessions** and are not in this branch:
+
+- **task #53** — the 2D client takes its pending `enter` with no socket check, so a `charConfirm` that
+  dies with its socket enters a name that was never minted and the server spawns it identity-less.
+  The fix is written and tested next door in `client3d/login.ts`'s `takePendingEnter`.
+- **task #54** — `pool.programKeys()` under-reports by three: `transparent` is a real define in three
+  r185, so the `|dim` and `|open` twins each split their family. Do not restructure that function
+  while it is out.
+
+**Approved but not built — the owner's blood-spatter design (2026-08-15), and it needs two rulings
+before anyone starts.** `attackResolved` already carries `attacker`, `target`, `hit`, `critical`,
+`damage`, `natural` and a reason, and has since Phase 11, so this is **zero protocol change** exactly
+as the corpse glint was. It is `glint.ts`'s machinery with one real difference: a glint's emitters are
+*stable*, which is the whole reason an unchanged floor uploads nothing, whereas a spatter is a
+**burst** — a ring of slots with a start time, reclaimed by age. **Normal blending, not additive**;
+additive is how you draw light. `hit: false` must draw nothing at all, or every whiffed swing paints
+the floor.
+
+The two open questions:
+
+1. **Does the burst scale with the blow?** The loot glint is uniform because *"a MUD's tension is
+   partly not knowing"* — combat is the opposite case, and `critical` and `damage` are both already on
+   the message. I would scale it. The owner has not ruled.
+2. **What bleeds?** A skeleton spraying arterial red is wrong, and `race` is on every mob since
+   `a59cacf`, so Duris' own table can answer it — bone dust for the undead, chips for golems and
+   elementals, sap for plants and treants. Nearly free, because the race join already exists and is
+   already tested.
+
 **The owner's idea, and it beat what had shipped the night before:** *"you know how we got rain and
 snow, which means we have particle animation so why couldn't we come up with a sparkly golden
 particle flickering up from the ground for loot?"* Commit `a7708d2` drew a **rigged 420-triangle
