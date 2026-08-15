@@ -347,6 +347,7 @@ import {
   itemsIn,
   visibleItemsIn,
   nearestMatching,
+  stackRoomLines,
   takeItem,
   withinPickupReach,
   type Ground,
@@ -6430,6 +6431,19 @@ function lookAt(player: Player, argument: string): void {
     lookDirection(player, dir);
     return;
   }
+  // **`look sparkle`** — the other half of a bargain the renderer made. The 3D client draws a
+  // deliberately **uniform** glint over everything on the floor, because *"a MUD's tension is partly
+  // not knowing"* what you found; this is how you ask. Owner's words for the shape of the answer:
+  // *"Look sparkle = A longsword lays here or A leather cap has been discarded here."*
+  //
+  // Before containers and scenery, after directions — the same precedence `directionFrom` already
+  // takes, and for the same reason: a keyword the player typed to mean a *question* must not be
+  // shadowed by something in the room that happens to answer to it.
+  if (SPARKLE_WORDS.has(argument.trim().toLowerCase())) {
+    listGlints(player);
+    return;
+  }
+
   // Containers next, and it takes the argument whole: `look in quiver` is one request, not `look` at
   // something called "in quiver". It answers `look quiver` too when the quiver is a container, since
   // "what is in it" is the only interesting thing to say about one.
@@ -7978,6 +7992,64 @@ function placeResetObjects(outcome: {
  * name, bulk, armour, stacking — and deliberately not what only the catalogue knows: its Duris type, its
  * container rule, what it is worth in coin. Anything asking those questions comes through here.
  */
+/**
+ * What `look sparkle` answers to. `loot` because it was this feature's working name for a day and
+ * costs one entry; `floor` and `ground` because they are what a hand reaches for.
+ */
+const SPARKLE_WORDS: ReadonlySet<string> = new Set(['sparkle', 'sparkles', 'loot', 'floor', 'ground']);
+
+/**
+ * Name everything glinting in this room — **the prose is the builders' own and not a word of it is
+ * ours.**
+ *
+ * Every one of the catalogue's 16,421 rows carries a `roomLine`: Diku's third object string, the one
+ * shown when the thing is lying on the floor. *"A black blade lies here forgotten."* *"Someone have
+ * lost a sword here."* Measured 2026-08-15 — coverage is **100%**, so there was nothing to write and
+ * nothing to sweep for. The grammar is sometimes the builders' own and is kept: it is the MUD's
+ * voice, not a typo, and `read` and `look` already print their words untouched everywhere else.
+ *
+ * ## Three rules taken from `actinf.c:901`'s `list_obj_to_char`, not invented here
+ *
+ * 1. **Identical lines stack behind a `[N] ` count.** Twenty arrows on one floor is one line saying
+ *    so, which is the difference between a readable answer and a wall.
+ * 2. **`Nothing.` when there is nothing**, rather than silence — a command that says nothing at all
+ *    reads as a command that failed.
+ * 3. **Only what the character can actually see.** The source gates on `CAN_SEE_OBJ`; ours gates on
+ *    the same `observer.visible` tile set `visibleEntities` uses, so this cannot name a dagger lying
+ *    in a dark corner. A `look` that saw further than the eye would be a light-source exploit, and
+ *    the glint it is explaining is drawn under exactly that gate.
+ *
+ * Corpses are listed too, and first: `corpseName` already words them (*"the corpse of a kobold"*) and
+ * a body in the room is the thing you most want named. The client draws its glint from the same
+ * `looted` flag, so the two agree by construction.
+ */
+function listGlints(player: Player): void {
+  const grid = world.grid(player.place);
+  const lines: string[] = [];
+  if (grid) {
+    for (const corpse of corpsesIn(graveyard, player.roomId)) {
+      if (player.visible.has(tileIndexAt(grid, corpse.x, corpse.y))) {
+        // A body worth searching says so; a picked-clean one is still worth naming, because "there is
+        // nothing in it" is the answer to the question being asked.
+        lines.push(corpse.looted ? `${corpseName(corpse)} lies here, picked clean.` : `${corpseName(corpse)} lies here.`);
+      }
+    }
+    for (const entry of visibleItemsIn(ground, player.roomId)) {
+      if (!player.visible.has(tileIndexAt(grid, entry.x, entry.y))) continue;
+      const line = templateOf(entry.item)?.roomLine;
+      // The fallback is Duris' own idiom for an object with no room line, and it is the same sentence
+      // `item-authoring.ts:315` already builds for an authored item that never got one.
+      lines.push(line && line.trim() ? line : `${entry.item.name} is lying here.`);
+    }
+  }
+  if (lines.length === 0) {
+    send(player.id, { t: 'log', channel: 'room', text: 'Nothing.' });
+    return;
+  }
+  // Rule 1, and it lives in `ground.ts` because this file has no test that can reach it.
+  for (const line of stackRoomLines(lines)) send(player.id, { t: 'log', channel: 'room', text: line });
+}
+
 function templateOf(item: Item): ItemTemplate | undefined {
   const vnum = vnumOf(item);
   return vnum === undefined ? undefined : itemCatalogue.get(vnum);

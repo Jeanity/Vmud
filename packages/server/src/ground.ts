@@ -221,6 +221,40 @@ export function visibleItemsIn(ground: Ground, roomId: RoomId): GroundItem[] {
  * floor as well. Both, never one: `warnAtMs` is per item (`min(GROUND_WARN_MS, decayMs / 2)`), so a
  * client cannot assume the shipped minute. See `protocol.EntityView.remainingMs`.
  */
+/**
+ * Collapse consecutive identical floor lines behind a `[N] ` count — **`actinf.c:901`'s rule, not
+ * ours.**
+ *
+ * `list_obj_to_char` compares each line against the one before it and, when they match, counts
+ * instead of printing: twenty arrows on one floor become one line saying so. Without it a quiver
+ * spilled by a decaying container is twenty identical sentences and the answer is unreadable.
+ *
+ * **Consecutive rather than global, exactly as the source does it.** Sorting first would collapse
+ * more, and would throw away the floor's own order — which is information: what was dropped last
+ * lies on top, and `dropSpotNear` spaces things before it stacks them. A list that reordered the
+ * floor would describe a room nobody is standing in.
+ *
+ * Lives here rather than in `index.ts` because `index.ts` boots a listener and no test imports it;
+ * this is the half worth holding still, and `ground.test.ts` holds it.
+ */
+export function stackRoomLines(lines: readonly string[]): string[] {
+  if (lines.length === 0) return [];
+  const out: string[] = [];
+  let held = lines[0]!;
+  let count = 1;
+  for (const line of lines.slice(1)) {
+    if (line === held) {
+      count += 1;
+      continue;
+    }
+    out.push(count > 1 ? `[${count}] ${held}` : held);
+    held = line;
+    count = 1;
+  }
+  out.push(count > 1 ? `[${count}] ${held}` : held);
+  return out;
+}
+
 export function groundViewOf(entry: GroundItem, durisType?: number, isContainer = false, art?: string): EntityView {
   return {
     id: entry.id,

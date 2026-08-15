@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { beforeEach, describe, it } from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { TILE_SIZE, type Item, type Place, type RoomId } from '@mygame/shared';
 
@@ -17,7 +20,10 @@ import {
   takeItem,
   withinPickupReach,
   type Ground,
+  stackRoomLines,
 } from './ground.ts';
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 const PLACE: Place = { zone: 600, level: 0 };
 
@@ -311,5 +317,43 @@ describe('decay', () => {
     // object whose age this could be used to game. If `ground.ts` ever gains a save file, this is the
     // line to think about again.
     assert.equal(again.remainingMs, GROUND_DECAY_MS);
+  });
+});
+
+describe('naming what is glinting', () => {
+  it('collapses consecutive identical lines behind a count, and leaves the rest alone', () => {
+    // `actinf.c:901`'s rule. Twenty arrows spilled by a decaying container is one line saying so,
+    // not twenty sentences — and without it the answer to `look sparkle` is a wall of text.
+    const arrow = 'An arrow lies here.';
+    const sword = 'Someone have lost a sword here.';
+    assert.deepEqual(stackRoomLines([arrow, arrow, arrow]), [`[3] ${arrow}`]);
+    assert.deepEqual(stackRoomLines([sword]), [sword]);
+    assert.deepEqual(stackRoomLines([]), []);
+    assert.deepEqual(stackRoomLines([sword, arrow]), [sword, arrow]);
+  });
+
+  it('counts runs, not totals — the floor keeps its own order', () => {
+    // **Consecutive rather than global, deliberately.** Sorting first would collapse the two runs of
+    // arrows into one and would throw away what the floor is actually telling you: what was dropped
+    // last lies on top. The source counts runs and so does this.
+    const arrow = 'An arrow lies here.';
+    const sword = 'Someone have lost a sword here.';
+    assert.deepEqual(stackRoomLines([arrow, arrow, sword, arrow, arrow, arrow]), [
+      `[2] ${arrow}`,
+      sword,
+      `[3] ${arrow}`,
+    ]);
+  });
+
+  it('has a room line for every item in the catalogue, so nothing falls back', () => {
+    // The whole feature rests on this: the prose is the builders' own and there is none to write.
+    // Measured 2026-08-15 at 16,421 of 16,421. If a re-harvest ever drops the field, `look sparkle`
+    // quietly degrades to "<name> is lying here" for the affected rows and this is where it shows.
+    const file = join(REPO_ROOT, 'data', 'world', 'items.json');
+    if (!existsSync(file)) return;
+    const rows = Object.values(JSON.parse(readFileSync(file, 'utf8')) as Record<string, { roomLine?: unknown }>);
+    const missing = rows.filter((row) => typeof row.roomLine !== 'string' || row.roomLine.trim() === '');
+    assert.equal(missing.length, 0, `${missing.length} of ${rows.length} catalogue rows have no roomLine`);
+    assert.ok(rows.length > 16_000, `the catalogue should be the whole harvest, got ${rows.length}`);
   });
 });
