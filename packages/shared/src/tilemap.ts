@@ -1198,18 +1198,119 @@ export function isWalkableAt(grid: TileGrid, px: number, py: number): boolean {
 /** Pixels per second on foot. Roughly one nine-tile room every two seconds. */
 export const PLAYER_SPEED = 150;
 
-/** Half-extent of a character's collision box, in pixels. */
+/**
+ * Half-extent of an **adult human's** collision box, in pixels — the default {@link canStand} takes,
+ * and since 2026-08-16 the bottom rung of a ladder rather than the whole of it.
+ *
+ * 10px is 0.3125 m at `WORLD_SCALE`, so a person's box is 0.625 m square under a 1.81 m body. It is
+ * also exactly `bodies.BODY_RADIUS`, and that identity is now load-bearing in both directions: a body
+ * is refused by a wall at the same width it is refused by another body, so there is no size at which a
+ * mob fits through a gap it cannot then stand in.
+ */
 export const PLAYER_RADIUS = 10;
 
-/** Whether a character's whole collision box clears the walls at this position. */
-export function canStand(grid: TileGrid, x: number, y: number): boolean {
-  const r = PLAYER_RADIUS;
-  return (
-    isWalkableAt(grid, x - r, y - r) &&
-    isWalkableAt(grid, x + r, y - r) &&
-    isWalkableAt(grid, x - r, y + r) &&
-    isWalkableAt(grid, x + r, y + r)
-  );
+/**
+ * The widest terrain box the world's own doorways will take — **32px**, and derived rather than
+ * chosen.
+ *
+ * A gate is {@link CONNECTOR_WIDTH} tiles across, 96px, and a body walking through one is centred
+ * 48px from either edge. A box of half-extent `r` therefore has `48 − r` of lateral play in the gate,
+ * and **the play is what a slide has to find**: `stepMovement` resolves the axes separately, so a
+ * mover heading straight at a gap only ever tries the axes its intent asked for and never discovers a
+ * band it has to be nudged into. Measured, 2026-08-16: a giant walked at a *two*-tile gate does not
+ * get through, even though its 55px box fits the 64px opening — the 9px band is between the two tile
+ * centres and nothing steers it there.
+ *
+ * Half a gate less **half a tile** is the widest box that still leaves a whole tile of play — 16px
+ * either side of the centre line, which is half a body's width of room to be wrong by.
+ *
+ * Nothing in the shipped world reaches this. The largest spawned body is a hill giant at 27.5px
+ * (measured 2026-08-16 over 2,016 spawns), so the clamp is inactive and the giants are refused by real
+ * geometry rather than by this number. What it buys is that the refusal is **total**: `MAX_BODY_RADIUS`
+ * is 40px — `RACE_SIZE` carries dragons, titans and avatars against a harvest that has authored none —
+ * and a 40px box needs 80px of a 96px gate, which leaves 8px of play and would wedge a dragon in its
+ * own lair the day somebody draws one. Clamping here means **no body, at any size the art can produce,
+ * can be sealed in by a doorway**, at the price of a gargantuan clipping the frame by 8px. That price
+ * is the deliberate remnant of the old fixed box, kept only where the alternative is a trap.
+ *
+ * Clamped inside {@link canStand} rather than at the call sites, so `stepMovement`, `bodies.slide`,
+ * `placeBody`'s standability test and the client's predictor cannot each remember it differently.
+ */
+export const MAX_TERRAIN_RADIUS = (CONNECTOR_WIDTH * TILE_SIZE) / 2 - TILE_SIZE / 2;
+
+/**
+ * Whether a body's whole collision box clears the walls at this position.
+ *
+ * ## The box is the body's own since 2026-08-16, and the test had to change shape for it
+ *
+ * This used to sample the box's **four corners**, which is exact only while the box is narrower than a
+ * tile: two samples 2r apart can straddle a whole 32px cell and never read it the moment `2r − 32 > 0`
+ * is a range a position can sit in. At a hill giant's 27.5px the box is 55px wide and the unread window
+ * is 23px, so a four-corner test would have walked a giant clean through a hay bale down the middle of
+ * its own box. `pathfind.ts` has carried the warning for this — *"these arguments die the moment
+ * `PLAYER_RADIUS` exceeds `TILE_SIZE / 2`"* — since before there was a body big enough to collect it.
+ *
+ * So the test is now every tile the axis-aligned box overlaps. **At `PLAYER_RADIUS` that is provably
+ * the same four reads**: a 20px box spans at most two tiles per axis, and the four corners are exactly
+ * the four combinations of those two ranges. Same tiles, same order of magnitude of work, same answer
+ * — which is what lets the client's predictor keep calling this with the default and stay byte-for-byte
+ * with the server. `tilemap.test.ts` sweeps it against the old corner form to say so out loud.
+ *
+ * ## The footprint that falls out of it, and where the one break is
+ *
+ * At a tile centre a box reaches `16 + r` from the cell's own edge, so the footprint is `1x1` while
+ * `r < 16` and `3x3` from there up to {@link MAX_TERRAIN_RADIUS}. There is nothing in between, and on
+ * the ladder the shipped world stands on the break falls in one place:
+ *
+ * ```
+ *   kobold youth  3.01px  1x1      troll  14.97px  1x1   <- by 1.03px, the last body in one cell
+ *   gnome         6.00px  1x1      ogre   19.52px  3x3
+ *   human        10.00px  1x1      giant  27.50px  3x3
+ * ```
+ *
+ * So of the world's 2,016 spawned bodies, **222 (11.0%) have a footprint bigger than a person's** —
+ * every ogre and every giant — and the 189 trolls keep a person's exactly, with a pixel to spare.
+ * Measured 2026-08-16.
+ *
+ * A 1x1 body may stand anywhere; a 3x3 body needs its eight neighbours walkable, which in a nine-tile
+ * room is the **7x7 interior** plus the centre line of each gate. That is the whole of "a giant cannot
+ * use a human's doorway" — and it turns out a giant *can*, because a gate is three tiles and a giant is
+ * three tiles. See {@link MAX_TERRAIN_RADIUS} for the body that would not be.
+ */
+export function canStand(grid: TileGrid, x: number, y: number, radius = PLAYER_RADIUS): boolean {
+  const r = Math.min(radius, MAX_TERRAIN_RADIUS);
+  const x0 = Math.floor((x - r) / TILE_SIZE);
+  const x1 = Math.floor((x + r) / TILE_SIZE);
+  const y0 = Math.floor((y - r) / TILE_SIZE);
+  const y1 = Math.floor((y + r) / TILE_SIZE);
+  for (let ty = y0; ty <= y1; ty++) {
+    for (let tx = x0; tx <= x1; tx++) {
+      if (!isWalkable(tileAt(grid, tx, ty))) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * The box a body is actually moved with **from this position** — its own, unless it does not fit here.
+ *
+ * The terrain half of `bodies.ts`'s escape valve 1, and it exists for the same reason: *a refusal must
+ * never be a trap*. A body can end up standing where its own box does not fit — `placeBody` degrades to
+ * a person's footprint rather than losing a mob, a door shuts across a giant's shoulder, an admin
+ * teleport lands one anywhere — and a rule that judged every step by a box the body cannot satisfy
+ * would refuse all four directions and weld it there for the life of the server. So a body that does
+ * not fit where it stands is moved **as a person**, which is the widest box that is never worse than
+ * the one it already had, until it reaches ground its own box clears and the real rule takes over
+ * again.
+ *
+ * Small bodies return immediately and read nothing: `canStand` is monotone in the radius, so a kobold
+ * that cannot stand at 3.01px could not stand at 10px either and the valve could only ever widen it.
+ * That early return is also what keeps the adult path — every player, and the client's predictor —
+ * exactly the instructions it was before this function existed.
+ */
+export function standingRadius(grid: TileGrid, x: number, y: number, radius: number): number {
+  if (radius <= PLAYER_RADIUS) return radius;
+  return canStand(grid, x, y, radius) ? radius : PLAYER_RADIUS;
 }
 
 /**
@@ -1220,6 +1321,13 @@ export function canStand(grid: TileGrid, x: number, y: number): boolean {
  * impossible by construction rather than by discipline.
  *
  * Axes are resolved separately so a character slides along a wall instead of sticking to it.
+ *
+ * `radius` is the mover's own half-extent and defaults to an adult's, which is what keeps the two
+ * predictors honest without either of them being edited: a player is scale 1, so the 2D client's call
+ * and the 3D client's call resolve to the identical arithmetic they always ran. The one resolution of
+ * {@link standingRadius} happens **once, from the position the step starts at**, so both axes of one
+ * step are judged by one box — a body that fitted before the x move cannot be re-measured mid-step and
+ * refused the y.
  */
 export function stepMovement(
   grid: TileGrid,
@@ -1228,15 +1336,17 @@ export function stepMovement(
   intentX: number,
   intentY: number,
   distance: number,
+  radius = PLAYER_RADIUS,
 ): { x: number; y: number } {
+  const r = standingRadius(grid, x, y, radius);
   let nx = x;
   let ny = y;
 
   const tryX = nx + intentX * distance;
-  if (canStand(grid, tryX, ny)) nx = tryX;
+  if (canStand(grid, tryX, ny, r)) nx = tryX;
 
   const tryY = ny + intentY * distance;
-  if (canStand(grid, nx, tryY)) ny = tryY;
+  if (canStand(grid, nx, tryY, r)) ny = tryY;
 
   return { x: nx, y: ny };
 }

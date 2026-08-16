@@ -31,11 +31,13 @@ import {
 } from './bodies.ts';
 import {
   CONNECTOR_WIDTH,
+  MAX_TERRAIN_RADIUS,
   PLAYER_RADIUS,
   ROOM_TILES,
   TILE_SIZE,
   Tile,
   buildZoneTilemap,
+  canStand,
   isWalkable,
   normaliseIntent,
   roomAtTile,
@@ -752,6 +754,145 @@ describe('a body’s radius is its own', () => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* And so is the floor it stands on                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * **The other half of the same slice, 2026-08-16**: the walls know how big a body is too.
+ *
+ * The 2026-08-14 note called this a knowingly-shipped remainder and gave three reasons it could not be
+ * unpicked on its own — `placeBody`'s standability test, the no-wedge proof and the client predictor.
+ * All three are restated here rather than deleted, and the cases below are the ones that say nothing
+ * whatever at scale 1. `tilemap.test.ts` owns the `canStand` arithmetic (including the sweep proving
+ * the adult answer did not move by a hair); this owns what a *body* does with it.
+ */
+describe('a body’s terrain box is its own', () => {
+  it('walks a giant through a human’s doorway, which is the whole question this slice turns on', () => {
+    // **The measurement the mechanism was chosen against.** "A giant cannot use a human's corridor" is
+    // a defensible design and "a giant is sealed in its spawn room" is a bug, and the two are the same
+    // sentence until you check the arithmetic: a gate is `CONNECTOR_WIDTH` tiles, 96px, and a giant's
+    // box is 55px. It fits, with 41px of lateral play, and that is why a per-body terrain box was
+    // affordable at all. Over the shipped world: 0 of 222 large bodies confined to their own room.
+    const grid = pair();
+    const from = roomCentre(originOf(grid, 1));
+    const to = roomCentre(originOf(grid, 2));
+    const giant: BodyPoint = { id: 1, x: tileCentre(from.tx), y: tileCentre(from.ty), scale: GIANT };
+
+    const walk = walkTo(grid, giant, { x: tileCentre(to.tx), y: tileCentre(to.ty) }, []);
+    assert.equal(walk.arrived, true, `a giant could not leave its room; stopped at ${walk.x},${walk.y}`);
+    assert.equal(roomAtTile(grid, Math.floor(walk.x / TILE_SIZE), Math.floor(walk.y / TILE_SIZE)), 2);
+  });
+
+  it('refuses a giant the wall a person walks up to, which is the artefact it removes', () => {
+    // Before this, `canStand` tested 10px whatever was walking, so a hill giant pressed against a wall
+    // stood with **17.5px of itself inside it** — a quarter of a body, visible from the camera's usual
+    // 24 m. The person still gets right up to the wall; the giant is stopped a tile short of it.
+    const grid = solitary();
+    const origin = originOf(grid, 1);
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    const start = { x: tileCentre(origin.tx + 4), y: tileCentre(midY) };
+    const west = { x: tileCentre(origin.tx) - TILE_SIZE, y: tileCentre(midY) };
+
+    const wall = origin.tx * TILE_SIZE;
+    const person = walkTo(grid, { id: 1, ...start }, west, []);
+    const giant = walkTo(grid, { id: 1, ...start, scale: GIANT }, west, []);
+    assert.equal(person.arrived, false, 'the fixture aims through the wall on purpose');
+    assert.equal(giant.arrived, false);
+    assert.ok(person.x - PLAYER_RADIUS < wall + TILE_SIZE, 'a person should reach the edge tile');
+    assert.ok(giant.x > person.x, 'the giant walked as far into the wall as the person did');
+    assert.equal(canStand(grid, giant.x, giant.y, BODY_RADIUS * GIANT), true, 'ended inside geometry');
+
+    // And the artefact itself, without the 15px tick quantising it: `PLAYER_RADIUS` from the wall is a
+    // position the old rule accepted from *anybody*, and a giant standing there has 17.5px of itself
+    // in the stone — the figure `BODY_RADIUS`'s docblock has carried since 2026-08-14.
+    const flush = wall + PLAYER_RADIUS;
+    assert.equal(canStand(grid, flush, start.y), true, 'a person may stand flush against a wall');
+    assert.equal(canStand(grid, flush, start.y, BODY_RADIUS * GIANT), false);
+    assert.equal(flush - BODY_RADIUS * GIANT, wall - 17.5);
+  });
+
+  it('keeps the no-wedge proof, with every chokepoint cell occupied and a giant doing the walking', () => {
+    // The proof's two halves have to hold for the **largest** mover, not the one they were written
+    // with: the cells are exempt from body solidity, and the gate is wide enough for the box. Both are
+    // asked at once here — three bodies across each of the gate's cells, and a hill giant threading
+    // them. The mover is refused by neither, and neither is a coincidence of it being small.
+    const grid = pair();
+    const origin = originOf(grid, 1);
+    const far = originOf(grid, 2);
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    const half = (CONNECTOR_WIDTH - 1) / 2;
+    const crowd: BodyPoint[] = [];
+    let id = 100;
+    for (let dy = -half; dy <= half; dy++) {
+      crowd.push(at(id++, origin.tx + ROOM_TILES - 1, midY + dy));
+      crowd.push(at(id++, far.tx, midY + dy));
+      for (let tx = origin.tx + ROOM_TILES; tx < far.tx; tx++) crowd.push(at(id++, tx, midY + dy));
+    }
+
+    const from = roomCentre(origin);
+    const giant: BodyPoint = { id: 1, x: tileCentre(from.tx), y: tileCentre(from.ty), scale: GIANT };
+    const walk = walkTo(grid, giant, { x: tileCentre(far.tx + 4), y: tileCentre(midY) }, crowd);
+    assert.equal(walk.arrived, true, `a giant was corked in: stopped at ${walk.x},${walk.y}`);
+    assert.equal(roomAtTile(grid, Math.floor(walk.x / TILE_SIZE), Math.floor(walk.y / TILE_SIZE)), 2);
+  });
+
+  it('lets a gargantuan out of a room too, because the terrain box is clamped and the body box is not', () => {
+    // The rung the world has not reached: `MAX_BODY_RADIUS` is 40px and a gate is 96, which leaves 8px
+    // of play — not enough for an axis-separated slide to find, so an unclamped terrain box would seal
+    // a dragon in its own lair. `MAX_TERRAIN_RADIUS` is 32, so it walks out clipping the frame by 8px.
+    // The **body** box is untouched at 40: it still keeps 80px from another gargantuan.
+    assert.equal(MAX_BODY_RADIUS, 40);
+    assert.ok(MAX_TERRAIN_RADIUS < MAX_BODY_RADIUS, 'the clamp is doing nothing');
+    const grid = pair();
+    const from = roomCentre(originOf(grid, 1));
+    const to = roomCentre(originOf(grid, 2));
+    const dragon: BodyPoint = { id: 1, x: tileCentre(from.tx), y: tileCentre(from.ty), scale: GARGANTUAN };
+
+    const walk = walkTo(grid, dragon, { x: tileCentre(to.tx), y: tileCentre(to.ty) }, []);
+    assert.equal(walk.arrived, true, `a gargantuan was sealed in; stopped at ${walk.x},${walk.y}`);
+    assert.equal(bodyClearance(dragon, dragon), 80, 'the body box shrank with the terrain box');
+  });
+
+  it('never welds a body standing where its own box does not fit', () => {
+    // The terrain twin of escape valve 1, at the level `stepBody` sees it. `placeBody` degrades rather
+    // than losing a mob and a door can shut across a shoulder, so a giant *can* be standing on ground
+    // it does not fit on — and a rule that judged every step by a box it cannot satisfy would refuse
+    // all four directions for ever. It is moved as a person until it reaches ground of its own.
+    const grid = solitary();
+    const origin = originOf(grid, 1);
+    const corner: BodyPoint = { id: 1, x: tileCentre(origin.tx), y: tileCentre(origin.ty), scale: GIANT };
+    assert.equal(canStand(grid, corner.x, corner.y, BODY_RADIUS * GIANT), false, 'the fixture must not fit');
+
+    const out = stepBody(grid, corner, 1, 1, 15, []);
+    assert.ok(out.x > corner.x && out.y > corner.y, 'a giant put in a corner cannot move at all');
+    const walk = walkTo(grid, corner, { x: tileCentre(origin.tx + 4), y: tileCentre(origin.ty + 4) }, []);
+    assert.equal(walk.arrived, true, 'and it cannot walk back onto ground it fits on');
+    assert.equal(canStand(grid, walk.x, walk.y, BODY_RADIUS * GIANT), true);
+  });
+
+  it('leaves a person’s step exactly what it was, bodies and all', () => {
+    // The compatibility clause, restated for the whole of `stepBody` rather than for `canStand` alone:
+    // an adult body's radius is `PLAYER_RADIUS`, so every call it makes resolves to the default and the
+    // client's predictor — which is scale 1 by construction — stays reconcilable.
+    const grid = pair();
+    const origin = originOf(grid, 1);
+    for (let dy = 0; dy < ROOM_TILES; dy++) {
+      for (let dx = 0; dx < ROOM_TILES; dx++) {
+        const x = tileCentre(origin.tx + dx);
+        const y = tileCentre(origin.ty + dy);
+        for (const [ix, iy] of [[1, 0], [0, 1], [-1, 0], [0, -1], [0.6, 0.8]] as const) {
+          assert.deepEqual(
+            stepBody(grid, { id: 1, x, y }, ix, iy, 15, []),
+            stepMovement(grid, x, y, ix, iy, 15),
+            `an adult's step moved at ${x},${y} heading ${ix},${iy}`,
+          );
+        }
+      }
+    }
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /* Placement                                                                   */
 /* -------------------------------------------------------------------------- */
 
@@ -765,7 +906,12 @@ describe('placeBody', () => {
     const grid = solitary();
     const origin = originOf(grid, 1);
     const prefer = { tx: origin.tx + 3, ty: origin.ty + 6 };
-    assert.deepEqual(placeBody(grid, 1, origin, prefer, []), { ...prefer, stacked: false, blocked: false });
+    assert.deepEqual(placeBody(grid, 1, origin, prefer, []), {
+      ...prefer,
+      stacked: false,
+      blocked: false,
+      squeezed: false,
+    });
   });
 
   it('walks a body off a prop it was told to stand in — the kobold in the rock', () => {
@@ -850,7 +996,7 @@ describe('placeBody', () => {
     for (const tile of roomTiles(origin)) propAt(grid, tile.tx, tile.ty);
     const prefer = { tx: origin.tx + 1, ty: origin.ty + 1 };
     const landing = placeBody(grid, 1, origin, prefer, []);
-    assert.deepEqual(landing, { ...prefer, stacked: false, blocked: true });
+    assert.deepEqual(landing, { ...prefer, stacked: false, blocked: true, squeezed: false });
   });
 
   it('answers identically every time, because a restart must rebuild the same world', () => {
@@ -921,23 +1067,34 @@ describe('placeBody', () => {
     );
   });
 
-  it('fits twenty-four giants in a nine-tile room and stacks the twenty-fifth rather than losing it', () => {
-    // How much headroom the large end of the ladder actually has, measured rather than argued. The
-    // geometric bound is **25** — giants on every other cell of a nine-tile room, 64px apart, which
-    // clears the 55 they want — and the greedy nearest-first search reaches **24** of them before the
-    // room is spent. Losing one slot to greed is the price of a placement rule with no backtracking in
-    // it, and it is a price worth naming: the world's most giant-heavy room holds six (measured
-    // 2026-08-14), so the headroom is fourfold rather than marginal.
+  it('fits sixteen giants in a nine-tile room and stacks the seventeenth rather than losing it', () => {
+    // How much headroom the large end of the ladder actually has, measured rather than argued — and
+    // this is one of the numbers the terrain box moved, on 2026-08-16. It used to be **24**, giants on
+    // every other cell of the whole nine-tile room; a giant's box is nine cells now, so it keeps the
+    // **7x7 interior**, and every other cell of a 7x7 is a 4x4 grid at 64px pitch. Sixteen.
     //
-    // The twenty-fifth is the Cubs Den rule at the other end of the ladder. **A missing mob is worse
+    // Sixteen is also the *geometric* bound rather than what greed happened to reach, which the old
+    // 24-of-25 was not: the search loses nothing to having no backtracking here. The world's most
+    // giant-heavy room holds six (measured 2026-08-14), so the headroom is nearly threefold.
+    //
+    // The seventeenth is the Cubs Den rule at the other end of the ladder. **A missing mob is worse
     // than an overlap**, so it lands stacked and says so; what it must never do is be refused.
     const grid = solitary();
     const origin = originOf(grid, 1);
     const placed: BodyPoint[] = [];
-    for (let n = 0; n < 24; n++) {
+    for (let n = 0; n < 16; n++) {
       const prefer = { tx: origin.tx + (n % ROOM_TILES), ty: origin.ty + Math.floor(n / ROOM_TILES) };
       const landing = placeBody(grid, 1, origin, prefer, placed, GIANT);
       assert.equal(landing.stacked, false, `ran out of floor after ${n} giants`);
+      assert.equal(landing.squeezed, false, `giant ${n} was squeezed onto ground it does not fit`);
+      // Never the edge ring: a 3x3 box on a room's outer cell has a corner in the wall.
+      assert.ok(
+        landing.tx > origin.tx &&
+          landing.ty > origin.ty &&
+          landing.tx < origin.tx + ROOM_TILES - 1 &&
+          landing.ty < origin.ty + ROOM_TILES - 1,
+        `giant ${n} was put on the room's edge ring at ${landing.tx},${landing.ty}`,
+      );
       placed.push(at(100 + n, landing.tx, landing.ty, GIANT));
     }
     for (const a of placed) {
@@ -948,7 +1105,57 @@ describe('placeBody', () => {
     }
 
     const overflow = placeBody(grid, 1, origin, { tx: origin.tx + 4, ty: origin.ty + 4 }, placed, GIANT);
-    assert.equal(overflow.stacked, true, 'the twenty-fifth found floor the first twenty-four did not');
+    assert.equal(overflow.stacked, true, 'the seventeenth found floor the first sixteen did not');
     assert.equal(overflow.blocked, false, 'and it is standing on floor, which is the point of the ranking');
+    assert.equal(overflow.squeezed, false, 'the interior still had ground it fits on');
+  });
+
+  it('puts a large body only where its own box fits, and a small one anywhere', () => {
+    // The placement half of "the terrain box is the body's own". Same room, same preferred tile, two
+    // bodies: the kobold is left where it was asked to stand and the giant is walked in off the wall.
+    const grid = solitary();
+    const origin = originOf(grid, 1);
+    const edge = { tx: origin.tx, ty: origin.ty + 4 };
+
+    assert.deepEqual(
+      { ...placeBody(grid, 1, origin, edge, [], KOBOLD) },
+      { ...edge, stacked: false, blocked: false, squeezed: false },
+    );
+    const giant = placeBody(grid, 1, origin, edge, [], GIANT);
+    assert.equal(giant.tx, origin.tx + 1, 'a giant should be walked one cell off the wall');
+    assert.equal(
+      Math.max(Math.abs(giant.tx - edge.tx), Math.abs(giant.ty - edge.ty)),
+      1,
+      'and no further than that — the search is nearest-first',
+    );
+    assert.equal(giant.squeezed, false);
+  });
+
+  it('squeezes a giant onto a person’s ground rather than reporting a room with no floor', () => {
+    // Rung 4, which never fires on the world as shipped (0 of 2,016 spawns, 2026-08-16) and exists
+    // because the alternative is worse than what it does. Props over the whole 7x7 interior leave a
+    // giant nothing its own box fits on; without this rung `placeBody` would answer `blocked` — *"this
+    // room has no floor"* — and stand it at the rolled tile, which may be inside a wall.
+    const grid = solitary();
+    const origin = originOf(grid, 1);
+    for (let dy = 1; dy < ROOM_TILES - 1; dy++) {
+      for (let dx = 1; dx < ROOM_TILES - 1; dx++) propAt(grid, origin.tx + dx, origin.ty + dy);
+    }
+    const prefer = { tx: origin.tx, ty: origin.ty + 4 };
+    const landing = placeBody(grid, 1, origin, prefer, [], GIANT);
+    assert.equal(landing.squeezed, true, 'the room still offered a giant ground it fits on');
+    assert.equal(landing.blocked, false, 'a room with a ring of floor is not a room with no floor');
+    assert.equal(landing.stacked, false);
+    assert.equal(isWalkable(tileAt(grid, landing.tx, landing.ty)), true, 'squeezed into a prop');
+
+    // **And the squeeze buys nothing from the bodies.** It is a concession to the walls only, so the
+    // pair clearance is still the full 55px and the second giant is put elsewhere on the ring.
+    const first = at(2, landing.tx, landing.ty, GIANT);
+    const second = placeBody(grid, 1, origin, prefer, [first], GIANT);
+    assert.equal(second.squeezed, true);
+    assert.ok(
+      Math.hypot(tileCentre(second.tx) - first.x, tileCentre(second.ty) - first.y) >= 55 - 1e-9,
+      'the squeeze let two giants stand inside each other',
+    );
   });
 });

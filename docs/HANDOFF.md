@@ -700,11 +700,26 @@ which primitive got there last.
   `station.ts` grew `stationFor(a, b) = clearance + 12px`, because the old `32 − 20 = 12` runs to
   **−5.5** against a giant — a station inside the defender, which no fighter could ever reach — and
   `sim.BODY_QUERY_REACH` went 84px → 144px so the broad phase still covers the widest pair.
-  **The terrain box did not move**: `canStand` still tests a fixed 10px half-extent whatever is
-  walking, so a giant still fits through a human's doorway and can stand 17.5px inside a wall. That is
-  the named remainder, and `BODY_RADIUS`'s docblock carries why (a 27.5px box does not fit in a 32px
-  tile, so `placeBody`'s `standable`, the no-wedge proof and the client predictor would all have to be
-  rebuilt in one slice).
+- **And the terrain box is its own too, as of 2026-08-16 — the other half, done.** `canStand` takes a
+  radius, `stepBody` hands it `bodyRadius`, and `placeBody` puts a body only where that box fits. Two
+  things had to change shape for it: the four-corner sample became a **swept tile range** (two samples
+  2r apart straddle a whole 32px cell once `2r > 32`, so a giant could walk through a hay bale down the
+  middle of its own box), and the terrain radius is **clamped at `MAX_TERRAIN_RADIUS` = 32px** — half a
+  gate less half a tile — so that no body the art can make is ever sealed in by a doorway. At
+  `PLAYER_RADIUS` the swept form reads exactly the four tiles the corner form read, which is proved by
+  a 145,161-position sweep in `tilemap.test.ts` and is what keeps both client predictors byte-identical.
+  Measured over every built zone, 2026-08-16:
+  - a terrain box is **1x1 cells under half a tile and 3x3 above**, so **222 of 2,016 spawned bodies
+    (11.0%)** — every ogre and giant — have a bigger footprint than a person; the 189 trolls clear one
+    cell by 1.03px;
+  - **93 of those 222 used to be stood with part of themselves inside a wall; none are now**;
+  - **0 rooms of 7,179 refuse a giant every tile, 0 giants are confined to their spawn room**, and only
+    **2 of 14,300 room-to-room links** are closed to a giant and open to an adult;
+  - what it costs is scenery, not geometry: props cut a 3x3 body's floor into pieces in 182 rooms, so
+    41 of the 222 lose some ground and the set as a whole reaches **90.7%** of the rooms an adult does.
+  `Landing` grew a `squeezed` rung between `stacked` and `blocked` — a giant on ground sized for a
+  person, rather than a room reported as having no floor. **Zero across the shipped world**, and it is
+  counted in `sim.crowding` so the day a scatter table grows it is the number that moves first.
 - **123 spawns are taller than their ceiling.** Interiors are 3 m; 115 giants and 8 ogres spawn in
   roofed rooms. The owner's ruling (2026-08-13): **assign zones as giant folk and raise the roof to
   ~6 m**. Eighteen zones qualify, headed by Jotunheim (56 spawns). Six metres is exactly **two courses

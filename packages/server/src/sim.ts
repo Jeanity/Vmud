@@ -895,7 +895,7 @@ export class Simulation {
    */
   private readonly relit = new Set<EntityId>();
   private nextId = 1;
-  private readonly crowdingTally = { stacked: 0, blocked: 0 };
+  private readonly crowdingTally = { stacked: 0, blocked: 0, squeezed: 0 };
 
   constructor(world: GameWorld) {
     this.world = world;
@@ -982,6 +982,9 @@ export class Simulation {
     const landing = placeBody(grid, roomId, origin, prefer, occupied, scale);
     if (landing.stacked) this.crowdingTally.stacked++;
     if (landing.blocked) this.crowdingTally.blocked++;
+    // The terrain rung, since a body's box scales: this body was stood on ground sized for a person
+    // because the room offered it nothing wider. Zero across the shipped world — see `Landing.squeezed`.
+    if (landing.squeezed) this.crowdingTally.squeezed++;
     return { x: tileCentre(landing.tx), y: tileCentre(landing.ty), landing };
   }
 
@@ -992,7 +995,7 @@ export class Simulation {
    * degradation that nobody can see is indistinguishable from a bug. `reset.ts` reads this before and
    * after a pass to report what that pass cost, and the boot log prints the total.
    */
-  get crowding(): { readonly stacked: number; readonly blocked: number } {
+  get crowding(): { readonly stacked: number; readonly blocked: number; readonly squeezed: number } {
     return this.crowdingTally;
   }
 

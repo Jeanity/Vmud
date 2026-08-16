@@ -198,7 +198,9 @@ export function runReset(
   // Diffed rather than returned per spawn: `spawnMob` answers with a `Mob` and nothing else, and
   // threading a placement report back through it would put a rendering concern in its signature for
   // the sake of one counter. The tally is monotonic, so a before/after pair is this pass's share.
-  const crowdedBefore = sim.crowding.stacked + sim.crowding.blocked;
+  // All three degradations, because `crowded` means "placed badly" and a body squeezed onto ground its
+  // own box does not fit is placed badly in exactly the way this report exists to surface.
+  const crowdedBefore = sim.crowding.stacked + sim.crowding.blocked + sim.crowding.squeezed;
 
   // The explicit chain state §4.9 asks for. `lastSucceeded` gates a command whose `ifPrevious` is set;
   // `lastMob` is the separate cursor that lets a mob's kit keep loading after one piece of it fails
@@ -381,7 +383,7 @@ export function runReset(
 
   clock.age = 0;
   clock.lifespan = rollLifespan(clock.spawns, rng);
-  const crowded = sim.crowding.stacked + sim.crowding.blocked - crowdedBefore;
+  const crowded = sim.crowding.stacked + sim.crowding.blocked + sim.crowding.squeezed - crowdedBefore;
   return { zone: clock.spawns.zone, spawned, atLimit, doors, kitted, objects, contents, crowded };
 }
 

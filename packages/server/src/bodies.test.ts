@@ -19,6 +19,7 @@ import { describe, it } from 'node:test';
 
 import {
   BODY_SEPARATION,
+  PLAYER_RADIUS,
   ROOM_TILES,
   TILE_SIZE,
   Tile,
@@ -285,6 +286,58 @@ describe('every pass that moves a body asks the same question', () => {
     assert.ok(closestPass() >= BODY_SEPARATION - 1e-6, 'the fixture should have the body in the way');
     sim.remove(victim.id);
     assert.ok(closestPass() < BODY_SEPARATION, 'the ground where it died is still refusing to be crossed');
+  });
+
+  it('walks a giant out through a human-sized gate, which is the reachability claim wired up', () => {
+    // **The question the terrain slice turns on, run through the real hunt rather than over the
+    // rules.** A giant's box is 55px and the gate between two rooms is `CONNECTOR_WIDTH` tiles, 96px,
+    // so it fits — but only along the middle, and only if every pass that moves a body hands
+    // `stepBody` the body's own size. A giant that quietly kept a person's box would pass this by
+    // being wrong in the same direction as the geometry, so the sibling case below is the one that
+    // makes it mean something: the same walk, in a room whose gate has been walled up to two tiles.
+    const { world, sim, origin } = makeFixture();
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    const giant = giantAt(sim, origin.tx + 2, midY);
+
+    const hunts = new Map<number, Hunt>();
+    beginWalkTo(hunts, giant, ANTE);
+    for (let n = 0; n < 400 && hunts.size > 0; n++) advanceHunts(sim, world, hunts, 100);
+    assert.equal(giant.roomId, ANTE, `a giant could not use the doorway; stopped at ${giant.x},${giant.y}`);
+  });
+
+  it('and is refused a gap narrower than itself, where a person walks through — so it is not free', () => {
+    // The same walk with two of the gate's three tiles filled in, which is the claim stated as a
+    // *measurement of the aperture* rather than as a slogan about doorways. A body needs a gap its own
+    // box fits in and nothing more: 32px admits a person's 20 and refuses a giant's 55, and the world's
+    // real gates are 96px, which is why the case above passes and this one does not.
+    //
+    // **One tile and not two, and the difference is worth writing down.** A two-tile gate is 64px, and
+    // a giant's 55px box does fit in it — not on either tile centre, both of which put a corner in the
+    // wall, but in a 9px band between them. Walked straight at, the mover never finds that band,
+    // because `stepMovement` only tries the axes the intent asked for; nudged off the centre line by
+    // another body, it does. Both answers are correct and only one of them is a stable fixture.
+    /** One walk down the hall and out, through a gate with two of its three tiles walled up. */
+    const walkThrough = (big: boolean): RoomId => {
+      const { world, sim, grid, player, origin } = makeFixture();
+      // The fixture's player stands on the room's centre tile, which is on the line to the gate. It
+      // funnels *anybody* off it — measured: a plain mob fails this walk too — so the case would pass
+      // for the wrong reason with it there.
+      sim.remove(player.id);
+      const midY = origin.ty + (ROOM_TILES - 1) / 2;
+      for (let tx = origin.tx + ROOM_TILES; tx < origin.tx + ROOM_TILES + 2; tx++) {
+        setTile(grid, tx, midY - 1, Tile.Void);
+        setTile(grid, tx, midY + 1, Tile.Void);
+      }
+      const mob = big ? giantAt(sim, origin.tx + 2, midY) : mobAt(sim, origin.tx + 2, midY);
+      const hunts = new Map<number, Hunt>();
+      beginWalkTo(hunts, mob, ANTE);
+      for (let n = 0; n < 400 && hunts.size > 0; n++) advanceHunts(sim, world, hunts, 100);
+      return mob.roomId;
+    };
+
+    // A fixture each, so the loser of the first walk is not parked in the winner's doorway.
+    assert.equal(walkThrough(false), ANTE, 'the gate is too narrow for anybody — a broken fixture');
+    assert.equal(walkThrough(true), HALL, 'a giant squeezed through a gap narrower than its own body');
   });
 
   it('refuses a fighter closing to station', () => {
@@ -781,6 +834,63 @@ describe('nothing loads on top of anything', () => {
  */
 const HAVE_SPAWNS = existsSync(SPAWNS_DIR) && readdirSync(SPAWNS_DIR).some((f) => f.endsWith('.json'));
 
+/**
+ * **Which rooms a body of this width can walk to from this cell**, over one level's whole grid.
+ *
+ * A flood over the cells whose centre the body's own box clears, four-connected. It is a *sound*
+ * under-estimate of what movement can really do rather than a model of it, and both halves matter:
+ *
+ * - Sound, because a box's covered tiles are monotone as it slides between two adjacent centres — the
+ *   intermediate positions cover a subset of the union of the two ends — so two standable neighbours
+ *   are genuinely joined by a walkable axis-aligned move, which is exactly what `stepMovement`'s
+ *   axis-separated slide takes.
+ * - An under-estimate, because real movement is continuous and can thread gaps no tile centre sits in.
+ *   `bodies.test.ts`'s narrow-gate case is one: a 55px body fits a 64px gap between two centres that
+ *   both refuse it. So a shortfall this reports may not be a shortfall, and a shortfall it does *not*
+ *   report is certainly not one.
+ *
+ * Memoised per grid and radius — the labelling is one pass over a level and there are four large radii
+ * in the whole world (19.52, 20, 26.85, 27.5), so the sweep pays for at most five per zone.
+ */
+function reachIndex(grid: TileGrid, radius: number): Map<number, Set<RoomId>> {
+  const key = (tx: number, ty: number): number => ty * grid.width + tx;
+  const standable = new Set<number>();
+  for (const [, origin] of grid.roomOrigins) {
+    for (let dy = -grid.gap; dy < ROOM_TILES + grid.gap; dy++) {
+      for (let dx = -grid.gap; dx < ROOM_TILES + grid.gap; dx++) {
+        const tx = origin.tx + dx;
+        const ty = origin.ty + dy;
+        if (tx < 0 || ty < 0 || tx >= grid.width || ty >= grid.height) continue;
+        if (canStand(grid, tileCentre(tx), tileCentre(ty), radius)) standable.add(key(tx, ty));
+      }
+    }
+  }
+
+  const rooms = new Map<number, Set<RoomId>>();
+  const seen = new Set<number>();
+  for (const start of standable) {
+    if (seen.has(start)) continue;
+    const here = new Set<RoomId>();
+    const queue = [start];
+    seen.add(start);
+    while (queue.length > 0) {
+      const k = queue.pop()!;
+      rooms.set(k, here);
+      const tx = k % grid.width;
+      const ty = (k - tx) / grid.width;
+      const room = roomAtTile(grid, tx, ty);
+      if (room !== -1) here.add(room);
+      for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]] as const) {
+        const nk = key(tx + dx, ty + dy);
+        if (!standable.has(nk) || seen.has(nk)) continue;
+        seen.add(nk);
+        queue.push(nk);
+      }
+    }
+  }
+  return rooms;
+}
+
 /** Every harvested zone that also has a built tilemap to place bodies on. */
 function shippedZones(): ZoneSpawns[] {
   const out: ZoneSpawns[] = [];
@@ -829,6 +939,14 @@ describe('the shipped world, swept', { skip: HAVE_SPAWNS ? false : 'data/world/s
     sized: number;
     largest: number;
     wouldHaveOverlappedBySize: number;
+    bigFootprint: number;
+    insideOwnBox: number;
+    wouldHaveBeenInsideOwnBox: number;
+    squeezed: number;
+    confined: number;
+    shrunk: number;
+    roomsBig: number;
+    roomsAdult: number;
     worst: { room: RoomId; bodies: number; tiles: number };
     tightest: { room: RoomId; bodies: number; tiles: number };
   } {
@@ -840,8 +958,30 @@ describe('the shipped world, swept', { skip: HAVE_SPAWNS ? false : 'data/world/s
     let sized = 0;
     let largest = 0;
     let wouldHaveOverlappedBySize = 0;
+    let bigFootprint = 0;
+    let insideOwnBox = 0;
+    let wouldHaveBeenInsideOwnBox = 0;
+    let squeezed = 0;
+    let confined = 0;
+    let shrunk = 0;
+    let roomsBig = 0;
+    let roomsAdult = 0;
     let worst = { room: -1 as RoomId, bodies: 0, tiles: ROOM_TILES * ROOM_TILES };
     let tightest = { room: -1 as RoomId, bodies: 0, tiles: ROOM_TILES * ROOM_TILES };
+    const reach = new Map<TileGrid, Map<number, Map<number, Set<RoomId>>>>();
+    const roomsFrom = (grid: TileGrid, tx: number, ty: number, radius: number): number => {
+      let byRadius = reach.get(grid);
+      if (!byRadius) {
+        byRadius = new Map();
+        reach.set(grid, byRadius);
+      }
+      let index = byRadius.get(radius);
+      if (!index) {
+        index = reachIndex(grid, radius);
+        byRadius.set(radius, index);
+      }
+      return index.get(ty * grid.width + tx)?.size ?? 0;
+    };
 
     for (const spawns of shippedZones()) {
       const zone = loadZone(spawns.zone);
@@ -917,10 +1057,34 @@ describe('the shipped world, swept', { skip: HAVE_SPAWNS ? false : 'data/world/s
         if (yesterdayHere.some((b) => Math.hypot(b.x - stood.x, b.y - stood.y) < bodyClearance(b, stood))) {
           wouldHaveOverlappedBySize++;
         }
+        // **The terrain half of the same counterfactual, 2026-08-16.** The tile yesterday's search
+        // chose, judged by the box this body really has: a giant put on ground that only a person fits
+        // on is a giant with part of itself in a wall. 93 of them, before this slice.
+        const mine = bodyRadius(mob);
+        if (!canStand(grid, stood.x, stood.y, mine)) wouldHaveBeenInsideOwnBox++;
         yesterdayHere.push(stood);
         yesterdayByRoom.set(command.room, yesterdayHere);
 
         if (!canStand(grid, mob.x, mob.y)) unwalkable++;
+        // And the same question of where it actually stands now, at its own width rather than an
+        // adult's. This is the assertion the whole terrain slice is for.
+        if (!canStand(grid, mob.x, mob.y, mine)) insideOwnBox++;
+
+        // **Can it still get everywhere the resets put it?** Only asked of bodies whose footprint is
+        // bigger than a person's — a box under half a tile covers one cell wherever it stands, so a
+        // troll's answer is a person's by construction and counting it would dilute the measure with
+        // 1,794 guaranteed passes.
+        if (mine >= TILE_SIZE / 2) {
+          bigFootprint++;
+          const tx = Math.floor(mob.x / TILE_SIZE);
+          const ty = Math.floor(mob.y / TILE_SIZE);
+          const big = roomsFrom(grid, tx, ty, mine);
+          const adult = roomsFrom(grid, tx, ty, PLAYER_RADIUS);
+          roomsBig += big;
+          roomsAdult += adult;
+          if (big <= 1 && adult > 1) confined++;
+          if (big < adult) shrunk++;
+        }
         // The pair rule, over the world. **This is the assertion that would have failed yesterday**:
         // two hill giants on adjacent tiles are 32px apart and want 55, so a placement that only knew
         // about 20 put them inside each other and reported nothing wrong.
@@ -943,6 +1107,7 @@ describe('the shipped world, swept', { skip: HAVE_SPAWNS ? false : 'data/world/s
           tightest = { room: command.room, bodies: before.length, tiles: standable };
         }
       }
+      squeezed += sim.crowding.squeezed;
     }
     return {
       placed,
@@ -953,6 +1118,14 @@ describe('the shipped world, swept', { skip: HAVE_SPAWNS ? false : 'data/world/s
       sized,
       largest,
       wouldHaveOverlappedBySize,
+      bigFootprint,
+      insideOwnBox,
+      wouldHaveBeenInsideOwnBox,
+      squeezed,
+      confined,
+      shrunk,
+      roomsBig,
+      roomsAdult,
       worst,
       tightest,
     };
@@ -1018,6 +1191,52 @@ describe('the shipped world, swept', { skip: HAVE_SPAWNS ? false : 'data/world/s
     );
     console.log(
       `      loaded inside each other under the flat 20px placement: ${result.wouldHaveOverlappedBySize}, after: 0`,
+    );
+  });
+
+  it('stands none of them in a wall at their own width, where the flat box stood 93', () => {
+    // **The bug this slice is for, over the world rather than over a fixture.** `canStand` tested a
+    // fixed 10px half-extent whatever was walking, so placement put a body wherever a *person* fitted
+    // — and 93 of the 222 bodies with a footprint bigger than a person's ended up with part of
+    // themselves inside a wall. The counterfactual is replayed from the same rolled tile off a
+    // parallel stream, not estimated, so these are the positions the world actually stood them on.
+    assert.equal(result.insideOwnBox, 0, `${result.insideOwnBox} bodies stand in geometry at their own size`);
+    assert.equal(result.squeezed, 0, `${result.squeezed} bodies had to be squeezed onto a person's ground`);
+    assert.ok(
+      result.wouldHaveBeenInsideOwnBox > 0,
+      'the counterfactual found nothing, so this sweep is not exercising the terrain box',
+    );
+    assert.ok(
+      result.bigFootprint > 100,
+      `only ${result.bigFootprint} bodies have a footprint over 1x1 — the sweep is not seeing the ladder`,
+    );
+    console.log(
+      `      footprint bigger than a person's: ${result.bigFootprint} of ${result.placed}; ` +
+        `standing inside a wall under the flat 10px box: ${result.wouldHaveBeenInsideOwnBox}, after: ${result.insideOwnBox}`,
+    );
+  });
+
+  it('leaves every one of them able to walk out of the room the reset put it in', () => {
+    // **The honest test the brief named**, and the one that decided the mechanism: *a giant sealed
+    // inside its own spawn room is a worse bug than one clipping a doorframe.* Flooded from where each
+    // body actually landed, at its own width and at an adult's, over the whole level — see
+    // `reachIndex` for why a shortfall it reports may not be one and a shortfall it misses cannot be.
+    //
+    // Zero confined is the bar. What it costs instead is *some* ground for 41 of the 222: props cut a
+    // 3x3 body's floor into pieces a person walks between, which is scenery rather than geometry —
+    // the geometry itself closes only 2 of the world's 14,300 room-to-room links to a giant.
+    assert.equal(
+      result.confined,
+      0,
+      `${result.confined} large bodies cannot leave the room they spawned in`,
+    );
+    assert.ok(result.roomsAdult > 0);
+    const kept = (result.roomsBig / result.roomsAdult) * 100;
+    assert.ok(kept > 85, `a large body reaches only ${kept.toFixed(1)}% of the rooms an adult does`);
+    console.log(
+      `      large bodies confined to their spawn room: ${result.confined}; ` +
+        `reaching fewer rooms than an adult: ${result.shrunk} of ${result.bigFootprint}; ` +
+        `rooms reached ${result.roomsBig} of ${result.roomsAdult} (${kept.toFixed(1)}%)`,
     );
   });
 

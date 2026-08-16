@@ -5,7 +5,9 @@ import {
   arrivalTile,
   CHUNK_TILES,
   CONNECTOR_WIDTH,
+  MAX_TERRAIN_RADIUS,
   NO_SECTOR,
+  PLAYER_RADIUS,
   PLAYER_SPEED,
   ROOM_GAP,
   ROOM_STRIDE,
@@ -14,10 +16,12 @@ import {
   TILE_SIZE,
   Tile,
   buildZoneTilemap,
+  canStand,
   createTileGrid,
   doorwayTiles,
   gridBytes,
   isWalkable,
+  isWalkableAt,
   normaliseIntent,
   roomAtTile,
   roomCentre,
@@ -28,9 +32,11 @@ import {
   setTile,
   stairAt,
   stairPlacement,
+  standingRadius,
   stepMovement,
   tileAt,
   tileAtIndex,
+  tileCentre,
   type StairOffset,
 } from './tilemap.ts';
 import { boundsOf, type Door, type Room, type Zone } from './world.ts';
@@ -501,6 +507,235 @@ function walkEast(
   }
   return { tx: Math.floor(x / TILE_SIZE), ty: Math.floor(y / TILE_SIZE) };
 }
+
+/* -------------------------------------------------------------------------- */
+/* The terrain box                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * **`canStand` takes a radius since 2026-08-16**, so a hill giant stops fitting through a human's
+ * doorway. Two things have to be true at once, and they pull against each other:
+ *
+ * - the answer must **change** with the body, which is the feature; and
+ * - the answer for an **adult** must not have moved by a floating-point hair, because a player is
+ *   scale 1 and the client's predictor runs this same function over its own copy of the grid. A
+ *   difference of one tile in one position is a player who rubber-bands at that spot for ever.
+ *
+ * The first case below is the second claim, swept rather than sampled. Everything after it is the
+ * first claim, at the two ends of the ladder the shipped world actually stands on.
+ */
+describe('canStand: the terrain box is the body’s own', () => {
+  /**
+   * The four-corner test `canStand` **was**, kept verbatim as the thing the new form has to agree
+   * with. It is not a reimplementation: this is the body of the function as of `229b161`.
+   */
+  function corners(grid: ReturnType<typeof buildZoneTilemap>, x: number, y: number): boolean {
+    const r = PLAYER_RADIUS;
+    return (
+      isWalkableAt(grid, x - r, y - r) &&
+      isWalkableAt(grid, x + r, y - r) &&
+      isWalkableAt(grid, x - r, y + r) &&
+      isWalkableAt(grid, x + r, y + r)
+    );
+  }
+
+  /** Two rooms and a gate, with a scatter of props stamped so the sweep has edges to find. */
+  function propped(): ReturnType<typeof buildZoneTilemap> {
+    const grid = buildZoneTilemap(
+      makeZone([
+        { id: 1, pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 2 } } },
+        { id: 2, pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 1 } } },
+      ]),
+    );
+    const origin = grid.roomOrigins.get(1)!;
+    // A fixed pattern rather than a roll: `CLAUDE.md` rule 3, and a sweep that moved between runs
+    // would be a sweep nobody could reproduce a failure from.
+    for (const [dx, dy] of [[2, 2], [3, 2], [6, 5], [1, 7], [4, 4], [7, 1]] as const) {
+      setTile(grid, origin.tx + dx, origin.ty + dy, Tile.Prop);
+    }
+    return grid;
+  }
+
+  it('reads exactly what the four-corner test read, at an adult’s radius', () => {
+    // **The predictor's guarantee, and the reason the sweep is dense rather than spot-checked.** A
+    // 20px box spans at most two tiles per axis, and the four corners are exactly the four
+    // combinations of those two ranges — so the swept form reads the same tiles by construction.
+    // This is that argument cashed out over 145,161 positions on real geometry: every pixel of a
+    // two-room block and its surrounding void, at both integer and half-pixel offsets.
+    const grid = propped();
+    const origin = grid.roomOrigins.get(1)!;
+    const from = -TILE_SIZE * 2;
+    const to = ROOM_STRIDE * TILE_SIZE + TILE_SIZE * 2;
+    let checked = 0;
+    for (let dy = from; dy < to; dy++) {
+      for (let dx = from; dx < to; dx++) {
+        const x = tileCentre(origin.tx) + dx * 0.5;
+        const y = tileCentre(origin.ty) + dy * 0.5;
+        checked++;
+        if (canStand(grid, x, y) === corners(grid, x, y)) continue;
+        assert.fail(`the swept box and the corner box disagree at ${x},${y}`);
+      }
+    }
+    assert.ok(checked > 100_000, `only ${checked} positions swept — the sweep is not covering the block`);
+    // And the default is an adult, so nothing that predates the radius had to be edited to keep it.
+    const centre = roomCentre(origin);
+    assert.equal(
+      canStand(grid, tileCentre(centre.tx), tileCentre(centre.ty)),
+      canStand(grid, tileCentre(centre.tx), tileCentre(centre.ty), PLAYER_RADIUS),
+    );
+  });
+
+  it('sweeps rather than samples, which is what a box wider than a tile needs', () => {
+    // The soundness hole a four-corner test has the moment `2r > TILE_SIZE`: the two samples on an
+    // axis are 2r apart and a whole 32px cell can fall between them. At a hill giant's 27.5px the
+    // unread window is 23px wide, so this is not a corner case — it is most of the way a giant
+    // approaches a hay bale.
+    const grid = propped();
+    const origin = grid.roomOrigins.get(1)!;
+    const prop = { tx: origin.tx + 4, ty: origin.ty + 4 };
+    // Dead centre of the prop, where a 55px box has the whole cell in its middle and none of it at a
+    // corner. `isWalkableAt` says the corners are fine; the box is standing in a rock.
+    const x = tileCentre(prop.tx);
+    const y = tileCentre(prop.ty);
+    assert.equal(isWalkable(tileAt(grid, prop.tx, prop.ty)), false, 'the fixture needs a solid tile');
+    assert.equal(canStand(grid, x, y, 27.5), false, 'a giant is standing inside the prop');
+    // And one tile off it, where the prop is squarely inside the box but at neither corner.
+    assert.equal(canStand(grid, x + TILE_SIZE, y, 27.5), false);
+    assert.equal(canStand(grid, x, y + TILE_SIZE, 27.5), false);
+  });
+
+  it('gives a giant a 3x3 footprint and everything up to a troll a 1x1', () => {
+    // The ladder as the floor sees it, and the break is at **half a tile**: a box reaches `16 + r`
+    // from its own cell's edge, so it stays inside one cell while `r < 16` and covers nine from there
+    // up. There is nothing in between, and on the world's own ladder the break falls between the
+    // troll and the ogre — a troll clears one cell by **1.03px**, which is worth pinning because it
+    // is the difference between 189 spawned bodies keeping a person's footprint and losing it.
+    const grid = buildZoneTilemap(makeZone([{ id: 1, pos: { x: 0, y: 0, z: 0 } }]));
+    const origin = grid.roomOrigins.get(1)!;
+    const corner = { tx: origin.tx, ty: origin.ty };
+    const inset = { tx: origin.tx + 1, ty: origin.ty + 1 };
+
+    for (const [size, radius] of [
+      ['kobold youth', 3.01],
+      ['gnome', 6],
+      ['human', 10],
+      ['troll', 14.97],
+    ] as const) {
+      assert.equal(
+        canStand(grid, tileCentre(corner.tx), tileCentre(corner.ty), radius),
+        true,
+        `a ${size} should fit in the corner of a room`,
+      );
+    }
+    assert.ok(Math.abs(TILE_SIZE / 2 - 14.97 - 1.03) < 1e-9, 'the troll’s margin in one cell');
+    for (const [size, radius] of [['ogre', 19.52], ['hill giant', 27.5]] as const) {
+      assert.equal(
+        canStand(grid, tileCentre(corner.tx), tileCentre(corner.ty), radius),
+        false,
+        `a ${size} is standing in the wall`,
+      );
+      assert.equal(
+        canStand(grid, tileCentre(inset.tx), tileCentre(inset.ty), radius),
+        true,
+        `a ${size} should fit one tile in`,
+      );
+    }
+  });
+
+  it('leaves a giant the 7x7 interior of a nine-tile room, and the centre line of its gate', () => {
+    const grid = buildZoneTilemap(
+      makeZone([
+        { id: 1, pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 2 } } },
+        { id: 2, pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 1 } } },
+      ]),
+    );
+    const origin = grid.roomOrigins.get(1)!;
+    let free = 0;
+    for (let dy = 0; dy < ROOM_TILES; dy++) {
+      for (let dx = 0; dx < ROOM_TILES; dx++) {
+        if (canStand(grid, tileCentre(origin.tx + dx), tileCentre(origin.ty + dy), 27.5)) free++;
+      }
+    }
+    // 49 of the interior, plus the one mouth tile the gate opens up on the east edge. Not three:
+    // standing at the *edge* of a three-tile gate puts a corner of the box in the void beside it.
+    assert.equal(free, (ROOM_TILES - 2) ** 2 + 1, `a giant got ${free} of the room's 81 tiles`);
+
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    for (let tx = origin.tx + ROOM_TILES - 1; tx <= origin.tx + ROOM_STRIDE; tx++) {
+      assert.equal(
+        canStand(grid, tileCentre(tx), tileCentre(midY), 27.5),
+        true,
+        `a giant is refused the gate at ${tx},${midY}`,
+      );
+    }
+  });
+
+  it('admits any body the art can make through a three-tile gate, which is what the clamp buys', () => {
+    // A gate is 96px and `MAX_BODY_RADIUS` is 40 — a dragon, which nothing has authored yet. An 80px
+    // box in a 96px gate leaves 8px of lateral play and would wedge it in its own lair, so the
+    // terrain box is clamped at half a gate less half a tile and the dragon clips the frame instead.
+    assert.equal(MAX_TERRAIN_RADIUS, (CONNECTOR_WIDTH * TILE_SIZE) / 2 - TILE_SIZE / 2);
+    assert.equal(MAX_TERRAIN_RADIUS, 32);
+    const grid = buildZoneTilemap(
+      makeZone([
+        { id: 1, pos: { x: 0, y: 0, z: 0 }, exits: { east: { to: 2 } } },
+        { id: 2, pos: { x: 1, y: 0, z: 0 }, exits: { west: { to: 1 } } },
+      ]),
+    );
+    const origin = grid.roomOrigins.get(1)!;
+    const midY = origin.ty + (ROOM_TILES - 1) / 2;
+    for (const tx of [origin.tx + ROOM_TILES, origin.tx + ROOM_TILES + 1]) {
+      const x = tileCentre(tx);
+      const y = tileCentre(midY);
+      assert.equal(canStand(grid, x, y, MAX_TERRAIN_RADIUS), true, 'the widest box refused a gate');
+      // Past the clamp the answer stops moving, which is the whole of the guarantee.
+      assert.equal(canStand(grid, x, y, 40), true, 'a gargantuan was sealed by a doorway');
+      assert.equal(canStand(grid, x, y, 4_000), canStand(grid, x, y, MAX_TERRAIN_RADIUS));
+    }
+    // The giant still keeps its 27.5px of real refusal — the clamp is above it, not around it.
+    assert.equal(canStand(grid, tileCentre(origin.tx), tileCentre(origin.ty), 27.5), false);
+  });
+
+  it('moves a body that does not fit where it stands as a person, so nothing is ever welded', () => {
+    // The terrain twin of `bodies.ts`'s escape valve 1. A giant can be *put* somewhere its own box
+    // does not fit — a door shuts across its shoulder, an admin teleports it — and if every step were
+    // judged by a box it cannot satisfy, all four directions would be refused for ever.
+    const grid = buildZoneTilemap(makeZone([{ id: 1, pos: { x: 0, y: 0, z: 0 } }]));
+    const origin = grid.roomOrigins.get(1)!;
+    const corner = { x: tileCentre(origin.tx), y: tileCentre(origin.ty) };
+    const middle = { x: tileCentre(origin.tx + 4), y: tileCentre(origin.ty + 4) };
+
+    assert.equal(canStand(grid, corner.x, corner.y, 27.5), false, 'the fixture must not fit a giant');
+    assert.equal(standingRadius(grid, corner.x, corner.y, 27.5), PLAYER_RADIUS);
+    assert.equal(standingRadius(grid, middle.x, middle.y, 27.5), 27.5, 'and its own box where it fits');
+    // Small bodies are returned untouched and read nothing: `canStand` is monotone in the radius, so
+    // widening a kobold that does not fit could only ever be wrong.
+    assert.equal(standingRadius(grid, corner.x, corner.y, 3.01), 3.01);
+    assert.equal(standingRadius(grid, corner.x, corner.y, PLAYER_RADIUS), PLAYER_RADIUS);
+
+    // And the valve is what the step actually uses: a giant in the corner walks out of it.
+    const out = stepMovement(grid, corner.x, corner.y, 1, 1, 15, 27.5);
+    assert.ok(out.x > corner.x && out.y > corner.y, 'a giant put in a corner cannot move at all');
+  });
+
+  it('is stepMovement unchanged for a player, which is the whole of the prediction guarantee', () => {
+    const grid = propped();
+    const origin = grid.roomOrigins.get(1)!;
+    for (let dy = 0; dy < ROOM_TILES; dy++) {
+      for (let dx = 0; dx < ROOM_TILES; dx++) {
+        const x = tileCentre(origin.tx + dx);
+        const y = tileCentre(origin.ty + dy);
+        for (const [ix, iy] of [[1, 0], [0, 1], [-1, 0], [0, -1], [0.6, 0.8]] as const) {
+          assert.deepEqual(
+            stepMovement(grid, x, y, ix, iy, 15),
+            stepMovement(grid, x, y, ix, iy, 15, PLAYER_RADIUS),
+            `the default radius stopped being an adult at ${x},${y}`,
+          );
+        }
+      }
+    }
+  });
+});
 
 describe('normaliseIntent', () => {
   it('normalises a real push and reads a small one as a release', () => {

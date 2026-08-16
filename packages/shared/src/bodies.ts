@@ -35,6 +35,37 @@
  * {@link bodySolidAt}'s no-wedge exemption, {@link sidestep}'s sweep, and, in the server,
  * `station.ts`'s melee reach.
  *
+ * ## And since 2026-08-16 the **walls** know it too
+ *
+ * That slice stopped at the doorframe and said so: `canStand` tested a fixed 10px half-extent whatever
+ * was walking, so a hill giant fitted through a human's doorway and could stand 17.5px inside a wall.
+ * The terrain box is the body's own now — `tilemap.canStand` takes a radius, `stepBody` hands it
+ * {@link bodyRadius}, and {@link placeBody} puts a body only where that box fits.
+ *
+ * A terrain box is `1x1` cells while its radius is under half a tile and `3x3` above it, so the ladder
+ * splits in one place rather than everywhere: **222 of the world's 2,016 spawned bodies (11.0%) — every
+ * ogre and every giant — have a footprint bigger than a person's**, and the 189 trolls clear a single
+ * cell by 1.03px. What that costs, measured through the real `spawnMob` over every built zone on
+ * 2026-08-16:
+ *
+ * - **93 of those 222 used to be stood with part of themselves inside a wall. None are now.** That is
+ *   the bug, and it is the number the slice is for.
+ * - **No room in the world (0 of 7,179) refuses a giant every tile**, no spawn is squeezed onto a
+ *   person's ground, and **no giant is confined to its own room**. A nine-tile room's 7x7 interior is a
+ *   3x3 body's, and every gate is three tiles wide, which is exactly what a 3x3 body needs.
+ * - **2 of 14,300 room-to-room links** are closed to a giant and open to an adult. (The sweep reports
+ *   1,265 closed in all, but 1,263 of those are closed to an adult too — links the tilemap never
+ *   carved, because the far room is not a geometric neighbour.)
+ * - 41 of the 222 lose *some* ground, always to scenery rather than to geometry: props cut a 3x3
+ *   body's floor into more than one piece in 182 rooms, where a person walks between them. Summed over
+ *   all 222, a large body reaches 5,391 rooms where an adult reaches 5,941 — **90.7%** — and a room
+ *   offers a giant 62.9% of the cells it offers a person.
+ *
+ * The three arguments that moved with it, again in their own docblocks: {@link standable} (a body goes
+ * only where its own box fits, and degrades to a person's rather than reporting a room with no floor),
+ * {@link bodySolidAt} (the no-wedge proof, which now has a geometric half as well as a body half), and
+ * `tilemap.standingRadius` (the terrain twin of escape valve 1 below).
+ *
  * ## And the two escape valves
  *
  * Even inside a room, a refusal must never be a trap:
@@ -71,6 +102,7 @@ import {
   isWalkable,
   normaliseIntent,
   roomAtTile,
+  standingRadius,
   stepMovement,
   tileAt,
   tileCentre,
@@ -106,8 +138,10 @@ export interface BodyPoint {
  *
  * A tile is 32px and a room is nine tiles across `ROOM_METRES` — 9 m — so one pixel is 1/32 m and this
  * is **0.3125 m of half-width**: a 0.625 m disc under a 1.81 m body, which is a person's shoulders and
- * a little air. At scale 1 it is also **the same number the terrain box uses** (`PLAYER_RADIUS`), and
- * that identity is what makes a body fit through every doorway its own collision box fits through.
+ * a little air. It is also **the same number the terrain box uses** (`PLAYER_RADIUS`), and since
+ * 2026-08-16 that identity holds at every rung rather than only at scale 1: `stepBody` hands
+ * {@link bodyRadius} straight to `canStand`, so the width a body is refused by a wall at and the width
+ * it is refused by another body at are one number with one derivation.
  *
  * ## The lie this used to be, and the part of it that is left
  *
@@ -122,15 +156,22 @@ export interface BodyPoint {
  * youth, 0.54 m drawn) to **27.5px** (a hill giant): **926 of 2,016 spawned bodies — 45.9% — are not
  * adult-sized**, which is what makes this a rule about pairs rather than a rounding error.
  *
- * ## What deliberately did **not** move: the terrain box
+ * ## The terrain box, which used to be the named remainder and is not one now
  *
- * `canStand` and `stepMovement` still test a fixed `PLAYER_RADIUS` half-extent whatever is walking, so
- * a giant still fits through a doorway sized for a human and can still stand with 17.5px of itself
- * inside a wall. That is a knowingly-shipped remainder and not an oversight, because a 27.5px terrain
- * box **does not fit inside a 32px tile**: `placeBody`'s {@link standable} rests on the whole box lying
- * in one cell at a tile centre, the no-wedge proof rests on a 96px gate admitting anybody, and the
- * client predictor rests on `stepBody` being `stepMovement` byte for byte where no body is near. All
- * three would have to be rebuilt in one slice. Body-against-body is the half the owner photographed.
+ * The 2026-08-14 docblock this replaces said `canStand` still tested a fixed 10px half-extent whatever
+ * was walking, and gave three reasons that could not be unpicked separately. All three are answered,
+ * and the reason they could be is that **the premise was wrong**: a 27.5px box does not fit inside a
+ * 32px tile, but it was never asked to. It has to fit inside a *gate*, and a gate is
+ * {@link CONNECTOR_WIDTH} tiles — 96px — which takes a 55px body with 41px of lateral play.
+ *
+ * - `placeBody`'s {@link standable} does not rest on the box lying in one cell; it rests on the box
+ *   lying on **walkable ground**, which is one cell for a person and nine for a giant. See its own
+ *   docblock for the rung it grew rather than the constant it lost.
+ * - The no-wedge proof rests on a 96px gate admitting anybody, and it still does — that is now a
+ *   *measured* claim about the shipped world rather than an assumed one. See {@link bodySolidAt}.
+ * - The client predictor rests on `stepBody` being `stepMovement` byte for byte where no body is near,
+ *   and it is: `canStand`'s radius **defaults to `PLAYER_RADIUS`**, its swept-tile form reads exactly
+ *   the four tiles the old corner form read at that radius, and a player is scale 1.
  */
 export const BODY_RADIUS = PLAYER_RADIUS;
 
@@ -144,8 +185,19 @@ export const BODY_RADIUS = PLAYER_RADIUS;
  */
 export const BODY_SEPARATION = BODY_RADIUS * 2;
 
-/** How wide this body is, in pixels. The one multiplication, so nothing has to remember to do it. */
-export function bodyRadius(body: BodyPoint): number {
+/**
+ * How wide this body is, in pixels. The one multiplication, so nothing has to remember to do it.
+ *
+ * Takes anything carrying a `scale` rather than a whole {@link BodyPoint}, because a caller can have a
+ * size and no position: the client's predictor sizes its terrain box off the `EntityView` it was sent.
+ * Widening the parameter is what stops it writing `BODY_RADIUS * (scale ?? 1)` out a second time.
+ *
+ * The union names `BodyPoint` explicitly even though every `BodyPoint` already satisfies the second
+ * arm, and that is not redundancy: TypeScript's excess-property check runs against a *fresh object
+ * literal*, so without the first arm `bodyRadius({ id, x, y })` — how every test in this module speaks
+ * — would be rejected for knowing too much.
+ */
+export function bodyRadius(body: BodyPoint | { readonly scale?: number }): number {
   return BODY_RADIUS * (body.scale ?? 1);
 }
 
@@ -271,6 +323,25 @@ const ORTHOGONAL: readonly (readonly [number, number])[] = [
  * 3. **Everywhere else a body is solid**, which is most of a nine-tile room and all of the open
  *    ground that outdoor rooms merge into.
  *
+ * ## The proof grew a second half on 2026-08-16, and it is geometric rather than combinatorial
+ *
+ * Everything above is about *bodies* corking a gate, and none of it moved. What moved is that the
+ * **floor itself** now refuses a large body in places it used to accept one, so "no arrangement of
+ * bodies can seal a room" stopped being the whole claim: geometry could seal one on its own. The
+ * second half is proved the way the first is — by the cell rather than by the arrangement:
+ *
+ * - A gate is {@link CONNECTOR_WIDTH} tiles across and a body's footprint at a tile centre is `1x1`
+ *   below 16px of radius and `3x3` from there to `MAX_TERRAIN_RADIUS`. Three fits three, so **the
+ *   centre line of every gate in the world is standable by every body the art can make**, which is why
+ *   `tilemap.MAX_TERRAIN_RADIUS` is clamped where it is rather than left at `MAX_BODY_RADIUS`.
+ * - Inside a room, a `3x3` body keeps the 7x7 interior of a nine-tile room, which is a solid rectangle
+ *   and therefore connected, and the interior touches the mouth tile of every gate.
+ *
+ * Both are claims about *empty* geometry, so scenery is the one thing that can break them — and it
+ * does, in 182 of the world's 7,179 rooms, where props cut a large body's floor into pieces a person
+ * walks between. Measured rather than argued; the module header carries the numbers, and the honest
+ * summary is that a giant reaches 90.7% of the rooms an adult does and 0% of them seal it in.
+ *
  * The narrowness test in (2) is measured against the grid rather than assumed, because
  * `connectorSpan` already gives two answers: a door or an indoor pair gets `CONNECTOR_WIDTH`, while two
  * outdoor rooms merge along their **whole shared edge** and get `ROOM_TILES`. A merged edge is nine
@@ -392,6 +463,11 @@ function bodiesAllow(
  *
  * Off by default, so the {@link stepBody} step that stands in for terrain keeps `stepMovement`'s own
  * x-then-y convention exactly. On for the detours, which are ours to order.
+ *
+ * `radius` is the terrain box, already resolved by {@link stepBody} through `standingRadius` — passed
+ * in rather than recomputed here because all four calls in one step must be judged by one box, and a
+ * `slide` that re-resolved it per call would measure the detour against a different body than the
+ * direct step it is a detour from.
  */
 function slide(
   grid: TileGrid,
@@ -400,6 +476,7 @@ function slide(
   intentY: number,
   distance: number,
   solid: readonly BodyPoint[],
+  radius: number,
   major = false,
 ): { x: number; y: number } {
   let nx = self.x;
@@ -407,11 +484,11 @@ function slide(
 
   const stepX = (): void => {
     const tryX = nx + intentX * distance;
-    if (canStand(grid, tryX, ny) && bodiesAllow(self, solid, nx, ny, tryX, ny)) nx = tryX;
+    if (canStand(grid, tryX, ny, radius) && bodiesAllow(self, solid, nx, ny, tryX, ny)) nx = tryX;
   };
   const stepY = (): void => {
     const tryY = ny + intentY * distance;
-    if (canStand(grid, nx, tryY) && bodiesAllow(self, solid, nx, ny, nx, tryY)) ny = tryY;
+    if (canStand(grid, nx, tryY, radius) && bodiesAllow(self, solid, nx, ny, nx, tryY)) ny = tryY;
   };
 
   if (major && Math.abs(intentY) > Math.abs(intentX)) {
@@ -472,15 +549,18 @@ export function stepBody(
   distance: number,
   others: Iterable<BodyPoint>,
 ): { x: number; y: number } {
+  // Resolved once, from where the step starts, and then handed to every test in it — the walls, the
+  // terrain probe and each detour. See `standingRadius` for why a body may be moved as a person.
+  const radius = standingRadius(grid, self.x, self.y, bodyRadius(self));
   const solid = obstructing(grid, self, others);
-  if (solid.length === 0) return stepMovement(grid, self.x, self.y, intentX, intentY, distance);
+  if (solid.length === 0) return stepMovement(grid, self.x, self.y, intentX, intentY, distance, radius);
 
-  const direct = slide(grid, self, intentX, intentY, distance, solid);
+  const direct = slide(grid, self, intentX, intentY, distance, solid, radius);
   const gained = (direct.x - self.x) * intentX + (direct.y - self.y) * intentY;
   if (gained >= distance * PROGRESS_FRACTION) return direct;
 
   // Barely moving. If the floor alone would have refused this step there is nothing to route around.
-  const terrain = stepMovement(grid, self.x, self.y, intentX, intentY, distance);
+  const terrain = stepMovement(grid, self.x, self.y, intentX, intentY, distance, radius);
   if (terrain.x === self.x && terrain.y === self.y) return direct;
 
   // The detour is sideways by construction, so it can never win on the intent's own axis — it is judged
@@ -490,7 +570,7 @@ export function stepBody(
   // as a body working away at something it will never get past. If neither way round earns its step the
   // mover is genuinely wedged, and saying so plainly is what lets the caller's stall clock free it.
   for (const way of detours(self, intentX, intentY, solid)) {
-    const detour = slide(grid, self, way.x, way.y, distance, solid, true);
+    const detour = slide(grid, self, way.x, way.y, distance, solid, radius, true);
     const sideways = (detour.x - self.x) * way.x + (detour.y - self.y) * way.y;
     if (sideways >= distance * PROGRESS_FRACTION) return detour;
   }
@@ -674,6 +754,19 @@ export interface Landing {
   readonly stacked: boolean;
   /** True when the room offered no walkable tile at all — a room floored over by its own props. */
   readonly blocked: boolean;
+  /**
+   * True when no tile in the room would take this body's **own** terrain box and it was stood on
+   * ground sized for a person instead — a giant with its shoulder through a wall rather than a giant
+   * reported as homeless.
+   *
+   * Its own flag and not folded into {@link blocked}, because the two mean different things to whoever
+   * reads the tally: `blocked` says *this room has no floor*, which is a build error in the scenery,
+   * and this says *this room's floor is too narrow for what the reset put in it*, which is a content
+   * mismatch between a zone and its population. **Zero across the shipped world** (measured 2026-08-16
+   * over 2,016 spawns in 7,179 rooms), which is exactly why it is worth counting: the day a scatter
+   * table grows, this is the number that moves first.
+   */
+  readonly squeezed: boolean;
 }
 
 /**
@@ -713,6 +806,29 @@ export interface Landing {
  * it without knowing that — it asks {@link vacant}, which asks {@link bodyClearance} — and the world
  * has 30 rooms holding two giant-sized bodies, nine holding three and one holding six, so this is a
  * case the shipped reset tables actually reach rather than a hypothetical.
+ *
+ * ## And since 2026-08-16 the **floor** is asked the same question
+ *
+ * {@link standable} takes the body's radius too, so the search is over tiles this body's own box fits
+ * on rather than over tiles a person's does. In a nine-tile room that is the 7x7 interior for anything
+ * from an ogre upward — a troll is still 1x1, by 1.03px — which is 49 candidate cells against a world
+ * whose most crowded room holds 14 bodies of every size together. **No room in the world (0 of 7,179,
+ * measured 2026-08-16) hands back none.**
+ *
+ * The ladder of degradations therefore grew a rung, between "shared a tile" and "there is no floor":
+ *
+ * 1. The preferred tile, if this body fits on it and nobody is in the way.
+ * 2. The nearest tile that fits it and is free.
+ * 3. The nearest tile that fits it, sharing (`stacked`).
+ * 4. **The nearest tile a *person* would fit on** (`squeezed`), still keeping the full pair clearance
+ *    from every body already there — the squeeze is a concession to the *walls*, never to the bodies,
+ *    because two bodies inside each other is the artefact the owner photographed and a shoulder
+ *    through a doorframe is not.
+ * 5. Nothing walkable at all (`blocked`).
+ *
+ * Rung 4 never fires on the world as shipped. It exists because without it a room whose scenery grew
+ * would report a giant as `blocked` — *"this room has no floor"* — and stand it at the rolled tile,
+ * inside a wall, which is a worse answer than the one this whole module was written to stop.
  */
 export function placeBody(
   grid: TileGrid,
@@ -726,8 +842,42 @@ export function placeBody(
   const bodies = [...occupied];
   const mine = BODY_RADIUS * scale;
 
-  if (standable(grid, roomId, prefer.tx, prefer.ty) && vacant(bodies, mine, prefer.tx, prefer.ty)) {
-    return { tx: prefer.tx, ty: prefer.ty, stacked: false, blocked: false };
+  const fits = search(grid, roomId, origin, prefer, bodies, mine, mine);
+  if (fits) return { ...fits, blocked: false, squeezed: false };
+
+  // Rung 4. Only a body wider than a person can be short of floor a person would have had, so this is
+  // skipped entirely for 1,605 of the world's 2,016 spawns — every adult and everything below one.
+  if (mine > PLAYER_RADIUS) {
+    const squeezed = search(grid, roomId, origin, prefer, bodies, mine, PLAYER_RADIUS);
+    if (squeezed) return { ...squeezed, blocked: false, squeezed: true };
+  }
+  return { tx: prefer.tx, ty: prefer.ty, stacked: false, blocked: true, squeezed: false };
+}
+
+/**
+ * One pass of the nearest-first search, for a body of clearance `mine` standing on a `terrain` box.
+ *
+ * Two radii and not one, because {@link placeBody}'s squeeze rung relaxes exactly one of them. `mine`
+ * is what other bodies are kept at and never moves; `terrain` is what the walls are asked about and is
+ * dropped to a person's on the second pass. Passing one number for both would make a crowded room
+ * quietly permit two giants inside each other, which is the bug rung 4 must not buy its way out with.
+ *
+ * `undefined` means the room offered nothing at this terrain box — walkable or otherwise.
+ */
+function search(
+  grid: TileGrid,
+  roomId: RoomId,
+  origin: { readonly tx: number; readonly ty: number },
+  prefer: { readonly tx: number; readonly ty: number },
+  bodies: readonly BodyPoint[],
+  mine: number,
+  terrain: number,
+): { tx: number; ty: number; stacked: boolean } | undefined {
+  if (
+    standable(grid, roomId, prefer.tx, prefer.ty, terrain) &&
+    vacant(bodies, mine, prefer.tx, prefer.ty)
+  ) {
+    return { tx: prefer.tx, ty: prefer.ty, stacked: false };
   }
 
   let best: { tx: number; ty: number } | undefined;
@@ -739,7 +889,7 @@ export function placeBody(
     for (let dx = 0; dx < ROOM_TILES; dx++) {
       const tx = origin.tx + dx;
       const ty = origin.ty + dy;
-      if (!standable(grid, roomId, tx, ty)) continue;
+      if (!standable(grid, roomId, tx, ty, terrain)) continue;
       // Chebyshev, so the search grows as a square ring and a body displaced off a prop lands beside
       // it rather than across the room. Strictly-less keeps the row-major tie-break.
       const range = Math.max(Math.abs(tx - prefer.tx), Math.abs(ty - prefer.ty));
@@ -755,27 +905,31 @@ export function placeBody(
     }
   }
 
-  if (best) return { tx: best.tx, ty: best.ty, stacked: false, blocked: false };
-  if (fallback) return { tx: fallback.tx, ty: fallback.ty, stacked: true, blocked: false };
-  return { tx: prefer.tx, ty: prefer.ty, stacked: false, blocked: true };
+  if (best) return { tx: best.tx, ty: best.ty, stacked: false };
+  if (fallback) return { tx: fallback.tx, ty: fallback.ty, stacked: true };
+  return undefined;
 }
 
 /**
- * Whether a body could stand on this tile at all: inside the named room, and clear of walls and props.
+ * Whether a body of half-extent `radius` could stand on this tile at all: inside the named room, and
+ * with its whole box clear of walls and props.
  *
- * `canStand` rather than `isWalkableAt` because it is the test movement itself uses — and at a tile
- * centre the two agree exactly, since `PLAYER_RADIUS` is 10 and a tile is 32, so the whole box lies
- * inside the one cell. Using the mover's own authority means a tile placement accepts is a tile
- * movement will not immediately eject a body from.
+ * `canStand` rather than `isWalkableAt` because it is the test movement itself uses. Using the mover's
+ * own authority means a tile placement accepts is a tile movement will not immediately eject a body
+ * from — and that agreement is *why* this had to take a radius the day the mover's box started
+ * scaling. A giant put on ground that a person fits on and a giant does not is a giant that spends its
+ * first tick being refused in all four directions.
  *
- * **It takes no `scale`, and that is the terrain box standing still** — see {@link BODY_RADIUS}. A
- * giant's 55px collision disc does not fit in a 32px cell, so a `standable` that scaled would refuse a
- * giant every tile within one cell of a wall and hand most rooms back as `blocked`. The whole of
- * per-body size lives in {@link vacant}, which is a question about bodies.
+ * **It takes a radius now, where the 2026-08-14 note said it deliberately did not.** That note argued a
+ * scaling `standable` would *"refuse a giant every tile within one cell of a wall and hand most rooms
+ * back as blocked"*. The first half is exactly right and turns out to be the feature: a giant keeps to
+ * the 7x7 interior of a nine-tile room. The second half was wrong — 49 of 81 cells is not "most rooms
+ * blocked", and the sweep over the shipped world finds **no room at all** with nothing a giant can
+ * stand on.
  */
-function standable(grid: TileGrid, roomId: RoomId, tx: number, ty: number): boolean {
+function standable(grid: TileGrid, roomId: RoomId, tx: number, ty: number, radius: number): boolean {
   if (roomAtTile(grid, tx, ty) !== roomId) return false;
-  return canStand(grid, tileCentre(tx), tileCentre(ty));
+  return canStand(grid, tileCentre(tx), tileCentre(ty), radius);
 }
 
 /**

@@ -286,12 +286,19 @@ export function findPath(request: PathRequest): PathResult {
     // In bounds, not void, explored, and the character's box fits at the tile centre.
     //
     // At today's numbers the clearance test is an identity: PLAYER_RADIUS is 10 and a tile half is
-    // 16, so all four corners of a box centred on a tile fall inside that same tile and `canStand`
-    // reduces to the `isWalkable` above it. It is kept because it stops being an identity the moment
-    // PLAYER_RADIUS exceeds TILE_SIZE / 2, and A* silently routing characters into gaps they do not
-    // fit through is not a failure worth discovering later. What it does *not* do — despite what
-    // this comment used to claim — is keep a route off the edge of a corridor; the box only ever
-    // leaves its tile *between* waypoints, which is `lineOfSight`'s job, not this one's.
+    // 16, so a box centred on a tile lies inside that same tile and `canStand` reduces to the
+    // `isWalkable` above it. It is kept because it stops being an identity the moment the radius
+    // exceeds TILE_SIZE / 2, and A* silently routing characters into gaps they do not fit through is
+    // not a failure worth discovering later. What it does *not* do — despite what this comment used
+    // to claim — is keep a route off the edge of a corridor; the box only ever leaves its tile
+    // *between* waypoints, which is `lineOfSight`'s job, not this one's.
+    //
+    // **The radius is an adult's, and that is now a choice rather than the only option** (2026-08-16).
+    // `canStand` takes one, and a body's own is `bodies.bodyRadius` — but every route this plans is a
+    // *player's* click-to-move, players are scale 1, and the mobs that are not go through `hunt.ts`'s
+    // room-graph BFS and never reach here. Threading a radius through `findPath` for a caller that
+    // does not exist would be a parameter nobody could test. If a large body is ever given A*, this
+    // line and `NODE_CORNERS` are the two places that have to learn its size together.
     const ok =
       isWalkable(tileAt(grid, tx, ty)) &&
       allowed.has(index) &&

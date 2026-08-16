@@ -50,6 +50,7 @@ import {
   PLAYER_SPEED,
   ROOM_TILES,
   TILE_SIZE,
+  bodyRadius,
   corpseModelFor,
   stepMovement,
   yawOf,
@@ -433,6 +434,18 @@ export class EntityLayer {
    * a walk the server refuses produces a sprite that slides away and is snapped back every frame for
    * as long as the key is held, which reads as the connection being broken rather than as the
    * character being sat down."*
+   *
+   * ## The terrain box is the body's own here too, and it has to be read off the view
+   *
+   * `stepMovement` grew a `radius` on 2026-08-16 so that a hill giant stops fitting through a human's
+   * doorway. Prediction is only prediction while both sides run the same arithmetic, so this hands it
+   * the same number the server does — `bodyRadius` of the `EntityView` the server sent, which is the
+   * one derivation of a body's width there is.
+   *
+   * Today that is always 10: `viewOf` deliberately does not size a player by their race, so `scale` is
+   * absent for every character in the world and `bodyRadius` reads an absent scale as 1. Writing the
+   * call out anyway is the point — the day a player *is* sized, the predictor follows without anybody
+   * having to remember this file exists.
    */
   step(
     seconds: number,
@@ -447,7 +460,15 @@ export class EntityLayer {
     for (const [id, body] of this.bodies) {
       if (id === this.mine) {
         if (predicting && grid) {
-          const next = stepMovement(grid, body.x, body.y, intent.x, intent.y, PLAYER_SPEED * seconds);
+          const next = stepMovement(
+            grid,
+            body.x,
+            body.y,
+            intent.x,
+            intent.y,
+            PLAYER_SPEED * seconds,
+            bodyRadius(body.view),
+          );
           body.x = next.x;
           body.y = next.y;
         }
