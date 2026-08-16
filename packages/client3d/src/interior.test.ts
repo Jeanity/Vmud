@@ -28,7 +28,11 @@ import { describe, it } from 'node:test';
 import {
   CARDINALS,
   CONNECTOR_WIDTH,
+  GIANT_CEILING,
+  GIANT_FOLK_ZONES,
+  LEVEL_SEPARATION,
   ROOM_TILES,
+  STANDARD_CEILING,
   cellIndex,
   describeRoom,
   indexRooms,
@@ -44,6 +48,7 @@ import { ROOM_METRES, cellOriginTiles, metresOfTile, placeFrame } from './frame.
 import {
   CHORDS_PER_SIDE,
   ROOF_RIDGE,
+  WALL_COURSE,
   dressable,
   occludingSides,
   planInterior,
@@ -51,6 +56,7 @@ import {
   roofGroups,
   roofVisible,
   roofedRoom,
+  wallCourses,
 } from './interior.ts';
 import { INTERIOR_WRAPPER_CEILING, WRAPPER_CAPACITY } from './pool.ts';
 import {
@@ -81,6 +87,9 @@ const HALF_ROOM_METRES = ROOM_METRES / 2;
  */
 const SIGHTLINE_CLEARS_ABOVE = (Math.atan(DIMENSIONS.ceilingHeight / HALF_ROOM_METRES) * 180) / Math.PI;
 
+/** The same crossing for a giant-folk zone's 6 m wall — `atan(6 / 4.5)` = 53.13°, and above the clamp. */
+const TALL_SIGHTLINE_CLEARS_ABOVE = (Math.atan(GIANT_CEILING / HALF_ROOM_METRES) * 180) / Math.PI;
+
 describe('the module grid', () => {
   it('maps a 2 m module onto a 9 m room with no remainder', () => {
     // The measurement this whole milestone was started with: every `Wall_*` and every `Floor_*` in
@@ -107,10 +116,20 @@ describe('the module grid', () => {
     // The kit's own storey: `Corner_Exterior_Wood` is exactly 3.000 m to the wall plate and the wall
     // panel 3.1227 m to the top of its eave lip. The ceiling's underside is the former, so the lip is
     // swallowed by the slab, and both sit inside `LEVEL_SEPARATION`'s four metres with room to spare.
+    //
+    // **This is now a statement about the *standard* ceiling, with the tall one asserted beside it.**
+    // A giant-folk zone builds at `GIANT_CEILING` and the test below owns that half; what has to stay
+    // true here is that the ordinary storey did not move when the tall one arrived, because every
+    // other number in this file — the fade, the roof seat, the course pitch — is measured from it.
     assert.equal(DIMENSIONS.ceilingHeight, 3);
+    assert.equal(
+      DIMENSIONS.ceilingHeight,
+      STANDARD_CEILING,
+      'the renderer and the IR disagree about how high an ordinary lid is',
+    );
     assert.ok(VILLAGE_METRICS.wallHeight > DIMENSIONS.ceilingHeight);
     assert.ok(
-      DIMENSIONS.ceilingHeight + DIMENSIONS.ceilingThickness < 4,
+      DIMENSIONS.ceilingHeight + DIMENSIONS.ceilingThickness < LEVEL_SEPARATION,
       'a lid that reached the storey above would be the floor of the room over it',
     );
     // The scaled panel's thickness lands on the grey wall's *archetype* thickness, which is why the
@@ -124,6 +143,45 @@ describe('the module grid', () => {
     // And the panel's outward lap stays inside the half-gap it shares with its neighbour, so two
     // interiors facing each other across a two-tile gap do not interpenetrate.
     assert.ok(VILLAGE_METRICS.wallOut * VILLAGE_SCALE < 1);
+  });
+
+  it('builds a giant-folk room out of two courses of the same wall, with the same lip proud', () => {
+    /*
+     * A giant is drawn at `appearance.SIZE_SCALE[SIZE_GIANT]` x the 1.81 m base body = **4.978 m**
+     * and an ogre at 3.620 m, so 123 harvested spawns in eighteen zones stood in a roofed room they
+     * did not fit in. The fix is `GIANT_CEILING`, and the whole reason it is **6** rather than the
+     * 5 that would just clear a giant is the arithmetic below: the wall is a fixed module that is
+     * never scaled vertically, so the only ceiling that costs no art is a whole number of courses of
+     * it, and the only one of those that clears 4.978 m is two.
+     */
+    assert.equal(STANDARD_CEILING, 3);
+    assert.equal(GIANT_CEILING, 6);
+    assert.equal(GIANT_CEILING, 2 * STANDARD_CEILING, 'a tall room must be a whole number of courses');
+    // The course pitch is the kit's own storey — the wall *plate*, not the top of the eave lip.
+    assert.equal(WALL_COURSE, DIMENSIONS.ceilingHeight);
+    assert.equal(wallCourses(STANDARD_CEILING), 1);
+    assert.equal(wallCourses(GIANT_CEILING), 2);
+    // Two courses put the head at 6.1227 m, which stands the same 12.27 cm proud of a 6 m slab that
+    // one course stands proud of a 3 m one. That equality is the whole argument for six metres, so
+    // it is asserted rather than described: seating on the lip instead would leave 24.5 cm.
+    const shortProud = VILLAGE_METRICS.wallHeight - STANDARD_CEILING;
+    const tallProud = WALL_COURSE * (wallCourses(GIANT_CEILING) - 1) + VILLAGE_METRICS.wallHeight - GIANT_CEILING;
+    assert.ok(Math.abs(shortProud - 0.1227) < 5e-5, `a short wall stands ${shortProud} m proud`);
+    assert.ok(Math.abs(tallProud - shortProud) < 1e-9, `a tall wall stands ${tallProud} m proud`);
+    // …and the wall still reaches the lid it is under, in both builds. A course short of the ceiling
+    // would be a strip of daylight running round the top of every room in eighteen zones.
+    assert.ok(WALL_COURSE * wallCourses(GIANT_CEILING) + shortProud >= GIANT_CEILING);
+
+    // **The one thing a tall ceiling cannot survive is a storey on top of it.** `LEVEL_SEPARATION`
+    // is four metres and the streaming window draws the level below, so a 6 m lid under a storey is
+    // a slab hanging two metres above the floor of the room over it. `roomsUnderAStorey` takes the
+    // tall ceiling away in exactly that case, and this is the inequality that says why.
+    assert.ok(GIANT_CEILING + DIMENSIONS.ceilingThickness > LEVEL_SEPARATION);
+    assert.ok(STANDARD_CEILING + DIMENSIONS.ceilingThickness < LEVEL_SEPARATION);
+
+    // Eighteen zones, derived from the spawn harvest rather than chosen — see `GIANT_FOLK_ZONES`.
+    assert.equal(GIANT_FOLK_ZONES.size, 18);
+    for (const id of GIANT_FOLK_ZONES) assert.ok(Number.isInteger(id) && id > 0, `zone id ${id}`);
   });
 });
 
@@ -186,6 +244,50 @@ describe('what the camera is behind', () => {
       Math.abs(SIGHTLINE_CLEARS_ABOVE - (Math.atan(DIMENSIONS.ceilingHeight / HALF_ROOM_METRES) * 180) / Math.PI) < 1e-9,
     );
     assert.ok(SIGHTLINE_CLEARS_ABOVE > CAMERA_PITCH_FLOOR && SIGHTLINE_CLEARS_ABOVE < CAMERA_PITCH_MIN);
+  });
+
+  it('doubles what a giant-folk wall hides, and moves the crossing above the clamp', () => {
+    /*
+     * Every number the test above asserts is linear in the wall head, so a 6 m room has its own
+     * ladder and it is worth having on the record rather than inferred:
+     *
+     *                     3 m ceiling           6 m ceiling
+     *   crossing pitch    33.69°                53.13°
+     *   hides at 20°      8.24 m (0.92 rooms)   16.49 m (1.83 rooms)
+     *   hides at 45°      3.00 m                6.00 m
+     *   hides at 64°      1.46 m                2.93 m
+     *
+     * **The crossing moves above `CAMERA_PITCH_MIN`**, which is the finding: in a giant's hall the
+     * near wall hides the character over almost the whole pose envelope rather than only under the
+     * old 45° clamp, and the fade is the only reason they are on screen. And at the envelope's floor
+     * the wall hides nearly two room depths, which is past the far wall of the room behind it.
+     *
+     * What does **not** change is the returned set: `sides` is a pure yaw test the head never enters,
+     * so `world3d.ts` — which reads `sides` and nothing else — is unaffected by any of this.
+     */
+    const short = occludingSides(CAMERA_PITCH_FLOOR);
+    const tall = occludingSides(CAMERA_PITCH_FLOOR, 0, GIANT_CEILING);
+    assert.equal(tall.sides, short.sides, 'the ceiling changed which walls are in the way');
+    // Linear in the head, to the centimetre `occludingSides` rounds its answers to — 8.242 doubled
+    // is 16.484 and the honest 16.485 is what a single rounding of `6 / tan 20°` gives.
+    assert.ok(Math.abs(tall.hidden - 2 * short.hidden) < 2e-3, 'the hidden strip is not linear in the head');
+    assert.ok(Math.abs(tall.hidden - 16.485) < 1e-3, `hides ${tall.hidden} m at the envelope's floor`);
+    assert.ok(tall.hidden > 1.8 * ROOM_METRES, 'a 6 m wall should hide more than the room it stands in');
+    // The crossing, from its own two constants, and where it lands on the dolly's own ladder.
+    assert.ok(Math.abs(TALL_SIGHTLINE_CLEARS_ABOVE - 53.13) < 0.01);
+    assert.ok(
+      TALL_SIGHTLINE_CLEARS_ABOVE > CAMERA_PITCH_MIN && TALL_SIGHTLINE_CLEARS_ABOVE < CAMERA_PITCH_MAX,
+      'the 6 m crossing is no longer between the clamp and the authored pose',
+    );
+    // …and the sign of `clearance` follows the pitch against *that* crossing, everywhere.
+    for (const [distance, pitch] of ENVELOPE_POSES) {
+      const seen = occludingSides(pitch, 0, GIANT_CEILING);
+      assert.equal(
+        seen.clearance > 0,
+        pitch > TALL_SIGHTLINE_CLEARS_ABOVE,
+        `a 6 m wall's clearance disagrees at ${distance} m / ${pitch}°`,
+      );
+    }
   });
 
   it('follows the camera round: one wall on a cardinal, two on a diagonal — M8', () => {
@@ -314,6 +416,88 @@ if (!existsSync(ZONES_DIR)) {
       console.log(`[M6 lids] ${lidded} roofed rooms lidded, ${open} opened on demand, ${sky} left under the sky`);
       assert.ok(lidded > 2000);
       assert.ok(sky > 2000);
+    });
+
+    it('raises the lid to 6 m across the giant-folk zones, and only where a storey does not sit on it', () => {
+      /*
+       * The acceptance for the ceiling raise, swept over the whole world rather than eyeballed in
+       * one hall. Four properties, and the third is the one that would otherwise be found by eye:
+       *
+       * 1. Every room in one of the eighteen zones is at `GIANT_CEILING` **or** has a room in the
+       *    cell above it, in which case it is back at `STANDARD_CEILING`.
+       * 2. No room in any other zone moved at all.
+       * 3. The lid `chunkPlan` draws and the wall it stops sit at whatever the IR said, together —
+       *    a wall that reached 3 m under a 6 m lid would be a metre of daylight round every room.
+       * 4. A tall dressed room draws exactly two courses of wall, seated a `WALL_COURSE` apart.
+       */
+      let tall = 0;
+      let capped = 0;
+      let tallDressed = 0;
+      const heights = new Map<number, number>();
+      for (const zone of zones) {
+        const context = sceneZone(zone);
+        const cells = cellIndex(zone);
+        const giant = GIANT_FOLK_ZONES.has(zone.id);
+        const frames = new Map<number, ReturnType<typeof placeFrame>>();
+        for (const room of zone.rooms) {
+          let frame = frames.get(room.pos.z);
+          if (!frame) {
+            frame = placeFrame(zone, room.pos.z);
+            frames.set(room.pos.z, frame);
+          }
+          const scene = describeRoom(context, room, neighboursOf(cells, room, rooms), sceneSeed(context, room));
+          const ceiling = scene.enclosure.ceiling;
+          heights.set(ceiling, (heights.get(ceiling) ?? 0) + 1);
+          const above = zone.rooms.some(
+            (other) =>
+              other.pos.x === room.pos.x && other.pos.y === room.pos.y && other.pos.z === room.pos.z + 1,
+          );
+          if (!giant) {
+            assert.equal(ceiling, STANDARD_CEILING, `zone ${zone.id} room ${room.id} is not giant folk`);
+            continue;
+          }
+          assert.equal(ceiling, above ? STANDARD_CEILING : GIANT_CEILING, `room ${room.id}`);
+          if (above) capped += 1;
+          else tall += 1;
+          if (ceiling === STANDARD_CEILING) continue;
+
+          // The shell. Its lid and its walls both take the scene's number, so they meet.
+          const origin = cellOriginTiles(frame, room.pos.x, room.pos.y);
+          const shell = planChunk({ scene, origin, elevation: 0, gap: frame.gap, faded: false, doorClosed: {} });
+          if (scene.enclosure.roofed) {
+            const lid = shell.filter((p) => p.archetype === 'ceiling');
+            assert.equal(lid.length, 1, `room ${room.id} has no lid`);
+            assert.ok(
+              Math.abs(lid[0]!.y - (GIANT_CEILING + DIMENSIONS.ceilingThickness / 2)) < 1e-9,
+              `room ${room.id}'s lid is at ${lid[0]!.y} m`,
+            );
+            for (const wall of shell.filter((p) => p.archetype === 'edge' || p.archetype === 'barrier')) {
+              assert.ok(Math.abs(wall.sy - GIANT_CEILING) < 1e-9, `room ${room.id} has a ${wall.sy} m wall`);
+            }
+          }
+
+          // The dressing. Two courses, seated a `WALL_COURSE` apart, and nothing in between.
+          if (!dressable(scene)) continue;
+          tallDressed += 1;
+          const seats = new Set(
+            planInterior({ scene, origin, elevation: 0, roofOpen: false, top: true, openSides: OPEN_SIDES })
+              .filter((p) => roleOfPlacement(p) === 'wall')
+              .map((p) => Math.round(p.y * 1e6) / 1e6),
+          );
+          assert.deepEqual(
+            [...seats].sort((a, b) => a - b),
+            [0, WALL_COURSE],
+            `room ${room.id} draws its wall at ${[...seats].join('/')}`,
+          );
+        }
+      }
+      console.log(
+        `[giant folk] ${GIANT_FOLK_ZONES.size} zones: ${tall} rooms raised to ${GIANT_CEILING} m, ` +
+          `${capped} held at ${STANDARD_CEILING} m by a storey above, ${tallDressed} of the tall ones dressed; ` +
+          `world ${[...heights].sort((a, b) => a[0] - b[0]).map(([h, n]) => `${h}m:${n}`).join(' ')}`,
+      );
+      assert.ok(tall > 3000, `only ${tall} rooms were raised`);
+      assert.ok(capped > 0, 'no room was held down by a storey — the cap is not being exercised');
     });
 
     it('never lets one chunk want both the understory and the interior', () => {

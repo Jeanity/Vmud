@@ -18,12 +18,25 @@
  * 1. **The shell** is `chunkPlan.ts`'s and is always there: a roofed room gets a `ceiling` slab and
  *    its walls stop at it. That alone makes *"no sky from an interior"* true for all 21,978 roofed
  *    rooms **with the village kit absent entirely**, which matters because `public/models` is
- *    git-ignored and a fresh clone has none.
+ *    git-ignored and a fresh clone has none. Both halves take their height from
+ *    `RoomScene.enclosure.ceiling` rather than from a constant, so the eighteen giant-folk zones'
+ *    6 m rooms are the same nine lines with a different number in them.
  * 2. **The dressing** is this file's: kit walls, floors, doorway arches, tiled roofs and chimneys on
  *    `inside` rooms. It is a strict addition — nothing here is required for the acceptance, and
  *    `world3d.ts` drops it wholesale if the manifest never lands.
  * 3. **The cull** is {@link roofGroups} plus `world3d.ts`: which lids come off, and which walls go
  *    see-through, when the player is under a roof.
+ *
+ * ## A giant-folk room is the same room built twice
+ *
+ * The race scale (`a59cacf`) made a `SIZE_GIANT` mob **4.978 m** tall and an ogre 3.620 m, against a
+ * 3 m lid: 123 harvested spawns across eighteen zones stood with their heads through the roof. The
+ * owner's ruling was *"assign zones as giant folk … and raise the roof to something like 6m"*, and
+ * six is the only number that costs no art — the `Wall_*` module is 3.1227 m and is never scaled
+ * vertically, so a tall room is **two courses of it** ({@link WALL_COURSE}, {@link wallCourses}) and
+ * not one stretched one. Nothing else in this file changes: the same models, the same textures, the
+ * same eleven buckets, the roof seated on the wall plate exactly as before. The zone list and the one
+ * case that takes the height away again — a storey standing on the room — are `roomScene.ts`'s.
  *
  * ## An inside room *is* the building
  *
@@ -61,6 +74,7 @@
 
 import {
   CARDINALS,
+  STANDARD_CEILING,
   type Cardinal,
   type RoomId,
   type RoomScene,
@@ -90,6 +104,37 @@ import {
 
 /** Chords along one side of a room. Three, and `interior.test.ts` asserts it divides exactly. */
 export const CHORDS_PER_SIDE = ROOM_METRES / VILLAGE_CHORD;
+
+/**
+ * Metres between one course of wall and the next — **the kit's own storey, and the whole of how a
+ * 6 m room is built out of a 3 m one.**
+ *
+ * `Corner_Exterior_Wood` is exactly 3.000 m to its wall plate and the `Wall_*` panel 3.1227 m to the
+ * top of its eave lip (`VILLAGE_METRICS.wallHeight`), so a course seated on the previous one's
+ * *plate* rather than on its *lip* laps 12.27 cm of lip inside the course above — the same 12.27 cm
+ * a single course already buries inside the ceiling slab, and the reason the seam does not read as a
+ * band round the room. Two courses put the wall head at 6.1227 m, which stands **0.1227 m** proud of
+ * a 6 m lid exactly as one course stands 0.1227 m proud of a 3 m one.
+ *
+ * The alternative — seating at `wallHeight` — is off by that lip twice: it puts the head at 6.2454 m
+ * and leaves 24.5 cm of eave standing over the slab, which is the one place the kit would show.
+ *
+ * It is `DIMENSIONS.ceilingHeight` and not a fresh literal because the two are the same fact
+ * (`roomScene.STANDARD_CEILING`), and `interior.test.ts` pins all three together.
+ */
+export const WALL_COURSE = DIMENSIONS.ceilingHeight;
+
+/**
+ * How many courses of wall a ceiling this high asks for. **One at 3 m, two at 6 m.**
+ *
+ * A module is never scaled vertically — see {@link wall} — so a taller room is more wall rather than
+ * bigger wall, and this is the only arithmetic that decides how much. Rounded rather than floored so
+ * that a ceiling which is not an exact multiple gets the nearest whole wall instead of silently
+ * losing one, and floored at 1 so a room always has walls.
+ */
+export function wallCourses(ceiling: number): number {
+  return Math.max(1, Math.round(ceiling / WALL_COURSE));
+}
 
 /** Half a room block, in metres — the distance from its centre to any of its four boundary lines. */
 const HALF_ROOM = ROOM_METRES / 2;
@@ -175,6 +220,33 @@ function alongX(dir: Cardinal): boolean {
  * 20 — and a claim that is no longer true is worse than no claim. `interior.test.ts` asserts the
  * crossing from its own two constants rather than from the number written here.
  *
+ * ## A giant-folk zone doubles the head, and the fade goes from load-bearing to structural
+ *
+ * `ceiling` is a parameter rather than `DIMENSIONS.ceilingHeight` because a giant-folk room is
+ * **6 m** (`roomScene.GIANT_CEILING`) and every number in the two paragraphs above is linear in the
+ * wall head. Measured, both ladders side by side:
+ *
+ * ```
+ *                       3 m ceiling            6 m ceiling
+ *   crossing pitch      33.69°                 53.13°          atan(head / 4.5)
+ *   hides at 20°        8.24 m  (0.92 rooms)   16.49 m (1.83)  head / tan(pitch)
+ *   hides at 45°        3.00 m                 6.00 m
+ *   hides at 64°        1.46 m                 2.93 m
+ *   clears at 64° by    6.23 m                 3.23 m
+ * ```
+ *
+ * Two readings worth stating. **The crossing moves from 33.69° to 53.13°**, which is above
+ * `rig.CAMERA_PITCH_MIN` — so in a giant's hall the wall hides the player over almost the whole
+ * envelope rather than only below the old clamp, and the authored 64° pose is one of the few that
+ * still looks over it. And **at the envelope's floor the wall hides 16.49 m**, which is nearly two
+ * room depths: past the far wall and 7.5 m into the room beyond.
+ *
+ * **Nothing behavioural follows, and that is the point of where the parameter lands.** `sides` is a
+ * pure yaw test that the head never enters, so `world3d.ts` — which reads `sides` and nothing else —
+ * calls this unchanged and fades exactly the walls it always did. What the two extra rows change is
+ * the *argument*: at 3 m the fade was a courtesy below 33.69° and at 6 m it is the only reason a
+ * character in a giant's hall is on screen at all.
+ *
  * ## The limitation M9 leaves standing: at three metres the camera is often *inside* the room
  *
  * This function knows the yaw and the pitch and nothing else, which was enough while the camera stood
@@ -198,6 +270,7 @@ function alongX(dir: Cardinal): boolean {
 export function occludingSides(
   pitchDegrees: number,
   yawRadians = 0,
+  ceiling: number = STANDARD_CEILING,
 ): {
   readonly sides: ReadonlySet<Cardinal>;
   /** Metres of floor the wall hides, measured inward from its own plane. */
@@ -206,7 +279,7 @@ export function occludingSides(
   readonly clearance: number;
 } {
   const tangent = Math.tan((pitchDegrees * Math.PI) / 180);
-  const head = DIMENSIONS.ceilingHeight;
+  const head = ceiling;
   // Where the camera stands relative to its focus, on the ground: `rig.ts`'s own offset, normalised.
   // Yaw 0 puts it at `(0, +1)` — due south — which is M6's answer and the fixed point of the change.
   const toCameraX = Math.sin(yawRadians);
@@ -451,6 +524,10 @@ export function planInterior(input: InteriorInput): readonly Placement[] {
   // this. The room's own seed then picks *within* the pair, so no two rooms are identical either.
   const palette = VILLAGE_WALLS[scene.biome.theme % VILLAGE_WALLS.length]!;
   const floorModel = VILLAGE_FLOORS[scene.biome.theme % VILLAGE_FLOORS.length]!;
+  // How high the lid is and therefore how much wall stands under it. One course everywhere except
+  // the eighteen giant-folk zones — see `roomScene.GIANT_FOLK_ZONES` and {@link WALL_COURSE}.
+  const head = scene.enclosure.ceiling;
+  const courses = wallCourses(head);
 
   put(out, floorModel, cx, elevation, cz, {
     // 3 x 3 chords over a 9 m room. `sy` is 1 because a floor module is 2 cm thick and stays so:
@@ -470,18 +547,30 @@ export function planInterior(input: InteriorInput): readonly Placement[] {
       // A solid side: three chords, and only an exterior one may carry a window. `chord` 1 is the
       // middle of the side, which is where a window belongs and where a hashed choice would put it
       // only two times in three.
+      //
+      // **The roll is per bay, not per course.** A tall room's bay is one bay whatever it is built
+      // out of, so a window repeats up the courses and reads as one tall opening rather than as two
+      // storeys of a building that has none. It also keeps every standard room's output byte for
+      // byte what it was, because the course index is nowhere near the hash.
       for (let chord = 0; chord < CHORDS_PER_SIDE; chord++) {
         const window = exterior && chord === 1 && roll(scene.seed, SALT_WALL_PICK, chord + dirIndex(dir) * 8) < 0.65;
-        wall(out, window ? palette.window : palette.plain, dir, x0, z0, elevation, chord, open);
+        wall(out, window ? palette.window : palette.plain, dir, x0, z0, elevation, chord, open, courses);
       }
       continue;
     }
 
     // A mouth: the two flanks are one chord each (`(9 - 3) / 2 = 3`, exactly {@link VILLAGE_CHORD}),
     // and the opening takes the arch. A window never goes on a flank — it is the wall beside a door.
+    //
+    // **The flanks stack and the opening does not.** One arch per opening, at the floor, and no
+    // lintel across the courses above it: `chunkPlan` leaves the same mouth open to the full wall
+    // height, the collision grid carves those three tiles floor to lid, and `scatter.ts`'s law —
+    // *the renderer must never imply a blockage the collision grid lacks* — says the picture does
+    // not get to put a beam across a hole you can walk through. In a giant's hall that reads as a
+    // 6 m opening, which is what a giant's hall has.
     if (span < ROOM_METRES) {
-      wall(out, palette.plain, dir, x0, z0, elevation, 0, open);
-      wall(out, palette.plain, dir, x0, z0, elevation, CHORDS_PER_SIDE - 1, open);
+      wall(out, palette.plain, dir, x0, z0, elevation, 0, open, courses);
+      wall(out, palette.plain, dir, x0, z0, elevation, CHORDS_PER_SIDE - 1, open, courses);
       arch(out, dir, x0, z0, elevation, offset, span, open);
     }
   }
@@ -493,8 +582,19 @@ export function planInterior(input: InteriorInput): readonly Placement[] {
     const metrics = VILLAGE_METRICS;
     // Seated by its wall plate: the model's origin is at the plate and its fascia hangs `roofDrop`
     // below, so putting the origin at the wall head lands the eaves just over the top of the wall.
+    //
+    // `head` is the **scene's** ceiling, so it seats at 3 m in an ordinary room and at 6 m in a
+    // giant-folk one — and in both cases that is 0.1227 m below the wall head (3.1227 and 6.1227),
+    // because {@link WALL_COURSE} stacks on the plate rather than on the lip. The gable therefore
+    // lands on a tall wall exactly as it lands on a short one and nothing about the model, its
+    // scale or its overhang moves. Measured: **204 of the 1,143 tall dressed rooms grow one**, 17.8%
+    // against the world's 27.3%, which is what a keep with few streets in it should give.
+    //
+    // What does change is the *proportion* {@link ROOF_RIDGE} was tuned for. A 3.7 m ridge over a
+    // 3 m wall is 1.23:1 and reads as a house; over a 6 m wall it is 0.62:1 with the ridge 9.7 m up,
+    // which reads as a hall with a shallow roof. That is the right way round — a giant's hall should
+    // be more wall than roof — and it is stated because the ridge was chosen against the other ratio.
     const rise = ROOF_RIDGE / metrics.roofRise;
-    const head = DIMENSIONS.ceilingHeight;
     out.push({
       archetype: 'villageSolid',
       geometry: villageGeometryKey('roof-round-tiles-8x8', 'round-tiles'),
@@ -606,7 +706,19 @@ function put(
   }
 }
 
-/** One wall chord, on a side, at a chord index along it. */
+/**
+ * One wall bay, on a side, at a chord index along it — **`courses` modules tall, stacked.**
+ *
+ * The whole of how a 6 m room is built: Y is the module's own 3.1227 m and is never scaled, so a
+ * taller wall is another module seated {@link WALL_COURSE} above the last rather than the same
+ * module stretched. Stretching it would drag the panel's brick courses and its eave lip to one and
+ * a half times their authored height, which is the axis the eye reads a wall's scale along and the
+ * reason the kit is used at 1.0 vertically everywhere in this file.
+ *
+ * `courses` is 1 for every room in the world except the eighteen giant-folk zones' — see
+ * {@link wallCourses} — so the output of a standard room is byte-identical to what it was before
+ * stacking existed, including the order the placements come out in.
+ */
 function wall(
   out: Placement[],
   model: string,
@@ -616,6 +728,7 @@ function wall(
   elevation: number,
   chord: number,
   open: boolean,
+  courses: number,
 ): void {
   const [ox, oz] = OUTWARD[dir];
   const lateral = alongX(dir);
@@ -623,23 +736,25 @@ function wall(
   const along = (lateral ? x0 : z0) + chord * VILLAGE_CHORD + VILLAGE_CHORD / 2;
   const bx = x0 + HALF_ROOM + ox * HALF_ROOM;
   const bz = z0 + HALF_ROOM + oz * HALF_ROOM;
-  for (const texture of VILLAGE_PART_TEXTURES[model] ?? []) {
-    out.push({
-      archetype: 'villageSolid',
-      geometry: villageGeometryKey(model, texture),
-      material: villageMaterialKey(model, texture, open),
-      x: lateral ? along : bx,
-      y: elevation,
-      z: lateral ? bz : along,
-      // X runs along the side and Z through the wall's thickness; both take the grid mapping. Y is
-      // the module's own 3.12 m and is never scaled — see `VILLAGE_METRICS`.
-      sx: VILLAGE_SCALE,
-      sy: 1,
-      sz: VILLAGE_SCALE,
-      rx: 0,
-      ry: SIDE_YAW[dir],
-      rz: 0,
-    });
+  for (let course = 0; course < courses; course++) {
+    for (const texture of VILLAGE_PART_TEXTURES[model] ?? []) {
+      out.push({
+        archetype: 'villageSolid',
+        geometry: villageGeometryKey(model, texture),
+        material: villageMaterialKey(model, texture, open),
+        x: lateral ? along : bx,
+        y: elevation + course * WALL_COURSE,
+        z: lateral ? bz : along,
+        // X runs along the side and Z through the wall's thickness; both take the grid mapping. Y is
+        // the module's own 3.12 m and is never scaled — see `VILLAGE_METRICS`.
+        sx: VILLAGE_SCALE,
+        sy: 1,
+        sz: VILLAGE_SCALE,
+        rx: 0,
+        ry: SIDE_YAW[dir],
+        rz: 0,
+      });
+    }
   }
 }
 

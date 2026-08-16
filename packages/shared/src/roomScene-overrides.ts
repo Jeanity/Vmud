@@ -25,6 +25,13 @@
  * could say "this barrier is open" would be an override that puts a hole in the collision grid's
  * wall, and the point of the IR is that the picture and the physics cannot disagree.
  *
+ * **`SceneEnclosure.ceiling` is the one knob that looks like it belongs here and does not — yet.**
+ * It is a per-zone fact a human holds an opinion about, which is this file's whole remit, and it was
+ * still put in code as `roomScene.GIANT_FOLK_ZONES` in 2026-08-16 for the reason at the top of this
+ * header: nothing reads this format, and half-wiring a loader to carry eighteen zone ids would have
+ * cost the debugging session that warning is about. It is the first thing M8 should absorb when the
+ * pipeline is real, and the closed list is written to be lifted out whole.
+ *
  * ## The 1-neighbourhood consequence — read this before writing a loader
  *
  * `describeRoom` reads the room **and its four cardinal neighbours**, so:

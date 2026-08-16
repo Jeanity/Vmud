@@ -270,6 +270,15 @@ const SCATTER_WRAPPER_CEILING =
  * primitives and a chimney. Eleven, and every one of those buckets holds well inside
  * {@link WRAPPER_CAPACITY}: twelve wall chords, nine floor tiles, four arches, one roof, one chimney.
  *
+ * **A giant-folk room doubles the wall chords and moves no other term** — 2026-08-16. Six metres of
+ * ceiling is two courses of the same module (`roomScene.GIANT_CEILING`, `interior.WALL_COURSE`), so
+ * the bound on wall chords goes twelve to **twenty-four** and the *bucket count* does not move at
+ * all: a second course is the same `(model, texture)` pair drawn three metres higher. Twenty-four is
+ * still eight inside {@link WRAPPER_CAPACITY}, and the world's worst wall bucket measured **22** (in
+ * IceCrag Castle, eleven plain chords over two courses) against 12 before the raise. So the pre-warm,
+ * the ring and the traversal ledger are all byte-identical; what grew is instances inside wrappers
+ * that were already allocated.
+ *
  * `interior.test.ts` sweeps the world and asserts both halves — no room over eleven buckets, no
  * bucket over thirty-two instances — because a bound that is only an argument is a bound that a
  * palette edit can quietly break.

@@ -14,9 +14,12 @@ import { describe, it } from 'node:test';
 
 import {
   CARDINALS,
+  GIANT_CEILING,
+  GIANT_FOLK_ZONES,
   GROUND_BASE_METRES,
   LEVEL_SEPARATION,
   NO_GROUND_COMPONENT,
+  STANDARD_CEILING,
   THEME_COUNT,
   cellIndex,
   describeRoom,
@@ -24,6 +27,7 @@ import {
   groundComponents,
   hashCell,
   neighboursOf,
+  roomsUnderAStorey,
   sceneSeed,
   sceneZone,
   walkableRequired,
@@ -472,6 +476,60 @@ describe('enclosure', () => {
     assert.equal(scenes.get(1)!.enclosure.roofed, false);
     assert.equal(scenes.get(2)!.enclosure.roofed, true);
     assert.equal(scenes.get(3)!.enclosure.roofed, true, 'the indoors flag roofs a room whatever its sector');
+  });
+
+  it('says how high the lid is, and it is the zone that decides', () => {
+    // 3 m everywhere, 6 m in the eighteen zones the giants live in. The list is derived from the
+    // spawn harvest and enumerated in `GIANT_FOLK_ZONES`; here we only check that the field carries
+    // the zone's answer and that it is reported for a room with sky as well as one without.
+    const plain = makeZone([{ id: 1, sector: 'inside', pos: { x: 0, y: 0, z: 0 } }], { id: 999 });
+    assert.equal(sceneOf(plain, 1).enclosure.ceiling, STANDARD_CEILING);
+
+    const jotunheim = GIANT_FOLK_ZONES.has(225);
+    assert.ok(jotunheim, 'zone 225 Jotunheim should be giant folk — 56 tall spawns');
+    const tall = makeZone(
+      [
+        { id: 1, sector: 'inside', pos: { x: 0, y: 0, z: 0 } },
+        { id: 2, sector: 'forest', pos: { x: 2, y: 0, z: 0 } },
+      ],
+      { id: 225 },
+    );
+    const scenes = sceneMap(tall);
+    assert.equal(scenes.get(1)!.enclosure.ceiling, GIANT_CEILING);
+    assert.equal(
+      scenes.get(2)!.enclosure.ceiling,
+      GIANT_CEILING,
+      'the height is reported for an open-air room too, so no reader has to branch',
+    );
+    assert.equal(GIANT_CEILING, 2 * STANDARD_CEILING, 'a tall room must be a whole number of wall courses');
+  });
+
+  it('takes the tall ceiling away again under a storey, because a 6 m lid does not fit in 4 m', () => {
+    // `LEVEL_SEPARATION` is 4 m and the streaming window draws the level below the camera's, so a
+    // 6 m lid with a room on top of it is a slab hanging 2 m above that room's floor. The cap is
+    // a whole-zone pass on `SceneZone` for the same reason `groundComponents` is: the room above is
+    // not in the cardinal neighbourhood and no amount of local information can find it.
+    assert.ok(GIANT_CEILING > LEVEL_SEPARATION, 'the cap would be pointless if a tall lid fitted');
+    const zone = makeZone(
+      [
+        { id: 1, sector: 'inside', pos: { x: 0, y: 0, z: 0 } },
+        // Directly on top of room 1 — so 1 is capped and 2, with open air over it, is not.
+        { id: 2, sector: 'inside', pos: { x: 0, y: 0, z: 1 } },
+        { id: 3, sector: 'inside', pos: { x: 2, y: 0, z: 0 } },
+      ],
+      { id: 225 },
+    );
+    assert.deepEqual([...roomsUnderAStorey(zone)], [1]);
+    const scenes = sceneMap(zone);
+    assert.equal(scenes.get(1)!.enclosure.ceiling, STANDARD_CEILING, 'a room with a storey on it stayed tall');
+    assert.equal(scenes.get(2)!.enclosure.ceiling, GIANT_CEILING);
+    assert.equal(scenes.get(3)!.enclosure.ceiling, GIANT_CEILING);
+
+    // A bare `SceneZone` has no index, and absent means open air over everything — the same shape of
+    // honest-but-uninformed fallback `ground` already has. Stated so a caller who skips `sceneZone`
+    // knows what they are getting rather than discovering it in a picture.
+    const bare = describeRoom({ id: 225 }, zone.rooms[0]!, {}, 0);
+    assert.equal(bare.enclosure.ceiling, GIANT_CEILING);
   });
 });
 

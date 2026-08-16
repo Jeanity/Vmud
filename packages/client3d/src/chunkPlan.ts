@@ -371,7 +371,9 @@ export function planChunk(input: ChunkPlanInput): readonly Placement[] {
   // through the lid, and it does not need it — the *thickness* is the correctness requirement the
   // plan names ("you must not see into a room you cannot reach") and a lid is a better answer to
   // "you must not see over it" than another two thirds of a metre ever was.
-  const headroom = roofed ? DIMENSIONS.ceilingHeight : undefined;
+  // …and it is the **scene's** ceiling, not the constant: a giant-folk zone builds at 6 m and the
+  // wall has to reach whatever the lid is sitting at. See `roomScene.GIANT_FOLK_ZONES`.
+  const headroom = roofed ? scene.enclosure.ceiling : undefined;
   // The village dresses `inside` rooms only; a cave keeps its rock boxes at the sector's own colour,
   // which is the brief's ruling — caves are not kit territory.
   const dressed = input.dressed === true && roofed && sector === 'inside';
@@ -588,11 +590,14 @@ export function planChunk(input: ChunkPlanInput): readonly Placement[] {
   // **plus the gap**, so two neighbouring interiors have a continuous ceiling across the corridor
   // between them rather than a strip of sky over the doorway — the same argument the mouth strips
   // make on the floor, in the other direction, and the one place a lid must be wider than its room.
+  //
+  // Its height is the scene's and matches `headroom` above by construction, so the wall always ends
+  // where the lid begins whether that is 3 m or a giant-folk zone's 6.
   if (roofed && (input.roof ?? 'slab') === 'slab') {
     put(
       'ceiling',
       cx,
-      elevation + DIMENSIONS.ceilingHeight + DIMENSIONS.ceilingThickness / 2,
+      elevation + scene.enclosure.ceiling + DIMENSIONS.ceilingThickness / 2,
       cz,
       ROOM_METRES + gapMetres,
       DIMENSIONS.ceilingThickness,

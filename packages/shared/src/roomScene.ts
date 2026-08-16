@@ -26,6 +26,12 @@
  * blast radius than one room — changing a sector can split or merge a region and move the base
  * elevation of every room in it — and that, too, is written down in the override notes.
  *
+ * There is now a **second** index on {@link SceneZone} of exactly the same shape and for exactly the
+ * same reason: {@link roomsUnderAStorey}, which answers "is there a room on top of this one". That is
+ * a *vertical* neighbour, and the cardinal neighbourhood cannot see it any more than it can see a
+ * component id. It exists because {@link GIANT_CEILING} does not fit inside
+ * {@link LEVEL_SEPARATION} — see that function for the measurement and the cost.
+ *
  * ## Where the numbers came from
  *
  * Everything below marked "measured" was swept over the built world in `data/world/zones` while this
@@ -360,6 +366,13 @@ export const GROUND_BASE_METRES = 1.5;
  * rooms at more than one z and the deepest stack is 21** (The Comarian Mines), which at a 64 degree
  * camera is either a floating layer cake or interpenetrating geometry if `pos.z` is used as terrain
  * height outdoors. That is the mistake this split exists to make impossible.
+ *
+ * **It is also the ceiling on how high a ceiling can be.** Four metres holds a 3 m room and its
+ * 0.2 m slab with 0.8 m to spare and cannot hold a 6 m one at all, which is why
+ * {@link roomsUnderAStorey} exists and why 33 of the 123 spawns that are too tall for their room are
+ * still too tall for it. Raising this per zone is the slice that would finish the job, and it is
+ * bigger than it looks: the number is read by the stacked policy, by the continuous one (so both
+ * halves of a mixed zone agree), by `chunkPlan.planStair`'s rise and by the camera rig's clamps.
  */
 export const LEVEL_SEPARATION = 4;
 
@@ -417,6 +430,127 @@ const ROOFED_SECTORS: ReadonlySet<Sector> = new Set<Sector>(['inside', 'cave']);
 
 function isRoofed(room: Room): boolean {
   return ROOFED_SECTORS.has(room.sector) || (room.flags?.includes('indoors') ?? false);
+}
+
+/* -------------------------------------------------------------------------- */
+/* How high the lid is                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Metres of headroom under an ordinary lid — the number the whole world was built at.
+ *
+ * It is the **kit's own storey height**, not a taste: `Corner_Exterior_Wood` is exactly 3.000 m to
+ * its wall plate and the `Wall_*` panel 3.1227 m to the top of its eave lip, so a 3 m ceiling puts
+ * its underside on the plate and swallows the 12 cm lip inside the slab. `client3d`'s
+ * `DIMENSIONS.ceilingHeight` is the same number seen from the renderer's side and
+ * `interior.test.ts` asserts the two agree.
+ */
+export const STANDARD_CEILING = 3;
+
+/**
+ * Metres of headroom in a giant-folk zone — **two courses of the same wall, and nothing else moves.**
+ *
+ * Owner's ruling, 2026-08-13: *"we'll need to assign zones as giant folk or something and raise the
+ * roof to something like 6m."* Six rather than five or seven because it is exactly `2 x
+ * {@link STANDARD_CEILING}`, and the wall is a fixed 3.1227 m Quaternius module that is never scaled
+ * vertically: a second course seated at 3.000 m puts its head at 6.1227 m, which stands the same
+ * **0.1227 m** proud of a 6 m slab that one course stands proud of a 3 m one. A tall room is
+ * literally a normal room built twice — no stretching, no new art, no new bucket in the pool.
+ *
+ * The measurement that made it necessary: since the race scale landed (`a59cacf`) a mob is drawn at
+ * `appearance.SIZE_SCALE` of the 1.81 m base body, so a `SIZE_GIANT` stands at **4.978 m** and a
+ * `SIZE_HUGE` ogre at **3.620 m** — both taller than the lid over their heads. Swept over the built
+ * world's 49 harvested spawn files: **123 mob resets stand in a roofed room they do not fit in**,
+ * 115 giants and 8 ogres. Trolls are the near miss and are fine — `MODEL_HEIGHT.Troll` is 2.709 m,
+ * which clears 3 m with 29 cm to spare — so this is a giant-and-ogre problem and nothing else.
+ */
+export const GIANT_CEILING = 6;
+
+/**
+ * The zones whose interiors are built for giant folk — **enumerated, because the derivation is a
+ * join across four files and a closed list is the honest way to carry the answer.**
+ *
+ * A zone is here when any of its **roofed** rooms holds a mob drawn taller than
+ * {@link STANDARD_CEILING}. Roofed is {@link ROOFED_SECTORS} or the `indoors` flag; drawn height is
+ * `appearance.drawnHeightOf(model, scale)` over `appearanceOf`'s answer for the harvested template's
+ * `sprite` and `race`. Re-derived from `data/world/spawns` and `data/world/zones` on 2026-08-16 and
+ * it came out at exactly these eighteen — the same list the owner's own sweep produced.
+ *
+ * ```
+ *   225  Jotunheim                        56 tall spawns   G x56
+ *   198  The Defense of Longhollow        18               G x18
+ *    37  The Fog Enshrouded Wood          13               G x13
+ *   255  The Ruins of Undermountain I     10               G x8, PO x2
+ *    36  IceCrag Castle                    7               G x7
+ *   120  Labyrinth of No Return            3               G x3
+ *    25  The Troll Hills                   2               PO x2
+ *   218  The Ruins of Undermountain II     2               PO x2
+ *   300  New Cavecity                      2               G x2
+ *   305  Lava Tubes One                    2               G x2
+ *     6  Caves of Mt. Skelenak             1               PO — Goortok
+ *    61  Leuthilspar - City of Elves       1               G  — the great oak tree
+ *    85  The Citadel                       1               G  — the guardian
+ *   121  Desert City of Nizari             1               G  — the sultan of Nizari
+ *   257  Myrloch Vale                      1               G  — the warlord of fire
+ *   267  Myth Unnohyr                      1               PO — a hulking ogre
+ *   303  The_Wildland_Trails               1               G  — a verbeeg giant
+ *   352  The Temple of Blipdoolpoolp       1               G  — Sir Epho
+ * ```
+ *
+ * **Zone-wide rather than room-wide, deliberately.** The four single-spawn oddities at the bottom
+ * were put to the owner and not vetoed: over-reaching costs *"an elven city has high ceilings"*,
+ * which reads as grandeur, and under-reaching costs a giant's head through a roof, which reads as a
+ * bug. It also keeps a zone one place rather than a hall that changes height at a doorway.
+ *
+ * **A list and not an override file.** `roomScene-overrides.ts` looks like the natural home and is
+ * not: its own header says *"Nothing reads it yet"* and that a half-wired loader costs a debugging
+ * session. This is the idiom `appearance.RACE_SIZE` and `prototypes.CHARACTER_TEXTURES` already use —
+ * enumerated in code, with the derivation written down beside it — and the day M8 builds the
+ * override pipeline this is one of the facts it should absorb.
+ *
+ * A zone id is the MUD's own number and is never renumbered, so this list cannot rot by renaming.
+ */
+export const GIANT_FOLK_ZONES: ReadonlySet<ZoneId> = new Set<ZoneId>([
+  6, 25, 36, 37, 61, 85, 120, 121, 198, 218, 225, 255, 257, 267, 300, 303, 305, 352,
+]);
+
+/** Metres of headroom a zone builds its interiors at. {@link GIANT_FOLK_ZONES} or the standard. */
+export function zoneCeiling(zoneId: ZoneId): number {
+  return GIANT_FOLK_ZONES.has(zoneId) ? GIANT_CEILING : STANDARD_CEILING;
+}
+
+/**
+ * Rooms with **another room standing directly on top of them** — the one thing that can take a tall
+ * ceiling away again, and the reason it is computed per zone rather than per room.
+ *
+ * {@link LEVEL_SEPARATION} is four metres, and a lid has to fit inside it: a 6 m ceiling under a
+ * storey would put the slab **two metres above the floor of the room over it**, and since the
+ * streaming window draws the camera's level *and the one below* (`streamer.WINDOW_LEVELS`), that
+ * slab is not hidden by anything — it is a grey lid hanging at chest height in the room upstairs.
+ * So a room with a storey on it keeps {@link STANDARD_CEILING} whatever its zone says.
+ *
+ * Measured over the eighteen: **447 of their 2,368 roofed rooms** have a room in the cell above,
+ * 416 of them roofed too — concentrated in The Citadel (157 of 197) and IceCrag Castle (86 of 182),
+ * which is a loaded zone, so this is not a theoretical case. The cost is stated rather than hidden:
+ * **33 of the 123 too-tall spawns stand in one of those rooms** and keep a lid they do not fit
+ * under. Raising them needs a per-zone {@link LEVEL_SEPARATION}, which moves stair rise, camera
+ * anchoring and the elevation of every outdoor room in the zone — a slice of its own, not this one.
+ *
+ * This is a **vertical** neighbour, which is exactly why it is here and not inside `describeRoom`:
+ * the module header's contract is that a scene depends on the room and its four *cardinal*
+ * neighbours, and the honest way to widen it is the way {@link groundComponents} already did —
+ * compute it once per zone and hand it in on {@link SceneZone}. The predicate is the renderer's own
+ * `top` inverted (`world3d.ts` asks `!cells.has(cellKey(x, y, z + 1))`), read off the same cell
+ * index, so the two cannot disagree about which rooms have open air over them.
+ */
+export function roomsUnderAStorey(zone: Zone): ReadonlySet<RoomId> {
+  const occupied = new Set<string>();
+  for (const room of zone.rooms) occupied.add(cellKey(room.pos.x, room.pos.y, room.pos.z));
+  const under = new Set<RoomId>();
+  for (const room of zone.rooms) {
+    if (occupied.has(cellKey(room.pos.x, room.pos.y, room.pos.z + 1))) under.add(room.id);
+  }
+  return under;
 }
 
 /** Metres, quantised to centimetres so a dump is legible and a comparison is exact. */
@@ -534,6 +668,21 @@ export interface SceneEnclosure {
   readonly solid: number;
   /** No sky term: an `inside` or `cave` room, or one flagged `indoors`. */
   readonly roofed: boolean;
+  /**
+   * **How high the lid is, in metres** — {@link STANDARD_CEILING} or {@link GIANT_CEILING}.
+   *
+   * Here rather than as a constant in the renderer because the thing that knows a room *has* a lid
+   * is the thing that should say how high it is: the wall's height, the slab's height, the roof's
+   * seat and the near-wall fade are four readings of one fact, and four copies of a constant is
+   * four chances to raise three of them.
+   *
+   * Reported for **every** room, roofed or not, so a reader never has to branch to find out whether
+   * the field is meaningful. On a room with sky it is what the lid *would* be and nothing draws it.
+   *
+   * Two rungs today and the second is capped by the storey above — see {@link GIANT_FOLK_ZONES} for
+   * which zones ask for it and {@link roomsUnderAStorey} for what takes it away again.
+   */
+  readonly ceiling: number;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -649,6 +798,15 @@ export interface SceneZone {
    * with {@link sceneZone}.
    */
   readonly ground?: GroundIndex;
+  /**
+   * {@link roomsUnderAStorey}' answer for this zone — the rooms a tall ceiling is taken away from.
+   *
+   * Optional for {@link ground}'s reason and with the same shape of fallback: **absent means open
+   * air over everything**, so a giant-folk zone described without it gets {@link GIANT_CEILING}
+   * everywhere. That is the honest answer for a caller who handed over one room and no zone, and
+   * the wrong one for anything that renders a stack; build it once per zone with {@link sceneZone}.
+   */
+  readonly underStorey?: ReadonlySet<RoomId>;
 }
 
 /**
@@ -721,11 +879,12 @@ export function neighboursOf(
   return out;
 }
 
-/** A {@link SceneZone} with its ground components resolved. One call per zone, then reuse it. */
+/** A {@link SceneZone} with its whole-zone indices resolved. One call per zone, then reuse it. */
 export function sceneZone(zone: Zone): SceneZone {
   return {
     id: zone.id,
     ground: groundComponents(zone),
+    underStorey: roomsUnderAStorey(zone),
     ...(zone.seamless === true ? { seamless: true } : {}),
   };
 }
@@ -915,6 +1074,13 @@ export function describeRoom(
   }
 
   const roofed = isRoofed(room);
+  // The zone's own storey height, capped by whatever stands on this room. `room.zone` rather than
+  // `zone.id` because the room is the thing being described and the two are the same number
+  // everywhere — swept: 0 of 46,544 rooms disagree with the zone file they are listed in.
+  const ceiling =
+    zone.underStorey?.has(room.id) === true
+      ? Math.min(zoneCeiling(room.zone), STANDARD_CEILING)
+      : zoneCeiling(room.zone);
   const component = zone.ground?.of.get(room.id) ?? NO_GROUND_COMPONENT;
   const elevation: ElevationPolicy = roofed
     ? {
@@ -968,7 +1134,7 @@ export function describeRoom(
     biome: { sector: room.sector, theme: zoneTheme(zone.id), blend },
     ground: { component, elevation },
     edges,
-    enclosure: { solid, roofed },
+    enclosure: { solid, roofed, ceiling },
     features,
   };
 }

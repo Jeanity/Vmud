@@ -2246,13 +2246,21 @@ export const DIMENSIONS = {
   grassWidth: 0.55,
   grassHeight: 0.42,
   /**
-   * Head height in a roofed room, in metres — **and it is `edgeHeight`, which is not a coincidence.**
+   * Head height in an **ordinary** roofed room, in metres — **and it is `edgeHeight`, which is not a
+   * coincidence.**
    *
    * The village kit's wall module is 3.1227 m to the top of its eave lip and `Corner_Exterior_Wood`
    * is exactly 3.000 m to the wall plate, so the kit's own storey height is three metres and M3's
    * grey wall was already standing at it. The ceiling's underside therefore lands on the number both
    * halves already agreed on, the 12 cm lip is swallowed inside the slab, and no wall anywhere in
    * the world had to change height to grow a roof.
+   *
+   * **It is no longer the height anything is actually drawn at, and that is deliberate.** Since
+   * 2026-08-16 a lid's height is `RoomScene.enclosure.ceiling` — 3 m over most of the world and 6 m
+   * across the eighteen giant-folk zones, where a 4.978 m giant used to stand with its head through
+   * the roof (`roomScene.GIANT_FOLK_ZONES`). What survives here is the *standard*, which is still the
+   * kit's storey and is still what `interior.WALL_COURSE` stacks by; `interior.test.ts` asserts this
+   * equals `roomScene.STANDARD_CEILING` so the renderer and the IR cannot drift apart about it.
    */
   ceilingHeight: 3,
   /** How thick the lid is. Seen only from above, so this is its silhouette rather than its edge. */
