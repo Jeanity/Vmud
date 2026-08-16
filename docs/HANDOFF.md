@@ -1,7 +1,8 @@
 # Handoff
 
-_Last updated 2026-08-13 (late), the day the world got its look, its weather, and its people. Read
-this first; it is the shortest path back into the project._
+_Last updated 2026-08-16, the day the project chose a dungeon crawl in Unreal. Read this first; it is
+the shortest path back into the project — and read the "Start here" block under **Next, in order**
+before touching any client code, because the renderer is changing._
 
 ---
 
@@ -45,7 +46,7 @@ npm install            # once
 npm run dev            # server + client + admin panel together
 npm run dev:supervised  # the same, but the server runs under the supervisor (A10)
 npm run typecheck      # tsc across all five packages
-npm test               # 1,739 tests
+npm test               # 3,127 tests
 npm run worldgen       # rebuild world JSON from the zMUD source DB
 ```
 
@@ -65,9 +66,10 @@ and restarting is the whole of "installing" a zone.
 
 ## State: green
 
-- **1,739 tests** (952 server, 644 shared, 143 worldgen), typecheck clean across all five packages.
-  Four of the server's are `world.test.ts`'s, which **skip themselves when `data/world` is absent** —
-  a fresh clone or a new worktree reports fewer until `npm run worldgen` has run.
+- **3,127 tests** — 1,324 server, 954 shared, 595 client3d, 254 worldgen; 3,124 pass, 0 fail, 3 skip
+  themselves. Typecheck clean across all five packages. Measured at `4d7d454`, 2026-08-16.
+  `world.test.ts`'s **skip themselves when `data/world` is absent** — a fresh clone or a new worktree
+  reports fewer until `npm run worldgen` has run.
 - **Connecting now takes an account** — protocol 23, `DESIGN-accounts.md`. In dev:
   `GAME_DEV_ACCOUNT=dev:devpass` on the server and `?account=dev&password=devpass` on the client
   reproduce the old walk-straight-in flow; `data/accounts/` is git-ignored runtime state beside
@@ -401,7 +403,8 @@ See `CLAUDE.md` for the full list. The ones that bite hardest:
 | `DESIGN-zone-geometry.md` | **Read before starting A8.** Adding and removing rooms: the id space, the `seen`-invalidation edge, two-sided exits, orphaned resets, and the build order whose first slice is safe |
 | `DESIGN-spell-memory.md` | **Read before touching casting costs.** The seven things `DESIGN-spells.md` handed forward, settled: real mem times, the `spl_table` generator, a spell's circle belonging to its class, spellbooks and scribing cut, the psionicist, the full gate stack — and a third build flag our own code cites the wrong side of |
 | `DESIGN-ranged.md` | **Read before starting ranged combat, and read §0 before estimating it.** Bows, thrown knives, firing into the next room, and the pull. Six slices, two blocking decisions. Written 2026-08-08 for whoever picks it up |
-| `PLAN-3d-migration.md` | If the 3D question returns: engine choice, costs, milestones, go/no-go |
+| `PLAN-dungeon-crawl.md` | **Read before any client work.** The 2026-08-15 pivot: dungeon crawl, Unreal, what survives (72%), the four hard problems in order, the risks, and the spike that answers them cheaply |
+| `PLAN-3d-migration.md` | The 2D→3D pivot. Its renderer choice is superseded by `PLAN-dungeon-crawl.md`; everything else in it stands |
 
 **The single best reference is on disk, not on the web:** the complete Duris MUD C source at
 `data/zones-source/duris/src/` (228 `.c` files) — the same Sojourn lineage as TorilMUD. Grep it
@@ -453,9 +456,37 @@ work proceeds in rounds of three — one visual MUD aspect, one mechanic, one ad
 every stretch ships something testable of a different kind. Read that for *what next and why*; this
 file stays the answer to *where things stand*.
 
-### Start here — 2026-08-14: loot glints, and the mesh sparkle is retired
+### Start here — 2026-08-15: the project is pivoting to a dungeon crawl in Unreal
 
-**Read this block, then stop.** Everything below it is earlier state, kept for the reasoning.
+**Read [PLAN-dungeon-crawl.md](PLAN-dungeon-crawl.md) before doing any client work.** It carries the
+decision, the reasoning, the measurements and the risks. The short version:
+
+> *"we are going to make a dungeon crawl game using unreal engine or something like it. we will
+> integrate our maps and play style but more user friendly if possible."* — the owner, 2026-08-15
+
+Two changes, independent of each other: **scope** (a dungeon crawl, not a 46,544-room open world) and
+**engine** (Unreal, not Three.js). The trigger was the owner's verdict that the 3D client *"looks more
+like a prototype than a finished product"* — a reading that is accurate, and about **assets rather
+than the renderer**. Under a no-budget constraint Epic's free ecosystem is the strongest answer
+available, and that is the real argument for the move.
+
+**About 72% of the source survives** — server, shared, worldgen, admin and all 328 zones of world
+data are engine-agnostic and untouched. Only `client3d` is rebuilt. The plan names four problems in
+the order they must be answered, of which **the first is that Unreal's networking assumes Unreal owns
+the server and ours does not**; it also names a four-step spike that answers the whole question
+cheaply before a month is committed.
+
+**Nothing is deleted and nothing is abandoned.** `client3d` still plays, and stays until a
+replacement does. The owner is taking a couple of days off from 2026-08-16; this block and that plan
+are what the break is written against.
+
+The tasks below still standing under the pivot are the server- and data-side ones — **#55** blood
+spatter (needs two rulings) and **#57** dropped items surviving a restart (needs one). **#54** is
+Three.js-only and dies with the renderer; **#53** dies with the 2D client.
+
+### Earlier — 2026-08-14: loot glints, and the mesh sparkle is retired
+
+Everything from here down is earlier state, kept for the reasoning.
 
 **The day's other four slices, none of which are in the heading:**
 
